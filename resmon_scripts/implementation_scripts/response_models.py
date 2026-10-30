@@ -4576,3 +4576,278 @@ class LifecycleForDocuments(LosslessModel):
 
     events: dict[str, list[LifecycleEvent]]
     checked: dict[str, LifecycleCheckState]
+
+
+# ---------------------------------------------------------------------------
+# Shared wording (``implementation_scripts/shared_wording.py``)
+# ---------------------------------------------------------------------------
+
+
+class SharedWordingSettings(LosslessModel):
+    """The method's thresholds, as the scan that answered used them."""
+
+    phrase_words: int
+    min_words: int
+    common_works: int
+    shown_longest: int
+    shown_share: float
+
+
+class SharedWordingDefinitions(LosslessModel):
+    """Each number's definition, one sentence each, for the screen to show beside it."""
+
+    longest: str
+    share: str
+    authors: str
+
+
+class SharedWordingJob(LosslessModel):
+    """A scan in the background: ``kind`` is ``full`` or ``new`` (papers since the last answer)."""
+
+    running: bool
+    kind: Optional[Literal["full", "new"]]
+    stage: Optional[str]
+    done: int
+    total: int
+    started_at: Optional[str]
+    finished_at: Optional[str]
+    cancelled: bool
+    error: Optional[str]
+    found: Optional[int]
+
+
+class SharedWordingNotCompared(LosslessModel):
+    """Papers the scan read and did not compare, by reason."""
+
+    no_abstract: int = 0
+    too_short: int = 0
+
+
+class SharedWordingScan(LosslessModel):
+    """The stored answer's own record: when, what kind of pass, and what it compared."""
+
+    kind: Optional[str]
+    started_at: Optional[str]
+    finished_at: Optional[str]
+    seconds: Optional[float]
+    full_scan_at: Optional[str]
+    considered: Optional[int]
+    compared: Optional[int]
+    not_compared: Optional[SharedWordingNotCompared]
+    method_version: Optional[int]
+
+
+class SharedWordingSide(LosslessModel):
+    """One paper of a pair, as a list row names it."""
+
+    id: int
+    title: Optional[str]
+    publication_date: Optional[str]
+    source_repository: Optional[str]
+
+
+class SharedWordingBrief(LosslessModel):
+    """A pair in a list: left is the earlier publication date, only as a reading order."""
+
+    a: int
+    b: int
+    category: Literal["different_authors", "same_authors", "authors_unknown", "same_work", "notice"]
+    reasons: list[str]
+    reason_words: Optional[str]
+    longest: int
+    share: float
+    authors_in_common: int
+    left: SharedWordingSide
+    right: SharedWordingSide
+
+
+class SharedWordingGroup(LosslessModel):
+    """One group of pairs. ``pairs`` holds at most 500; ``count`` counts them all."""
+
+    category: Literal["different_authors", "same_authors", "authors_unknown", "same_work", "notice"]
+    label: str
+    note: str
+    count: int
+    pairs: list[SharedWordingBrief]
+
+
+class SharedWording(LosslessModel):
+    """``GET /api/shared-wording``.
+
+    ``state`` is ``never`` (no scan stored), ``other_version`` (the stored
+    answer came from another version of the method and is not shown), or
+    ``ready``. ``withheld`` counts stored pairs not shown because a paper's text
+    changed or the paper left; ``arrived_since`` counts papers the stored answer
+    has not compared because they arrived after it.
+    """
+
+    state: Literal["never", "other_version", "ready"]
+    method_version: int
+    settings: SharedWordingSettings
+    definitions: SharedWordingDefinitions
+    limits: list[str]
+    job: SharedWordingJob
+    scan: Optional[SharedWordingScan]
+    withheld: int
+    arrived_since: int
+    groups: list[SharedWordingGroup]
+
+
+class SharedWordingCancel(LosslessModel):
+    """``POST /api/shared-wording/scan/cancel``: asked to stop, or nothing was running."""
+
+    status: Literal["idle", "cancelling"]
+
+
+class SharedWordingAuthor(LosslessModel):
+    """An author in both records, and whether the ORCID or the name matched."""
+
+    name: str
+    other_name: str
+    by: Literal["orcid", "name"]
+
+
+class SharedWordingPassage(LosslessModel):
+    """One shared passage: codepoint ``[start, end)`` in each side's ``text``, and its words."""
+
+    left: list[int]
+    right: list[int]
+    words: int
+
+
+class SharedWordingPairSide(SharedWordingSide):
+    """One paper of a pair in full: ``text`` is its abstract as compared."""
+
+    authors: Optional[str]
+    doi: Optional[str]
+    url: Optional[str]
+    text: str
+    words: int
+
+
+class SharedWordingPair(LosslessModel):
+    """``GET /api/shared-wording/pairs/{a}/{b}``.
+
+    ``state`` is ``changed`` when a text is no longer the one compared, and
+    then ``passages`` is empty and ``summary`` says so.
+    """
+
+    a: int
+    b: int
+    state: Literal["current", "changed"]
+    category: Literal["different_authors", "same_authors", "authors_unknown", "same_work", "notice"]
+    label: str
+    reasons: list[str]
+    reason_words: Optional[str]
+    left: SharedWordingPairSide
+    right: SharedWordingPairSide
+    longest: int
+    share: float
+    shorter: int
+    shorter_phrases: int
+    shared_phrases: int
+    common_phrases: int
+    authors_in_common: list[SharedWordingAuthor]
+    passages: list[SharedWordingPassage]
+    summary: list[str]
+    definitions: SharedWordingDefinitions
+    limits: list[str]
+    scanned_at: Optional[str]
+    method_version: int
+
+
+class SharedWordingForPaper(LosslessModel):
+    """``GET /api/shared-wording/papers/{document_id}``.
+
+    ``compared`` is null when the paper arrived or changed after the scan.
+    """
+
+    document_id: int
+    state: Literal["never", "other_version", "ready"]
+    compared: Optional[bool]
+    phrase_words: int
+    pairs: list[SharedWordingBrief]
+
+
+class SharedWordingFilePassage(LosslessModel):
+    """A passage on this file's page: codepoint ``[start, end)`` in the page's text, and the text."""
+
+    words: int
+    start: int
+    end: int
+    text: str
+
+
+class SharedWordingFileMatch(LosslessModel):
+    """A paper's abstract or another file's page that shares wording with one of this file's pages."""
+
+    kind: Literal["paper", "file"]
+    page: int
+    longest: int
+    share: float
+    shorter_phrases: int
+    shared_phrases: int
+    passages: list[SharedWordingFilePassage]
+    document_id: Optional[int] = None
+    title: Optional[str] = None
+    publication_date: Optional[str] = None
+    linked: Optional[bool] = None
+    file_id: Optional[str] = None
+    name: Optional[str] = None
+    other_page: Optional[int] = None
+
+
+class SharedWordingFileRef(LosslessModel):
+    file_id: str
+    version_id: str
+    name: str
+    media_type: str
+
+
+class SharedWordingPageUnread(LosslessModel):
+    page: int
+    status: str
+
+
+class SharedWordingFileUnread(LosslessModel):
+    file_id: str
+    name: str
+    reason: str
+
+
+class SharedWordingFileResult(LosslessModel):
+    """What one comparison found, and what it read and could not read."""
+
+    file: SharedWordingFileRef
+    page_count: Optional[int]
+    pages_read: int
+    pages_unread: list[SharedWordingPageUnread]
+    abstracts_compared: int
+    files_compared: int
+    files_not_read: list[SharedWordingFileUnread]
+    matches: list[SharedWordingFileMatch]
+    settings: SharedWordingSettings
+    definitions: SharedWordingDefinitions
+    limits: list[str]
+    method_version: int
+
+
+class SharedWordingLibrary(LosslessModel):
+    """``POST`` and ``GET /api/library/files/{file_id}/shared-wording``.
+
+    ``state`` is ``never`` (not compared since the engine started), ``running``,
+    ``done`` (``result`` holds the answer), ``failed`` (``error`` says why), or
+    ``cancelled``. Kept in memory only: the comparison is asked for again.
+    """
+
+    state: Literal["never", "running", "done", "failed", "cancelled"]
+    file_id: str
+    version_id: str
+    stage: Optional[str] = None
+    done: Optional[int] = None
+    total: Optional[int] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    result: Optional[SharedWordingFileResult] = None
+    error: Optional[str] = None
+    reason: Optional[str] = None

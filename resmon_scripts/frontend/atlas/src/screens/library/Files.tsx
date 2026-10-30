@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { bridge, systemName } from '../../bridge';
 import { count, number, when } from '../today/format';
+import { CompareButton, FileWording } from './FileWording';
 import { LibraryTabs } from './LibraryTabs';
 import {
   LIBRARY, LIBRARY_KEY, download, importFile, importWords, kindOf, readable, sizeWords,
@@ -275,8 +276,10 @@ function Detail({ vaultId, fileId, onChanged }: { vaultId: string; fileId: strin
           </button>
         )}
         <Link className="btn sm" to={`/library/evidence?file=${encodeURIComponent(file.file_id)}`}>Open in Evidence</Link>
+        <CompareButton vaultId={vaultId} file={file} />
       </div>
       {open.error && <p className="field-error" role="alert">{errorWords(open.error)}</p>}
+      <FileWording vaultId={vaultId} file={file} />
       <dl className="facts lib-facts">
         <div><dt>Kind</dt><dd><span data-library="media">{file.media_type}</span> ({kindOf(file.media_type)})</dd></div>
         <div><dt>Size</dt><dd>{sizeWords(file.byte_size)}</dd></div>

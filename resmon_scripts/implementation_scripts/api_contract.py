@@ -128,6 +128,9 @@ REGISTER: tuple[tuple[str, str], ...] = (
     ("J47", "Collection map: where every paper sits"),
     # Atlas's first screen: the morning edition (rebuild phase 2, step 5).
     ("J48", "Today: the papers since you last looked"),
+    # Abstracts and Library files that share passages word for word, measured
+    # and never judged (Search › Shared wording).
+    ("J49", "Shared wording across papers"),
 )
 
 #: ``J01`` -> ``Deep Dive``.
@@ -399,6 +402,13 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/today"): ("J48",),
     ("POST", "/api/today/looked"): ("J48",),
     ("PUT", "/api/appearance"): ("J46",),
+    ("GET", "/api/shared-wording"): ("J49",),
+    ("POST", "/api/shared-wording/scan"): ("J49",),
+    ("POST", "/api/shared-wording/scan/cancel"): ("J49",),
+    ("GET", "/api/shared-wording/pairs/{a}/{b}"): ("J49",),
+    ("GET", "/api/shared-wording/papers/{document_id}"): ("J49",),
+    ("GET", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
+    ("POST", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
 }
 
 

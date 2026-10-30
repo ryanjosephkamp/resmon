@@ -1,12 +1,12 @@
 /**
  * The denominator.
  *
- * Forty-eight rows, one per user journey the 3.0 renderer has to carry forward.
+ * Forty-nine rows, one per user journey the 3.0 renderer has to carry forward.
  * J01–J44 are copied from the workspace parity register — the same list the
  * capability register's J-rows come from — and `register.spec.ts` refuses to
  * let this file and the spec files in this directory disagree. A row with no
  * test cannot exist, and a test with no row cannot exist either; that mutual
- * guard is the only thing that makes "N of 48" a measurement rather than a
+ * guard is the only thing that makes "N of 49" a measurement rather than a
  * hand count.
  *
  * **J45 was added here, not copied.** The Source wall (#175) became a page on
@@ -22,7 +22,8 @@
  * serve. Its test is owed by the `atlas` slice, whose candidate driver is the
  * first that can reach a screen where the accent is chosen. J47, the
  * collection map behind Today's plate (`/api/map`), and J48, Today itself
- * (`/api/today`), arrived the same way.
+ * (`/api/today`), arrived the same way, and so did J49, shared wording across
+ * papers (`/api/shared-wording` and Search › Shared wording).
  *
  * **J24 kept its title and changed its journey.** It was resmon's own Google
  * sign-in, uploading the reports folder to Drive. That was retired (RK,
@@ -62,13 +63,13 @@
 /**
  * `refresh` is the October 27, 2026 check of the register against the app's
  * routes — the delivery that owes J45, the one row it added. `atlas` is the
- * rebuilt interface, which owes J46, J47 and J48.
+ * rebuilt interface, which owes J46, J47, J48 and J49.
  */
 export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J48`, as the workspace register numbers them. */
+  /** `J01`…`J49`, as the workspace register numbers them. */
   id: string;
   /** The row's title, byte-identical to the workspace register's. */
   title: string;
@@ -144,6 +145,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J46', title: 'Appearance: theme and accent', slice: 'atlas', status: 'carried', built: true },
   { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried', built: true },
   { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J49', title: 'Shared wording across papers', slice: 'atlas', status: 'carried', built: true },
 ];
 
 /** The slice whose rows were built when this directory was born. */

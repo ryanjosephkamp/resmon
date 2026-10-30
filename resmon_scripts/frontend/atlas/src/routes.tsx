@@ -7,6 +7,7 @@ import { SourceWall } from './screens/health/SourceWall';
 import { Watchdog } from './screens/health/Watchdog';
 import { Paper } from './screens/collection/Paper';
 import { Saved } from './screens/collection/Saved';
+import { SharedWording } from './screens/collection/SharedWording';
 import { Evidence } from './screens/library/Evidence';
 import { Files } from './screens/library/Files';
 import { ReadingQueue } from './screens/library/ReadingQueue';
@@ -35,7 +36,7 @@ export interface Section {
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule calendar delivery coverage new watch create', element: <Watches /> },
-  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export', element: <Collection /> },
+  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export shared wording text reuse passages', element: <Collection /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import evidence passages notes projects', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
@@ -55,6 +56,7 @@ export const SETTINGS: Section = {
 export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
   { path: '/search/saved', element: <Saved /> },
+  { path: '/search/wording', element: <SharedWording /> },
   { path: '/settings/:group', element: <Settings /> },
   { path: '/library/files', element: <Files /> },
   { path: '/library/evidence', element: <Evidence /> },

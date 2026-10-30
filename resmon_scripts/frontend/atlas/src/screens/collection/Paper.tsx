@@ -7,6 +7,7 @@ import { MAP_KEY } from '../Today';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors } from '../today/format';
+import { pairLine, pairLink, pairParam } from './wordingModel';
 
 /** How many of the paper's nearest neighbors on the map are listed. */
 const NEIGHBORS = 8;
@@ -45,6 +46,10 @@ export function Paper() {
   const links = useQuery({
     queryKey: ['links', [id]], enabled: valid,
     queryFn: () => answer(engine().POST('/api/links/for-documents', { body: { document_ids: [id] } })),
+  });
+  const wording = useQuery({
+    queryKey: ['shared-wording-paper', id], enabled: valid,
+    queryFn: () => answer(engine().GET('/api/shared-wording/papers/{document_id}', { params: { path: { document_id: id } } })),
   });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -108,6 +113,7 @@ export function Paper() {
   const status = data.queue_status ?? null;
   const pending = save.isPending || mark.isPending || remove.isPending;
   const also = links.data?.links[String(id)] ?? [];
+  const shares = wording.data?.pairs ?? [];
 
   return (
     <div className="paper" data-paper={data.id}>
@@ -188,6 +194,23 @@ export function Paper() {
             </>
           )}
         </section>
+
+        {shares.length > 0 && (
+          <section className="paper-section" aria-label="Shared wording" data-wording="paper-note">
+            <h2>Shared wording <span>with other abstracts in your collection, from the last scan</span></h2>
+            <ul className="paper-links">
+              {shares.map((pair) => {
+                const other = pair.left.id === data.id ? pair.right : pair.left;
+                return (
+                  <li key={pairParam(pair.a, pair.b)}>
+                    <Link to={pairLink(pair.a, pair.b)}>{other.title}</Link>
+                    <span>{pairLine(pair, wording.data?.phrase_words ?? 8)}{pair.reason_words ? ` · Set aside: ${pair.reason_words}` : ''}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
 
         {also.length > 0 && (
           <section className="paper-section" aria-label="The same work elsewhere">

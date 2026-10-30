@@ -1111,6 +1111,8 @@ app.on('window-all-closed', () => app.quit());
     appearance: () => session.api('GET', '/api/appearance'),
     collectionMap: () => session.api('GET', '/api/map'),
     today: () => session.api('GET', '/api/today'),
+    sharedWording: () => session.api('GET', '/api/shared-wording'),
+    sharedWordingPair: (a, b) => session.api('GET', `/api/shared-wording/pairs/${a}/${b}`),
     collectPapers: async (request) => {
       const to = new Date();
       const from = new Date(to.getTime() - (request.days ?? 30) * 24 * 60 * 60 * 1000);
@@ -3951,5 +3953,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readThePlate: async () => theClassicRendererHasNo('collection map'),
     readToday: async () => theClassicRendererHasNo('Today screen'),
     markAllRead: async () => theClassicRendererHasNo('Mark all read'),
+    scanForSharedWording: async () => theClassicRendererHasNo('Shared wording screen'),
+    openTheSharedWordingPair: async () => theClassicRendererHasNo('Shared wording screen'),
   };
 }

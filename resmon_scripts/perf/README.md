@@ -31,6 +31,8 @@ Everything runs from `resmon_scripts/`:
 .venv/bin/python -m perf soak --runs 240 --replies ~/resmon-perf-replies --out /tmp/soak-runs.json
 # The background service as the bare engine and as the app (--service), alternated.
 .venv/bin/python -m perf host --rounds 5 --replies ~/resmon-perf-replies --out /tmp/host.json
+# A shared-wording scan, full and of 200 new papers, at 16,061 and 100,000 papers.
+.venv/bin/python -m perf wording --out /tmp/wording.json
 ```
 
 `run` writes `results.json` (every sample, the machine, the commit) and
@@ -115,6 +117,13 @@ of each per 100 runs after the first block. A leak raises the floor. On macOS it
 reads the physical footprint, which counts compressed memory; resident size is
 recorded too but hides a leak once the compressor takes idle pages. It does
 not measure anything that grows with time alone; `--hours` does.
+
+**Shared wording (`wording.py`):** a full scan of the seeded corpus, then a scan of 200 papers added
+to it as a run would add them (20 of them carrying a passage of a paper already held), each in a
+child interpreter of its own so its peak resident size is the scan's; the child reports what the
+interpreter and its modules held before the scan as well. The corpus is copied first, because the
+second scan adds papers. Seeded text means nothing, so these numbers are cost, not findings; the
+module's docstring has what the method finds on real abstracts.
 
 **The service's two forms (`host.py`):** the background service as the bare
 engine (`implementation_scripts.daemon`, as launchd starts it today) and as the

@@ -13928,6 +13928,1371 @@
         "title": "SettingsSaved",
         "type": "object"
       },
+      "SharedWording": {
+        "additionalProperties": true,
+        "description": "``GET /api/shared-wording``.\n\n``state`` is ``never`` (no scan stored), ``other_version`` (the stored\nanswer came from another version of the method and is not shown), or\n``ready``. ``withheld`` counts stored pairs not shown because a paper's text\nchanged or the paper left; ``arrived_since`` counts papers the stored answer\nhas not compared because they arrived after it.",
+        "properties": {
+          "arrived_since": {
+            "title": "Arrived Since",
+            "type": "integer"
+          },
+          "definitions": {
+            "$ref": "#/components/schemas/SharedWordingDefinitions"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingGroup"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "job": {
+            "$ref": "#/components/schemas/SharedWordingJob"
+          },
+          "limits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "scan": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SharedWordingScan"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SharedWordingSettings"
+          },
+          "state": {
+            "enum": [
+              "never",
+              "other_version",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "withheld": {
+            "title": "Withheld",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "state",
+          "method_version",
+          "settings",
+          "definitions",
+          "limits",
+          "job",
+          "scan",
+          "withheld",
+          "arrived_since",
+          "groups"
+        ],
+        "title": "SharedWording",
+        "type": "object"
+      },
+      "SharedWordingAuthor": {
+        "additionalProperties": true,
+        "description": "An author in both records, and whether the ORCID or the name matched.",
+        "properties": {
+          "by": {
+            "enum": [
+              "orcid",
+              "name"
+            ],
+            "title": "By",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "other_name": {
+            "title": "Other Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "other_name",
+          "by"
+        ],
+        "title": "SharedWordingAuthor",
+        "type": "object"
+      },
+      "SharedWordingBrief": {
+        "additionalProperties": true,
+        "description": "A pair in a list: left is the earlier publication date, only as a reading order.",
+        "properties": {
+          "a": {
+            "title": "A",
+            "type": "integer"
+          },
+          "authors_in_common": {
+            "title": "Authors In Common",
+            "type": "integer"
+          },
+          "b": {
+            "title": "B",
+            "type": "integer"
+          },
+          "category": {
+            "enum": [
+              "different_authors",
+              "same_authors",
+              "authors_unknown",
+              "same_work",
+              "notice"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "left": {
+            "$ref": "#/components/schemas/SharedWordingSide"
+          },
+          "longest": {
+            "title": "Longest",
+            "type": "integer"
+          },
+          "reason_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Words"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "right": {
+            "$ref": "#/components/schemas/SharedWordingSide"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "category",
+          "reasons",
+          "reason_words",
+          "longest",
+          "share",
+          "authors_in_common",
+          "left",
+          "right"
+        ],
+        "title": "SharedWordingBrief",
+        "type": "object"
+      },
+      "SharedWordingCancel": {
+        "additionalProperties": true,
+        "description": "``POST /api/shared-wording/scan/cancel``: asked to stop, or nothing was running.",
+        "properties": {
+          "status": {
+            "enum": [
+              "idle",
+              "cancelling"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "SharedWordingCancel",
+        "type": "object"
+      },
+      "SharedWordingDefinitions": {
+        "additionalProperties": true,
+        "description": "Each number's definition, one sentence each, for the screen to show beside it.",
+        "properties": {
+          "authors": {
+            "title": "Authors",
+            "type": "string"
+          },
+          "longest": {
+            "title": "Longest",
+            "type": "string"
+          },
+          "share": {
+            "title": "Share",
+            "type": "string"
+          }
+        },
+        "required": [
+          "longest",
+          "share",
+          "authors"
+        ],
+        "title": "SharedWordingDefinitions",
+        "type": "object"
+      },
+      "SharedWordingFileMatch": {
+        "additionalProperties": true,
+        "description": "A paper's abstract or another file's page that shares wording with one of this file's pages.",
+        "properties": {
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
+          "kind": {
+            "enum": [
+              "paper",
+              "file"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "linked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Linked"
+          },
+          "longest": {
+            "title": "Longest",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "other_page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Page"
+          },
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingFilePassage"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          },
+          "shared_phrases": {
+            "title": "Shared Phrases",
+            "type": "integer"
+          },
+          "shorter_phrases": {
+            "title": "Shorter Phrases",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "kind",
+          "page",
+          "longest",
+          "share",
+          "shorter_phrases",
+          "shared_phrases",
+          "passages"
+        ],
+        "title": "SharedWordingFileMatch",
+        "type": "object"
+      },
+      "SharedWordingFilePassage": {
+        "additionalProperties": true,
+        "description": "A passage on this file's page: codepoint ``[start, end)`` in the page's text, and the text.",
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "integer"
+          },
+          "start": {
+            "title": "Start",
+            "type": "integer"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "words": {
+            "title": "Words",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "words",
+          "start",
+          "end",
+          "text"
+        ],
+        "title": "SharedWordingFilePassage",
+        "type": "object"
+      },
+      "SharedWordingFileRef": {
+        "additionalProperties": true,
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "version_id",
+          "name",
+          "media_type"
+        ],
+        "title": "SharedWordingFileRef",
+        "type": "object"
+      },
+      "SharedWordingFileResult": {
+        "additionalProperties": true,
+        "description": "What one comparison found, and what it read and could not read.",
+        "properties": {
+          "abstracts_compared": {
+            "title": "Abstracts Compared",
+            "type": "integer"
+          },
+          "definitions": {
+            "$ref": "#/components/schemas/SharedWordingDefinitions"
+          },
+          "file": {
+            "$ref": "#/components/schemas/SharedWordingFileRef"
+          },
+          "files_compared": {
+            "title": "Files Compared",
+            "type": "integer"
+          },
+          "files_not_read": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingFileUnread"
+            },
+            "title": "Files Not Read",
+            "type": "array"
+          },
+          "limits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "matches": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingFileMatch"
+            },
+            "title": "Matches",
+            "type": "array"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "page_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Count"
+          },
+          "pages_read": {
+            "title": "Pages Read",
+            "type": "integer"
+          },
+          "pages_unread": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingPageUnread"
+            },
+            "title": "Pages Unread",
+            "type": "array"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SharedWordingSettings"
+          }
+        },
+        "required": [
+          "file",
+          "page_count",
+          "pages_read",
+          "pages_unread",
+          "abstracts_compared",
+          "files_compared",
+          "files_not_read",
+          "matches",
+          "settings",
+          "definitions",
+          "limits",
+          "method_version"
+        ],
+        "title": "SharedWordingFileResult",
+        "type": "object"
+      },
+      "SharedWordingFileUnread": {
+        "additionalProperties": true,
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "name",
+          "reason"
+        ],
+        "title": "SharedWordingFileUnread",
+        "type": "object"
+      },
+      "SharedWordingForPaper": {
+        "additionalProperties": true,
+        "description": "``GET /api/shared-wording/papers/{document_id}``.\n\n``compared`` is null when the paper arrived or changed after the scan.",
+        "properties": {
+          "compared": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingBrief"
+            },
+            "title": "Pairs",
+            "type": "array"
+          },
+          "phrase_words": {
+            "title": "Phrase Words",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "never",
+              "other_version",
+              "ready"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "state",
+          "compared",
+          "phrase_words",
+          "pairs"
+        ],
+        "title": "SharedWordingForPaper",
+        "type": "object"
+      },
+      "SharedWordingGroup": {
+        "additionalProperties": true,
+        "description": "One group of pairs. ``pairs`` holds at most 500; ``count`` counts them all.",
+        "properties": {
+          "category": {
+            "enum": [
+              "different_authors",
+              "same_authors",
+              "authors_unknown",
+              "same_work",
+              "notice"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "pairs": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingBrief"
+            },
+            "title": "Pairs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "category",
+          "label",
+          "note",
+          "count",
+          "pairs"
+        ],
+        "title": "SharedWordingGroup",
+        "type": "object"
+      },
+      "SharedWordingJob": {
+        "additionalProperties": true,
+        "description": "A scan in the background: ``kind`` is ``full`` or ``new`` (papers since the last answer).",
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "found": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Found"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "full",
+                  "new"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "running",
+          "kind",
+          "stage",
+          "done",
+          "total",
+          "started_at",
+          "finished_at",
+          "cancelled",
+          "error",
+          "found"
+        ],
+        "title": "SharedWordingJob",
+        "type": "object"
+      },
+      "SharedWordingLibrary": {
+        "additionalProperties": true,
+        "description": "``POST`` and ``GET /api/library/files/{file_id}/shared-wording``.\n\n``state`` is ``never`` (not compared since the engine started), ``running``,\n``done`` (``result`` holds the answer), ``failed`` (``error`` says why), or\n``cancelled``. Kept in memory only: the comparison is asked for again.",
+        "properties": {
+          "done": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Done"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SharedWordingFileResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "state": {
+            "enum": [
+              "never",
+              "running",
+              "done",
+              "failed",
+              "cancelled"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "state",
+          "file_id",
+          "version_id"
+        ],
+        "title": "SharedWordingLibrary",
+        "type": "object"
+      },
+      "SharedWordingNotCompared": {
+        "additionalProperties": true,
+        "description": "Papers the scan read and did not compare, by reason.",
+        "properties": {
+          "no_abstract": {
+            "default": 0,
+            "title": "No Abstract",
+            "type": "integer"
+          },
+          "too_short": {
+            "default": 0,
+            "title": "Too Short",
+            "type": "integer"
+          }
+        },
+        "title": "SharedWordingNotCompared",
+        "type": "object"
+      },
+      "SharedWordingPageUnread": {
+        "additionalProperties": true,
+        "properties": {
+          "page": {
+            "title": "Page",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "page",
+          "status"
+        ],
+        "title": "SharedWordingPageUnread",
+        "type": "object"
+      },
+      "SharedWordingPair": {
+        "additionalProperties": true,
+        "description": "``GET /api/shared-wording/pairs/{a}/{b}``.\n\n``state`` is ``changed`` when a text is no longer the one compared, and\nthen ``passages`` is empty and ``summary`` says so.",
+        "properties": {
+          "a": {
+            "title": "A",
+            "type": "integer"
+          },
+          "authors_in_common": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingAuthor"
+            },
+            "title": "Authors In Common",
+            "type": "array"
+          },
+          "b": {
+            "title": "B",
+            "type": "integer"
+          },
+          "category": {
+            "enum": [
+              "different_authors",
+              "same_authors",
+              "authors_unknown",
+              "same_work",
+              "notice"
+            ],
+            "title": "Category",
+            "type": "string"
+          },
+          "common_phrases": {
+            "title": "Common Phrases",
+            "type": "integer"
+          },
+          "definitions": {
+            "$ref": "#/components/schemas/SharedWordingDefinitions"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "left": {
+            "$ref": "#/components/schemas/SharedWordingPairSide"
+          },
+          "limits": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limits",
+            "type": "array"
+          },
+          "longest": {
+            "title": "Longest",
+            "type": "integer"
+          },
+          "method_version": {
+            "title": "Method Version",
+            "type": "integer"
+          },
+          "passages": {
+            "items": {
+              "$ref": "#/components/schemas/SharedWordingPassage"
+            },
+            "title": "Passages",
+            "type": "array"
+          },
+          "reason_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Words"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "right": {
+            "$ref": "#/components/schemas/SharedWordingPairSide"
+          },
+          "scanned_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scanned At"
+          },
+          "share": {
+            "title": "Share",
+            "type": "number"
+          },
+          "shared_phrases": {
+            "title": "Shared Phrases",
+            "type": "integer"
+          },
+          "shorter": {
+            "title": "Shorter",
+            "type": "integer"
+          },
+          "shorter_phrases": {
+            "title": "Shorter Phrases",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "current",
+              "changed"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "summary": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Summary",
+            "type": "array"
+          }
+        },
+        "required": [
+          "a",
+          "b",
+          "state",
+          "category",
+          "label",
+          "reasons",
+          "reason_words",
+          "left",
+          "right",
+          "longest",
+          "share",
+          "shorter",
+          "shorter_phrases",
+          "shared_phrases",
+          "common_phrases",
+          "authors_in_common",
+          "passages",
+          "summary",
+          "definitions",
+          "limits",
+          "scanned_at",
+          "method_version"
+        ],
+        "title": "SharedWordingPair",
+        "type": "object"
+      },
+      "SharedWordingPairSide": {
+        "additionalProperties": true,
+        "description": "One paper of a pair in full: ``text`` is its abstract as compared.",
+        "properties": {
+          "authors": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authors"
+          },
+          "doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doi"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Repository"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "words": {
+            "title": "Words",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "publication_date",
+          "source_repository",
+          "authors",
+          "doi",
+          "url",
+          "text",
+          "words"
+        ],
+        "title": "SharedWordingPairSide",
+        "type": "object"
+      },
+      "SharedWordingPassage": {
+        "additionalProperties": true,
+        "description": "One shared passage: codepoint ``[start, end)`` in each side's ``text``, and its words.",
+        "properties": {
+          "left": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Left",
+            "type": "array"
+          },
+          "right": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Right",
+            "type": "array"
+          },
+          "words": {
+            "title": "Words",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "left",
+          "right",
+          "words"
+        ],
+        "title": "SharedWordingPassage",
+        "type": "object"
+      },
+      "SharedWordingScan": {
+        "additionalProperties": true,
+        "description": "The stored answer's own record: when, what kind of pass, and what it compared.",
+        "properties": {
+          "compared": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compared"
+          },
+          "considered": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Considered"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "full_scan_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Full Scan At"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "method_version": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method Version"
+          },
+          "not_compared": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SharedWordingNotCompared"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "seconds": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seconds"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          }
+        },
+        "required": [
+          "kind",
+          "started_at",
+          "finished_at",
+          "seconds",
+          "full_scan_at",
+          "considered",
+          "compared",
+          "not_compared",
+          "method_version"
+        ],
+        "title": "SharedWordingScan",
+        "type": "object"
+      },
+      "SharedWordingSettings": {
+        "additionalProperties": true,
+        "description": "The method's thresholds, as the scan that answered used them.",
+        "properties": {
+          "common_works": {
+            "title": "Common Works",
+            "type": "integer"
+          },
+          "min_words": {
+            "title": "Min Words",
+            "type": "integer"
+          },
+          "phrase_words": {
+            "title": "Phrase Words",
+            "type": "integer"
+          },
+          "shown_longest": {
+            "title": "Shown Longest",
+            "type": "integer"
+          },
+          "shown_share": {
+            "title": "Shown Share",
+            "type": "number"
+          }
+        },
+        "required": [
+          "phrase_words",
+          "min_words",
+          "common_works",
+          "shown_longest",
+          "shown_share"
+        ],
+        "title": "SharedWordingSettings",
+        "type": "object"
+      },
+      "SharedWordingSide": {
+        "additionalProperties": true,
+        "description": "One paper of a pair, as a list row names it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "source_repository": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Repository"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "publication_date",
+          "source_repository"
+        ],
+        "title": "SharedWordingSide",
+        "type": "object"
+      },
       "SourceContribution": {
         "additionalProperties": true,
         "description": "``GET /api/analytics/source-contribution``: overlap needs two sources to compare.",
@@ -20523,6 +21888,112 @@
         "summary": "Library Link"
       }
     },
+    "/api/library/files/{file_id}/shared-wording": {
+      "get": {
+        "description": "The last comparison of this file since the engine started, or that there is none.",
+        "operationId": "library_shared_wording_api_library_files__file_id__shared_wording_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingLibrary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Shared Wording"
+      },
+      "post": {
+        "description": "Compare this file, page by page, with the abstracts and the other Library files.\n\nRuns in the background, one file at a time; the GET beside it reads the answer.",
+        "operationId": "library_shared_wording_start_api_library_files__file_id__shared_wording_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryOpenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingLibrary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Shared Wording Start"
+      }
+    },
     "/api/library/files/{file_id}/text": {
       "get": {
         "operationId": "library_read_text_api_library_files__file_id__text_get",
@@ -23016,6 +24487,152 @@
           }
         },
         "summary": "Update Storage Settings"
+      }
+    },
+    "/api/shared-wording": {
+      "get": {
+        "description": "The last scan, the scan in progress, and the pairs it found by group.\n\nSee ``shared_wording`` for what each number means, which pairs are shown,\nand what the method cannot see.",
+        "operationId": "shared_wording_overview_api_shared_wording_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWording"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Shared Wording Overview"
+      }
+    },
+    "/api/shared-wording/pairs/{a}/{b}": {
+      "get": {
+        "description": "Two abstracts side by side, the passages they share, and the numbers.",
+        "operationId": "shared_wording_pair_api_shared_wording_pairs__a___b__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "a",
+            "required": true,
+            "schema": {
+              "title": "A",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "b",
+            "required": true,
+            "schema": {
+              "title": "B",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingPair"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Shared Wording Pair"
+      }
+    },
+    "/api/shared-wording/papers/{document_id}": {
+      "get": {
+        "description": "The pairs one paper is in, for its page.",
+        "operationId": "shared_wording_for_paper_api_shared_wording_papers__document_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingForPaper"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Shared Wording For Paper"
+      }
+    },
+    "/api/shared-wording/scan": {
+      "post": {
+        "description": "Compare every abstract with every other, in the background. Returns at once.",
+        "operationId": "shared_wording_scan_api_shared_wording_scan_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingJob"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Shared Wording Scan"
+      }
+    },
+    "/api/shared-wording/scan/cancel": {
+      "post": {
+        "description": "Stop the scan in progress. The answer stored before it is kept.",
+        "operationId": "shared_wording_scan_cancel_api_shared_wording_scan_cancel_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedWordingCancel"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Shared Wording Scan Cancel"
       }
     },
     "/api/today": {

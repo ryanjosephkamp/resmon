@@ -26,6 +26,7 @@ import type {
   WatchdogFinding, WatchdogView, WhyPanel,
 } from '../driver';
 import type { DeliveryDestination, EmbeddingBackfill, EmbeddingProviderChoice } from '../driver';
+import type { SharedWordingGroup, SharedWordingPairReading, SharedWordingReading } from '../driver';
 import { writeTheAuthoredAgentCommand, writeTheLapsedSummarizer } from '../fixtures/authored-commands';
 import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/embedding-endpoint';
 import { startProviderEndpointFor } from '../fixtures/provider-endpoint';
@@ -86,7 +87,7 @@ const THEME_CARD: Record<ThemeChoice, string> = {
 
 export type AtlasDriver = Pick<JourneyDriver,
   'open' | 'reopenTheApp' | 'chooseTheme' | 'chooseAccent' | 'readAppearance' | 'readThePlate'
-  | 'readToday' | 'markAllRead'
+  | 'readToday' | 'markAllRead' | 'scanForSharedWording' | 'openTheSharedWordingPair'
   | 'runDive' | 'runSweep' | 'readRunPanelOutcomes' | 'cancelRunFromMonitor' | 'openReport' | 'readReportTabs'
   | 'readCoverageSentence' | 'readReportOutcomes' | 'exportReferences' | 'readInterruptedRow' | 'restartRun'
   | 'rankTheExplorerBy' | 'readExplorerList' | 'readExplorerTitles' | 'collapseDuplicates' | 'openFirstPaper'
@@ -2811,6 +2812,48 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await button.click();
       await expect.poll(async () => (await backend.today()).window, { timeout: 30_000 }).toBe('since_last_look');
       await expect(win().locator('.index-bar h2 span')).toHaveText('0', { timeout: 30_000 });
+    },
+
+    // — shared wording (J49) ----------------------------------------------------
+    scanForSharedWording: async (): Promise<SharedWordingReading> => {
+      await win().evaluate(() => { window.location.hash = '#/search/wording'; });
+      await expect(win().getByRole('heading', { name: 'Shared wording', level: 1 })).toBeVisible({ timeout: 30_000 });
+      const before = (await backend.sharedWording()).scan;
+      const button = win().locator('[data-wording="scan-button"]');
+      await expect(button).toBeEnabled({ timeout: 30_000 });
+      await button.click();
+      // The engine's own record of a scan finished after the press; a scan
+      // stored before it would satisfy "ready" without the button doing anything.
+      await stored('a finished shared-wording scan', () => backend.sharedWording(),
+        (s) => s.state === 'ready' && !s.job.running && s.scan !== null
+          && JSON.stringify(s.scan) !== JSON.stringify(before), 60_000);
+      const served = await backend.sharedWording();
+      const groups = {} as Record<SharedWordingGroup, number>;
+      for (const group of served.groups) {
+        const section = win().locator(`.wording-group[data-category="${group.category}"]`);
+        await expect(section).toHaveAttribute('data-count', String(group.count), { timeout: 30_000 });
+        groups[group.category] = Number(((await section.locator('.group-title .seg-n').innerText()) || '0').replace(/,/g, ''));
+      }
+      return { compared: (await win().locator('[data-wording="compared"]').innerText()).trim(), groups };
+    },
+
+    openTheSharedWordingPair: async (a, b): Promise<SharedWordingPairReading> => {
+      const key = `${Math.min(a, b)}-${Math.max(a, b)}`;
+      await win().locator(`.wording-row[data-pair="${key}"]`).click();
+      const view = win().locator(`.wording-pair[data-pair="${key}"]`);
+      await expect(view.locator('[data-wording="summary"] p').first()).toBeVisible({ timeout: 30_000 });
+      const side = async (which: 'left' | 'right') => view.locator(`.wording-side[data-side="${which}"]`);
+      const marked = async (which: 'left' | 'right') =>
+        (await side(which)).locator('mark.wording-mark').allInnerTexts();
+      return {
+        left: Number(await (await side('left')).getAttribute('data-paper')),
+        right: Number(await (await side('right')).getAttribute('data-paper')),
+        summary: (await view.locator('[data-wording="summary"] p').allInnerTexts()).map((t) => t.trim()),
+        longest: (await view.locator('[data-wording="longest"]').innerText()).trim(),
+        share: (await view.locator('[data-wording="share"]').innerText()).trim(),
+        marked: { left: await marked('left'), right: await marked('right') },
+        limits: (await view.locator('[data-wording="limits"] li').allInnerTexts()).map((t) => t.trim()),
+      };
     },
   };
 }
