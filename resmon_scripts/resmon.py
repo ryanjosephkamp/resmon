@@ -3178,6 +3178,10 @@ def _reference_response(
         headers={
             "Content-Disposition": f'attachment; filename="{stem}.{extension}"',
             "X-Resmon-Document-Count": str(len(documents)),
+            # Readable by the renderer, which is another origin: the count is how
+            # it says what a saved file holds, in the engine's number rather
+            # than one it worked out before asking.
+            "Access-Control-Expose-Headers": "Content-Disposition, X-Resmon-Document-Count",
         },
     )
 

@@ -212,6 +212,33 @@ def test_a_facet_does_not_count_against_itself(conn):
     assert "q-bio" not in cats
 
 
+def test_a_facet_count_is_the_search_total_for_that_value_under_every_other_filter(conn):
+    """What the number beside a value claims, held to the search it describes.
+
+    The interface says each number counts the papers with that value that
+    match the words and the other filters. So for every listed value, the
+    count is the total a search returns for that value alone in its group,
+    with everything else unchanged, whatever else is ticked in the group.
+    """
+    _doc(conn, source="arxiv", ext="1", categories="cs.LG, stat.ML", authors="Ada Lovelace", pub="2026-03-01")
+    _doc(conn, source="arxiv", ext="2", categories="cs.LG", authors="Alan Turing", pub="2026-04-01")
+    _doc(conn, source="pubmed", ext="3", categories="cs.LG", authors="Ada Lovelace", pub="2026-05-01")
+    _doc(conn, source="pubmed", ext="4", categories="q-bio", authors="Ada Lovelace", pub="2026-06-01")
+    _doc(conn, source="arxiv", ext="5", categories="stat.ML", authors="Ada Lovelace", pub="2025-01-01")
+    _doc(conn, source="arxiv", ext="6", categories="cs.LG", title="Protein folding",
+         abstract="Nothing about the other subject.", pub="2026-07-01")
+
+    chosen = {"sources": ["arxiv"], "categories": ["cs.LG"], "authors": ["Ada Lovelace"]}
+    rest = {"query": "diffusion", "date_from": "2026-01-01", "date_to": "2026-12-31"}
+    f = explorer.facets(conn, **chosen, **rest)
+    for group, key in (("sources", "sources"), ("categories", "categories"), ("authors", "authors")):
+        assert f[group], f"nothing was counted in {group}"
+        for row in f[group]:
+            narrowed = {**chosen, key: [row["value"]]}
+            total = explorer.search(conn, **narrowed, **rest)["total"]
+            assert row["count"] == total, (group, row)
+
+
 # ---------------------------------------------------------------------------
 # Export
 # ---------------------------------------------------------------------------
@@ -238,3 +265,48 @@ def test_total_is_capped_rather_than_counted_without_limit(conn):
     assert r["total"] == 5
     assert r["total_is_capped"] is False
     assert r["count_cap"] == explorer.COUNT_CAP
+
+
+# ---------------------------------------------------------------------------
+# Through the routes
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def client():
+    import resmon as resmon_mod  # noqa: PLC0415
+    from fastapi.testclient import TestClient  # noqa: PLC0415
+
+    resmon_mod._db_path = ":memory:"
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    yield resmon_mod, TestClient(resmon_mod.app)
+
+
+def test_the_export_holds_what_the_search_counts_and_the_renderer_can_read_how_many(client):
+    """The collection's export: the filtered set, and its size where the renderer can read it.
+
+    The renderer is served from another origin, so a response header it is not
+    told it may read is absent to it. The count is how the collection says what
+    a saved file holds, so it is exposed beside the file name.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+
+    resmon_mod, http = client
+    conn = resmon_mod._get_db()
+    _doc(conn, source="arxiv", ext="1", categories="cs.LG")
+    _doc(conn, source="arxiv", ext="2", categories="stat.ML")
+    _doc(conn, source="pubmed", ext="3", categories="cs.LG")
+    _doc(conn, source="arxiv", ext="4", categories="q-bio")
+
+    filters = {"sources": ["arxiv"], "categories": ["cs.LG", "stat.ML"]}
+    response = http.post("/api/explorer/export", json={**filters, "format": "json"},
+                         headers={"Origin": TEST_RENDERER_ORIGIN})
+    assert response.status_code == 200, response.text
+    assert len(response.json()) == 2
+    assert response.headers["X-Resmon-Document-Count"] == "2"
+    assert response.headers["access-control-allow-origin"] == TEST_RENDERER_ORIGIN
+    exposed = {h.strip().lower() for h in response.headers["access-control-expose-headers"].split(",")}
+    assert {"x-resmon-document-count", "content-disposition"} <= exposed
+
+    page = http.post("/api/explorer/search", json=filters)
+    assert page.json()["total"] == 2, "the count beside the export is the search's"
