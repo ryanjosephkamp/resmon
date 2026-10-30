@@ -16,7 +16,8 @@
  * Each PDF page is also drawn by the fixed PDF.js 6.3.289, from bytes checked
  * against the recorded hash, and the canvas is held to having drawn something
  * dark on its white page: the authored text. What the page looks like is not
- * judged further.
+ * judged further; `atlas-reader.spec.ts` covers the stacked pages, the
+ * gallery, focus mode, selection and links.
  *
  * **Scripted:** the native folder chooser, the confirmation before a file is
  * taken out, and the download destination. **Not covered here:** a relaunch;
@@ -156,7 +157,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
       .toContainText('Page 1 of 2, read by text extraction. Each page is read when you open it.');
     const image = reader.getByRole('region', { name: 'PDF page image' });
     await expect(image.getByRole('status')).toHaveText(/^Page 1 of 2 rendered · PDF\.js 6\.3\.289 · \d+ × \d+ pixels/, { timeout: 60_000 });
-    const drawn = await image.locator('canvas[data-pdf-version="6.3.289"]').evaluate((el) => {
+    const drawn = await image.locator('.ev-sheet[data-page="1"] canvas[data-pdf-version="6.3.289"]').evaluate((el) => {
       const c = el as HTMLCanvasElement;
       const pixels = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
       let dark = 0;
@@ -173,9 +174,9 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await expect(reader.locator('[data-evidence="examined"]'))
       .toContainText('Page 2 of 2, read by text extraction. Each page is read when you open it.');
     await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });
-    await image.getByLabel('Zoom').selectOption('2');
+    await reader.getByLabel('Zoom', { exact: true }).selectOption('200');
     await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });
-    await image.getByLabel('Zoom').selectOption('fit');
+    await reader.getByLabel('Zoom', { exact: true }).selectOption('width');
     await expect(reader.getByRole('button', { name: 'Next page' })).toBeDisabled();
     // A page past the end is not asked for.
     await reader.getByLabel('Page', { exact: true }).fill('9');

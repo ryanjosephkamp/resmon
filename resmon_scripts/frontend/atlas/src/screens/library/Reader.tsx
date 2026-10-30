@@ -1,41 +1,108 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
+import { Icon } from '../../shell/Icon';
 import { count, number } from '../today/format';
 import { evidence, readerBusy, type Anchor, type FileRecord, type PageText, type Project } from './evidenceApi';
 import { PAGE_STATUS, examinedWords, matches, resolutionWords, selectionAnchor, utf16Range, type Pin } from './evidenceModel';
-import { PdfPage } from './PdfPage';
+import { usePdfSession, type Drawn } from './pdfDocument';
+import { PdfView, type PdfViewHandle } from './PdfView';
+import { ZOOM_STEPS, findSelection, stepZoom, zoomPercent, type Zoom } from './readerModel';
 
 function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The engine reads the text of PDFs up to this many pages (`evidence_pdf.extract`). */
+const TEXT_PAGES = 200;
+
 /**
- * One file's page and its canonical text. The text is what a passage is taken
- * from: select it, or find a literal match, then use the selection. A saved
- * passage reopened here is resolved against this exact page, or said not to be.
+ * While focus mode covers the window, everything outside `keep` is inert, so
+ * the keyboard cannot wander behind it. A dialog is left alone, so ⌘K still
+ * opens over the reader. Returns the undoing.
  */
-export function Reader({ project, file, member, pin, onAnchor, onRemove, removing, readOnly = false }: {
+function inertOutside(keep: HTMLElement): () => void {
+  const changed: HTMLElement[] = [];
+  for (let node: HTMLElement | null = keep; node && node !== document.body; node = node.parentElement) {
+    for (const sibling of Array.from(node.parentElement?.children ?? [])) {
+      if (sibling === node || !(sibling instanceof HTMLElement) || sibling.inert || sibling instanceof HTMLDialogElement) continue;
+      sibling.inert = true;
+      changed.push(sibling);
+    }
+  }
+  return () => { for (const element of changed) element.inert = false; };
+}
+
+/**
+ * One file's pages and its canonical text. The text is what a passage is
+ * taken from: select it, find a literal match, or select on the drawn page
+ * and use that, which is looked up in the same text. A saved passage reopened
+ * here is resolved against this exact page, or said not to be.
+ *
+ * A PDF's pages are stacked in one scroll, drawn as they come near the view.
+ * The page number follows the scroll, and the canonical text follows the page
+ * once the scroll rests on it, because every page read is a child process and
+ * only one runs at a time. Focus mode gives the pages the whole window; the
+ * page and zoom are the same on the way in and out, because nothing is
+ * redrawn but what the new size needs.
+ */
+export function Reader({
+  project, file, member, pin, onAnchor, onRemove, removing, readOnly = false, focus: held, onFocus, notesOpen = false, onNotes, focusScope,
+}: {
   project: Project; file: FileRecord; member: boolean; pin: Pin | null;
   onAnchor?: (a: Anchor | null) => void; onRemove?: () => void; removing?: boolean;
   /** A citation's check: the page and its text, and nothing that saves or changes the project. */
   readOnly?: boolean;
+  /** Focus mode, held by the screen around the reader so it can make way; the reader holds its own when this is absent. */
+  focus?: boolean; onFocus?: (on: boolean) => void;
+  /** The notes column, called back as a side panel in focus mode. */
+  notesOpen?: boolean; onNotes?: (open: boolean) => void;
+  /** What stays reachable in focus mode, the reader included; the reader alone when absent. */
+  focusScope?: RefObject<HTMLElement | null>;
 }) {
   const isPdf = file.media_type === 'application/pdf';
+  const ids = useId();
   const [page, setPage] = useState(pin?.page_number ?? 1);
   const [draft, setDraft] = useState(String(pin?.page_number ?? 1));
+  /** The page whose canonical text is read: the page on screen, once the scroll has rested on it. */
+  const [textPage, setTextPage] = useState(pin?.page_number ?? 1);
   /** The page count the last read reported, kept while the next page is being read. */
   const [pages, setPages] = useState<number | null>(null);
-  const turn = (n: number) => { setPage(n); setDraft(String(n)); };
   const [selected, setSelected] = useState<Anchor | null>(null);
   const [find, setFind] = useState('');
   const [found, setFound] = useState<string | null>(null);
+  const [zoom, setZoom] = useState<Zoom>('width');
+  const [scale, setScale] = useState(1);
+  const [gallery, setGallery] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [bridge, setBridge] = useState<string | null>(null);
+  const [ownFocus, setOwnFocus] = useState(false);
+  const setFocus = onFocus ?? setOwnFocus;
+  const section = useRef<HTMLElement>(null);
   const pane = useRef<HTMLTextAreaElement>(null);
-  const text = useQuery({
-    queryKey: ['evidence-text', project.project_id, file.file_id, file.version_id, page],
-    queryFn: async ({ signal }) => {
-      const read = await evidence.text(project, file, page, signal);
+  const pageInput = useRef<HTMLInputElement>(null);
+  const focusButton = useRef<HTMLButtonElement>(null);
+  const galleryButton = useRef<HTMLButtonElement>(null);
+  const view = useRef<PdfViewHandle>(null);
+  const client = useQueryClient();
+
+  // A citation's check opens on its text; the drawn pages are there when asked for.
+  const [drawing, setDrawing] = useState(!readOnly);
+  const drawn = useMemo<Drawn | null>(() => (isPdf && drawing ? {
+    vault_id: project.vault_id, project_id: project.project_id, file_id: file.file_id,
+    version_id: file.version_id, sha256: file.sha256, byte_size: file.byte_size,
+  } : null), [isPdf, drawing, project.vault_id, project.project_id, file.file_id, file.version_id, file.sha256, file.byte_size]);
+  const opened = usePdfSession(drawn, attempt);
+  const session = drawn && opened.status === 'ready' ? opened.session : null;
+  const total = session?.pages ?? pages;
+  /** Focus mode is for drawn pages; a text file, or a citation's text alone, is read in place. */
+  const focus = (held ?? ownFocus) && !!drawn;
+
+  const textOptions = useCallback((n: number) => ({
+    queryKey: ['evidence-text', project.project_id, file.file_id, file.version_id, n],
+    queryFn: async ({ signal }: { signal: AbortSignal }) => {
+      const read = await evidence.text(project, file, n, signal);
       setPages(read.page_count ?? null);
       return read;
     },
@@ -43,20 +110,69 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
     // every read is a child process, and only one runs at a time.
     staleTime: Infinity,
     // Only a busy reader is retried: the page before this one may still be finishing.
-    retry: (failures, error) => readerBusy(error) && failures < 6,
-    retryDelay: (attempt) => Math.min(4_000, 600 * (attempt + 1)),
-  });
-  const data: PageText | undefined = text.data;
+    retry: (failures: number, error: Error) => readerBusy(error) && failures < 6,
+    retryDelay: (attempt: number) => Math.min(4_000, 600 * (attempt + 1)),
+  }), [project, file]);
+  const beyond = isPdf && textPage > TEXT_PAGES;
+  const text = useQuery({ ...textOptions(textPage), enabled: !beyond });
+  const data: PageText | undefined = beyond ? undefined : text.data;
   const resolution = useMemo(() => (pin ? resolutionWords(pin, data) : null), [pin, data]);
   const match = !pin ? null : !data ? 'pending' : matches(pin, data) ? 'yes' : 'no';
-  // A citation's check opens on its text; the drawn page is there when asked for.
-  const [drawing, setDrawing] = useState(!readOnly);
   useEffect(() => {
     if (!pin || !data || !matches(pin, data)) return;
     const [start, end] = utf16Range(data.text, pin.start_codepoint, pin.end_codepoint);
     pane.current?.focus();
     pane.current?.setSelectionRange(start, end);
   }, [pin, data]);
+
+  // The text follows the page on screen once the scroll rests there.
+  useEffect(() => {
+    if (page === textPage) return undefined;
+    const settle = window.setTimeout(() => setTextPage(page), 350);
+    return () => window.clearTimeout(settle);
+  }, [page, textPage]);
+
+  /** Go to a page: by scrolling to it when the pages are drawn, by reading it when only the text is shown. */
+  const turn = (n: number) => {
+    setPage(n);
+    setDraft(String(n));
+    setTextPage(n);
+    view.current?.go(n);
+  };
+  const onPage = useCallback((n: number) => {
+    setPage(n);
+    if (document.activeElement !== pageInput.current) setDraft(String(n));
+  }, []);
+
+  // Focus mode: everything else inert, Escape leaves, and the keyboard goes to the pages and back to the button.
+  const leave = useRef(setFocus);
+  useEffect(() => { leave.current = setFocus; }, [setFocus]);
+  const entered = useRef(false);
+  useEffect(() => {
+    if (!focus) {
+      if (entered.current) focusButton.current?.focus();
+      entered.current = false;
+      return undefined;
+    }
+    entered.current = true;
+    const keep = focusScope?.current ?? section.current;
+    const undo = keep ? inertOutside(keep) : () => undefined;
+    view.current?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      leave.current(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); undo(); };
+  }, [focus, focusScope]);
+
+  // A gallery closed without choosing a page gives the keyboard back to its button.
+  const galleryWas = useRef(false);
+  useEffect(() => {
+    if (galleryWas.current && !gallery && (!document.activeElement || document.activeElement === document.body)) galleryButton.current?.focus();
+    galleryWas.current = gallery;
+  }, [gallery]);
 
   const choose = () => {
     const el = pane.current;
@@ -77,10 +193,101 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
     setFound(`${n} literal ${n === 1 ? 'match' : 'matches'} on this page’s text only.`);
   };
 
+  /** Text selected on a drawn page, looked up in that page's canonical text and offered to the notes as a passage. */
+  const passageFrom = useCallback(async (n: number, chosen: string) => {
+    setBridge(null);
+    if (n > TEXT_PAGES) {
+      setBridge(`The engine reads the text of PDFs up to ${TEXT_PAGES} pages, so nothing on page ${n} can be kept as an exact passage.`);
+      return;
+    }
+    let read: PageText;
+    try {
+      read = await client.fetchQuery(textOptions(n));
+    } catch (error) {
+      setBridge(errorWords(error));
+      return;
+    }
+    if (read.status !== 'extracted') {
+      setBridge(`Page ${n} has no text the engine could read, so nothing on it can be kept as an exact passage.`);
+      return;
+    }
+    const at = findSelection(read.text, chosen);
+    const anchor = at ? selectionAnchor(read, at.start, at.end) : null;
+    if (!at || !anchor) {
+      setBridge(`That selection is not in page ${n}’s text as the engine read it, so it cannot be kept as an exact passage.`);
+      return;
+    }
+    onAnchor?.(anchor);
+    // In focus mode the notes are where the passage is saved, so they come back beside the pages.
+    if (focus) onNotes?.(true);
+    setBridge(at.count > 1 ? `Page ${n}’s text has that ${at.count} times; the first is the one kept.` : null);
+  }, [client, textOptions, onAnchor, onNotes, focus]);
+  const canKeep = !readOnly && member && !!onAnchor;
+
+  const percent = zoomPercent(scale);
+  const tools = (
+    <div className="ev-tools">
+      <p className="ev-focus-name" title={file.original_name}>{file.original_name}</p>
+      {isPdf && (
+        <form className="ev-pages" onSubmit={(e) => {
+          e.preventDefault();
+          const n = Number(draft);
+          if (Number.isInteger(n) && n >= 1 && (total === null || n <= total)) turn(n); else setDraft(String(page));
+        }}>
+          <button type="button" className="btn sm" disabled={page <= 1 || (!session && text.isFetching)} onClick={() => turn(page - 1)}>Previous page</button>
+          <label htmlFor={`${ids}-page`} className="num">Page</label>
+          <input id={`${ids}-page`} ref={pageInput} className="ev-page-input num" inputMode="numeric" value={draft}
+            disabled={!session && text.isFetching} onBlur={() => setDraft(String(page))}
+            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))} autoComplete="off" />
+          <span className="num ev-of">{total !== null ? `of ${number(total)}` : ''}</span>
+          <button type="button" className="btn sm" disabled={page >= (total ?? 1) || (!session && text.isFetching)} onClick={() => turn(page + 1)}>Next page</button>
+        </form>
+      )}
+      {session && (
+        <>
+          <div className="ev-zoom">
+            <button type="button" className="btn sm quiet ev-icon" aria-label="Zoom out" title="Zoom out"
+              disabled={percent <= ZOOM_STEPS[0]} onClick={() => setZoom(stepZoom(scale, -1))}>
+              <Icon name="minus" />
+            </button>
+            <label htmlFor={`${ids}-zoom`} className="sr-only">Zoom</label>
+            <select id={`${ids}-zoom`} value={String(zoom)}
+              onChange={(e) => setZoom(e.target.value === 'width' || e.target.value === 'page' ? e.target.value : Number(e.target.value))}>
+              <option value="width">{zoom === 'width' ? `Fit width · ${percent}%` : 'Fit width'}</option>
+              <option value="page">{zoom === 'page' ? `Fit page · ${percent}%` : 'Fit page'}</option>
+              {ZOOM_STEPS.map((step) => <option key={step} value={String(step)}>{step}%</option>)}
+            </select>
+            <button type="button" className="btn sm quiet ev-icon" aria-label="Zoom in" title="Zoom in"
+              disabled={percent >= ZOOM_STEPS[ZOOM_STEPS.length - 1]!} onClick={() => setZoom(stepZoom(scale, 1))}>
+              <Icon name="plus" />
+            </button>
+          </div>
+          <button type="button" className="btn sm" ref={galleryButton} aria-pressed={gallery} onClick={() => setGallery((g) => !g)}>All pages</button>
+          {focus
+            ? (
+              <>
+                {onNotes && <button type="button" className="btn sm" aria-pressed={notesOpen} onClick={() => onNotes(!notesOpen)}>Notes</button>}
+                <button type="button" className="btn sm" onClick={() => setFocus(false)} aria-keyshortcuts="Escape">
+                  Leave focus <kbd aria-hidden="true">esc</kbd>
+                </button>
+              </>
+            )
+            : (
+              <button type="button" className="btn sm" ref={focusButton} onClick={() => setFocus(true)}
+                title="The pages take the whole window">
+                <Icon name="fit" />Focus
+              </button>
+            )}
+        </>
+      )}
+    </div>
+  );
+
   return (
-    <section className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-media={file.media_type} data-page={page}>
+    <section ref={section} className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-media={file.media_type}
+      data-page={page} data-focus={focus ? 'true' : undefined}>
       <div className="ev-reader-head">
-        <h2 className="lib-detail-name">{file.original_name}</h2>
+        <h2 className="lib-detail-name ev-reader-name" title={file.original_name}>{file.original_name}</h2>
         {onRemove && (
           <button type="button" className="btn sm quiet" disabled={removing}
             onClick={() => { if (window.confirm(`Take ${file.original_name} out of this project? Its saved records stay.`)) onRemove(); }}>
@@ -88,34 +295,51 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
           </button>
         )}
       </div>
-      <p className="record-cap ev-identity">Version <code className="path">{file.version_id}</code> · SHA-256 <code className="path">{file.sha256}</code></p>
+      <dl className="ev-identity">
+        <div><dt>Version</dt><dd><code className="path" title={file.version_id}>{file.version_id}</code></dd></div>
+        <div><dt>SHA-256</dt><dd><code className="path" title={file.sha256}>{file.sha256}</code></dd></div>
+      </dl>
       {!member && !readOnly && <p className="record-cap" data-evidence="removed">This file is no longer in the project. Its saved records are kept.</p>}
       {resolution && <p className="ev-verdict" role="status" data-evidence="resolution" data-match={match}>{resolution}</p>}
-      {isPdf && (
-        <form className="ev-pages" onSubmit={(e) => {
-          e.preventDefault();
-          const n = Number(draft);
-          if (Number.isInteger(n) && n >= 1 && (pages === null || n <= pages)) turn(n); else setDraft(String(page));
-        }}>
-          <button type="button" className="btn sm" disabled={page <= 1 || text.isFetching} onClick={() => turn(page - 1)}>Previous page</button>
-          <label htmlFor="ev-page" className="num">Page</label>
-          <input id="ev-page" className="ev-page-input num" inputMode="numeric" value={draft} disabled={text.isFetching}
-            onChange={(e) => setDraft(e.target.value.replace(/[^0-9]/g, ''))} autoComplete="off" />
-          <span className="num">{pages !== null ? `of ${number(pages)}` : ''}</span>
-          <button type="button" className="btn sm" disabled={text.isFetching || page >= (pages ?? 1)} onClick={() => turn(page + 1)}>Next page</button>
-        </form>
+      {isPdf && tools}
+      {bridge && (
+        <p className="ev-bridge" role="status" data-evidence="bridge">
+          <span>{bridge}</span>
+          <button type="button" className="btn sm quiet" onClick={() => setBridge(null)}>Dismiss</button>
+        </p>
       )}
       {isPdf && !drawing && (
-        <button type="button" className="btn sm quiet ev-draw" onClick={() => setDrawing(true)}>Show the page as drawn</button>
+        <button type="button" className="btn sm quiet ev-draw" onClick={() => setDrawing(true)}>Show the pages as drawn</button>
       )}
-      {isPdf && drawing && (
-        <PdfPage page={page} drawn={{
-          vault_id: project.vault_id, project_id: project.project_id, file_id: file.file_id,
-          version_id: file.version_id, sha256: file.sha256, byte_size: file.byte_size,
-        }} />
+      {drawn && (
+        <section className="ev-pdf" aria-label="PDF page image">
+          {opened.status === 'loading' && <p className="record-cap ev-pdf-opening" role="status">Opening the PDF.</p>}
+          {opened.status === 'failed' && (
+            <div className="ev-pdf-failed">
+              <p className="field-error" role="alert">{opened.error}</p>
+              <button type="button" className="btn sm" onClick={() => setAttempt((n) => n + 1)}>Try again</button>
+            </div>
+          )}
+          {session && (
+            <PdfView ref={view} session={session} zoom={zoom} start={page} label={file.original_name}
+              gallery={gallery} onGallery={setGallery} onPage={onPage} onScale={setScale}
+              onSelect={canKeep ? passageFrom : undefined} />
+          )}
+          <p className="form-hint ev-pdf-hint">
+            The pages as PDF.js draws them. Their text can be selected and copied{canKeep ? ', or used as a passage' : ''}. A link to a web
+            page (http or https) opens in a window of its own, and a link to another place in this document goes there. Forms, scripts,
+            attachments, and other links do nothing here. Passages come from each page’s text as the engine reads it, which can differ
+            from the drawing.
+          </p>
+        </section>
       )}
-      {text.isFetching && <p className="record-cap" role="status">Reading this exact page.</p>}
-      {text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}
+      {beyond && (
+        <p className="not-enough" data-evidence="beyond">
+          The engine reads the text of PDFs up to {TEXT_PAGES} pages, so page {number(textPage)}’s text is not read and nothing on it can be kept as a passage.
+        </p>
+      )}
+      {!beyond && text.isFetching && <p className="record-cap" role="status">Reading this exact page.</p>}
+      {!beyond && text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}
       {data && (
         <>
           <p className="record-cap" data-evidence="examined">{examinedWords(data)} {data.coverage}</p>
@@ -125,8 +349,8 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
               <>
                 {!readOnly && (
                   <form className="lib-link-form" onSubmit={findNext}>
-                    <label htmlFor="ev-find">Find on this page’s text</label>
-                    <input id="ev-find" value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
+                    <label htmlFor={`${ids}-find`}>Find on this page’s text</label>
+                    <input id={`${ids}-find`} value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
                     <button type="submit" className="btn sm" disabled={!find}>Find</button>
                     {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
                   </form>

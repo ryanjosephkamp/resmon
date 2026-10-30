@@ -146,6 +146,10 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
 
     const canvas = '.today .plate-canvas';
     await expect(win.locator(canvas)).toBeVisible({ timeout: 120_000 });
+    // A desktop window: at the runner's 1024 pixels the plate is small enough
+    // that Today's title block sits over the papers these steps click.
+    await resize(app, 1440, 900);
+    await expect.poll(async () => (await win.locator(canvas).boundingBox())?.width ?? 0).toBeGreaterThan(700);
     await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
     const map = await engine<MapBody>(win, '/api/map');
     expect(map.state).toBe('ready');
