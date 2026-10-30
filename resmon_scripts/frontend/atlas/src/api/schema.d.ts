@@ -735,6 +735,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/configurations/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download Configurations
+         * @description The same archive ``POST /api/configurations/export`` writes, as bytes.
+         *
+         *     The export route writes to a folder the engine chooses and answers with
+         *     the path, which with no export folder chosen is the system's temporary
+         *     folder. This one answers with the archive itself, so a renderer can hand
+         *     it to the system's save dialog and the person chooses where it goes.
+         *     ``export_configs`` builds it, so the two can never be two formats. An id
+         *     that is no longer saved is left out, as the export route leaves it out, and
+         *     a choice with none still saved is a 404 rather than an empty archive.
+         */
+        post: operations["download_configurations_api_configurations_archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/configurations/export": {
         parameters: {
             query?: never;
@@ -1566,6 +1594,32 @@ export interface paths {
         post?: never;
         /** Delete Execution */
         delete: operations["delete_execution_api_executions__exec_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{exec_id}/bundle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download Execution Bundle
+         * @description One run's bundle as bytes: the archive ``POST /api/executions/export`` writes.
+         *
+         *     The report, its PDF and LaTeX where a LaTeX engine could make them, the
+         *     log, the metadata and the search record, built by ``_delivery_bundle``,
+         *     the one builder the export route and the delivery queue share. The export
+         *     route answers with a path on disk; this one with the archive itself, so a
+         *     renderer can hand it to the save dialog.
+         */
+        get: operations["download_execution_bundle_api_executions__exec_id__bundle_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4432,7 +4486,13 @@ export interface components {
          *     ``last_backup_path_recorded`` is the recorded path either way, ``None``
          *     when there is none. ``pending_restore`` is the staged pointer, its
          *     unreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence
-         *     on what will apply it, ``None`` when nothing is staged. ``last_restore``
+         *     on what will apply it, ``None`` when nothing is staged, and
+         *     ``pending_restore_runs_on`` the same answer as a code: ``app_restart``
+         *     (this window's own backend applies it when resmon next starts),
+         *     ``service_restart`` (the background service this window uses holds the
+         *     database, so it applies when that service restarts) or ``service_stopped``
+         *     (another live service holds the database, and nothing restores until it is
+         *     stopped); ``None`` when nothing is staged. ``last_restore``
          *     is the record of the last restore a start acted on, applied or refused,
          *     and ``None`` when there is none or its file is not a JSON object.
          *     ``undo_copies`` lists the folders restores set aside, sorted by name,
@@ -4450,6 +4510,8 @@ export interface components {
             last_restore: components["schemas"]["RestoreSucceeded"] | components["schemas"]["RestoreFailed"] | null;
             /** Pending Restore */
             pending_restore: components["schemas"]["RestorePointer"] | components["schemas"]["RestorePointerUnreadable"] | null;
+            /** Pending Restore Runs On */
+            pending_restore_runs_on: ("app_restart" | "service_restart" | "service_stopped") | null;
             /** Pending Restore Runs When */
             pending_restore_runs_when: string | null;
             /** Undo Copies */
@@ -9690,10 +9752,22 @@ export interface components {
         /**
          * TodaySourceNote
          * @description A source that did not answer on a watch's last run, or whose answer is unknown.
+         *
+         *     ``source`` is the slug; ``name`` is the source as a person knows it, a
+         *     withdrawn one included. ``category`` is ``non_answer`` (it did not answer)
+         *     or ``unknown`` (resmon cannot say whether it answered), and ``label`` the
+         *     short words for the particular outcome.
          */
         TodaySourceNote: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "non_answer" | "unknown";
             /** Label */
             label: string;
+            /** Name */
+            name: string;
             /** Note */
             note: string;
             /** Source */
@@ -11477,6 +11551,39 @@ export interface operations {
             };
         };
     };
+    download_configurations_api_configurations_archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigExport"];
+            };
+        };
+        responses: {
+            /** @description The archive, as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     export_configurations_api_configurations_export_post: {
         parameters: {
             query?: never;
@@ -12923,6 +13030,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    download_execution_bundle_api_executions__exec_id__bundle_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The archive, as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
                 };
             };
             /** @description Validation Error */

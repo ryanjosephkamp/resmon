@@ -11,8 +11,13 @@ logger = logging.getLogger(__name__)
 
 _CORE_API_URL = "https://api.core.ac.uk/v3/search/works"
 
-# 5 req/s default
-_RATE_LIMITER = RateLimiter(requests_per_second=5.0)
+# CORE publishes its limits per minute and per day, in tokens, by account
+# type (https://api.core.ac.uk/docs/v3, "Rate limits", read October 29, 2026):
+# 25 a minute for a registered personal key, 10 a minute for a registered
+# academic key, with a simple search costing one token. resmon cannot tell
+# which kind of key it holds, so it paces at the lower of the two, one request
+# every six seconds. The 5 req/s it used before was thirty times that.
+_RATE_LIMITER = RateLimiter(requests_per_second=1 / 6)
 
 
 class CoreClient(BaseAPIClient):

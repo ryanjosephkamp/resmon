@@ -581,13 +581,17 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         subject_coverage="Multi-disciplinary OA",
         endpoint="https://api.core.ac.uk/v3/search/works",
         query_method="GET with Authorization: Bearer {key}",
-        rate_limit="5.0 req/s (subject to per-key daily quota)",
+        rate_limit="0.167 req/s (1 per 6 s)",
         client_module="api_core.py",
         requirement="required",
         credential_name="core_api_key",
         website="https://core.ac.uk",
         registration_url="https://core.ac.uk/services/api",
-        upstream_policy="Registered key ~10 req/s; ~10k/day. Respect Retry-After on 429",
+        # https://api.core.ac.uk/docs/v3, "Rate limits", read October 29, 2026.
+        upstream_policy=(
+            "Counted in tokens by key type: a personal key 25 a minute and 1,000 a "
+            "day, an academic key 10 a minute and 5,000 a day; a simple search "
+            "costs 1. Replies carry X-RateLimit-Remaining and X-RateLimit-Retry-After"),
         parallel_safe="Yes",
         notes="Must register for an API key before use.",
         keyword_combination="Relevance-ranked (Lucene OR default)",

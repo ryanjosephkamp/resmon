@@ -5,6 +5,7 @@ denials are defense in depth, not a portable OS sandbox or hard RSS guarantee.
 """
 from __future__ import annotations
 
+import codecs
 import io
 import json
 import logging
@@ -38,6 +39,14 @@ CONFIGURATION = {
     'xform_maximum_invocations_per_extraction': 100,
     'jbig2dec_binary': None,
 }
+# Every codec pypdf 6 names while reading a document. Python imports a codec's
+# module the first time a string needs it, and that import opens a file the
+# capability hook refuses, so each one is looked up before the hook goes on.
+# Without this a ToUnicode map's UTF-16BE values failed every such page.
+CODECS = ('ascii', 'charmap', 'cp1252', 'cp932', 'cp950', 'gb18030', 'gb2312', 'gbk',
+          'latin-1', 'mac_roman', 'utf-8', 'utf-16', 'utf-16-be', 'utf-16-le')
+# Events the capability hook refused while the current page was parsed.
+REFUSED: list[str] = []
 
 
 class ParserWarnings(logging.Handler):
@@ -55,6 +64,18 @@ class ParserWarnings(logging.Handler):
 
 
 def parse(raw: bytes, page: int) -> dict:
+    REFUSED.clear()
+    result = _parse(raw, page)
+    if REFUSED:
+        # The parser asked this process for something it does not allow, such
+        # as a codec a document names for itself. That is a limit of this
+        # reader, not a fault in the file, and pypdf can swallow the refusal and
+        # fall back to another decoding, so no text from this parse is kept.
+        return {**result, 'status': 'unsupported', 'text': ''}
+    return result
+
+
+def _parse(raw: bytes, page: int) -> dict:
     result = {'status': 'malformed', 'page_number': page, 'page_count': None, 'text': ''}
     if type(page) is not int or page < 1 or not raw.startswith(b'%PDF-'):
         return result
@@ -100,6 +121,7 @@ def _deny_capabilities(event: str, args: tuple) -> None:
             or event in ('os.system', 'os.exec', 'os.posix_spawn', 'os.fork', 'os.forkpty',
                          'os.spawn', 'os.chdir', 'os.remove', 'os.rename', 'os.mkdir',
                          'os.rmdir', 'os.link', 'os.symlink', 'os.listdir', 'os.scandir')):
+        REFUSED.append(event)
         raise PermissionError('The fixed PDF parser does not expose this capability.')
 
 
@@ -113,8 +135,10 @@ def main() -> None:
     raw = sys.stdin.buffer.read(length + 1)
     if len(raw) != length:
         raise SystemExit(2)
-    # Dependencies are imported before restricting capabilities. No document
-    # supplied path, module, command, environment or credential is accepted.
+    # Dependencies and codecs are loaded before restricting capabilities. No
+    # document supplied path, module, command, environment or credential is accepted.
+    for name in CODECS:
+        codecs.lookup(name)
     sys.addaudithook(_deny_capabilities)
     result = parse(raw, page)
     encoded = json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode('utf-8')

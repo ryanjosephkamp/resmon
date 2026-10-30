@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from contextlib import asynccontextmanager, contextmanager
 from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from starlette.requests import Request
-from starlette.responses import Response, StreamingResponse
+from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -1332,8 +1332,8 @@ def _reject_if_at_manual_cap() -> None:
             status_code=429,
             detail=(
                 f"resmon is already running the maximum of {admission.max()} "
-                "concurrent executions. Wait for one to finish or raise the "
-                "limit in Settings \u2192 Advanced."
+                "concurrent executions. Wait for one to finish, then try "
+                "again."
             ),
             headers={"Retry-After": "5"},
         )
@@ -2464,6 +2464,52 @@ def export_executions(body: ExecutionExport):
         _close_db(conn)
 
 
+# What a download route answers, for the OpenAPI document: the archive's bytes,
+# never JSON. Without it the schema would describe a JSON body nobody sends.
+_ZIP_DOWNLOAD = {200: {"description": "The archive, as a download.",
+                       "content": {"application/zip": {"schema": {"type": "string", "format": "binary"}}}}}
+
+
+def _zip_download(path: Path, filename: str, staging: str) -> FileResponse:
+    """Answer with a ZIP built in ``staging`` and remove ``staging`` once it is sent.
+
+    The removal is a background task, so it runs after the last byte has gone
+    rather than before the response has been read; a staging folder left behind
+    would be a copy of the user's data in the temporary folder nobody asked for.
+    """
+    from starlette.background import BackgroundTask
+    return FileResponse(
+        path, media_type="application/zip", filename=filename,
+        headers={"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
+        background=BackgroundTask(shutil.rmtree, staging, ignore_errors=True),
+    )
+
+
+@app.get("/api/executions/{exec_id}/bundle", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_execution_bundle(exec_id: int):
+    """One run's bundle as bytes: the archive ``POST /api/executions/export`` writes.
+
+    The report, its PDF and LaTeX where a LaTeX engine could make them, the
+    log, the metadata and the search record, built by ``_delivery_bundle``,
+    the one builder the export route and the delivery queue share. The export
+    route answers with a path on disk; this one with the archive itself, so a
+    renderer can hand it to the save dialog.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_bundle_")
+    try:
+        row = get_execution_by_id(conn, exec_id)
+        if not row:
+            raise HTTPException(404, "Execution not found")
+        out = _delivery_bundle(conn, row, Path(staging))
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    return _zip_download(out, out.name, staging)
+
+
 def _build_execution_zip(rows: list[dict], out_path: Path, *,
                          companions: dict[int, dict] | None = None) -> Path:
     """Package report + logs + metadata for each execution row into *out_path*.
@@ -2982,6 +3028,35 @@ def export_configurations(body: ConfigExport):
             return {"path": tmp.name}
     finally:
         _close_db(conn)
+
+
+@app.post("/api/configurations/archive", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_configurations(body: ConfigExport):
+    """The same archive ``POST /api/configurations/export`` writes, as bytes.
+
+    The export route writes to a folder the engine chooses and answers with
+    the path, which with no export folder chosen is the system's temporary
+    folder. This one answers with the archive itself, so a renderer can hand
+    it to the system's save dialog and the person chooses where it goes.
+    ``export_configs`` builds it, so the two can never be two formats. An id
+    that is no longer saved is left out, as the export route leaves it out, and
+    a choice with none still saved is a 404 rather than an empty archive.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_configs_")
+    try:
+        found = [cid for cid in dict.fromkeys(body.ids) if conn.execute(
+            "SELECT 1 FROM saved_configurations WHERE id = ?", (cid,)).fetchone()]
+        if not found:
+            raise HTTPException(404, "None of the chosen configurations is saved.")
+        out = export_configs(conn, found, Path(staging) / "configurations.zip")
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+    return _zip_download(out, f"resmon_configs_{stamp}.zip", staging)
 
 
 @app.post("/api/configurations/import",
@@ -7136,21 +7211,21 @@ def _restart_instructions() -> tuple[str, str]:
         return (
             "log out of your Mac and back in, or run "
             "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
-            "turn off Run resmon in the background in Settings → Advanced",
+            "turn off Run resmon in the background in Settings › In the background",
         )
     if sys.platform == "win32":
         return (
             "end the resmon-daemon task in Task Scheduler and run it again",
-            "turn off Run resmon in the background in Settings → Advanced",
+            "turn off Run resmon in the background in Settings › In the background",
         )
     return (
         "run `systemctl --user restart resmon-daemon`",
-        "turn off Run resmon in the background in Settings → Advanced",
+        "turn off Run resmon in the background in Settings › In the background",
     )
 
 
-def _when_a_staged_restore_runs() -> str:
-    """What will apply a staged restore, and what to do to make it happen now.
+def _how_a_staged_restore_runs() -> tuple[str, str]:
+    """``(runs_on, sentence)``: what will apply a staged restore, and what to do to make it happen now.
 
     A restore runs in ``_lifespan``, when a backend starts, so which backend
     that is decides what the user has to do. The page used to say "Restart to
@@ -7162,6 +7237,14 @@ def _when_a_staged_restore_runs() -> str:
     service holds the lock, a window's own backend refuses the restore at start
     (``database_in_use``), which the user learned only afterwards. Found in a
     walk of the app on October 26, 2026.
+
+    ``runs_on`` is the same answer as a code, so an interface can offer the one
+    control that does what the sentence says without reading the sentence:
+    ``app_restart`` (this window's own backend applies it when resmon next
+    starts, so restarting the app restores), ``service_restart`` (the
+    background service this window uses holds the database; reopening the
+    window is not a start), and ``service_stopped`` (another live service holds
+    the database, and nothing restores until it is stopped).
     """
     from implementation_scripts import daemon as _daemon
 
@@ -7169,7 +7252,7 @@ def _when_a_staged_restore_runs() -> str:
     lock = _daemon.read_lock() or {}
     pid = lock.get("pid") if isinstance(lock.get("pid"), int) else None
     if pid == os.getpid():
-        return (
+        return "service_restart", (
             "The background service holds your database, so this restore runs when "
             "the service next starts, not when you reopen this window. To restore "
             f"now, restart the service: {restart}. Then open resmon again. Nothing "
@@ -7182,13 +7265,18 @@ def _when_a_staged_restore_runs() -> str:
         except (OSError, ProcessLookupError):
             alive = False
         if alive:
-            return (
+            return "service_stopped", (
                 f"Another resmon background service is running (pid {pid}), and a "
                 "restore will not replace the database while it holds it. To "
                 f"restore, {stop}, then quit resmon and open it again. Nothing has "
                 "changed yet."
             )
-    return "Quit resmon and open it again to restore. Nothing has changed yet."
+    return "app_restart", "Quit resmon and open it again to restore. Nothing has changed yet."
+
+
+def _when_a_staged_restore_runs() -> str:
+    """The sentence half of ``_how_a_staged_restore_runs``."""
+    return _how_a_staged_restore_runs()[1]
 
 
 @app.post("/api/restore", response_model=response_models.RestoreStaged,
@@ -7268,13 +7356,16 @@ def backup_last():
         except backup_module.BackupError:
             summary = None
     pending = backup_module.pending_restore(state)
+    runs_on, runs_when = _how_a_staged_restore_runs() if pending else (None, None)
     return {
         "last_backup": summary,
         "last_backup_path_recorded": last_path or None,
         "pending_restore": pending,
         # The sentence the pending notice shows, so it says what will apply the
-        # restore here rather than "the next time resmon starts".
-        "pending_restore_runs_when": _when_a_staged_restore_runs() if pending else None,
+        # restore here rather than "the next time resmon starts"; and the same
+        # answer as a code, for the control that restarts the app.
+        "pending_restore_runs_when": runs_when,
+        "pending_restore_runs_on": runs_on,
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
     }

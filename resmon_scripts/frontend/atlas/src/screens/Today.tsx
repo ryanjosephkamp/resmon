@@ -4,6 +4,7 @@ import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
 import { FirstRun } from './today/FirstRun';
+import { useOpening } from './today/opening';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
@@ -113,29 +114,10 @@ export function Today() {
 
   // The opening: the plate settles, then the new papers light one by one in
   // the order they arrived, their numbers in the index lighting with them.
-  const [lit, setLit] = useState(0);
-  const [openingDone, setOpeningDone] = useState(false);
+  // Without motion everything is lit from the start, and papers that arrive
+  // after the opening (a later read) are lit at once.
   const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const opened = useRef(false);
-  useEffect(() => {
-    if (still || opened.current || !sky || !today.data) return undefined;
-    opened.current = true;
-    const total = papers.length;
-    const step = Math.max(16, Math.min(90, 1_600 / total));
-    let shown = 0;
-    let timer = 0;
-    const tick = () => {
-      shown = Math.min(total, shown + Math.max(1, Math.round(16 / step)));
-      setLit(shown);
-      if (shown < total) timer = window.setTimeout(tick, step);
-      else setOpeningDone(true);
-    };
-    timer = window.setTimeout(tick, 420);
-    return () => window.clearTimeout(timer);
-  }, [still, sky, today.data, papers.length]);
-  // Without motion, everything is lit from the start; and papers that arrive
-  // after the opening (a refetch) are lit at once.
-  const litNow = still || openingDone || (sky && papers.length === 0) ? papers.length : lit;
+  const litNow = useOpening(papers.length, !!sky && !!today.data, still);
 
   const looked = useMutation({
     mutationFn: () => answer(engine().POST('/api/today/looked')),

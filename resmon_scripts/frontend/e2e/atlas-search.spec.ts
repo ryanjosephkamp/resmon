@@ -16,6 +16,7 @@
  * J29 and J38 drive the same screens through `journeys/drivers/atlas.ts`; this
  * spec is the part of that which runs on every pull request.
  */
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
@@ -122,12 +123,51 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(win.locator('.live-row[data-source="arxiv"]')).toHaveAttribute('data-state', 'answered');
     await expect(win.locator('.live-row[data-source="springer"]')).toHaveAttribute('data-state', 'not_queried');
     await expect(win.locator('.events')).toContainText('The run finished: completed.');
+    // Each event's time is the reader's local time, as the heading's is: a
+    // clock with AM or PM, never the stored UTC slice.
+    await expect(win.locator('.events li .num').first()).toHaveText(/^\d{1,2}:\d{2}:\d{2}\s(AM|PM)$/);
 
     // The tabs a run's record has.
     expect((await win.getByRole('tab').allInnerTexts()).map((t) => t.trim()))
       .toEqual(['Papers', 'Report', 'Search record', 'Log', 'Metadata', 'Progress']);
     await win.getByRole('tab', { name: 'Report' }).click();
     await expect(win.locator('.record-text.is-report')).toContainText(TITLE);
+
+    // The run's own record as files: the real downloads, with only each
+    // destination chosen here.
+    const downloadTo = (target: string) => app.evaluate(({ BrowserWindow }, where) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+        item.setSavePath(where as string);
+      });
+    }, target);
+    const contents = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+    const reportFile = path.join(stateDir, 'atlas-report.md');
+    await downloadTo(reportFile);
+    await win.locator('[data-record="save-report"]').click();
+    await expect.poll(() => contents(reportFile), { timeout: 30_000 }).toContain(TITLE);
+    await win.getByRole('tab', { name: 'Search record' }).click();
+    const recordFile = path.join(stateDir, 'atlas-search-record.md');
+    await downloadTo(recordFile);
+    await win.locator('[data-record="save-search-record"]').click();
+    await expect.poll(() => contents(recordFile), { timeout: 30_000 }).toMatch(/^# Search record/);
+
+    // The bundle is built by the engine and saved like the rest: a download,
+    // never a path the engine chose. Read with the backend's own interpreter.
+    const bundleFile = path.join(stateDir, 'atlas-bundle.zip');
+    await downloadTo(bundleFile);
+    await win.locator('[data-run="bundle"]').click();
+    await expect.poll(() => (fs.existsSync(bundleFile) ? fs.statSync(bundleFile).size : 0), { timeout: 60_000 }).toBeGreaterThan(0);
+    const members = JSON.parse(execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', `
+import json, sys, zipfile
+with zipfile.ZipFile(sys.argv[1]) as z:
+    assert z.testzip() is None
+    print(json.dumps(z.namelist()))
+`, bundleFile], { encoding: 'utf8' })) as string[];
+    for (const member of ['manifest.json', `execution_${runId}/metadata.json`, `execution_${runId}/search-record.md`]) {
+      expect(members, `the bundle has no ${member}`).toContain(member);
+    }
+    expect(members.some((m) => m.startsWith(`execution_${runId}/`) && m.endsWith('.md') && !m.endsWith('search-record.md')),
+      'the bundle carries no report').toBe(true);
 
     // Export: the real download, with only the destination chosen here.
     const destination = path.join(stateDir, 'atlas-search.bib');

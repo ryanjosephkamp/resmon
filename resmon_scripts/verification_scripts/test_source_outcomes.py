@@ -771,7 +771,8 @@ def test_engine_retains_records_and_surfaces_terminal_partial_issue(
         from pathlib import Path
         report = Path(result["report_path"]).read_text(encoding="utf-8")
         assert "## Sources with retained partial results" in report
-        assert "## Sources that returned nothing, and why" not in report
+        assert "## Sources that answered with nothing to keep" not in report
+        assert "## Sources that did not answer, and why" not in report
         assert note in report
     finally:
         conn.close()

@@ -131,6 +131,8 @@ const PANEL_WORDS: Record<string, string> = {
   not_queried: 'not queried',
   not_recorded: 'reason not recorded',
   error: 'error',
+  cancelled: 'cancelled',
+  not_reached: 'not asked',
 };
 
 /** A string as a regular expression that matches exactly it. */
@@ -1378,18 +1380,18 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const button = win().locator('[data-saved="export"]');
       await expect(button, 'the page did not choose what was ticked')
         .toHaveText(new RegExp(`^Export ${ofThisKind.length} `), { timeout: 15_000 });
-      const answered = win().waitForResponse(
-        (r) => r.url().endsWith('/api/configurations/export') && r.request().method() === 'POST',
-      );
+      // A download, as every other export in Atlas is: the save dialog is
+      // answered with a destination, and the bytes and the flow are the app's.
+      downloadsMade += 1;
+      const dir = path.join(fs.realpathSync(session.stateDir), 'downloads');
+      fs.mkdirSync(dir, { recursive: true });
+      const written = path.join(dir, `saved-configurations-${downloadsMade}.zip`);
+      await theNextDownloadGoesTo(written);
       await button.click();
-      const response = await answered;
-      expect(response.ok(), 'Export was refused').toBe(true);
-      const written = String((await response.json()).path ?? '');
-      // The path a person reads is the one they would hand back.
-      await expect(win().locator('[data-saved="exported"] code'), 'the page never said where the export went')
-        .toHaveText(written, { timeout: 30_000 });
-      expect(fs.existsSync(written), `the export names ${written}, which is not there`).toBe(true);
-      session.alsoRemoveOnClose(written);
+      await expect(win().locator('[data-saved="exported"]'), 'the page never said the export was made')
+        .toBeVisible({ timeout: 30_000 });
+      await theDownloadHasCompleted(written);
+      expect(fs.existsSync(written), `the export was never saved to ${written}`).toBe(true);
       // Read out member by member, as the classic driver does: the archive is
       // compressed, so a search of its bytes for a secret would pass for the
       // wrong reason.
@@ -1901,6 +1903,10 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const stopped = win().waitForResponse((r) => r.url().endsWith(`/api/executions/${run.id}/cancel`)
         && r.request().method() === 'POST');
       await win().getByRole('button', { name: 'Stop', exact: true }).click();
+      // A stop is cooperative, so from the click until the run ends the page
+      // says one was asked for. Read at once: the run may end soon after.
+      await expect(win().locator('[data-run="stopping"]'), 'Stop was pressed and the page did not say the run is stopping')
+        .toBeVisible({ timeout: 5_000 });
       expect((await stopped).status()).toBeLessThan(300);
     },
 
@@ -1966,7 +1972,12 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     restartRun: async (run) => {
       await openSearch();
       const row = win().locator(`.run-row[data-run="${run.id}"]`);
-      await row.getByRole('button', { name: 'Restart' }).click();
+      // Restart says what it will do before anything starts: the AI choice and
+      // where the run is sent are read, then the restart is confirmed.
+      await row.getByRole('button', { name: 'Restart…', exact: true }).click();
+      await expect(row.locator('[data-run="restart-facts"]'), 'Restart started a run without saying what it does')
+        .toContainText('Email and delivery', { timeout: 15_000 });
+      await row.getByRole('button', { name: 'Restart this run', exact: true }).click();
       let next = 0;
       await expect.poll(async () => {
         const rows = await backend.executions();
@@ -2038,7 +2049,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
           count: Number(((await group.locator('.ghead .n').innerText()).match(/[\d,]+/)?.[0] ?? '0').replace(/,/g, '')),
         });
       }
-      const notes = (await win().locator('.index-scroll [role="note"]').allInnerTexts()).map((t) => t.trim());
+      // One line per run, one part per outcome ("DBLP did not answer"); each
+      // source's own sentence is behind the line's Why, and is not read here.
+      const notes = (await win().locator('.index-scroll [role="note"] .trouble-part').allInnerTexts()).map((t) => t.trim());
       const numbers = (await win().locator('.entry .badge').allInnerTexts()).map(Number);
       const emptyLine = win().locator('.index-empty');
       const empty = (await emptyLine.count()) ? (await emptyLine.innerText()).trim() : null;

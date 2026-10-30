@@ -1,4 +1,6 @@
-import { daemonSentence, daemonState, groupPath, keychainName, unitKind, type DaemonStatus } from '../model';
+import {
+  daemonSentence, daemonState, groupPath, keychainName, restartRestores, unitKind, type BackupLast, type DaemonStatus,
+} from '../model';
 
 const NO_LOCK: DaemonStatus = {
   lock_present: false, running: false, pid: null, port: null, version: null, started_at: null,
@@ -9,7 +11,7 @@ describe('what is running in the background, from the lock file and its probe', 
   test('no lock is no daemon, and the sentence says what that means for watches', () => {
     expect(daemonState(NO_LOCK, 4567)).toBe('none');
     expect(daemonSentence(NO_LOCK, 'none', null))
-      .toBe('There is no daemon running, so your watches run only while a resmon window is open.');
+      .toBe('There is no daemon running, so nothing runs your watches on schedule: a resmon window does not run them itself.');
   });
 
   test('a lock that did not answer is not a running daemon, and the error is quoted', () => {
@@ -68,4 +70,23 @@ test('every Settings group has its own address, and the rail lists each once', a
   expect(new Set(slugs).size).toBe(slugs.length);
   expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'danger']);
   expect(groupPath('danger')).toBe('/settings/danger');
+});
+
+describe('Restart resmon now is offered only where restarting the app restores', () => {
+  const staged: BackupLast['pending_restore'] = {
+    bundle: '/backups/resmon-backup-1', manifest_sha256: 'abc', accept_fk_violations: false, staged_at_utc: '2026-10-29T21:02:46Z',
+  };
+
+  test('this window\'s own engine applies it on the next start', () => {
+    expect(restartRestores({ pending_restore: staged, pending_restore_runs_on: 'app_restart' })).toBe(true);
+  });
+
+  test('not where a service holds the database, nor with nothing staged or a pointer nobody can read', () => {
+    expect(restartRestores({ pending_restore: staged, pending_restore_runs_on: 'service_restart' })).toBe(false);
+    expect(restartRestores({ pending_restore: staged, pending_restore_runs_on: 'service_stopped' })).toBe(false);
+    expect(restartRestores({ pending_restore: null, pending_restore_runs_on: null })).toBe(false);
+    expect(restartRestores({
+      pending_restore: { bundle: null, manifest_sha256: null, unreadable: true }, pending_restore_runs_on: 'app_restart',
+    })).toBe(false);
+  });
 });

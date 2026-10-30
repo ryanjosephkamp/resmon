@@ -402,7 +402,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
       {problem && (
         <p className="conv-unavailable">
           {problem}{' '}
-          {!unreadable && <Link to="/settings/ai">Settings → AI</Link>}
+          {!unreadable && <Link to="/settings/ai">Open Settings › AI</Link>}
         </p>
       )}
       <form className="conv-composer" onSubmit={submit}>
@@ -478,7 +478,8 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
         </div>
       )}
       {value && api && <p className="conv-quiet conv-no-effort">Effort: not supported by this connection.</p>}
-      {connection && <p className="conv-quiet conv-reason">{connection.reason}</p>}
+      {/* An unavailable connection's reason is said once, below, beside the way to Settings › AI. */}
+      {connection?.available && <p className="conv-quiet conv-reason">{connection.reason}</p>}
       {!value && choices.default_error && <p className="conv-quiet">{choices.default_error}</p>}
       <details className="conv-limits">
         <summary>What these choices establish</summary>

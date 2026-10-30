@@ -539,6 +539,21 @@ def estimate_disk_bytes(dims: Optional[int], documents: int) -> Optional[int]:
     return int(dims * 4 * _DISK_BYTES_PER_PAYLOAD_BYTE * documents)
 
 
+def dimensional(dims: int) -> str:
+    """``a 768-dimensional`` or ``an 8-dimensional``: the article a reader says.
+
+    The article follows the number as it is read aloud, which is decided by its
+    leading group of three digits: one beginning with eight ("eight", "eighty",
+    "eight hundred", "eight thousand") or reading "eleven" or "eighteen" takes
+    "an"; every other number begins with a consonant sound.
+    """
+    lead = abs(int(dims))
+    while lead >= 1000:
+        lead //= 1000
+    article = "an" if str(lead).startswith("8") or lead in (11, 18) else "a"
+    return f"{article} {dims}-dimensional"
+
+
 def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
     """What a backfill will cost, before it starts. ``None`` where resmon cannot say.
 
@@ -551,8 +566,10 @@ def estimate_cost(lane: EmbeddingLane, texts: Sequence[str]) -> dict:
     # Disk is charged whatever the lane costs in money, so it is computed once,
     # above the branch. A local model is free and still fills the disk.
     disk = estimate_disk_bytes(lane.dims, len(texts))
+    # Below one MiB the rounded figure is "0", which reads as no growth at all.
     disk_note = (
-        f"About {disk / 1_048_576:.0f} MiB of database growth "
+        ("Less than 1 MiB" if disk < 1_048_576 else f"About {disk / 1_048_576:.0f} MiB")
+        + " of database growth "
         f"({lane.dims}-dimensional vectors, stored once in a plain table and once in "
         f"the search index). Estimated from a real corpus ({_DISK_MEASURED_ON})."
         if disk is not None else
@@ -824,7 +841,7 @@ def _validated(vector: Any) -> list[float]:
         )
     if len(vector) > MAX_DIMS:
         raise EmbeddingUnavailable(
-            f"The provider returned a {len(vector)}-dimensional vector, beyond the "
+            f"The provider returned {dimensional(len(vector))} vector, beyond the "
             f"{MAX_DIMS} resmon will store. Check the model name."
         )
     try:
@@ -906,5 +923,5 @@ def probe_lane(lane: Optional[EmbeddingLane]) -> dict:
         "ok": True,
         "dims": dims,
         "model": lane.model,
-        "reason": f"{lane.model} answered with a {dims}-dimensional vector.",
+        "reason": f"{lane.model} answered with {dimensional(dims)} vector.",
     }

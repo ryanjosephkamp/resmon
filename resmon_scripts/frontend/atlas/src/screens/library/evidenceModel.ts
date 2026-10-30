@@ -9,7 +9,8 @@
  * passage that does not match. The same rules as the classic reader's
  * `selectionAnchor` and `resolveSaved`, which go at the switch-over.
  */
-import type { Anchor, Note, PageText } from './evidenceApi';
+import { EngineError } from '../../api/client';
+import { EvidenceRefusal, type Anchor, type Note, type PageText } from './evidenceApi';
 
 /** The anchor for a selection in a page's text, or null where none can be pinned. */
 export function selectionAnchor(page: PageText, start: number, end: number): Anchor | null {
@@ -96,3 +97,25 @@ export const PAGE_STATUS: Record<string, string> = {
   timeout: 'Reading this page took too long, so it was stopped.',
   unavailable: 'This page could not be read.',
 };
+
+/**
+ * What a refused export means for the person exporting, by the engine's
+ * reason. A refusal of the request's shape (`invalid_body`) or of its choice
+ * of files is a choice that no longer matches the project; a changed project
+ * is read again. Anything else is the engine's own sentence.
+ */
+export function bundleRefusal(error: unknown): string {
+  const reason = error instanceof EvidenceRefusal ? error.reason : null;
+  switch (reason) {
+    case 'invalid_body':
+    case 'invalid_selection':
+    case 'selection_limit':
+    case 'duplicate_selection':
+    case 'not_member':
+      return 'resmon could not build the archive from this choice: it must name 1 to 20 of the files this project holds now, each once. Check the files ticked above, then save again.';
+    case 'stale_revision':
+      return 'The project changed after this choice was made, so nothing was saved. It has been read again; check the files ticked above, then save again.';
+    default:
+      return error instanceof EngineError && error.detail ? error.detail : error instanceof Error ? error.message : String(error);
+  }
+}

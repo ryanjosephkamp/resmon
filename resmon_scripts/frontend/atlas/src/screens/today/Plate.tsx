@@ -270,9 +270,14 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     }
     const free = (x: number, y: number, w: number, h: number) =>
       !placed.some(([px, py, pw, ph]) => x < px + pw && px < x + w && y < py + ph && py < y + h);
-    ctx.font = '500 10.5px "Geist Variable", sans-serif';
+    // A name sits over the densest part of the plate, so it is drawn in the
+    // second ink rather than the third, a size up, on a wider halo of the
+    // plate's own ground: in the third ink the dots showed through and dense
+    // regions' names were hard to read in either theme.
+    ctx.font = '560 11px "Geist Variable", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
     const byShown = [...rs].sort((a, c) => c.size - a.size);
     for (const region of byShown) {
       const screenR = region.r * v.scale;
@@ -282,10 +287,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       const width = ctx.measureText(region.label).width + 8;
       if (!free(rx - width / 2, ly - 8, width, 16)) continue;
       placed.push([rx - width / 2, ly - 8, width, 16]);
-      ctx.lineWidth = 3;
+      ctx.lineWidth = 4.5;
       ctx.strokeStyle = p.plate;
       ctx.strokeText(region.label, rx, ly);
-      ctx.fillStyle = p.ink3;
+      ctx.fillStyle = p.ink2;
       ctx.fillText(region.label, rx, ly);
     }
 
@@ -305,7 +310,9 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ctx.fillText(w.name, wx, ly);
     }
 
-    // Last night's papers: ringed and numbered, as far as the opening has lit
+    ctx.lineJoin = 'miter';
+
+    // The new papers: ringed and numbered, as far as the opening has lit
     // them. Rings shrink with the sky's crowding too, down to a size still
     // read as a ring.
     const ring = Math.min(5.5, Math.max(3, spacing * 1.4));

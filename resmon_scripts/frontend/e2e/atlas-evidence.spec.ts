@@ -258,6 +258,24 @@ with zipfile.ZipFile(sys.argv[1]) as z:
       expect(read.manifest + read.notes, `${left} is in an archive that did not choose it`).not.toContain(left);
     }
 
+    // — the export panel keeps in step with the project -------------------------------------
+    // The chosen file taken out while the panel is open: its choice and its
+    // bytes go with it, and Save waits for a file that is still here.
+    const include = bundle.locator('label.choice', { hasText: 'Include the files themselves' });
+    await expect(include).toContainText('recorded');
+    await members.filter({ hasText: 'unicode.txt' }).click();
+    await reader.getByRole('button', { name: 'Remove from project' }).click();
+    await expect(members).toHaveCount(1, { timeout: 30_000 });
+    await expect(bundle.locator('label.choice', { hasText: 'unicode.txt' })).toHaveCount(0);
+    await expect(bundle.getByRole('button', { name: 'Save the archive' })).toBeDisabled();
+    await expect(include).not.toContainText('recorded');
+    // With no file left there is nothing to export, so the panel goes.
+    await members.filter({ hasText: 'image-only.pdf' }).click();
+    await reader.getByRole('button', { name: 'Remove from project' }).click();
+    await expect(members).toHaveCount(0, { timeout: 30_000 });
+    await expect(bundle).toHaveCount(0);
+    await expect(win.getByRole('button', { name: 'Export selected evidence', exact: true })).toBeDisabled();
+
     expect(problems).toEqual([]);
   } finally {
     await app.close();

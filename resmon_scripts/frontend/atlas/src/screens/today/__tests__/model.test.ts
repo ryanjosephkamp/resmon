@@ -1,7 +1,33 @@
+import { listWords, troubleParts } from '../format';
 import {
   GRID, buildSky, contour, density, emptiestCorner, epochDay, gridCell, rampClass, spanningTree, watchShape,
   type MapPoints, type MapRegion,
 } from '../model';
+
+describe('a run’s sources that did not answer, as one line', () => {
+  test('grouped by what happened, each group named once, failures before unknowns', () => {
+    const parts = troubleParts([
+      { name: 'arXiv', category: 'non_answer', label: 'did not answer' },
+      { name: 'DBLP', category: 'non_answer', label: 'could not answer this window' },
+      { name: 'Crossref', category: 'unknown', label: 'zero, reason not recorded' },
+      { name: 'DOAJ', category: 'non_answer', label: 'did not answer' },
+      { name: 'IEEE Xplore', category: 'non_answer', label: 'withdrawn' },
+      { name: 'PLOS', category: 'non_answer', label: 'did not answer' },
+    ]);
+    expect(parts.map((p) => [p.category, p.text])).toEqual([
+      ['non_answer', 'arXiv, DOAJ, and PLOS did not answer'],
+      ['non_answer', 'DBLP could not answer this window'],
+      ['non_answer', 'IEEE Xplore was withdrawn'],
+      ['unknown', 'Crossref: zero, reason not recorded'],
+    ]);
+  });
+
+  test('two names take "and", and one stands alone', () => {
+    expect(listWords(['arXiv', 'DOAJ'])).toBe('arXiv and DOAJ');
+    expect(listWords(['arXiv'])).toBe('arXiv');
+    expect(troubleParts([])).toEqual([]);
+  });
+});
 
 function sky(points: [number, number][], seen: number[] = points.map(() => 100)) {
   const map: MapPoints = {

@@ -61,6 +61,7 @@ from datetime import datetime, timedelta, timezone
 from statistics import median
 
 from . import analytics
+from .api_registry import RETIRED_REPOSITORIES
 
 # --- Source thresholds -----------------------------------------------------
 
@@ -397,6 +398,15 @@ def _failure_detail(run: dict) -> str:
     return "the source did not answer"
 
 
+def _retired_reason(run: dict) -> str:
+    """The withdrawal reason a run recorded, for a source this build no longer lists."""
+    try:
+        detail = json.loads(run.get("zero_detail") or "{}")
+    except (ValueError, TypeError):
+        return ""
+    return str(detail.get("detail") or "") if isinstance(detail, dict) else ""
+
+
 def _check_sources(
     history: dict[str, list[dict]],
     active_sources: dict[str, list[str]],
@@ -445,7 +455,7 @@ def _check_sources(
                         "results — resmon checks for the key before querying."
                     ),
                     what_to_do=(
-                        "Add the key under Repositories & API Keys, or remove "
+                        "Add the key under Settings › Sources, or remove "
                         f"{source} from the routines that select it."
                     ),
                     evidence={
@@ -474,6 +484,56 @@ def _check_sources(
             )
             last_ok_at = _parse_ts(last_ok["start_time"]) if last_ok else None
             since = _humanise_days(_days_between(last_ok_at, now)) if last_ok_at else None
+            evidence = {
+                "consecutive_errors": consecutive_errors,
+                # The same clause the detail quotes. ``error_message`` alone
+                # is empty for an outage recorded as ``ok / 0`` -- nothing
+                # raised -- so the card said "HTTP 400" in its sentence and
+                # showed no most recent error beside it.
+                "last_error": _failure_detail(latest),
+                "last_zero_reason": latest.get("zero_reason"),
+                "last_success_at": last_ok["start_time"] if last_ok else None,
+                "runs_recorded": len(runs),
+            }
+
+            # A withdrawn source is not down and needs no key: resmon declines
+            # to ask it, by decision, and will not ask it again. Advice to
+            # check whether it is reachable would send the user after a fault
+            # that does not exist.
+            withdrawn = RETIRED_REPOSITORIES.get(source)
+            if withdrawn is None and latest.get("zero_reason") == "retired":
+                withdrawn = _retired_reason(latest)
+            if withdrawn is not None:
+                still_selected = active_sources.get(source)
+                findings.append(_finding(
+                    key=f"source_errors:{source}",
+                    severity="broken",
+                    kind="source_errors",
+                    scope={"type": "source", "id": source},
+                    title=f"{source} was withdrawn from resmon",
+                    # True whatever ended each run in the streak: some may
+                    # have been real failures from before the withdrawal.
+                    detail=(
+                        f"{source} has been withdrawn, and resmon got nothing "
+                        f"from it on each of its last {consecutive_errors} runs. "
+                        + (withdrawn or "")
+                    ).strip(),
+                    what_to_do=(
+                        f"Remove {source} from "
+                        + _join_names(still_selected)
+                        + (", which still selects it." if len(set(still_selected)) == 1
+                           else ", which still select it.")
+                        + " Nothing about the source needs checking: it will "
+                        "not be asked again."
+                        if still_selected else
+                        f"No active routine selects {source} any more, so no "
+                        "future run will ask for it and nothing needs changing. "
+                        "Mute this if the record of those runs is no longer useful."
+                    ),
+                    evidence=evidence,
+                ))
+                continue
+
             findings.append(_finding(
                 key=f"source_errors:{source}",
                 severity="broken",
@@ -501,13 +561,7 @@ def _check_sources(
                     "needs is still valid. Until it answers, results from it are "
                     "missing from every routine that selects it."
                 ),
-                evidence={
-                    "consecutive_errors": consecutive_errors,
-                    "last_error": latest.get("error_message"),
-                    "last_zero_reason": latest.get("zero_reason"),
-                    "last_success_at": last_ok["start_time"] if last_ok else None,
-                    "runs_recorded": len(runs),
-                },
+                evidence=evidence,
             ))
             continue
 
@@ -680,8 +734,8 @@ def _check_routines(
                 ),
                 what_to_do=(
                     "Check that resmon's background service is running "
-                    "(Settings → Advanced). Reactivating the routine on the "
-                    "Routines page re-registers its schedule."
+                    "(Settings › In the background). Pausing and resuming the "
+                    "watch on its page re-registers its schedule."
                 ),
                 evidence={
                     "last_run_at": runs[0]["start_time"],

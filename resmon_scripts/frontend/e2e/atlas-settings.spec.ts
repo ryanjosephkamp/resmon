@@ -104,6 +104,10 @@ test('Settings and Saved: what runs in the background, email and its password, n
     await expect(service.locator('[data-service="status"]')).toContainText('Not installed');
     await expect(service.locator('[data-service="unit-path"]')).toContainText(units);
     await expect(service.locator('[data-service="running"]')).toContainText('There is no daemon running');
+    // This window's engine runs no scheduler, so the sentence must not promise
+    // that watches run while it is open.
+    await expect(service.locator('[data-service="running"]')).toContainText('nothing runs your watches on schedule');
+    await expect(service).not.toContainText('only while a resmon window is open');
     const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     await expect(service.locator('[data-service="window"]')).toContainText(`127.0.0.1:${port}`);
     await expect(service.locator('[data-service="window"]')).toContainText('an engine it started itself');
@@ -191,12 +195,24 @@ test('Settings and Saved: what runs in the background, email and its password, n
     await expect(copy).toHaveCount(1);
     await expect(copy.getByRole('link', { name: 'Open the watch' })).toHaveAttribute('href', `#/watches/${watchId}`);
 
+    // Export is a download, like every other export: the system is asked where
+    // it goes, and only that destination is chosen here. The engine's own
+    // export route, which writes wherever it likes, is never called.
     await search.locator('.saved-pick input').check();
-    const exported = win.waitForResponse((r) => r.url().endsWith('/api/configurations/export'));
+    const archive = path.join(stateDir, 'saved-export.zip');
+    let askedTheEngineToWrite = false;
+    win.on('request', (r) => { if (r.url().endsWith('/api/configurations/export')) askedTheEngineToWrite = true; });
+    await app.evaluate(({ BrowserWindow }, target) => {
+      BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
+        item.setSavePath(target as string);
+      });
+    }, archive);
     await win.locator('[data-saved="export"]').click();
-    const archive = String(((await (await exported).json()) as { path: string }).path);
-    await expect(win.locator('[data-saved="exported"] code')).toHaveText(archive);
-    expect(fs.existsSync(archive)).toBe(true);
+    await expect(win.locator('[data-saved="exported"]')).toContainText('Put 1 saved search into', { timeout: 30_000 });
+    await expect(win.locator('[data-saved="exported"] code')).toHaveText(/^resmon-saved-\d{8}T\d{6}\.zip$/);
+    await expect.poll(() => (fs.existsSync(archive) ? fs.statSync(archive).size : 0), { timeout: 30_000 }).toBeGreaterThan(0);
+    expect(fs.readFileSync(archive).subarray(0, 4).join(',')).toBe('80,75,3,4');
+    expect(askedTheEngineToWrite).toBe(false);
 
     const chooser = win.waitForEvent('filechooser');
     await win.locator('[data-saved="import"]').click();

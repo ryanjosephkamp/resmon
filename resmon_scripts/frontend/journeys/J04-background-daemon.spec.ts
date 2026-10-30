@@ -51,6 +51,11 @@ journey.describe('J04 Background daemon', () => {
     expect(daemon.running, 'the probe found a daemon this app should not be able to see').toBe(false);
     expect(daemon.pid ?? null, 'the probe claimed a process id for a daemon that is not running').toBe(null);
     expect(panel.text, 'the panel does not say whether a daemon is running').toContain('no daemon running');
+    // A window's own backend is started with its scheduler off, so with no
+    // daemon nothing runs a routine on schedule; the panel must not say a
+    // window being open is enough.
+    expect(panel.text, 'the panel promises routines run while a window is open')
+      .not.toMatch(/run only while a resmon window is open/i);
 
     // And the window is talking to its own backend, not to anybody's daemon.
     const port = await resmon.backend.port();

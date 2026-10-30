@@ -14,7 +14,7 @@ The table below lists the 26 active sources registered in the repository catalog
 |---|---|---|---|---|
 | arXiv | REST (Atom XML) | Not required | 0.33 req/s (1 per 3 s) | Physics, Math, CS, Quant-bio, Stats, EE, Econ |
 | bioRxiv | REST (JSON) | Not required | 2.0 req/s | Life-sciences preprints |
-| CORE | REST (JSON) | Required (Bearer) | 5.0 req/s | Multi-disciplinary open access |
+| CORE | REST (JSON) | Required (Bearer) | 0.167 req/s (1 per 6 s) | Multi-disciplinary open access |
 | CrossRef | REST (JSON) | Not required | 10.0 req/s (polite pool) | All disciplines (DOI-indexed) |
 | DataCite | REST (JSON:API) | Not required | 1.5 req/s | All disciplines, especially data, software, dissertations, and other DOI outputs |
 | DBLP | REST (JSON) | Not required | 2.0 req/s | Computer science |

@@ -47,7 +47,8 @@ class SemanticScholarClient(BaseAPIClient):
         Scholar id in its identifiers would skip this step, which is why the
         field is in the model.
         """
-        from .api_base import EntityUnsupported, _profile_query_name  # noqa: PLC0415
+        from .api_base import (  # noqa: PLC0415
+            EntityUnsupported, _profile_query_name, note_author_query)
 
         name = _profile_query_name(profile)
         if not name:
@@ -59,6 +60,7 @@ class SemanticScholarClient(BaseAPIClient):
                           .get("semantic_scholar") or {}).get("value") or "")
 
         author_id = native
+        note_author_query("semantic_scholar" if native else "author", native or name)
         if not author_id:
             response = safe_request(
                 "GET", "https://api.semanticscholar.org/graph/v1/author/search",

@@ -255,8 +255,9 @@ class BaseAPIClient(ABC):
         if not name:
             raise EntityUnsupported(
                 "That profile has no name to search with.")
-        return self.search(capability.author_syntax.format(name=name),
-                           date_from, date_to, max_results, **kwargs)
+        query = capability.author_syntax.format(name=name)
+        note_author_query("query", query)
+        return self.search(query, date_from, date_to, max_results, **kwargs)
 
     def _catalog_slug(self) -> str:
         """This client's catalog slug, from the registry rather than a constant.
@@ -608,6 +609,10 @@ class SearchOutcome:
     explicit_detail: dict | None = None
     failure_history: list[str] = field(default_factory=list)
     failure_history_omitted: int = 0
+    # What a person query put into the request, as ``{"kind", "value"}``; see
+    # ``note_author_query``. Written by the client that builds the request,
+    # because only it knows which of the profile's facts it used.
+    author_query: dict | None = None
 
     def reset(self) -> None:
         self.attempts = 0
@@ -620,6 +625,7 @@ class SearchOutcome:
         self.explicit_detail = None
         self.failure_history = []
         self.failure_history_omitted = 0
+        self.author_query = None
 
     # -- written by safe_request ------------------------------------------
 
@@ -716,6 +722,7 @@ class SearchOutcome:
             "explicit_detail": dict(self.explicit_detail) if self.explicit_detail else None,
             "failure_history": list(self.failure_history),
             "failure_history_omitted": self.failure_history_omitted,
+            "author_query": dict(self.author_query) if self.author_query else None,
         }
 
 
@@ -748,6 +755,20 @@ def note_entity_unsupported(why: str = "no_author_query") -> None:
     surface with no per-caller edit.
     """
     search_outcome().note_unanswerable_entity(why)
+
+
+def note_author_query(kind: str, value: str) -> None:
+    """Record what this search's person query put into the request.
+
+    ``kind`` is ``query`` (the whole query string), ``author`` (a name in the
+    source's author parameter or author search), ``orcid`` or
+    ``semantic_scholar`` (an author id). Called by the client as it builds the
+    request, so the search record states what was sent rather than what the
+    profile held: a client may ask by an identifier instead of the name.
+    """
+    if kind not in ("query", "author", "orcid", "semantic_scholar"):
+        raise ValueError(f"unknown author query kind {kind!r}")
+    search_outcome().author_query = {"kind": kind, "value": str(value)}
 
 
 def note_unanswerable(why: str) -> None:

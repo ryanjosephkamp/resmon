@@ -493,11 +493,17 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
 
     conn = _conn(fired)
     try:
-        status = conn.execute("SELECT status FROM executions "
-                              "ORDER BY id DESC LIMIT 1").fetchone()["status"]
+        row = conn.execute("SELECT status, result_path FROM executions "
+                           "ORDER BY id DESC LIMIT 1").fetchone()
     finally:
         resmon_mod._close_db(conn)
-    assert status == "cancelled"
+    assert row["status"] == "cancelled"
+    # The run leaves a report, and it cannot be read as a check that found nothing.
+    report = Path(row["result_path"]).read_text(encoding="utf-8")
+    assert report.startswith("# Watch report — ")
+    assert "(cancelled)" in report.splitlines()[0]
+    assert "cancelled before it checked any paper" in report
+    assert "## Findings" not in report
 
 
 # ---------------------------------------------------------------------------

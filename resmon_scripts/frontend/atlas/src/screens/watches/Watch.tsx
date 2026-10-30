@@ -8,11 +8,14 @@ import { RUNS_KEY } from '../runs/RunLog';
 import { count, number, when } from '../today/format';
 import { CoverageTab } from './CoverageTab';
 import { DeliveryTab } from './DeliveryTab';
-import { useCalendar } from './MonthAhead';
-import { Nights } from './Nights';
-import { useWatchPapers } from './Watches';
 import {
-  CALENDAR_KEY, WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, type Routine,
+  SCHEDULER_KEY, firingNotice, firingOf, firingState, nextWords, type Firing, type FiringNotice,
+} from './firing';
+import { useCalendar } from './MonthAhead';
+import { RunHistory } from './RunHistory';
+import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from './Watches';
+import {
+  CALENDAR_KEY, WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
 } from './model';
 
 const TABS = ['What it finds', 'Where reports go', 'Schedule'] as const;
@@ -23,9 +26,10 @@ type SwitchColumn = 'notify_on_complete' | 'email_enabled';
 
 /**
  * One watch: what it asks and when, its constellation (every paper its runs
- * collected, marked where it sits in the collection, the latest night's
- * ringed), its nights, and its record: whether it finds what was meant, where
- * its reports went, and when it fires.
+ * collected, marked where it sits in the collection, the latest run's
+ * ringed), its runs, and its record: whether it finds what was meant, where
+ * its reports went, and when it is due. "Next" is said only where something
+ * will run it (`firing.ts`); otherwise the page says what stands in the way.
  *
  * **Run now** is on every watch, paused or not. The engine runs a paused
  * watch once when asked, and says so; it refuses a second run while one is
@@ -52,16 +56,16 @@ function WatchPage({ raw }: { raw: string }) {
     enabled: Number.isInteger(id) && id > 0,
     queryFn: () => answer(engine().GET('/api/routines/{routine_id}', { params: { path: { routine_id: id } } })),
   });
-  const nights = useQuery({
+  const history = useQuery({
     queryKey: ['routine-runs', id],
     enabled: routine.isSuccess,
     queryFn: () => answer(engine().GET('/api/executions', { params: { query: { routine_id: id, limit: 60 } } })),
     refetchInterval: (query) => ((query.state.data ?? []).some((run) => run.status === 'running') ? 1_500 : false),
   });
-  const running = (nights.data ?? []).find((run) => run.status === 'running') ?? null;
-  const latest = (nights.data ?? []).find((run) => run.status !== 'running') ?? null;
+  const running = (history.data ?? []).find((run) => run.status === 'running') ?? null;
+  const latest = (history.data ?? []).find((run) => run.status !== 'running') ?? null;
   const papers = useWatchPapers(routine.isSuccess ? id : null);
-  const lastNight = useQuery({
+  const latestPapers = useQuery({
     queryKey: ['run-papers-ids', latest?.id],
     enabled: !!latest,
     queryFn: () => answer(engine().GET('/api/executions/{exec_id}/documents', {
@@ -69,6 +73,7 @@ function WatchPage({ raw }: { raw: string }) {
     })),
   });
   const calendar = useCalendar(now);
+  const status = useSchedulerStatus();
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -79,6 +84,7 @@ function WatchPage({ raw }: { raw: string }) {
     void client.invalidateQueries({ queryKey: ['routine', id] });
     void client.invalidateQueries({ queryKey: WATCHES_KEY });
     void client.invalidateQueries({ queryKey: CALENDAR_KEY });
+    void client.invalidateQueries({ queryKey: SCHEDULER_KEY });
   };
   const schedule = useMutation({
     mutationFn: (active: boolean) => answer(active
@@ -122,12 +128,15 @@ function WatchPage({ raw }: { raw: string }) {
   const asks = watchAsks(data.parameters);
   const words = scheduleText(data.schedule_cron, data.parameters);
   const fires = promisedFires(calendar.data ?? [], id, now);
-  const ringed = (lastNight.data?.papers ?? []).map((p) => p.id);
+  const ringed = (latestPapers.data?.papers ?? []).map((p) => p.id);
   const sourceNames = asks.sources.map((s) => names.get(s) ?? s);
+  const firing: Firing = data.is_active ? firingOf(status.data, id) : undefined;
+  const due = data.is_active ? nextWords(firing, fires[0] ? when(fires[0].start, now) : null) : null;
+  const notice = data.is_active && status.data ? firingNotice(status.data, id) : null;
 
   return (
     <div className="run watch-page" data-routine={data.id} data-active={data.is_active ? 'true' : 'false'}
-      aria-busy={routine.isFetching}>
+      data-firing={data.is_active ? firingState(firing) : undefined} aria-busy={routine.isFetching}>
       <header className="run-head">
         <Link to="/watches" className="back"><Icon name="back" size={14} />Watches</Link>
         <div className="run-headline">
@@ -146,10 +155,10 @@ function WatchPage({ raw }: { raw: string }) {
           <span className="watch-state" data-active={data.is_active ? 'true' : 'false'}>{data.is_active ? 'Watching' : 'Paused'}</span>
           <span className="sep" />
           {words ? <span>{words}</span> : <code className="cron">{data.schedule_cron}</code>}
-          {data.is_active && fires[0] && (<><span className="sep" /><span>next {when(fires[0].start, now)}</span></>)}
+          {due && (<><span className="sep" /><span className="watch-next" data-firing={firingState(firing)}>{due}</span></>)}
           <span className="sep" />
           <span title={sourceNames.join(', ')}>
-            {asks.person ? 'a person' : `“${asks.query || asks.keywords.join(', ')}”`} in{' '}
+            {asks.person ? 'a person' : (asks.query || asks.keywords.join(', ')) ? `“${asks.query || asks.keywords.join(', ')}”` : 'no words'} in{' '}
             {sourceNames.length > 4
               ? `${sourceNames.slice(0, 3).join(', ')} and ${sourceNames.length - 3} more`
               : sourceNames.join(', ') || 'no sources'}
@@ -160,6 +169,8 @@ function WatchPage({ raw }: { raw: string }) {
             </Link></>
           )}
         </div>
+        {notice && <FiringNote notice={notice} />}
+        <WatchWarnings id={data.id} warnings={watchWarnings(data.parameters, now)} />
         {saved && !said && <p className="run-note" role="status" data-editor="said">{saved}</p>}
         {said && (
           said.run !== null
@@ -196,7 +207,7 @@ function WatchPage({ raw }: { raw: string }) {
             return `Its papers: ${share}.${night}`;
           }}
         />
-        <Nights runs={nights.data ?? null} now={now} names={names} />
+        <RunHistory runs={history.data ?? null} now={now} names={names} />
       </div>
 
       <section className="run-record" aria-label="The watch's record">
@@ -211,7 +222,7 @@ function WatchPage({ raw }: { raw: string }) {
         <div className="run-panel" role="tabpanel" id="watch-tab-panel" aria-labelledby={`watch-tab-${tab}`}>
           {tab === 'What it finds' && <CoverageTab routine={data} />}
           {tab === 'Where reports go' && <DeliveryTab routineId={id} emailOn={data.email_enabled} />}
-          {tab === 'Schedule' && <ScheduleTab routine={data} fires={fires} now={now} />}
+          {tab === 'Schedule' && <ScheduleTab routine={data} fires={fires} now={now} firing={firing} notice={notice} />}
         </div>
       </section>
     </div>
@@ -230,7 +241,9 @@ function Switch({ label, column, on, busy, onFlip }: {
   );
 }
 
-function ScheduleTab({ routine, fires, now }: { routine: Routine; fires: ReturnType<typeof promisedFires>; now: Date }) {
+function ScheduleTab({ routine, fires, now, firing, notice }: {
+  routine: Routine; fires: ReturnType<typeof promisedFires>; now: Date; firing: Firing; notice: FiringNotice | null;
+}) {
   const words = scheduleText(routine.schedule_cron, routine.parameters);
   const missed = routine.missed_fire_details;
   const created = instant(routine.created_at);
@@ -241,7 +254,8 @@ function ScheduleTab({ routine, fires, now }: { routine: Routine; fires: ReturnT
         <code className="cron">{routine.schedule_cron}</code>.
         {created && ` Made ${when(created.toISOString(), now)}.`}
       </p>
-      <h3 className="record-sub">Next fires</h3>
+      <h3 className="record-sub">{firing === true || !routine.is_active ? 'Next fires' : 'When it is due'}</h3>
+      {routine.is_active && notice && <FiringNote notice={notice} />}
       {routine.is_active
         ? (
           <ol className="next-fires">

@@ -36,7 +36,7 @@
       "subject_coverage": "Multi-disciplinary OA",
       "website": "https://core.ac.uk",
       "api_key_requirement": "required",
-      "rate_limit": "5.0 req/s (subject to per-key daily quota)",
+      "rate_limit": "0.167 req/s (1 per 6 s)",
       "keyword_combination": "Relevance-ranked (Lucene OR default)",
       "date_granularity": "day",
       "attribution": "Powered by CORE",

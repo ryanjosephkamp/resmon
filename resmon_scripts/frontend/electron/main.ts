@@ -403,6 +403,27 @@ function backendSpawnSpec(
   };
 }
 
+/**
+ * Stop the engine this window started and wait for it to exit (20 s, then it
+ * is killed), so the next start finds the database, the port, and the lock
+ * free. An engine this window only attached to is the service's, and is left.
+ */
+function stopOwnBackend(): Promise<void> {
+  const engine = backendProcess;
+  if (!engine || attachedToDaemon || engine.exitCode !== null || engine.signalCode !== null) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const deadline = setTimeout(() => engine.kill('SIGKILL'), 20_000);
+    engine.once('exit', () => {
+      clearTimeout(deadline);
+      if (backendProcess === engine) backendProcess = null;
+      resolve();
+    });
+    engine.kill('SIGTERM');
+  });
+}
+
 /** Spawn the Python backend and return the child process. */
 function startBackend(port: number, token: string, rendererOrigin: string): ChildProcess {
   const { scriptDir, pythonPath } = backendLocation();
@@ -1180,18 +1201,34 @@ app.whenReady().then(async () => {
     // it is still "" (observed under Playwright), and a handler that throws
     // never sets `returnValue`, which leaves the renderer blocked in sendSync.
     // The Blog <webview> and link windows have no preload and are refused anyway.
+    const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => {
+      const frame = event.senderFrame;
+      return mainWindow !== null
+        && event.sender === mainWindow.webContents
+        && frame !== null && frame === mainWindow.webContents.mainFrame
+        && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
+    };
     ipcMain.on('resmon:backend-connection', (event) => {
       let answer: { port: string; token: string | null } | null = null;
       try {
-        const frame = event.senderFrame;
-        const fromRenderer = mainWindow !== null
-          && event.sender === mainWindow.webContents
-          && frame !== null && frame === mainWindow.webContents.mainFrame
-          && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
-        if (fromRenderer && backendPort !== null) answer = { port: String(backendPort), token: backendToken };
+        if (fromRenderer(event) && backendPort !== null) answer = { port: String(backendPort), token: backendToken };
       } finally {
         event.returnValue = answer;
       }
+    });
+
+    // IPC: quit and open again, for the restore staged in Settings › Backup,
+    // which runs as a backend starts. Answered only to the renderer's own top
+    // frame, as above, and never in the service, whose engine outlives its
+    // windows. This window's own engine is stopped and waited for before the
+    // relaunch, so the next start's restore never moves the database while
+    // the old engine still has it open.
+    ipcMain.handle('resmon:relaunch', async (event) => {
+      if (SERVICE || !fromRenderer(event)) return false;
+      await stopOwnBackend();
+      app.relaunch();
+      app.quit();
+      return true;
     });
 
     // IPC: choose a directory via native folder picker.

@@ -1,12 +1,13 @@
 import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { answer, engine } from '../../api/client';
+import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
 import { authors, number } from '../today/format';
+import { saveReport, saveSearchRecord } from './downloads';
 import { Markdown } from './markdown';
-import type { LiveSource, ProgressEvent, Run } from './model';
+import { absentRecordWords, dayAndTime, eventTime, storedInstant, type LiveSource, type ProgressEvent, type Run } from './model';
 import { LivePanel } from './LivePanel';
 
 /** One of a run's papers, with its place in the reading queue. */
@@ -47,8 +48,8 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
         {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
-        {tab === 'Report' && <TextRecord id={run.id} kind="report" running={running} />}
-        {tab === 'Log' && <TextRecord id={run.id} kind="log" running={running} />}
+        {tab === 'Report' && <TextRecord run={run} kind="report" running={running} />}
+        {tab === 'Log' && <TextRecord run={run} kind="log" running={running} />}
         {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}
         {tab === 'Metadata' && <Metadata run={run} />}
         {tab === 'Progress' && <Progress live={live} names={names} events={events} />}
@@ -105,7 +106,14 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
   );
 }
 
-function TextRecord({ id, kind, running }: { id: number; kind: 'report' | 'log'; running: boolean }) {
+/**
+ * The report or the log, as resmon wrote it. Where there is none, the tab
+ * says why in the run's own terms (still going, stopped, interrupted, or a
+ * file that has gone from where it was written), never as a route and a
+ * status code.
+ */
+function TextRecord({ run, kind, running }: { run: Run; kind: 'report' | 'log'; running: boolean }) {
+  const id = run.id;
   const text = useQuery({
     queryKey: ['run-text', id, kind, running],
     queryFn: async () => (kind === 'report'
@@ -115,15 +123,21 @@ function TextRecord({ id, kind, running }: { id: number; kind: 'report' | 'log';
   });
   if (text.isPending) return <p className="record-cap">Reading the {kind}.</p>;
   if (text.isError) {
-    return (
-      <p className="record-cap">
-        {running ? `The ${kind} is written when the run finishes.` : `This run has no ${kind} on disk (${text.error.message}).`}
-      </p>
-    );
+    const status = text.error instanceof EngineError ? text.error.status : 0;
+    const detail = text.error instanceof EngineError ? text.error.detail : null;
+    return <p className="record-cap" data-record="absent">{absentRecordWords(run, kind, running, status, detail)}</p>;
   }
-  return kind === 'report'
-    ? <div className="record-text is-report"><Markdown text={text.data} /></div>
-    : <pre className="record-text is-log">{text.data}</pre>;
+  if (kind === 'log') return <pre className="record-text is-log">{text.data}</pre>;
+  return (
+    <>
+      <div className="record-bar">
+        <button type="button" className="btn sm" data-record="save-report" onClick={() => saveReport(id, text.data)}>
+          Save as Markdown
+        </button>
+      </div>
+      <div className="record-text is-report"><Markdown text={text.data} /></div>
+    </>
+  );
 }
 
 /** The search record, as the engine dates and accounts for it. `/search-record` declares no model. */
@@ -163,12 +177,27 @@ function SearchRecord({ id, settledAt }: { id: number; settledAt: string | null 
       params: { path: { exec_id: id } },
     }))) as unknown as SearchRecordData,
   });
+  const save = useMutation({ mutationFn: () => saveSearchRecord(id) });
   if (record.isPending) return <p className="record-cap">Reading the search record.</p>;
-  if (record.isError) return <p className="record-cap">The search record could not be read ({record.error.message}).</p>;
+  if (record.isError) {
+    const detail = record.error instanceof EngineError ? record.error.detail : null;
+    return <p className="record-cap">The search record could not be read{detail ? `: ${detail}` : '. The engine did not answer.'}</p>;
+  }
   const data = record.data;
+  const generated = storedInstant(data.generated_at);
   return (
     <div className="search-record">
-      {data.generated_at && <p className="record-cap">Generated {data.generated_at} from what resmon saved.</p>}
+      <div className="record-bar">
+        <button type="button" className="btn sm" data-record="save-search-record" disabled={save.isPending} onClick={() => save.mutate()}>
+          Save as Markdown
+        </button>
+        {save.error && (
+          <span className="field-error" role="alert">
+            {save.error instanceof EngineError && save.error.detail ? save.error.detail : save.error.message}
+          </span>
+        )}
+      </div>
+      {data.generated_at && <p className="record-cap">Generated {generated ? dayAndTime(generated) : data.generated_at} from what resmon saved.</p>}
       {(['search', 'identification', 'deduplication'] as const).map((block) => data[block] && (
         <section key={block}>
           <h3>{words(block)}</h3>
@@ -207,21 +236,26 @@ function Metadata({ run }: { run: Run }) {
  */
 const TICKS: ReadonlySet<string> = new Set(['query_progress', 'link_progress', 'dedup_progress']);
 
-/** The timeline's lines, with a run of identical consecutive lines folded into one. */
-function timelineOf(events: readonly ProgressEvent[]): { at: string; words: string; times: number }[] {
+/**
+ * The timeline's lines, with a run of identical consecutive lines folded into
+ * one. A stopped run's trailing `complete` repeats its `cancelled` line, so it
+ * is left out, as the classic activity log leaves it out.
+ */
+function timelineOf(events: readonly ProgressEvent[], names: ReadonlyMap<string, string>): { at: string; words: string; times: number }[] {
   const out: { at: string; words: string; times: number }[] = [];
   for (const event of events) {
     if (TICKS.has(event.type)) continue;
-    const words = eventWords(event);
+    if (event.type === 'complete' && event.status === 'cancelled') continue;
+    const words = eventWords(event, names);
     const last = out[out.length - 1];
     if (last && last.words === words) last.times += 1;
-    else out.push({ at: event.timestamp ? event.timestamp.slice(11, 19) : '', words, times: 1 });
+    else out.push({ at: eventTime(event.timestamp), words, times: 1 });
   }
   return out;
 }
 
 function Progress({ live, names, events }: { live: LiveSource[]; names: ReadonlyMap<string, string>; events: ProgressEvent[] }) {
-  const timeline = timelineOf(events);
+  const timeline = timelineOf(events, names);
   return (
     <div className="progress">
       <LivePanel sources={live} names={names} />
@@ -243,16 +277,19 @@ function Progress({ live, names, events }: { live: LiveSource[]; names: Readonly
   );
 }
 
-function eventWords(event: ProgressEvent): string {
+function eventWords(event: ProgressEvent, names: ReadonlyMap<string, string>): string {
+  const source = event.repository ? names.get(event.repository) ?? event.repository : 'A source';
   switch (event.type) {
     case 'execution_start': return 'The run started.';
     case 'stage': return event.message || `Stage: ${event.stage ?? ''}`;
-    case 'repo_start': return `Asking ${event.repository}.`;
+    case 'repo_start': return `Asking ${source}.`;
     case 'repo_done': return event.zero_message
-      ? `${event.repository}: ${event.zero_message}`
-      : `${event.repository} answered with ${event.result_count ?? 'an unrecorded number of'} records.`;
-    case 'repo_skipped_missing_key': return `${event.repository} not queried: no API key.`;
-    case 'repo_error': return `${event.repository}: ${event.error ?? 'error'}`;
+      ? `${source}: ${event.zero_message}`
+      : `${source} answered with ${event.result_count ?? 'an unrecorded number of'} records.`;
+    case 'repo_skipped_missing_key': return `${source} not queried: no API key.`;
+    case 'repo_error': return event.error === 'cancelled by user'
+      ? `${source}: cancelled while it was being asked.`
+      : `${source}: ${event.error ?? 'error'}`;
     case 'complete': return `The run finished: ${event.status ?? 'status not recorded'}.`;
     case 'cancelled': return 'The run was cancelled.';
     case 'error': return `The run failed: ${event.error ?? 'reason not recorded'}.`;

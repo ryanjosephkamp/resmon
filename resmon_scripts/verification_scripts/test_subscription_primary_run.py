@@ -480,6 +480,16 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
     )
     assert spawn_count(counter) == 1, "no further batch may be spawned after cancel"
 
+    # Cancelled mid-summary, after the papers were stored: the report says so,
+    # lists them, and does not read like a finished run's.
+    report = client.get(f"/api/executions/{exec_id}/report")
+    assert report.status_code == 200
+    text = report.json()["report_text"]
+    assert text.startswith("# resmon Literature Report (cancelled)\n")
+    assert "**Collected before the cancel:** 10 results (10 new)" in text
+    assert "stopped while they were being summarized" in text
+    assert "**Total Results:**" not in text
+
 
 # ---------------------------------------------------------------------------
 # P15 — a subscription lane chosen as the PRIMARY provider, through the API

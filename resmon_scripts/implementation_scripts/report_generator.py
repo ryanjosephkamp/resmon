@@ -6,6 +6,7 @@ import shlex
 from collections import defaultdict
 from pathlib import Path
 
+from . import zero_reason
 from .utils import now_iso
 
 logger = logging.getLogger(__name__)
@@ -66,9 +67,19 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     total = metadata.get("total", len(documents))
     new = metadata.get("new", total)
 
+    # A cancelled run's report must never read like a finished one: its title,
+    # its count line and a note before the papers all say it stopped early,
+    # and what it holds is only what was collected before the cancel.
+    cancellation = metadata.get("cancellation")
+    if not isinstance(cancellation, dict):
+        cancellation = None
+
     watch_profile = metadata.get("watch_profile")
-    lines.append("# resmon Literature Report")
+    lines.append("# resmon Literature Report (cancelled)" if cancellation
+                 else "# resmon Literature Report")
     lines.append(f"**Generated:** {generated_at}  ")
+    if cancellation:
+        lines.append("**Status:** Cancelled before the run finished  ")
     if repos_display is not None:
         lines.append(f"**Repositories:** {repos_display}  ")
     if isinstance(watch_profile, str) and watch_profile.strip():
@@ -78,15 +89,29 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     else:
         lines.append(f"**Query:** {query_display}  ")
     lines.append(f"**Date Range:** {date_from} to {date_to}  ")
-    lines.append(f"**Total Results:** {total} ({new} new)")
+    if cancellation is None:
+        count_line = f"**Total Results:** {total} ({new} new)"
+    else:
+        collected = f"{total} result{'' if total == 1 else 's'}"
+        count_line = (f"**Collected before the cancel:** {collected} ({new} new)"
+                      if cancellation.get("stored") else
+                      f"**Collected before the cancel:** {collected}, not added to "
+                      "your collection")
+    lines.append(count_line)
     ai_model = metadata.get("ai_model")
     if isinstance(ai_model, str) and ai_model.strip():
         # Append as a continuation of the header metadata block. The
         # trailing two spaces on the previous line would otherwise force
         # a line break; we rebuild the last entry to include a proper
         # Markdown line-ending before the AI row.
-        lines[-1] = f"**Total Results:** {total} ({new} new)  "
+        lines[-1] = f"{count_line}  "
         lines.append(f"**AI Summarizer:** {ai_model}")
+
+    if cancellation:
+        lines.append("")
+        lines.append(f"> **This run was cancelled.** {_CANCELLED_AT.get(cancellation.get('stage'), '')}"
+                     "This report holds only what resmon had collected by then, so it is "
+                     "not a complete search of these sources or this window.")
 
     # --- API-key warnings ---
     if missing_key_repos:
@@ -101,12 +126,12 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
             bool(queried_repos)
             and all(r in missing_key_repos for r in queried_repos)
         )
-        if total == 0 and all_queried_missing:
+        if total == 0 and all_queried_missing and cancellation is None:
             lines.append(
                 f"> **Note:** Zero results were returned because no API key was "
                 f"configured for the chosen repository(ies): {missing_display}. "
-                f"Configure the required credentials in Settings → Credentials "
-                f"and re-run the execution."
+                f"Add the key under Settings › Sources and run the search "
+                f"again."
             )
         else:
             lines.append(
@@ -196,16 +221,26 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
         lines.append("")
 
     zero_notes = metadata.get("zero_notes")
-    if isinstance(zero_notes, list) and zero_notes:
-        groups = (
-            ("## Sources with retained partial results", True),
-            ("## Sources that returned nothing, and why", False),
-        )
-        wrote_section = False
-        for heading, partial in groups:
+    if not isinstance(zero_notes, list):
+        zero_notes = []
+    # A finished report lists the papers each answering source returned, so it
+    # names only the sources that came back with nothing. A cancelled one also
+    # says which sources answered, because the rest were interrupted or never
+    # asked and the reader needs the whole account of where the run stood.
+    answered = (cancellation or {}).get("answered") or []
+    if cancellation and answered:
+        lines.extend(["---", "", "## Sources that answered", ""])
+        for entry in answered:
+            count = int(entry.get("count") or 0)
+            lines.append(f"- **{entry.get('source', '')}**: returned {count} "
+                         f"record{'s' if count != 1 else ''}.")
+        lines.append("")
+    if zero_notes:
+        wrote_section = bool(cancellation and answered)
+        for group, heading, preface in _NOTE_GROUPS:
             notes = [
                 note for note in zero_notes
-                if isinstance(note, dict) and bool(note.get("partial")) is partial
+                if isinstance(note, dict) and _note_group(note) == group
             ]
             if not notes:
                 continue
@@ -213,6 +248,8 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
                 lines.extend(["---", ""])
                 wrote_section = True
             lines.extend([heading, ""])
+            if preface:
+                lines.extend([preface, ""])
             for note in notes:
                 source = str(note.get("source", ""))
                 sentence = str(note.get("sentence", ""))
@@ -233,6 +270,57 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
         lines.append("")
 
     return "\n".join(lines)
+
+
+# The footer's sections, in the order they print. A source that answered with
+# nothing and a source that gave no answer are never under one heading: the
+# first is a quiet field, the second says nothing about the field, and a reader
+# skimming headings must not be able to take one for the other. The categories
+# are ``source_coverage``'s (answered, did not answer, unknown), so the report
+# and the search record sort every source the same way.
+_NOTE_GROUPS = (
+    ("partial", "## Sources with retained partial results", None),
+    ("answered", "## Sources that answered with nothing to keep", None),
+    ("non_answer", "## Sources that did not answer, and why",
+     "This run has no answer from these sources to count, so it says nothing "
+     "about what they hold."),
+    ("interrupted", "## Sources the cancellation interrupted", None),
+    ("not_reached", "## Sources not asked before the run was cancelled", None),
+    ("unknown", "## Sources whose outcome was not recorded", None),
+)
+
+# What a cancelled report says about the point the run reached. The engine
+# names the stage; each sentence is true only of that stage.
+_CANCELLED_AT = {
+    "querying": ("It stopped while resmon was still asking the sources, and "
+                 "nothing collected was added to your collection. "),
+    "collected": ("Every source had finished, and it stopped before anything "
+                  "collected was added to your collection. "),
+    # Reached only with papers in hand: summarizing starts only when there are.
+    "summarizing": ("The papers below were added to your collection, and it "
+                    "stopped while they were being summarized: a paper with no "
+                    "summary was not summarized. "),
+}
+
+
+def _note_group(note: dict) -> str:
+    """Which footer section one source's note belongs in."""
+    if note.get("partial"):
+        return "partial"
+    reason = note.get("reason")
+    # Written only by a cancelled run, for a search still in flight and for a
+    # source the run never reached.
+    if reason == "cancelled":
+        return "interrupted"
+    if reason == "not_reached":
+        return "not_reached"
+    # ``error`` is the engine's own reason for a query that raised.
+    if reason == "error" or reason in zero_reason.DID_NOT_ANSWER:
+        return "non_answer"
+    if reason in zero_reason.ZERO_REASONS and zero_reason.answered("ok", 0, reason):
+        return "answered"
+    # ``not_recorded``, no reason at all, or one this build does not know.
+    return "unknown"
 
 
 _BASIS_SENTENCE = {
@@ -328,6 +416,32 @@ def generate_watch_report(profile: dict, findings: dict, check: dict) -> str:
                          + (f" ({provider_source})" if provider_source else ""))
         lines.append("")
 
+    return "\n".join(lines)
+
+
+def generate_cancelled_watch_report(profile: dict, matched_documents: int) -> str:
+    """The report a ``retractions`` watch run leaves when it is cancelled.
+
+    The run's one cancellation point comes before any paper is checked, so
+    there is nothing to list. The report says so, because an empty findings
+    section would read as a check that found nothing.
+    """
+    name = profile.get("display_name") or "this profile"
+    lines = [
+        f"# Watch report — {name} (cancelled)",
+        f"**Generated:** {now_iso()}  ",
+        "**Status:** Cancelled before the run finished  ",
+        "**Watching for:** retractions and other lifecycle events  ",
+        f"**Papers matched to this profile:** {matched_documents}",
+        "",
+        "> **This run was cancelled before it checked any paper.** Nothing was "
+        "checked and nothing was recorded, so this report says nothing about "
+        "retractions or any other event.",
+        "",
+    ]
+    warning = profile.get("basis_warning")
+    if warning:
+        lines.extend([f"> **About this profile.** {warning}", ""])
     return "\n".join(lines)
 
 

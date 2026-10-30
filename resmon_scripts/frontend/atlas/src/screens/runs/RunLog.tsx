@@ -6,6 +6,7 @@ import { Icon } from '../../shell/Icon';
 import { clock, count, dayWord, number } from '../today/format';
 import { interruptedSentence, RESTARTABLE, runKind, runTitle, type RunRow } from './model';
 import { exportReferences, FORMATS, type ReferenceFormat } from './references';
+import { RestartFacts } from './RestartFacts';
 
 export const RUNS_KEY = ['runs'] as const;
 
@@ -38,7 +39,8 @@ function summary(run: RunRow): string {
  * Every run so far, newest first, grouped by day: a manual search by its
  * terms, a watch's run by the watch's name. Selected runs export their papers
  * together, one entry per paper however many runs found it. A run that
- * stopped before it finished can be started again from here.
+ * stopped before it finished can be started again from here, after the same
+ * account of what Restart does that the run's own page gives.
  */
 export function RunLog() {
   const navigate = useNavigate();
@@ -57,6 +59,8 @@ export function RunLog() {
   });
   const names = useMemo(() => new Map((routines.data ?? []).map((r) => [r.id, r.name])), [routines.data]);
   const [selected, setSelected] = useState<number[]>([]);
+  /** The run whose Restart is being weighed: its facts are shown before anything starts. */
+  const [weighing, setWeighing] = useState<number | null>(null);
 
   const restart = useMutation({
     mutationFn: (id: number) => answer(engine().POST('/api/executions/{exec_id}/restart', {
@@ -137,13 +141,26 @@ export function RunLog() {
                     {run.status === 'interrupted' && (
                       <p className="run-note">{interruptedSentence(run)}</p>
                     )}
-                    {RESTARTABLE.has(run.status) && (
-                      <button type="button" className="btn sm run-restart" disabled={restart.isPending}
-                        onClick={() => restart.mutate(run.id)}>
-                        <Icon name="reset" size={14} />
-                        Restart
-                      </button>
-                    )}
+                    {RESTARTABLE.has(run.status) && (weighing === run.id
+                      ? (
+                        <div className="run-restart-confirm" role="group" aria-label={`Restart run ${run.id}`}>
+                          <RestartFacts run={run} />
+                          <div className="form-actions">
+                            <button type="button" className="btn sm primary" disabled={restart.isPending}
+                              onClick={() => restart.mutate(run.id)}>
+                              Restart this run
+                            </button>
+                            <button type="button" className="btn sm quiet" onClick={() => setWeighing(null)}>Not now</button>
+                          </div>
+                        </div>
+                      )
+                      : (
+                        <button type="button" className="btn sm run-restart"
+                          onClick={() => setWeighing(run.id)}>
+                          <Icon name="reset" size={14} />
+                          Restart…
+                        </button>
+                      ))}
                   </div>
                 </article>
               );

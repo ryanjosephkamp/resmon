@@ -1,6 +1,19 @@
+/**
+ * @jest-environment ./jest.easternZoneEnvironment.js
+ */
+
+/*
+ * West of Greenwich on purpose: a time the engine stored in UTC and shown as
+ * if it were local is visibly wrong here, by four or five hours.
+ */
+import * as fs from 'fs';
+import * as path from 'path';
 import { render } from '@testing-library/react';
 import { Markdown } from '../markdown';
-import { interruptedSentence, liveSources, outcomeOf, runTitle, type ProgressEvent } from '../model';
+import {
+  absentRecordWords, eventTime, interruptedSentence, liveLabel, liveSources, outcomeOf, restartFacts, runTitle,
+  ZERO_LABELS, type ProgressEvent,
+} from '../model';
 
 describe("a source's outcome from its count and reason", () => {
   test.each([
@@ -51,6 +64,66 @@ describe('the live panel, folded from the run\'s events', () => {
     const live = liveSources(['arxiv'], [{ type: 'repo_start', repository: 'hal' }]);
     expect(live.map((s) => s.slug)).toEqual(['arxiv', 'hal']);
   });
+
+  test('a stopped run: the source being asked was cancelled, not an error, and one never begun was not asked', () => {
+    const stopped: ProgressEvent[] = [
+      { type: 'repo_start', repository: 'biorxiv' },
+      { type: 'repo_error', repository: 'biorxiv', error: 'cancelled by user' },
+      { type: 'cancelled' },
+      { type: 'complete', status: 'cancelled' },
+    ];
+    const live = liveSources(['biorxiv', 'zenodo'], stopped, true);
+    expect(live.map((s) => [s.slug, s.state, liveLabel(s)])).toEqual([
+      ['biorxiv', 'cancelled', 'cancelled'],
+      ['zenodo', 'not_reached', 'not asked'],
+    ]);
+    expect(live[0]?.note).toBe('The run was cancelled while this source was being queried.');
+    expect(live.map(liveLabel).join(' ')).not.toContain('error');
+    // While the run is still going, the same events leave the unbegun source waiting.
+    expect(liveSources(['biorxiv', 'zenodo'], stopped.slice(0, 2)).map((s) => s.state)).toEqual(['cancelled', 'pending']);
+  });
+
+  test('a run that ended with no events kept says nothing about its sources beyond that', () => {
+    const live = liveSources(['arxiv'], [], true);
+    expect(live.map((s) => [s.state, liveLabel(s)])).toEqual([['not_recorded', 'outcome not recorded']]);
+  });
+
+  test('a real query error is still an error', () => {
+    const live = liveSources(['nasa_ads'], [{ type: 'repo_error', repository: 'nasa_ads', error: 'HTTP 503' }], true);
+    expect([live[0]?.state, live[0]?.note]).toEqual(['error', 'HTTP 503']);
+  });
+
+  test.each([
+    ['window_unanswerable', 0, 'could not answer this window'],
+    ['upstream_failure', 0, 'did not answer'],
+    ['parse_failure', 0, 'reply unreadable'],
+    ['entity_unsupported', 0, 'entity unsupported'],
+    ['missing_key', 0, 'no API key configured'],
+    ['answered_empty', 0, 'answered, zero'],
+    ['rights_filtered', 0, 'answered; nothing storable'],
+    ['not_recorded', 0, 'zero, reason not recorded'],
+    [null, 3, '3 found'],
+  ] as const)('a zero for %p reads in that reason\'s own words', (reason, count, words) => {
+    const [source] = liveSources(['dblp'], [{ type: 'repo_done', repository: 'dblp', result_count: count, zero_reason: reason }]);
+    expect(liveLabel(source!)).toBe(words);
+  });
+
+  test('the live panel\'s words for a zero are the recorded coverage\'s words, so the two never drift apart', () => {
+    const coverage = fs.readFileSync(path.resolve(__dirname, '../../../../../../implementation_scripts/source_coverage.py'), 'utf8');
+    for (const [reason, label] of Object.entries(ZERO_LABELS)) {
+      const answered = reason === 'answered_empty' || reason === 'rights_filtered' || reason === 'records_unusable';
+      expect(coverage).toContain(answered ? `"${label}"` : `"${reason}": "${label}"`);
+    }
+  });
+});
+
+describe('times, in the reader\'s own time zone', () => {
+  test('a progress event\'s UTC stamp is shown as local time, as the run\'s heading is', () => {
+    expect(eventTime('2026-10-29T20:34:12Z')).toBe('4:34:12 PM');
+    // The engine stores UTC; a stamp written without its offset is still UTC.
+    expect(eventTime('2026-10-29T20:34:12')).toBe('4:34:12 PM');
+    expect(eventTime(undefined)).toBe('');
+  });
 });
 
 describe('words for a run', () => {
@@ -60,11 +133,59 @@ describe('words for a run', () => {
     expect(runTitle({ query: null, keywords: null })).toBe('A search with no terms recorded');
   });
 
-  test('an interrupted run says why in words, never the stored token', () => {
+  test('an interrupted run says why in words, never the stored token, and when in local time', () => {
     const sentence = interruptedSentence({ interrupted_reason: 'owner_dead', last_seen_at_utc: '2026-10-28T09:14:03Z' });
-    expect(sentence).toBe('Interrupted: the process running it stopped; last seen working 2026-10-28 09:14 UTC.');
+    expect(sentence).toBe('Interrupted: the process running it stopped; last seen working October 28, 2026 at 5:14 AM.');
     expect(interruptedSentence({ interrupted_reason: null, last_seen_at_utc: null }))
       .toBe('Interrupted: the reason was not recorded.');
+  });
+});
+
+describe('a report or log that cannot be shown', () => {
+  const run = (status: string, result_path: string | null = null) => ({ status, result_path, log_path: null });
+
+  test('says why in the run\'s own terms, never as a route and a status code', () => {
+    const cases = [
+      absentRecordWords(run('cancelled'), 'report', false, 404, 'Report not found'),
+      absentRecordWords(run('interrupted'), 'report', false, 404, null),
+      absentRecordWords(run('failed'), 'log', false, 404, null),
+      absentRecordWords(run('completed'), 'report', false, 404, null),
+      absentRecordWords(run('running'), 'report', true, 404, null),
+      absentRecordWords(run('completed', '/reports/run-149.md'), 'report', false, 404, null),
+      absentRecordWords(run('completed'), 'report', false, 500, null),
+    ];
+    for (const words of cases) {
+      expect(words).not.toMatch(/\/api\/|HTTP|404|500/);
+    }
+    expect(cases[0]).toBe('resmon recorded no report for this run: it was stopped before it finished. '
+      + 'What each source did is above, and in the Search record tab.');
+    expect(cases[1]).toContain('interrupted before it finished');
+    expect(cases[2]).toBe('resmon recorded no log for this run: it failed before it finished.');
+    expect(cases[3]).toBe('This run finished, and resmon recorded no report for it.');
+    expect(cases[4]).toBe('The report is written when the run finishes.');
+    expect(cases[5]).toBe('resmon wrote a report for this run, but the file is no longer at /reports/run-149.md.');
+    expect(cases[6]).toMatch(/^The report could not be read\. The engine did not answer/);
+  });
+});
+
+describe('what Restart does, said before it is pressed', () => {
+  test('a search asked by hand: AI not recorded, and never emailed or delivered', () => {
+    const facts = restartFacts({ parameters: JSON.stringify({ repositories: ['arxiv'], keywords: ['graph'] }), execution_type: 'deep_sweep', routine_id: null });
+    expect(facts.ai).toMatch(/^Not recorded with this run\. Restart summarizes only if this run recorded an attempt to/);
+    expect(facts.delivery).toMatch(/^None\./);
+    expect(facts.watchId).toBeNull();
+  });
+
+  test('a watch\'s run is sent as its watch is set, and names the watch', () => {
+    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: 7 });
+    expect(facts.delivery).toContain('as its watch is set when the run finishes');
+    expect(facts.watchId).toBe(7);
+  });
+
+  test('a setting the parameters do record is read from them', () => {
+    const facts = restartFacts({ parameters: JSON.stringify({ ai_enabled: true }), execution_type: 'deep_dive', routine_id: null });
+    expect(facts.ai).toMatch(/^On when this run started, as its parameters record\./);
+    expect(restartFacts({ parameters: 'not json', execution_type: 'deep_dive', routine_id: null }).ai).toMatch(/^Not recorded/);
   });
 });
 
