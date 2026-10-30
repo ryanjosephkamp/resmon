@@ -319,8 +319,9 @@ test('P10: the coverage sentence is on the page before any finding is', async ()
     await goto(win, '/profiles');
     const coverage = win.getByTestId('lifecycle-coverage');
     await expect(coverage).toBeVisible();
-    await expect(coverage).toContainText('have been through a lifecycle check');
-    await expect(coverage).toContainText('not the same as having nothing to report');
+    // No paper matches yet, so there is nothing unchecked to warn about: the
+    // sentence is the count alone.
+    await expect(coverage).toHaveText('0 of 0 matched papers have been checked for retractions and updates.');
   } finally {
     await close();
   }
