@@ -114,6 +114,30 @@ async function clickPaper(win: Page, canvas: string, id: number, map: MapBody): 
   await node.click({ position: { x, y } });
 }
 
+/**
+ * The first of *ids* whose dot a click can reach. Today's title block sits over
+ * a corner of the plate, and how much it covers depends on the window's size,
+ * which a CI runner's screen decides; any of these papers serves the step.
+ */
+async function reachable(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<number> {
+  const node = win.locator(canvas);
+  const [cx, cy, scale] = ((await node.getAttribute('data-view')) ?? '').split(' ').map(Number);
+  const box = await node.boundingBox();
+  if (!box || cx === undefined || cy === undefined || scale === undefined) throw new Error('the plate has no view');
+  for (const id of ids) {
+    const at = map.points.id.indexOf(id);
+    if (at < 0) continue;
+    const x = box.x + ((map.points.x[at] ?? 0) - cx) * scale + box.width / 2;
+    const y = box.y + box.height / 2 - ((map.points.y[at] ?? 0) - cy) * scale;
+    const hit = await node.evaluate((el, [px, py]) => {
+      const top = document.elementFromPoint(px, py);
+      return top === el;
+    }, [x, y] as const);
+    if (hit) return id;
+  }
+  throw new Error(`none of papers ${ids.join(', ')} can be clicked on ${canvas}`);
+}
+
 async function resize(app: ElectronApplication, width: number, height: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [w, h]) => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -146,10 +170,6 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
 
     const canvas = '.today .plate-canvas';
     await expect(win.locator(canvas)).toBeVisible({ timeout: 120_000 });
-    // A desktop window: at the runner's 1024 pixels the plate is small enough
-    // that Today's title block sits over the papers these steps click.
-    await resize(app, 1440, 900);
-    await expect.poll(async () => (await win.locator(canvas).boundingBox())?.width ?? 0).toBeGreaterThan(700);
     await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
     const map = await engine<MapBody>(win, '/api/map');
     expect(map.state).toBe('ready');
@@ -157,7 +177,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     expect(placed).toBe(60);
 
     // 1. A paper that is not among the new ones opens beside the map, in the list's place.
-    const chosen = seed.old_protein[3] ?? 0;
+    const chosen = await reachable(win, canvas, seed.old_protein.slice(3), map);
     await clickPaper(win, canvas, chosen, map);
     const panel = win.locator(`section[data-map-paper="${chosen}"]`);
     await expect(panel).toBeVisible();
@@ -270,7 +290,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect.poll(() => win.locator(runCanvas).getAttribute('data-view')).not.toBeNull();
     await expect(runMap.getByRole('group', { name: 'Find and filter on the map' }).getByRole('status'))
       .toHaveText('All 15 papers shown');
-    const inRun = seed.quantum[4] ?? 0;
+    const inRun = await reachable(win, runCanvas, seed.quantum.slice(4, 15), map);
     await clickPaper(win, runCanvas, inRun, map);
     const runPanel = runMap.locator(`section[data-map-paper="${inRun}"]`);
     await expect(runPanel).toBeVisible();
@@ -298,15 +318,16 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
       await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
       const now = await engine<MapBody>(win, '/api/map');
-      await clickPaper(win, canvas, chosen, now);
-      await expect(win.locator(`section[data-map-paper="${chosen}"]`)).toBeVisible();
+      const here = await reachable(win, canvas, [chosen, ...seed.old_protein], now);
+      await clickPaper(win, canvas, here, now);
+      await expect(win.locator(`section[data-map-paper="${here}"]`)).toBeVisible();
       await shot(win, `today-${other}-${width}`);
       await engine(win, '/api/appearance', 'PUT', { theme: theme ?? 'dark', accent: null });
       await win.reload();
       await win.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
       await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
-      await clickPaper(win, canvas, chosen, now);
+      await clickPaper(win, canvas, here, now);
       await shot(win, `today-${theme}-${width}`);
       await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, seed.sweep);
       await win.getByRole('tab', { name: 'Map' }).click();

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
 import { MAP_KEY } from '../Today';
+import { instant } from '../today/format';
 
 /** Up to this many marked papers are ringed; more are drawn as accent points. */
 const RING_LIMIT = 80;
@@ -41,6 +42,13 @@ interface Props {
    * map. A group is found by distance on the drawing, not by any model.
    */
   outline?: boolean;
+  /**
+   * An engine timestamp the map must have been read after, such as a run's end:
+   * a map read earlier was read without the papers that arrived since, so it
+   * is read again, and until then counts as not ready rather than as a map
+   * that could not place them.
+   */
+  readAfter?: string | null;
 }
 
 /**
@@ -52,7 +60,7 @@ interface Props {
  * little text to place) is not drawn, so the caption is told how many of the
  * marked papers were placed and can say so rather than imply the whole set.
  */
-export function PaperSky({ marked, focus = null, label, caption, shape = 'square', bright, outline = false }: Props) {
+export function PaperSky({ marked, focus = null, label, caption, shape = 'square', bright, outline = false, readAfter = null }: Props) {
   const { shown, theme } = useAppearance();
   const map = useQuery({ queryKey: MAP_KEY, queryFn: () => answer(engine().GET('/api/map')) });
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -184,7 +192,18 @@ export function PaperSky({ marked, focus = null, label, caption, shape = 'square
     return () => observer.disconnect();
   }, [map.data, wanted, ringed, outline, focus, shown, theme]);
 
-  const ready = !!map.data && map.data.state === 'ready' && map.data.points.id.length > 0;
+  // A map read before `readAfter` is read again, once for each `readAfter`.
+  const after = readAfter ? instant(readAfter).getTime() : null;
+  const current = after === null || (!!map.data && map.dataUpdatedAt >= after);
+  const reread = useRef<number | null>(null);
+  const { refetch } = map;
+  useEffect(() => {
+    if (after === null || current || reread.current === after || map.isFetching) return;
+    reread.current = after;
+    void refetch();
+  }, [after, current, map.isFetching, refetch]);
+
+  const ready = current && !!map.data && map.data.state === 'ready' && map.data.points.id.length > 0;
   const facts: SkyFacts = {
     placed,
     total: marked.length + (focus !== null && !wanted.has(focus) ? 1 : 0),

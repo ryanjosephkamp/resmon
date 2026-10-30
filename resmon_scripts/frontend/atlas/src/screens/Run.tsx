@@ -384,7 +384,7 @@ export function Run() {
             </>
           )}
         </section>
-        <RunSky paperIds={(papers.data?.papers ?? []).map((paper) => paper.id)}
+        <RunSky paperIds={(papers.data?.papers ?? []).map((paper) => paper.id)} endedAt={running ? null : data.end_time ?? null}
           onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined} />
       </div>
 

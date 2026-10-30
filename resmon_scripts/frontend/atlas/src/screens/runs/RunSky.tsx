@@ -7,11 +7,17 @@ import { PaperSky } from '../sky/PaperSky';
  * of them the map has placed, and why the rest are not drawn, rather than
  * implying the marks are the run's whole result.
  */
-export function RunSky({ paperIds, onOpenMap }: { paperIds: readonly number[]; onOpenMap?: () => void }) {
+export function RunSky({ paperIds, onOpenMap, endedAt = null }: {
+  paperIds: readonly number[];
+  onOpenMap?: () => void;
+  /** When the run ended: a map read before it lacks the run's papers. */
+  endedAt?: string | null;
+}) {
   return (
     <div className="run-sky">
       <PaperSky
         marked={paperIds}
+        readAfter={endedAt}
         label="Where this run's papers sit in the collection"
         caption={({ placed, total, ready, basis }) => {
           if (total === 0) return 'This run stored no papers.';
