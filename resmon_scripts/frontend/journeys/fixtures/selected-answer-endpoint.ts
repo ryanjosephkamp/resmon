@@ -31,6 +31,7 @@
  */
 import * as http from 'http';
 import * as net from 'net';
+import type { Session } from '../drivers/session';
 
 /** One selected source, as the app's user prompt carries it — only the fields this reads. */
 export interface PromptSource {
@@ -176,4 +177,24 @@ export async function startSelectedAnswerEndpoint(): Promise<SelectedAnswerEndpo
       await new Promise<void>((resolve) => { server.close(() => resolve()); });
     },
   };
+}
+
+/** The authored model each launched app was pointed at, by its session. */
+const pointedAt = new WeakMap<Session, SelectedAnswerEndpoint>();
+
+/**
+ * Start one for this launched app, closed with it, and remembered against it,
+ * so that whichever driver pointed the app at it, either can tell it to lie
+ * and read what it received: neither of those is a step on a screen.
+ */
+export async function startSelectedAnswerEndpointFor(session: Session): Promise<SelectedAnswerEndpoint> {
+  const endpoint = await startSelectedAnswerEndpoint();
+  session.alsoCloseOnClose(() => endpoint.close());
+  pointedAt.set(session, endpoint);
+  return endpoint;
+}
+
+/** The authored model this launched app was pointed at, or null where none was started. */
+export function selectedAnswerEndpointOf(session: Session): SelectedAnswerEndpoint | null {
+  return pointedAt.get(session) ?? null;
 }

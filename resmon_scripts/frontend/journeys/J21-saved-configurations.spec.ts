@@ -26,8 +26,9 @@
  * bring the copy back armed, on a schedule nobody chose on this machine. It
  * must arrive inactive, and the original must be left as it was.
  *
- * **What is not the person's is printed where it happens.** The routine is
- * created over the API, as every routine in this suite is; and the native file
+ * **What is not the person's is printed where it happens.** The classic
+ * driver creates the routine over the API, as it creates every routine in this
+ * suite (the candidate builds it in Atlas's watch editor); and the native file
  * dialog is answered with the file rather than operated, because nothing
  * automated can operate one. What that dialog would have offered is still
  * read — the page's own `accept` list — and must admit the archive, because a
@@ -204,12 +205,16 @@ journey.describe('J21 Saved configurations', () => {
       + `${JSON.stringify(back.chooserAccepts)}, which admits the archive — and how any one `
       + "platform's dialog draws that list is not observed here.",
     );
-    console.log(
-      '[J21] NOT VERIFIED (createRoutine): building the routine in the Routines editor. It was '
-      + 'created over the API, as every routine in this suite is — the driver has no other verb '
-      + "that makes one — and then activated with its own row's button, which is what put "
-      + '"is_active": true into the file.',
-    );
+    // The candidate builds the routine in Atlas's watch editor, so this line
+    // is the classic driver's alone.
+    if (resmon.name === 'classic') {
+      console.log(
+        '[J21] NOT VERIFIED (createRoutine): building the routine in the Routines editor. It was '
+        + 'created over the API, as every routine the classic driver makes is — it has no other verb '
+        + "that makes one — and then activated with its own row's button, which is what put "
+        + '"is_active": true into the file.',
+      );
+    }
 
     await resmon.takePicture('J21-saved-configurations-round-trip');
     expect(resmon.refusedConnections()).toEqual([]);

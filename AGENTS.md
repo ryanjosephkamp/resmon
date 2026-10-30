@@ -526,8 +526,8 @@ Atlas Health (slice 4): `screens/health/` (the Source wall at `/health`, drawn f
 `GET /api/coverage/source-wall` with one SVG mark per state, named by `data-mark`; the Watchdog at
 `/health/watchdog`; the engine this window is talking to at `/health/engine`); the routes' bodies are
 the "the source wall" and "analytics" slices of `test_response_models.py`; real-app journey
-`e2e/atlas-health.spec.ts`. J16's gate and the authored source's up and down are renderer-free in
-`journeys/drivers/candidate.ts`. Analytics is Health's third tab (`/health/analytics`,
+`e2e/atlas-health.spec.ts`. J16's gate and the authored source's up and down are screenless members
+the candidate borrows (`journeys/drivers/borrowed.ts`). Analytics is Health's third tab (`/health/analytics`,
 `Analytics.tsx`, `analyticsModel.ts`): the engine's numbers only, its own sentence where a view has
 too little, and a source's or a category's row opens Search › Your collection narrowed by
 `?source=` or `?category=`; real-app journey `e2e/atlas-analytics.spec.ts`. A chart's neutral is
