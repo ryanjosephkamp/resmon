@@ -31,7 +31,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from typing import Optional
 
 from implementation_scripts import today
@@ -62,30 +62,24 @@ def published_day(value: Optional[str]) -> Optional[int]:
         return None
 
 
-def _seconds(value: Optional[str]) -> Optional[int]:
-    """``first_seen_at`` (UTC, as SQLite writes it) as Unix seconds."""
-    if not value:
-        return None
-    try:
-        moment = datetime.strptime(value[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
-    except ValueError:
-        return None
-    return int(moment.timestamp())
-
-
 def facets(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
-    """Every paper's facts, as columns in id order, with the watches' members."""
-    ids: list[int] = []
-    source: list[int] = []
-    published: list[Optional[int]] = []
-    found: list[Optional[int]] = []
+    """Every paper's facts, as columns in id order, with the watches' members.
+
+    Read as plain tuples, with the first-collected time converted by SQLite
+    and each distinct publication date parsed once: at 100,000 papers a
+    ``strptime`` per row was most of four seconds.
+    """
+    cursor = conn.cursor()
+    cursor.row_factory = None
+    rows = cursor.execute(
+        "SELECT id, source_repository, publication_date, CAST(strftime('%s', first_seen_at) AS INTEGER) "
+        "FROM documents ORDER BY id").fetchall()
     slugs: dict[str, int] = {}
-    for doc_id, slug, publication_date, first_seen_at in conn.execute(
-            "SELECT id, source_repository, publication_date, first_seen_at FROM documents ORDER BY id"):
-        ids.append(int(doc_id))
-        source.append(slugs.setdefault(slug or "", len(slugs)))
-        published.append(published_day(publication_date))
-        found.append(_seconds(first_seen_at))
+    days: dict[Optional[str], Optional[int]] = {}
+    ids = [int(r[0]) for r in rows]
+    source = [slugs.setdefault(r[1] or "", len(slugs)) for r in rows]
+    published = [days[r[2]] if r[2] in days else days.setdefault(r[2], published_day(r[2])) for r in rows]
+    found = [r[3] for r in rows]
 
     saved: list[int] = []
     read: list[int] = []
@@ -95,7 +89,7 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
     # "New" is Today's window: after the last look, or the last seven days when
     # none is recorded, which the interface then says.
     window = today.new_window(conn, now)
-    new = [int(r[0]) for r in conn.execute(
+    new = [int(r[0]) for r in cursor.execute(
         "SELECT id FROM documents WHERE first_seen_at > ? ORDER BY id", (window["floor"],))]
 
     members: dict[int, list[int]] = {}
