@@ -6,8 +6,8 @@
  * answer) and a webhook destination in review mode with one delivery waiting;
  * the third watching, saved as the earlier interface saved some, with no
  * words and last May's two days as its window. Followed through what a person
- * does with them: read the list and the month ahead, open a watch from a mark
- * on the month, open the watch, run the paused one now, pause and resume,
+ * does with them: read the list, then the month ahead on the Calendar tab,
+ * open a watch from a mark on the month, open the watch, run the paused one now, pause and resume,
  * flip a switch and see it kept, write an intent and see the audit compare
  * against it, and skip the waiting delivery.
  *
@@ -75,7 +75,7 @@ conn.commit()
 print(json.dumps({"watching": watching, "paused": paused, "stale": stale, "runs": runs}))
 `;
 
-test('Watches lists each watch and its month ahead; a watch runs, pauses, keeps its switches, and its record', async () => {
+test('Watches lists each watch, and Calendar its month ahead; a watch runs, pauses, keeps its switches, and its record', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-watches-'));
   // A unit directory of this run's own, so "is a background service
@@ -137,23 +137,38 @@ test('Watches lists each watch and its month ahead; a watch runs, pauses, keeps 
     await expect(active.locator('[data-warning="undated_relevance"]'))
       .toContainText('Every run asks Springer Nature with no date limit, and it ranks by relevance');
 
-    // The month ahead draws the watching watch's fires at nine, and none of the
-    // paused one's; it says they are due, not that they will run.
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watches.png') });
+    // The month ahead is the Calendar tab's, between Searches and People, and not under the list.
+    await expect(win.locator('section.month-ahead')).toHaveCount(0);
+    const tabs = win.getByRole('navigation', { name: 'Watches' }).getByRole('link');
+    await expect(tabs).toHaveText(['Searches', 'Calendar', 'People']);
+    await tabs.filter({ hasText: 'Calendar' }).click();
+    expect(await win.evaluate(() => window.location.hash)).toBe('#/watches/calendar');
+    await expect(win.getByRole('heading', { name: 'Calendar', level: 1 })).toBeVisible();
+    // The top bar still says this is Watches.
+    await expect(win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Watches' })).toHaveAttribute('aria-current', 'page');
+
+    // The month ahead draws the watching watch's fires at nine, each named with
+    // its time and watch, and none of the paused one's; it says they are due,
+    // not that they will run, and the note at the top says why.
     const month = win.locator('section.month-ahead');
     await expect(month).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
+    await expect(win.locator('.watch-calendar [data-firing-note]')).toContainText('Nothing will run your watches on schedule.');
     await expect(month.locator('.ahead-lede')).toContainText('When each watch is due by its schedule');
     await expect(month.locator('.ahead-lede')).not.toContainText('will run,');
-    await expect(month.getByRole('heading', { name: 'Next due', level: 3 })).toBeVisible();
+    await expect(month.getByRole('heading', { name: 'Next due', level: 2 })).toBeVisible();
     const fires = month.locator(`.fire[data-routine="${watching}"]`);
     await expect(fires.first()).toBeVisible();
     await expect(fires.first()).toHaveAttribute('data-firing', 'will-not-run');
     const hours = await fires.evaluateAll((marks) => marks.map((m) => new Date(String((m as HTMLElement).dataset.at)).getHours()));
     expect(new Set(hours)).toEqual(new Set([9]));
+    const mark = month.locator('.fire-mark').filter({ has: win.locator(`.fire[data-routine="${watching}"]`) }).first();
+    await expect(mark.locator('.fire-name')).toHaveText('Perovskite films');
+    await expect(mark.locator('.fire-time')).toHaveText('9:00 AM');
+    await expect(mark).toHaveAttribute('aria-label', /^Perovskite films at 9:00 AM, due; nothing will run it\. Open the watch$/);
     await expect(month.locator(`.fire[data-routine="${paused}"]`)).toHaveCount(0);
-    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watches.png') });
-    await month.scrollIntoViewIfNeeded();
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watches-month.png') });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watches-calendar.png') });
 
     // A mark opens its watch, by the pointer and by the keyboard: the marks are
     // one stop, the arrows move through them in time order, Enter opens one.
@@ -171,6 +186,8 @@ test('Watches lists each watch and its month ahead; a watch runs, pauses, keeps 
     await win.keyboard.press('Enter');
     await expect(win.locator(`.watch-page[data-routine="${second}"]`)).toBeVisible();
     await win.goBack();
+    await expect(win.getByRole('heading', { name: 'Calendar', level: 1 })).toBeVisible();
+    await win.getByRole('navigation', { name: 'Watches' }).getByRole('link', { name: 'Searches' }).click();
     await expect(win.getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible();
 
     // The watch: its runs, latest first, and the source that did not answer by name.
