@@ -54,13 +54,17 @@ def _fresh_db():
 
 def test_each_thread_gets_its_own_connection():
     """_get_db() must never hand the same object to two threads."""
-    seen: dict[str, int] = {}
+    # The connections themselves, not their ids: a thread's connection can be
+    # freed once that thread ends, and CPython may then give the next thread's
+    # connection the same id, which read as two threads sharing one. Holding
+    # every connection keeps each id unique for as long as the check runs.
+    seen: dict[str, object] = {}
     lock = threading.Lock()
 
     def worker(name: str) -> None:
         conn = resmon_mod._get_db()
         with lock:
-            seen[name] = id(conn)
+            seen[name] = conn
 
     threads = [threading.Thread(target=worker, args=(f"t{i}",)) for i in range(8)]
     for t in threads:
@@ -69,8 +73,8 @@ def test_each_thread_gets_its_own_connection():
         t.join()
 
     assert len(seen) == 8
-    assert len(set(seen.values())) == 8, (
-        f"threads shared connection objects: {seen}"
+    assert len({id(conn) for conn in seen.values()}) == 8, (
+        f"threads shared connection objects: { {name: id(conn) for name, conn in seen.items()} }"
     )
 
 
