@@ -50,8 +50,10 @@ new attempt cleared the previous status, and "HTTP 500, then a timeout on the
 retry" was recorded as just `timeout`. The history holds at most eight entries,
 newest kept, and counts any older entries it dropped. Its words come from a
 fixed vocabulary (`http_<status>`, `rate_limited`, `timeout`, `connect`,
-`request_error`, `operation_deadline`). No URL, query string or response-body
-text is stored in the history. Several sources carry an API key in the query,
+`request_error`, `operation_deadline`, `refused`). `refused` is a source that
+answered HTTP 200 with an error in place of results, as HAL does for a query it
+cannot run. No URL, query string or response-body text is stored in the
+history. Several sources carry an API key in the query,
 and a reply body is the provider's untrusted text. The history is not written
 to the database. A search's recorded zero reason still comes from the last
 terminal failure alone.

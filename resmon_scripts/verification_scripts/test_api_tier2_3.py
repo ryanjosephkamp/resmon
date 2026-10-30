@@ -1,4 +1,5 @@
 # resmon_scripts/verification_scripts/test_api_tier2_3.py
+import httpx
 import pytest
 import sys
 from pathlib import Path
@@ -73,3 +74,37 @@ def test_tier3_graceful_failure():
     client = get_client("springer")
     results = client.search(query="nonexistent_test_query_xyz_12345", max_results=1)
     assert isinstance(results, list)  # may be empty, must not raise
+
+
+# ---------------------------------------------------------------------------
+# PLOS: the date window it is sent
+# ---------------------------------------------------------------------------
+
+def _capture_plos_queries(monkeypatch) -> list[dict]:
+    """Answer every PLOS request with an empty result and keep the params it was sent."""
+    sent: list[dict] = []
+
+    def fake_request(method, url, **kwargs):
+        sent.append(kwargs["params"])
+        return httpx.Response(200, json={"response": {"docs": []}}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(implementation_scripts.api_plos, "safe_request", fake_request)
+    return sent
+
+
+@pytest.mark.parametrize(("date_from", "date_to", "window"), [
+    ("2026-10-23", None, "publication_date:[2026-10-23T00:00:00Z TO *]"),
+    (None, "2026-10-30", "publication_date:[* TO 2026-10-30T23:59:59Z]"),
+    ("2026-10-23", "2026-10-30", "publication_date:[2026-10-23T00:00:00Z TO 2026-10-30T23:59:59Z]"),
+])
+def test_plos_writes_an_open_side_of_the_window_as_a_bare_star(monkeypatch, date_from, date_to, window):
+    """A time suffix on ``*`` is a range PLOS refuses with HTTP 400, and a watch since its previous run has no end."""
+    sent = _capture_plos_queries(monkeypatch)
+    assert get_client("plos").search("crispr", date_from, date_to, 3) == []
+    assert sent[0]["q"] == f"crispr AND {window}"
+
+
+def test_plos_with_no_window_sends_no_date_clause(monkeypatch):
+    sent = _capture_plos_queries(monkeypatch)
+    get_client("plos").search("crispr", max_results=3)
+    assert sent[0]["q"] == "crispr"

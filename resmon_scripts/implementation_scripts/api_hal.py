@@ -4,7 +4,8 @@
 import logging
 import time
 
-from .api_base import BaseAPIClient, NormalizedResult, RateLimiter, note_parse_failure, safe_request
+from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter, SourceRefused,
+                       note_parse_failure, safe_request, search_outcome)
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,34 @@ _MAX_RETRIES = 1
 
 # HAL does not publish strict rate limits; use 2 req/s as polite default
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
+
+
+def _produced_date_range(date_from: str | None, date_to: str | None) -> str:
+    """The Solr range for a window, with an open side written as a bare ``*``.
+
+    A time suffix belongs only on a date. Glued to the open side, as in
+    ``[2026-10-23T00:00:00Z TO *T23:59:59Z]``, it makes a range HAL cannot
+    parse, and HAL answers HTTP 200 with an error instead of records. A watch
+    asking for papers since its previous run has no end date, so this is the
+    ordinary case, not an edge.
+    """
+    lower = f"{date_from}T00:00:00Z" if date_from else "*"
+    upper = f"{date_to}T23:59:59Z" if date_to else "*"
+    return f"[{lower} TO {upper}]"
+
+
+def _refusal_message(data) -> str | None:
+    """HAL's own message when its reply is an error rather than a search result.
+
+    HAL answers a request it will not run with HTTP 200 and a body of
+    ``{"error": {"msg": ...}}``. That is the source refusing the request, not
+    a reply resmon could not read, and the two are recorded differently.
+    """
+    if not isinstance(data, dict) or "response" in data or "error" not in data:
+        return None
+    error = data["error"]
+    message = error.get("msg") if isinstance(error, dict) else error
+    return message if isinstance(message, str) and message else "no message"
 
 
 class HalClient(BaseAPIClient):
@@ -44,9 +73,7 @@ class HalClient(BaseAPIClient):
             # Build Solr-style query
             fq_parts: list[str] = []
             if date_from or date_to:
-                d_from = date_from or "*"
-                d_to = date_to or "*"
-                fq_parts.append(f"producedDate_tdate:[{d_from}T00:00:00Z TO {d_to}T23:59:59Z]")
+                fq_parts.append(f"producedDate_tdate:{_produced_date_range(date_from, date_to)}")
 
             params = {
                 "q": query,
@@ -77,6 +104,15 @@ class HalClient(BaseAPIClient):
 
             try:
                 data = response.json()
+                refusal = _refusal_message(data)
+                if refusal is not None:
+                    # Recorded as a failed request, the way a source that
+                    # refuses with an HTTP status is. HAL's words go to the
+                    # log only: the outcome keeps resmon's category, never
+                    # the source's text.
+                    search_outcome().note_failure(SourceRefused("HAL"), _HAL_API_URL)
+                    logger.error("HAL refused the request: %s", refusal)
+                    break
                 payload = data["response"]
                 docs = payload["docs"]
                 if not isinstance(docs, list):

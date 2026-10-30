@@ -557,6 +557,17 @@ def retry_with_backoff(
 _FAILURE_HISTORY_LIMIT = 8
 
 
+class SourceRefused(RuntimeError):
+    """The source answered that it would not run the request.
+
+    For a source that says so in the body of a successful HTTP reply rather
+    than with a status code: HAL answers a query it cannot run with HTTP 200
+    and an error object. It is a failed request, like an HTTP 400, and not a
+    reply resmon could not read. The message is the source's name only; what
+    the source said goes to the log, never into the outcome.
+    """
+
+
 def _failure_detail(status_or_exc) -> tuple[int | None, str]:
     """The status and the one-word category of a failed call.
 
@@ -569,6 +580,8 @@ def _failure_detail(status_or_exc) -> tuple[int | None, str]:
         # -- and a user can act on it differently from a 500.
         detail = "rate_limited" if status_or_exc == 429 else f"http_{status_or_exc}"
         return status_or_exc, detail
+    if isinstance(status_or_exc, SourceRefused):
+        return None, "refused"
     if isinstance(status_or_exc, RequestDeadlineExceeded):
         return None, "operation_deadline"
     if isinstance(status_or_exc, httpx.TimeoutException):
