@@ -18,6 +18,9 @@ export type Coverage = components['schemas']['RunCoverage'];
 export type CoverageSource = components['schemas']['RunCoverageSource'];
 export type CatalogEntry = components['schemas']['RepositoryCatalogEntry'];
 
+/** The run log's query: every run so far, newest first. */
+export const RUNS_KEY = ['runs'] as const;
+
 /**
  * One progress event as `/api/executions/{id}/progress/events` serves it.
  *
@@ -343,4 +346,89 @@ export function restartFacts(run: Pick<RunRow, 'parameters' | 'execution_type' |
       : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.',
     watchId: watchRun ? run.routine_id : null,
   };
+}
+
+/** "run 4", "runs 4 and 9", "runs 4, 9, and 12". */
+export function runNumbers(ids: readonly number[]): string {
+  const words = ids.map(String);
+  if (words.length === 1) return `run ${words[0]}`;
+  const list = words.length === 2 ? words.join(' and ') : `${words.slice(0, -1).join(', ')}, and ${words[words.length - 1]}`;
+  return `runs ${list}`;
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** A run as the question before deleting it names it. */
+export interface DeletableRun {
+  id: number;
+  status: string;
+  title: string;
+}
+
+/**
+ * The question asked before runs are deleted, or null when none of them can
+ * be. It says what `DELETE /api/executions/{id}` removes (the run's row, and
+ * with it what each source answered, its links to the papers it found, and
+ * its record of where its report was sent) and what it leaves: the papers,
+ * and the report and log files on disk. A run still running is not sent,
+ * because the engine refuses it; the question names it, so the refusal is not
+ * the first the person hears of it.
+ */
+export function deleteQuestion(runs: readonly DeletableRun[]): string | null {
+  const going = runs.filter((run) => run.status === 'running');
+  const doomed = runs.filter((run) => run.status !== 'running');
+  const first = doomed[0];
+  if (!first) return null;
+  const one = doomed.length === 1;
+  const head = one
+    ? `Delete run ${first.id}, “${first.title}”?`
+    : `Delete ${doomed.length} runs${doomed.length <= 6 ? ` (${runNumbers(doomed.map((run) => run.id))})` : ''}?`;
+  const goes = one
+    ? 'resmon deletes its record, with its line in the run log, what each source answered, which papers it found, and where its report was sent.'
+    : 'resmon deletes their records, with each one’s line in the run log, what each source answered, which papers it found, and where its report was sent.';
+  const stays = one
+    ? 'The papers stay in your collection, and its report and log files stay in the reports folder.'
+    : 'The papers stay in your collection, and their report and log files stay in the reports folder.';
+  const verb = going.length === 1 ? 'is' : 'are';
+  const kept = going.length
+    ? ` ${capitalized(runNumbers(going.map((run) => run.id)))} ${verb} still running, and ${verb} not deleted.`
+    : '';
+  return `${head} ${goes} ${stays}${kept} This cannot be undone.`;
+}
+
+/** Why the chosen runs that are still running are left out of a delete. */
+export function stillRunning(ids: readonly number[]): string {
+  return `${capitalized(runNumbers(ids))} ${ids.length === 1 ? 'is' : 'are'} still running. A run can be deleted once it has stopped.`;
+}
+
+/** What came of deleting runs: deleted, already gone (the engine had no such run), or refused with the engine's reason. */
+export interface DeleteOutcome {
+  deleted: number[];
+  gone: number[];
+  refused: { id: number; reason: string }[];
+}
+
+/** The sentence after a delete, for the runs that went. A refusal is said beside it, in the engine's words. */
+export function deletedSentence(outcome: DeleteOutcome): string | null {
+  const parts: string[] = [];
+  if (outcome.deleted.length) {
+    parts.push(outcome.deleted.length === 1 ? `Deleted run ${outcome.deleted[0]}.` : `Deleted ${outcome.deleted.length} runs.`);
+  }
+  if (outcome.gone.length) {
+    parts.push(`${capitalized(runNumbers(outcome.gone))} ${outcome.gone.length === 1 ? 'was' : 'were'} already gone.`);
+  }
+  return parts.length ? parts.join(' ') : null;
+}
+
+/**
+ * A file name for an export of several runs: their numbers while they fit,
+ * otherwise how many there are and the first and last. Sixty numbers joined
+ * would pass the 255 bytes a file name may have, and the download would fail.
+ */
+export function runsFileStem(prefix: string, ids: readonly number[]): string {
+  const sorted = [...new Set(ids)].sort((a, b) => a - b);
+  if (sorted.length <= 8) return `${prefix}-${sorted.join('-')}`;
+  return `${prefix}-${sorted.length}-runs-${sorted[0]}-to-${sorted[sorted.length - 1]}`;
 }

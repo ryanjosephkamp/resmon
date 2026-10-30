@@ -1,5 +1,6 @@
 import {
-  daemonSentence, daemonState, groupPath, keychainName, restartRestores, unitKind, type BackupLast, type DaemonStatus,
+  autoBackupOn, daemonSentence, daemonState, groupPath, keychainName, limitProblem, limitsReach, restartRestores, RUN_LIMITS,
+  unitKind, type BackupLast, type DaemonStatus,
 } from '../model';
 
 const NO_LOCK: DaemonStatus = {
@@ -70,6 +71,37 @@ test('every Settings group has its own address, and the rail lists each once', a
   expect(new Set(slugs).size).toBe(slugs.length);
   expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'danger']);
   expect(groupPath('danger')).toBe('/settings/danger');
+});
+
+describe('how many runs at once, and how many watch runs wait', () => {
+  test('a whole number in the range the engine accepts saves, and anything else says why not', () => {
+    expect(limitProblem('3', RUN_LIMITS.runs)).toBeNull();
+    expect(limitProblem(' 8 ', RUN_LIMITS.runs)).toBeNull();
+    expect(limitProblem('64', RUN_LIMITS.queue)).toBeNull();
+    for (const raw of ['', '0', '9', '2.5', '-1', 'three', '1e1']) {
+      expect(limitProblem(raw, RUN_LIMITS.runs)).toBe('Runs at once must be a whole number from 1 to 8.');
+    }
+    expect(limitProblem('65', RUN_LIMITS.queue)).toBe('Watch runs that can wait must be a whole number from 1 to 64.');
+  });
+
+  test('which engine a change reaches says the service is a separate engine whenever this window is not using it', () => {
+    expect(limitsReach('attached')).toMatch(/uses the background service’s engine, so a change applies to it at once/);
+    for (const state of ['beside', 'none', 'unanswered'] as const) {
+      const said = limitsReach(state);
+      expect(said).toContain('an engine it started itself, so a change applies to that engine at once');
+      expect(said).toMatch(/The background service, which runs your watches on schedule, .*reads these limits when it (next )?starts\./);
+      // A window's engine runs no watch on schedule; nothing here may say it does.
+      expect(said).not.toMatch(/while (a|this) window is open/);
+    }
+    expect(limitsReach('beside')).toContain('a separate engine with its own count');
+    expect(limitsReach(null)).toBe('A change applies at once to the engine this window uses. Any other engine reads these limits when it next starts.');
+  });
+});
+
+test('the upload after each run is on only as the engine reads it', () => {
+  expect(autoBackupOn('true')).toBe(true);
+  expect(autoBackupOn(' TRUE ')).toBe(true);
+  for (const stored of ['', 'false', '1', 'yes', 'on', null, undefined]) expect(autoBackupOn(stored)).toBe(false);
 });
 
 describe('Restart resmon now is offered only where restarting the app restores', () => {
