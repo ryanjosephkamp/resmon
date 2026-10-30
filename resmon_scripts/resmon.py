@@ -6440,22 +6440,15 @@ def validate_credential(body: CredentialValidate):
         key = get_credential(cred_name)
         if not key:
             raise HTTPException(400, "No key is stored for this provider, so there is nothing to test.")
-        if provider == "custom":
-            # A stored key goes only where it was saved to go. The endpoint
-            # comes from the settings stored beside it, never from the request,
-            # so no caller can have the stored key sent to an address nobody
-            # saved.
-            conn = _get_db()
-            try:
-                saved_url = (get_setting(conn, "ai_custom_base_url") or "").strip()
-            finally:
-                _close_db(conn)
-            asked = (body.base_url or "").strip()
-            if asked and asked.rstrip("/") != saved_url.rstrip("/"):
-                raise HTTPException(400, (
-                    "Save the endpoint first: a stored key is tested only against "
-                    "the endpoint saved with it."))
-            base_url = saved_url or None
+    if provider == "custom" and base_url:
+        # The rule a run's requests follow: a key goes over HTTPS, or over
+        # HTTP only to this computer, never in plain text to another one.
+        # Imported here: llm_factory loads the provider SDKs.
+        from implementation_scripts.llm_factory import _validate_custom_base_url
+        try:
+            base_url = _validate_custom_base_url(base_url.strip())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
     probe = probe_api_key(provider, key, base_url=base_url)
     return {"valid": probe["outcome"] == "accepted", **probe}
 

@@ -324,19 +324,17 @@ def test_a_refused_key_and_an_unreachable_provider_read_differently(client):
     assert "could not reach" in unreachable["detail"]
 
 
-def test_a_stored_key_is_never_sent_to_an_endpoint_nobody_saved(client, provider):
+def test_a_key_is_never_sent_in_plain_text_to_another_computer(client, provider):
     assert client.put("/api/credentials/custom_llm_api_key", json={"value": "test-key-loopback"}).status_code == 200
-    _save_endpoint(client, "http://127.0.0.1:9/v1")
     before = len(provider.calls)
-    resp = client.post("/api/credentials/validate", json={"provider": "custom", "base_url": provider.url})
+    resp = client.post("/api/credentials/validate",
+                       json={"provider": "custom", "base_url": "http://models.example.org/v1"})
     assert resp.status_code == 400
-    assert "Save the endpoint first" in resp.json()["detail"]
-    assert len(provider.calls) == before
-    # Typed here, a key is the caller's own, and goes where the caller says.
+    assert "must use HTTPS" in resp.json()["detail"]
     typed = client.post("/api/credentials/validate",
-                        json={"provider": "custom", "key": "typed-key", "base_url": provider.url}).json()
-    assert typed["outcome"] == "accepted"
-    assert provider.calls[-1]["authorization"] == "Bearer typed-key"
+                        json={"provider": "custom", "key": "typed-key", "base_url": "http://models.example.org/v1"})
+    assert typed.status_code == 400
+    assert len(provider.calls) == before
 
 
 def test_with_no_key_stored_there_is_nothing_to_test(client):
