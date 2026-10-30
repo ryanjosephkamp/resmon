@@ -8,6 +8,8 @@
  * delivery states are the drain's own, given the words a person uses.
  */
 import type { components } from '../../api/schema';
+import type { CatalogEntry } from '../runs/model';
+import { byOrder, listed } from './window';
 
 export type RoutineRow = components['schemas']['RoutineRow'];
 export type Routine = components['schemas']['Routine'];
@@ -183,9 +185,12 @@ export function watchAsks(parameters: string | null | undefined): WatchAsks {
 
 /** Something about what a watch asks that keeps it from finding what is new. */
 export interface WatchWarning {
-  kind: 'no_terms' | 'window_ended';
+  kind: 'no_terms' | 'window_ended' | 'undated_relevance';
   text: string;
 }
+
+/** The cure both date warnings name, in the editor's own words. */
+const CHOOSE_SINCE = 'To ask for new papers on every run, choose “Papers published since the previous run” under Change.';
 
 const DAY_WORDS = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 
@@ -203,19 +208,27 @@ function localDay(at: Date): string {
 
 /**
  * What a watch's stored parameters keep it from finding, in words, from the
- * parameters alone; nothing stored is changed. Two cases, both found in
- * watches made in the earlier interface:
+ * parameters and the catalog; nothing stored is changed. Three cases, all
+ * found in watches made in the earlier interface:
  *
  * - A watch on words with no words. Every run sends its sources an empty
  *   query, which some sources refuse outright.
  * - Fixed dates whose end has passed. The dates are the same window on every
  *   run, so a watch saved with last May's two days asks for those two days
  *   every night.
+ * - No dates at all, on a source the catalog says ranks by relevance
+ *   (`result_order`). Clearing the dates is not the cure it looks like: such
+ *   a source answers an undated query with the most relevant papers of all
+ *   years, mostly the same ones every run. A source that puts its newest
+ *   first is not warned about.
  *
- * A watch on a person has no words by design, and an open window (a start
- * date and no end) still reaches the newest papers; neither is warned about.
+ * The cure for the last two is the window that moves with each run. A watch
+ * on a person has no words by design, and a watch on retractions searches no
+ * source for papers; neither is warned about for what it does not do.
  */
-export function watchWarnings(parameters: string | null | undefined, now: Date): WatchWarning[] {
+export function watchWarnings(
+  parameters: string | null | undefined, now: Date, catalog: readonly CatalogEntry[] = [],
+): WatchWarning[] {
   const p = parsed(parameters);
   const out: WatchWarning[] = [];
   const words = [...(Array.isArray(p.keywords) ? p.keywords.map(String) : []), typeof p.query === 'string' ? p.query : '']
@@ -237,9 +250,23 @@ export function watchWarnings(parameters: string | null | undefined, now: Date):
     out.push({
       kind: 'window_ended',
       text: `Every run asks for papers published ${start ? `from ${start} to ${ended}` : `up to ${ended}`}, the same `
-        + `dates each time, and that window ended on ${ended}. To ask for the newest papers on every run, clear both `
-        + 'dates under Change.',
+        + `dates each time, and that window ended on ${ended}. ${CHOOSE_SINCE}`,
     });
+  }
+  const retractions = !!p.entity && typeof p.entity === 'object' && (p.entity as Record<string, unknown>).mode === 'retractions';
+  const undated = !p.date_window && !from && !to;
+  if (undated && !retractions) {
+    const asked = new Set(watchAsks(parameters).sources);
+    const ranked = byOrder(catalog.filter((entry) => asked.has(entry.slug))).relevance;
+    if (ranked.length) {
+      const one = ranked.length === 1;
+      out.push({
+        kind: 'undated_relevance',
+        text: `Every run asks ${listed(ranked.map((e) => e.name))} with no date limit, and ${one ? 'it ranks' : 'they rank'} `
+          + 'by relevance, so each run gets the most relevant papers of all years, mostly the same ones, and finds little '
+          + `that is new. ${CHOOSE_SINCE}`,
+      });
+    }
   }
   return out;
 }

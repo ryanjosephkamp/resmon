@@ -15,6 +15,8 @@ import {
 } from './firing';
 import { useCalendar } from './MonthAhead';
 import { RunHistory } from './RunHistory';
+import { parametersOf } from './editor';
+import { watchWindowSentence } from './window';
 import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from './Watches';
 import {
   CALENDAR_KEY, WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
@@ -172,7 +174,7 @@ function WatchPage({ raw }: { raw: string }) {
           )}
         </div>
         {notice && <FiringNote notice={notice} />}
-        <WatchWarnings id={data.id} warnings={watchWarnings(data.parameters, now)} />
+        <WatchWarnings id={data.id} warnings={watchWarnings(data.parameters, now, catalog.data ?? [])} />
         {saved && !said && <p className="run-note" role="status" data-editor="said">{saved}</p>}
         {said && (
           said.run !== null
@@ -190,6 +192,7 @@ function WatchPage({ raw }: { raw: string }) {
           <Switch label="Email the report" column="email_enabled" on={data.email_enabled}
             busy={flip.isPending} onFlip={(on) => flip.mutate({ column: 'email_enabled', on })} />
         </div>
+        <WatchDates routine={data} latestRun={latest?.id ?? null} />
         <WatchSummaries routine={data} />
       </header>
 
@@ -229,6 +232,32 @@ function WatchPage({ raw }: { raw: string }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Which papers each run asks for, in words. A window that moves is said in
+ * the engine's sentence, with the dates a run starting now would ask for;
+ * fixed dates and no dates are said as stored. Changed in the watch's editor.
+ */
+function WatchDates({ routine, latestRun }: { routine: Routine; latestRun: number | null }) {
+  // Read again whenever a run settles: the run just finished may be the
+  // previous run the next window starts from. Under the watch's own key, so
+  // a save in the editor refreshes it too.
+  const fresh = useQuery({
+    queryKey: ['routine', routine.id, 'dates', latestRun],
+    enabled: !!routine.date_window_next,
+    queryFn: async () => (await answer(engine().GET('/api/routines/{routine_id}', {
+      params: { path: { routine_id: routine.id } },
+    }))).date_window_next ?? null,
+  });
+  const said = watchWindowSentence(parametersOf(routine.parameters), fresh.data ?? routine.date_window_next);
+  if (!said) return null;
+  return (
+    <p className="watch-dates" data-watch="window" data-window={said.window}>
+      <span className="watch-dates-label">Dates</span>{' '}{said.text}{' '}
+      <Link to={`/watches/${routine.id}/edit`}>Change</Link>
+    </p>
   );
 }
 

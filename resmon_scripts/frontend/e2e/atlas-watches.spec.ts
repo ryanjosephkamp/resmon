@@ -128,7 +128,14 @@ test('Watches lists each watch and its month ahead; a watch runs, pauses, keeps 
       .toContainText('Every run asks for papers published from May 3, 2026 to May 4, 2026');
     await expect(old.locator('[data-warning="window_ended"]').getByRole('link', { name: 'Change' }))
       .toHaveAttribute('href', `#/watches/${stale}/edit`);
-    await expect(active.locator('.watch-warning')).toHaveCount(0);
+    // Its dates ended, and the cure named is the window that moves, not clearing them.
+    await expect(old.locator('[data-warning="window_ended"]'))
+      .toContainText('choose “Papers published since the previous run” under Change');
+    await expect(old.locator('[data-warning="undated_relevance"]')).toHaveCount(0);
+    // No dates on Springer Nature, which ranks by relevance: the same papers every run.
+    await expect(active.locator('.watch-warning')).toHaveCount(1);
+    await expect(active.locator('[data-warning="undated_relevance"]'))
+      .toContainText('Every run asks Springer Nature with no date limit, and it ranks by relevance');
 
     // The month ahead draws the watching watch's fires at nine, and none of the
     // paused one's; it says they are due, not that they will run.
@@ -246,6 +253,9 @@ test('Watches lists each watch and its month ahead; a watch runs, pauses, keeps 
     await expect(stalePage.locator('[data-warning="no_terms"]')).toBeVisible();
     await expect(stalePage.locator('.run-meta')).toContainText('no words in arXiv');
     await expect(stalePage.locator('[data-warning="window_ended"]')).toContainText('that window ended on May 4, 2026');
+    await expect(stalePage.locator('[data-watch="window"]')).toHaveAttribute('data-window', 'between');
+    await expect(stalePage.locator('[data-watch="window"]'))
+      .toContainText('Every run asks for papers published from May 3, 2026 to May 4, 2026, the same dates each time.');
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-warnings.png') });
     await stalePage.locator('[data-warning="window_ended"]').getByRole('link', { name: 'Change' }).click();
     await expect(win.locator('.watch-editor')).toBeVisible();

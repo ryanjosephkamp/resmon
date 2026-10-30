@@ -62,8 +62,12 @@ export function savedAsks(config: Pick<SavedConfiguration, 'config_type' | 'para
   if (!keywords.length && typeof p.query === 'string' && p.query) keywords.push(p.query);
   const dateFrom = typeof p.date_from === 'string' ? p.date_from : '';
   const dateTo = typeof p.date_to === 'string' ? p.date_to : '';
-  const window = dateFrom && dateTo ? `${dayWords(dateFrom)} to ${dayWords(dateTo)}`
-    : dateFrom ? `from ${dayWords(dateFrom)}` : dateTo ? `until ${dayWords(dateTo)}` : null;
+  // A watch's window that moves (`date_window`) has no dates stored; its runs compute them.
+  const moving = record(p.date_window);
+  const window = typeof moving.last_days === 'number' ? `the last ${moving.last_days} days before each run`
+    : moving.since === 'previous_run' ? 'published since the previous run'
+      : dateFrom && dateTo ? `${dayWords(dateFrom)} to ${dayWords(dateTo)}`
+        : dateFrom ? `from ${dayWords(dateFrom)}` : dateTo ? `until ${dayWords(dateTo)}` : null;
   return {
     sources,
     keywords,

@@ -17,6 +17,7 @@ import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
 import { runSummaries } from './runs/summaries';
+import { runWindowSentence } from './watches/window';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
@@ -176,6 +177,9 @@ export function Run() {
   const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null);
   const title = runTitle(data, watch);
+  // The dates this run asked for, as its own parameters record them: for a
+  // watch whose window moves, the dates the engine computed when it fired.
+  const dates = runWindowSentence(data.parameters);
 
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
@@ -235,6 +239,11 @@ export function Run() {
             <span key={next}><span className="sep" /> <Link to={`/runs/${next}`}>restarted as run {next}</Link></span>
           ))}
         </div>
+        {dates && (
+          <p className="run-dates" data-run="window">
+            <span className="run-dates-label">Dates</span> {dates}
+          </p>
+        )}
         <RunSummaryNote run={data} events={events.data ?? null} />
         {stopping && (
           <p className="run-note" role="status" data-run="stopping">

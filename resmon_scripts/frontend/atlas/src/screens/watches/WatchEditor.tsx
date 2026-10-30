@@ -13,14 +13,18 @@ import { AI_KEY, type AiSettings } from '../settings/summaryLanes';
 import { coarseFor, coarseSentence, noneAskableAboutAuthors, paceOf, rateLong } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import {
-  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, scheduleWords, seededForm, summaryBody, watchBody,
-  whatIsMissing,
+  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, summaryBody,
+  watchBody, whatIsMissing,
   type Follows, type ScheduleChoice, type WatchForm, type WatchSeed,
 } from './editor';
 import {
   CALENDAR_KEY, CHANNEL_WORDS, WATCHES_KEY, destinationWords, webhookUrl, type DeliveryTarget, type Routine,
 } from './model';
 import { PEOPLE_KEY, type Profile } from './people/model';
+import {
+  MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, windowHint,
+  type DateWindowComputed,
+} from './window';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -187,6 +191,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
 
   const back = existing ? `/watches/${existing.id}` : '/watches';
   const { words, cron } = scheduleWords(form, existing);
+  // The engine's dates for the next run hold only while the window chosen is the one stored.
+  const sameWindow = form.window === initial.window && (form.window !== 'last_days' || form.lastDays === initial.lastDays);
 
   return (
     <div className="search watch-editor">
@@ -248,10 +254,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
         )}
 
         {form.follows === 'retractions' ? (
-          <p className="form-hint editor-aside" data-editor="no-sources">
-            This watch asks no source. It checks the papers already matched to this person against the retraction and
-            correction notices resmon holds.
-          </p>
+          <p className="form-hint editor-aside" data-editor="no-sources">{retractionsAsks('this person')}</p>
         ) : (
           <SourceCatalog
             name="watch-source"
@@ -271,29 +274,48 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           storedCron={existing?.schedule_cron ?? ''} onCadence={(cadence) => setSchedule({ cadence })} onChange={setSchedule} />
 
         {form.follows !== 'retractions' && (
-          <div className="ask-window">
-            <fieldset className="window">
-              <legend>Published</legend>
-              <label className="date">
-                <span>From</span>
-                <input type="date" value={form.dateFrom} onChange={(e) => set({ dateFrom: e.target.value })} />
-              </label>
-              <label className="date">
-                <span>To</span>
-                <input type="date" value={form.dateTo} onChange={(e) => set({ dateTo: e.target.value })} />
-              </label>
+          <>
+            <fieldset className="choices window-choices" data-editor="window" data-window={form.window}>
+              <legend className="field-title">Which papers each run asks for</legend>
+              {WINDOWS.map(({ window, label }) => (
+                <label key={window} className="choice">
+                  <input type="radio" name="watch-window" value={window} checked={form.window === window}
+                    onChange={() => set({ window })} />
+                  <span>{window === 'last_days' ? `In the last ${form.lastDays.toLocaleString('en-US')} days` : label}</span>
+                </label>
+              ))}
+              <p className="form-hint window-hint" data-editor="window-hint">{windowHint(form.window, form.lastDays, sources)}</p>
             </fieldset>
-            <label className="cap">
-              <span>Up to</span>
-              <input type="number" min={1} max={1000} value={form.cap} aria-label="Most papers per source"
-                onChange={(e) => set({ cap: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} />
-              <span>papers per source, each run</span>
-            </label>
-            <p className="form-hint window-hint">
-              Leave both dates empty to ask for the newest papers on every run. Dates set here are the same window on
-              every run.
-            </p>
-          </div>
+            <div className="ask-window">
+              {form.window === 'last_days' && (
+                <label className="cap">
+                  <span>The last</span>
+                  <input type="number" min={1} max={MAX_DAYS} value={form.lastDays} aria-label="Days before each run"
+                    onChange={(e) => set({ lastDays: Math.max(1, Math.min(MAX_DAYS, Math.round(Number(e.target.value)) || 1)) })} />
+                  <span>days before each run</span>
+                </label>
+              )}
+              {form.window === 'between' && (
+                <fieldset className="window">
+                  <legend>Published</legend>
+                  <label className="date">
+                    <span>From</span>
+                    <input type="date" value={form.dateFrom} onChange={(e) => set({ dateFrom: e.target.value })} />
+                  </label>
+                  <label className="date">
+                    <span>To</span>
+                    <input type="date" value={form.dateTo} onChange={(e) => set({ dateTo: e.target.value })} />
+                  </label>
+                </fieldset>
+              )}
+              <label className="cap">
+                <span>Up to</span>
+                <input type="number" min={1} max={1000} value={form.cap} aria-label="Most papers per source"
+                  onChange={(e) => set({ cap: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} />
+                <span>papers per source, each run</span>
+              </label>
+            </div>
+          </>
         )}
 
         <div className="form-field editor-intent">
@@ -354,7 +376,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
       </form>
 
       <WillDo form={current} existing={existing} picked={picked} unknown={unknown} person={person}
-        keyMissing={keyMissing} words={words} cron={cron} summaries={summaries} ai={ai.data} />
+        keyMissing={keyMissing} words={words} cron={cron} summaries={summaries} ai={ai.data}
+        next={sameWindow ? existing?.date_window_next ?? null : null} />
     </div>
   );
 }
@@ -453,9 +476,11 @@ function ScheduleField({ form, keptOffered, storedWords, storedCron, onCadence, 
  * finishes. Each sentence is the form's own fact or the catalog's, and none
  * guesses at how many papers a run will find.
  */
-function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cron, summaries, ai }: {
+function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cron, summaries, ai, next }: {
   summaries: SummaryChoice;
   ai: AiSettings | undefined;
+  /** The engine's dates for this watch's next run, while the window on the form is the stored one. */
+  next: DateWindowComputed | null;
   form: WatchForm;
   existing: Routine | null;
   picked: readonly CatalogEntry[];
@@ -465,11 +490,19 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
   words: string | null;
   cron: string;
 }) {
-  const pace = form.follows === 'retractions' ? null : paceOf(picked);
-  const coarse = form.follows === 'retractions' ? [] : coarseFor(picked, form.dateFrom, form.dateTo);
-  const window = form.dateFrom || form.dateTo
-    ? `, published ${form.dateFrom ? `from ${form.dateFrom}` : 'any time'}${form.dateTo ? ` to ${form.dateTo}` : ' onward'}, the same dates on every run`
-    : ', the newest each time';
+  const asks = form.follows !== 'retractions';
+  const pace = asks ? paceOf(picked) : null;
+  const between = form.window === 'between';
+  const moving = form.window === 'previous_run' || form.window === 'last_days';
+  const coarse = asks && between ? coarseFor(picked, form.dateFrom, form.dateTo) : [];
+  const coarseMoving = asks && moving ? coarseMovingSentences(picked) : [];
+  const undated = asks && form.window === 'none';
+  const ranked = undated ? relevanceSentence(picked) : null;
+  const newest = undated ? byOrder(picked).newest_first : [];
+  const window = form.window === 'previous_run' ? ', published since its previous run'
+    : form.window === 'last_days' ? `, published in the ${form.lastDays.toLocaleString('en-US')} days before each run`
+      : between && (form.dateFrom || form.dateTo) ? `, published ${fixedWords(form.dateFrom, form.dateTo)}, the same dates on every run`
+        : between ? '' : ', with no date limit';
   const who = person?.display_name ?? 'the person you choose';
   const where = picked.length ? namesOf(picked) : 'the sources you choose';
   const unkeyed = form.follows === 'retractions' ? [] : picked.filter(keyMissing);
@@ -530,7 +563,7 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
             </p>
           )}
           {form.follows === 'retractions' && (
-            <p>Checks the papers already matched to {who} against the retraction and correction notices resmon holds. It asks no source.</p>
+            <p data-will="retractions">{retractionsAsks(who)}</p>
           )}
           {form.follows === 'words' && picked.length > 1 && (
             <p className="will-quiet">Each source combines the terms its own way, as its row in the catalog says.</p>
@@ -542,6 +575,14 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           )}
           {pace && <p className="will-quiet">{pace.entry.name} allows {rateLong(pace.rate)}, the slowest of these; it sets how long each run takes.</p>}
           {coarse.length > 0 && <p className="will-quiet">{coarseSentence(coarse)}</p>}
+          {asks && moving && next && <p className="will-quiet" data-will="next-dates">{next.sentence}</p>}
+          {coarseMoving.map((line) => <p key={line} className="will-quiet" data-will="coarse-window">{line}</p>)}
+          {newest.length > 0 && (
+            <p className="will-quiet" data-will="newest-first">
+              {listed(newest.map((e) => e.name))} {newest.length === 1 ? 'puts its' : 'put their'} newest papers first.
+            </p>
+          )}
+          {ranked && <p className="will-warn" data-will="undated-relevance">{ranked}</p>}
           {unkeyed.map((entry) => (
             <p key={entry.slug} className="will-warn">{entry.name} has no API key here, so every run will record it as not queried.</p>
           ))}

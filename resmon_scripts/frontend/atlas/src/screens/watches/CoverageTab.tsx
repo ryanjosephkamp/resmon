@@ -52,6 +52,7 @@ export function CoverageTab({ routine }: { routine: Routine }) {
               : <> — the intent written for this watch.</>}
           </p>
           {data.reason && <p className="record-cap" data-coverage="reason">{data.reason}</p>}
+          {data.window_note && <p className="record-cap" data-coverage="window">{data.window_note}</p>}
           {data.distribution && (
             <p className="record-cap" data-coverage="distribution">
               {number(data.results_embedded)} of {number(data.results)} results are embedded. Distance from the

@@ -125,7 +125,7 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     await expect(win.locator('[data-switch="is_active"]')).toHaveAttribute('aria-checked', 'false');
     await expect(win.locator('[data-will="schedule"] p').first()).toHaveText('Weekdays at 7:30 AM, in this computer’s time.');
     await expect(win.locator('[data-will="asks"] p').first())
-      .toHaveText('Asks arXiv and bioRxiv for papers matching “perovskite” and “tandem”, the newest each time, up to 25 from each.');
+      .toHaveText('Asks arXiv and bioRxiv for papers matching “perovskite” and “tandem”, published since its previous run, up to 25 from each.');
     // No email account is set up in this state directory, and it says so.
     await expect(win.locator('[data-will="no-email-account"]')).toBeVisible();
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-editor-new.png') });
@@ -140,7 +140,7 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     });
     expect(row.parameters).toMatchObject({
       repositories: ['arxiv', 'biorxiv'], keywords: ['perovskite', 'tandem'], query: 'perovskite tandem',
-      max_results: 25, date_from: '', date_to: '',
+      max_results: 25, date_from: '', date_to: '', date_window: { since: 'previous_run' },
     });
     expect(row.parameters).not.toHaveProperty('entity');
 
@@ -198,6 +198,13 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     await expect(win.locator('[data-will="unaskable"]')).toBeVisible();
     await win.locator('.source[data-source="arxiv"] input').check();
     await expect(win.locator('[data-will="unaskable"]')).toHaveCount(0);
+    // A watch on retractions searches no source for papers, and says what its
+    // lifecycle check does send, and to whom; then back to new papers.
+    await win.getByLabel('A person: retractions and corrections on their papers').check();
+    await expect(win.locator('[data-editor="no-sources"]')).toContainText('the DOIs of the papers already matched to this person to Crossref');
+    await expect(win.locator('[data-will="retractions"]')).toContainText('matched to Ada Fixture to Crossref, and the ids of those from arXiv and bioRxiv');
+    await expect(win.locator('[data-editor="window"]')).toHaveCount(0);
+    await win.getByLabel('A person: their new papers').check();
     await win.locator('[data-switch="is_active"]').click();
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-editor-person.png') });
     await win.getByRole('button', { name: 'Save watch' }).click();
@@ -260,7 +267,8 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     await expect(win.locator('.source[data-source="biorxiv"] input')).toBeChecked();
     await expect(win.getByLabel('Most papers per source')).toHaveValue('40');
     // Not its dates: a window fixed when it was saved would be asked on every run.
-    await expect(win.locator('.ask-window input[type="date"]').first()).toHaveValue('');
+    await expect(win.getByRole('radio', { name: 'Papers published since the previous run' })).toBeChecked();
+    await expect(win.locator('.ask-window input[type="date"]')).toHaveCount(0);
     await win.evaluate(() => { window.location.hash = '#/search/ask'; });
     await win.locator('#ask-terms').fill('perovskite');
     await win.keyboard.press('Enter');
