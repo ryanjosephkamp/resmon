@@ -132,13 +132,61 @@ export const SEVERITY_MEANING: Record<string, string> = {
   advice: 'Nothing is wrong. Worth considering.',
 };
 
+/**
+ * The names withdrawn sources were shown under, as `api_registry.RETIRED_NAMES`
+ * keeps them. The catalog no longer lists a withdrawn source, but runs saved
+ * before it went still name it, and the watchdog still reports on them;
+ * `health.test.ts` holds this copy to the engine's.
+ */
+export const RETIRED_NAMES: Readonly<Record<string, string>> = {
+  ieee: 'IEEE Xplore',
+  oapen: 'OAPEN Library',
+  repec: 'RePEc/IDEAS',
+  ssrn: 'SSRN',
+};
+
+/** A source by the name it is shown under: the catalog's, else the one it was withdrawn under, else its key. */
+export function sourceName(slug: string, names: ReadonlyMap<string, string>): string {
+  return names.get(slug) ?? RETIRED_NAMES[slug] ?? slug;
+}
+
 /** "Source · arXiv", "Watch · Perovskite stability": a finding's scope, as its card names it. */
 export function scopeWords(scope: Record<string, unknown>, names: ReadonlyMap<string, string>): string {
   const id = String(scope.id ?? '');
   const name = typeof scope.name === 'string' && scope.name ? scope.name : null;
-  if (scope.type === 'source') return `Source · ${name ?? names.get(id) ?? id}`;
+  if (scope.type === 'source') return `Source · ${name ?? sourceName(id, names)}`;
   if (scope.type === 'routine') return `Watch · ${name ?? id}`;
   return `${String(scope.type ?? 'Scope')} · ${name ?? id}`;
+}
+
+/** A finding about a source the engine words by its key, as its card shows it. */
+export interface FindingWords {
+  title: string;
+  detail: string;
+  what_to_do: string;
+  /** A withdrawn source: resmon declines to ask it, so its runs in a row are not failures. */
+  withdrawn: boolean;
+}
+
+/**
+ * A finding's sentences with its source called by name. The engine writes a
+ * source finding's title, detail, and advice around the source's key
+ * (`semantic_scholar has failed on its last 4 runs`); the card says
+ * "Semantic Scholar". Only the finding's own source is renamed, and only where
+ * its key stands as a word of its own: never inside an address or a longer
+ * name (`export.arxiv.org`, `arxiv_id`).
+ */
+export function findingWords(finding: Pick<WatchdogFinding, 'scope' | 'kind' | 'title' | 'detail' | 'what_to_do' | 'evidence'>,
+  names: ReadonlyMap<string, string>): FindingWords {
+  const scope = finding.scope as Record<string, unknown>;
+  const slug = scope.type === 'source' ? String(scope.id ?? '') : '';
+  const withdrawn = !!slug && finding.kind === 'source_errors'
+    && (slug in RETIRED_NAMES || (finding.evidence as Record<string, unknown>).last_zero_reason === 'retired');
+  const name = slug ? sourceName(slug, names) : '';
+  if (!slug || name === slug) return { title: finding.title, detail: finding.detail, what_to_do: finding.what_to_do, withdrawn };
+  const key = new RegExp(`(?<![\\w./-])${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/-]|\\.\\w)`, 'g');
+  const named = (text: string) => text.replace(key, name);
+  return { title: named(finding.title), detail: named(finding.detail), what_to_do: named(finding.what_to_do), withdrawn };
 }
 
 function plural(n: number, one: string, many: string): string {

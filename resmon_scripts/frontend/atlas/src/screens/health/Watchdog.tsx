@@ -7,7 +7,7 @@ import { when } from '../today/format';
 import { HealthTabs } from './HealthTabs';
 import { LifecycleCheck } from './LifecycleCheck';
 import {
-  SEVERITY_MEANING, SEVERITY_WORDS, WATCHDOG_KEY, instantOf, scopeWords, thresholdWords, watchdogVerdict,
+  SEVERITY_MEANING, SEVERITY_WORDS, WATCHDOG_KEY, findingWords, instantOf, scopeWords, thresholdWords, watchdogVerdict,
   type WatchdogFinding, type WatchdogUnjudged,
 } from './model';
 
@@ -34,6 +34,17 @@ const EVIDENCE: Record<string, string> = {
   runs_without_new_results: 'Runs with nothing new',
   last_new_result_at: 'Last new paper found',
   cadence_days: 'Runs about every (days)',
+};
+
+/**
+ * A withdrawn source's evidence, labeled for what it is. resmon declines to
+ * ask it, so its streak is runs that got nothing from it, not failures; and
+ * its most recent error is the withdrawal paragraph the detail already says in
+ * full, so it is not said twice.
+ */
+const WITHDRAWN: Record<string, string | null> = {
+  consecutive_errors: 'Runs in a row with nothing from it',
+  last_error: null,
 };
 
 function evidenceWords(value: unknown, now: Date): string {
@@ -160,37 +171,42 @@ function FindingGroup({ title, lede, findings, names, now, busy, onMute, muted =
       <h2 className="group-title">{title}</h2>
       {lede && <p className="group-lede">{lede}</p>}
       <ol className="findings">
-        {findings.map((f) => (
-          <li key={f.key} className="finding" data-severity={f.severity} data-muted={f.muted ? 'true' : 'false'} data-key={f.key}>
-            <div className="finding-head">
-              <span className="finding-severity" data-severity={f.severity} title={SEVERITY_MEANING[f.severity]}>
-                {SEVERITY_WORDS[f.severity] ?? f.severity}
-              </span>
-              <span className="finding-scope">{scopeWords(f.scope, names)}</span>
-              <button type="button" className="btn sm quiet" disabled={busy} onClick={() => onMute(f)}>
-                {f.muted ? 'Unmute' : 'Mute'}
-              </button>
-            </div>
-            <h3 className="finding-title">{f.title}</h3>
-            <p className="finding-meaning">{SEVERITY_MEANING[f.severity]}</p>
-            <p className="finding-detail">{f.detail}</p>
-            <p className="finding-todo"><b>What to do.</b> {f.what_to_do}</p>
-            <Evidence evidence={f.evidence} now={now} />
-            {f.muted && f.muted_at && <p className="record-cap">Muted {when(instantOf(f.muted_at)?.toISOString(), now)}.</p>}
-          </li>
-        ))}
+        {findings.map((f) => {
+          const said = findingWords(f, names);
+          return (
+            <li key={f.key} className="finding" data-severity={f.severity} data-muted={f.muted ? 'true' : 'false'} data-key={f.key}
+              data-withdrawn={said.withdrawn ? 'true' : undefined}>
+              <div className="finding-head">
+                <span className="finding-severity" data-severity={f.severity} title={SEVERITY_MEANING[f.severity]}>
+                  {SEVERITY_WORDS[f.severity] ?? f.severity}
+                </span>
+                <span className="finding-scope">{scopeWords(f.scope, names)}</span>
+                <button type="button" className="btn sm quiet" disabled={busy} onClick={() => onMute(f)}>
+                  {f.muted ? 'Unmute' : 'Mute'}
+                </button>
+              </div>
+              <h3 className="finding-title">{said.title}</h3>
+              <p className="finding-meaning">{SEVERITY_MEANING[f.severity]}</p>
+              <p className="finding-detail">{said.detail}</p>
+              <p className="finding-todo"><b>What to do.</b> {said.what_to_do}</p>
+              <Evidence evidence={f.evidence} now={now} withdrawn={said.withdrawn} />
+              {f.muted && f.muted_at && <p className="record-cap">Muted {when(instantOf(f.muted_at)?.toISOString(), now)}.</p>}
+            </li>
+          );
+        })}
       </ol>
     </section>
   );
 }
 
-function Evidence({ evidence, now }: { evidence: Record<string, unknown>; now: Date }) {
-  const rows = Object.entries(evidence).filter(([key]) => key in EVIDENCE);
+function Evidence({ evidence, now, withdrawn }: { evidence: Record<string, unknown>; now: Date; withdrawn: boolean }) {
+  const label = (key: string): string | null | undefined => (withdrawn && key in WITHDRAWN ? WITHDRAWN[key] : EVIDENCE[key]);
+  const rows = Object.entries(evidence).filter(([key]) => label(key));
   if (!rows.length) return null;
   return (
     <dl className="finding-evidence">
       {rows.map(([key, value]) => (
-        <div key={key}><dt>{EVIDENCE[key]}</dt><dd>{evidenceWords(value, now)}</dd></div>
+        <div key={key}><dt>{label(key)}</dt><dd>{evidenceWords(value, now)}</dd></div>
       ))}
     </dl>
   );
