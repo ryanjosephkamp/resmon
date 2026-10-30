@@ -140,7 +140,6 @@ resmon/
 │   │   ├── api_*.py                  # Per-repository API clients (26 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
-│   │   ├── citation_graph.py         # Citation and context graphing.
 │   │   ├── cloud_storage.py          # Google Drive backup (drive.file scope).
 │   │   ├── config.py                 # APP_NAME, paths, defaults.
 │   │   ├── config_manager.py         # Configuration JSON export/import.

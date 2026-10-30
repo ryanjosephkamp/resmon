@@ -848,18 +848,6 @@ def test_requirement_crosscheck(client):
     assert ai.status_code == 200
     assert client.delete("/api/credentials/test_key").status_code == 200
 
-    # ------------------------------------------------------------------ CIT
-    # CIT-1  Fetch follow-up references  → citation_graph module
-    # CIT-2  Mini-citation tree          → citation_graph module
-    from implementation_scripts.citation_graph import (
-        build_citation_tree,
-        fetch_citations,
-        fetch_references,
-    )
-    assert callable(build_citation_tree)
-    assert callable(fetch_citations)
-    assert callable(fetch_references)
-
     # ------------------------------------------------------------------ STOR
     # STOR-1  PDF save/archive/discard toggle
     # STOR-2  TXT save/archive/discard toggle

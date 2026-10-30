@@ -24,11 +24,11 @@
  * collection map behind Today's plate (`/api/map`), and J48, Today itself
  * (`/api/today`), arrived the same way.
  *
- * **`status`.** Every row is `carried` today: nothing has been dropped from the
- * register. A row that stops being carried takes `status: 'not_carried_forward'`
+ * **`status`.** A row that stops being carried takes `status: 'not_carried_forward'`
  * and must then carry a `reason` naming the N-row it was decided under and the
- * initials of whoever decided it — B4 in prose, enforced by the guard. There
- * are no such rows yet.
+ * initials of whoever decided it — B4 in prose, enforced by the guard. J27, the
+ * citation graph, is the one such row: it was planned and never built, and N1
+ * dropped it on October 30, 2026.
  *
  * **`slice` and `built`.** `slice` is which delivery owes the row's test; every
  * slice-1 row is built by definition, and a later slice's row is built once it
@@ -113,7 +113,7 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J24', title: 'Google Drive backup', slice: '2a', status: 'carried', built: true },
   { id: 'J25', title: 'In-app documentation', slice: '2a', status: 'carried', built: true },
   { id: 'J26', title: 'Danger Zone', slice: '2a', status: 'carried', built: true },
-  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'carried', built: true },
+  { id: 'J27', title: 'Citation graph', slice: '2a', status: 'not_carried_forward', reason: 'N1; dropped by RK 2026-10-30' },
   { id: 'J28', title: 'Reading queue', slice: '2b', status: 'carried', built: true },
   { id: 'J29', title: 'Recorded-source coverage', slice: '1', status: 'carried' },
   { id: 'J30', title: 'Runtime identity', slice: '1', status: 'carried' },
