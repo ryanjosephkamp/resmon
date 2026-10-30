@@ -263,6 +263,52 @@ def test_nearest_ranks_by_distance_and_honours_the_candidate_set(conn):
     assert {doc for doc, _ in restricted} <= set(subset)
 
 
+def test_a_restricted_ranking_leaves_the_connection_outside_a_transaction(conn, tmp_path):
+    """The candidate set is an INSERT, and Python's sqlite3 begins a transaction before one.
+
+    Nothing in ``nearest`` committed it, so the connection stayed inside a
+    transaction after the ranking returned. The server keeps one connection per
+    worker thread, and an open transaction pins that connection to the database
+    as it was: every later request on the thread read rows from before any
+    commit made since. A watch's coverage audit ranks within the watch's papers,
+    and the watch page read straight after saving its intent showed none.
+
+    **Mutation:** remove the commit after the candidate table is dropped.
+    """
+    conn.execute("PRAGMA journal_mode=WAL")
+    ids = [_document(conn, str(i)) for i in range(3)]
+    for offset, doc_id in enumerate(ids):
+        _embed(conn, doc_id, "m1", [1.0, float(offset), 0.0, 0.0])
+    query = vector_index.pack_vector([1.0, 0.0, 0.0, 0.0])
+    assert not conn.in_transaction
+
+    assert vector_index.nearest(conn, "m1", query, k=2, within_ids=ids[1:])
+    assert not conn.in_transaction, "the ranking left its candidate-table transaction open"
+
+    # What an open transaction costs: another connection's commit goes unseen.
+    other = sqlite3.connect(str(tmp_path / "corpus.db"))
+    other.execute("UPDATE documents SET title = 'Renamed' WHERE id = ?", (ids[0],))
+    other.commit()
+    other.close()
+    assert conn.execute("SELECT title FROM documents WHERE id = ?", (ids[0],)).fetchone()[0] == "Renamed"
+
+
+def test_a_restricted_ranking_inside_a_caller_s_transaction_leaves_it_to_the_caller(conn):
+    """The commit is only for a transaction the ranking began, never one it was handed."""
+    ids = [_document(conn, str(i)) for i in range(3)]
+    for offset, doc_id in enumerate(ids):
+        _embed(conn, doc_id, "m1", [1.0, float(offset), 0.0, 0.0])
+    vector_index.rebuild(conn, "m1")  # a rebuild commits; this is about the query alone
+    query = vector_index.pack_vector([1.0, 0.0, 0.0, 0.0])
+    conn.execute("UPDATE documents SET title = 'Uncommitted' WHERE id = ?", (ids[0],))
+    assert conn.in_transaction
+
+    vector_index.nearest(conn, "m1", query, k=2, within_ids=ids[1:])
+    assert conn.in_transaction
+    conn.rollback()
+    assert conn.execute("SELECT title FROM documents WHERE id = ?", (ids[0],)).fetchone()[0] == "Paper 0"
+
+
 def test_an_empty_candidate_set_ranks_nothing_rather_than_everything(conn):
     doc = _document(conn, "1")
     _embed(conn, doc, "m1", [1.0, 0, 0, 0])

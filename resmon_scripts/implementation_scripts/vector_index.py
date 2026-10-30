@@ -510,6 +510,14 @@ def _nearest_locked(
         return []
 
     params: list = [model, vector, k]
+    # Filling the candidate table is an INSERT, and Python's sqlite3 begins a
+    # transaction before one. A transaction this function began, it ends: the
+    # server keeps one connection per worker thread, and a transaction left open
+    # pins that connection to the database as it was, so every later request on
+    # the thread read rows from before the commits made since. A watch page read
+    # just after its intent was saved showed none, because the coverage audit
+    # had ranked within the watch's papers on the same thread.
+    began = within_ids is not None and not conn.in_transaction
     if within_ids is not None:
         if not within_ids:
             return []
@@ -551,4 +559,7 @@ def _nearest_locked(
                 conn.execute(f"DROP TABLE IF EXISTS {_CANDIDATE_TABLE}")
             except sqlite3.Error:  # pragma: no cover - cleanup must not mask the result
                 logger.debug("could not drop the candidate table", exc_info=True)
+        if began and conn.in_transaction:
+            # Only the temporary table changed, and it is gone.
+            conn.commit()
     return [(int(r[0]), float(r[1])) for r in rows]
