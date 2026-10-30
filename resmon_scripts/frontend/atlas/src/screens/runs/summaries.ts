@@ -6,6 +6,7 @@
  * reading as a run that was not asked to summarize.
  */
 import type { components } from '../../api/schema';
+import { answeredNames } from '../settings/modelWords';
 import { listWords } from '../settings/summaryChoice';
 import type { ProgressEvent } from './model';
 
@@ -49,15 +50,25 @@ const ADJUSTED: Record<string, string> = {
 
 const papers = (n: number) => `${n} ${n === 1 ? 'paper' : 'papers'}`;
 
+/**
+ * Which model wrote a lane's summaries, as its command reported it. Said only
+ * for a lane that wrote some, and only from a report: a lane whose command
+ * said nothing about it gets nothing here rather than the alias it was asked for.
+ */
+export function writtenBy(lane: RunAiLane): string {
+  const names = answeredNames(lane.answered_by);
+  return names && lane.docs_succeeded > 0 ? ` Written by ${names}.` : '';
+}
+
 /** What one connection did, as its row records it. */
 export function laneSentence(lane: RunAiLane, running: boolean): string {
   // The lane's own sentence, without its full stop, since it ends this one.
   const reason = (lane.safe_message || lane.error_kind || '').trim().replace(/\.$/, '') || null;
   switch (lane.outcome) {
     case 'ok':
-      return `${lane.lane_label}: summarized ${lane.docs_succeeded} of ${papers(lane.docs_attempted)}.`;
+      return `${lane.lane_label}: summarized ${lane.docs_succeeded} of ${papers(lane.docs_attempted)}.${writtenBy(lane)}`;
     case 'partial':
-      return `${lane.lane_label}: summarized ${lane.docs_succeeded} of ${papers(lane.docs_attempted)}${reason ? `; ${reason}` : ''}.`;
+      return `${lane.lane_label}: summarized ${lane.docs_succeeded} of ${papers(lane.docs_attempted)}${reason ? `; ${reason}` : ''}.${writtenBy(lane)}`;
     case 'failed':
       return lane.docs_attempted
         ? `${lane.lane_label}: summarized none of ${papers(lane.docs_attempted)}${reason ? `: ${reason}` : ''}.`
@@ -74,6 +85,12 @@ export function laneSentence(lane: RunAiLane, running: boolean): string {
  * watch's run takes its choice from the watch, so what was set for it is said
  * to be set for the watch.
  */
+/** Whether a lane stopped because its command is not signed in, so the run page can offer the sign-in. */
+export function needsSignIn(lane: RunAiLane): boolean {
+  return lane.lane_kind === 'subscription' && lane.error_kind === 'cli_auth'
+    && (lane.provider === 'claude_code' || lane.provider === 'codex');
+}
+
 export function runSummaries(
   run: { status: string; result_count?: number | null; routine_id?: number | null; ai_lanes?: readonly RunAiLane[] },
   events: readonly ProgressEvent[],

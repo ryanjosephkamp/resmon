@@ -17,7 +17,8 @@ import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
-import { aiChoiceOf, runSummaries } from './runs/summaries';
+import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
+import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
@@ -53,7 +54,18 @@ function RunSummaryNote({ run, events }: { run: RunData; events: ProgressEvent[]
     <div className="run-ai" data-run="summaries" data-on={said.on === null ? 'unknown' : String(said.on)}>
       <p><span className="run-ai-label">Summaries</span> {said.head}</p>
       {said.lanes.length > 0 && (
-        <ul className="run-ai-lanes">{said.lanes.map((line, i) => <li key={i} data-outcome={run.ai_lanes[i]?.outcome}>{line}</li>)}</ul>
+        <ul className="run-ai-lanes">
+          {said.lanes.map((line, i) => {
+            const lane = run.ai_lanes[i];
+            return (
+              <li key={i} data-outcome={lane?.outcome}>
+                {line}
+                {/* The command said it is not signed in: the way to sign it in, right here. */}
+                {lane && needsSignIn(lane) && <CliSignIn provider={lane.provider} purpose="summaries" checkOnOpen={false} />}
+              </li>
+            );
+          })}
+        </ul>
       )}
       {said.note && <p className="run-ai-note">{said.note}</p>}
     </div>
