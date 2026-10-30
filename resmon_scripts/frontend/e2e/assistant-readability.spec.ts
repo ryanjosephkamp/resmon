@@ -97,7 +97,7 @@ test.describe('assistant readability and preserved real transport', () => {
   const python = process.env.RESMON_PYTHON || path.join(REPO_ROOT, '.venv/bin/python');
   const preservation = () => execFileSync(python, ['-c', `import sqlite3,json,sys
 c=sqlite3.connect('file:'+sys.argv[1]+'?mode=ro',uri=True)
-tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name") if r[0] not in ['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','app_settings','routines']]
+tables=[r[0] for r in c.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name") if r[0] not in ['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','assistant_turn_failures','app_settings','routines']]
 print(json.dumps({t:c.execute('SELECT * FROM '+t+(' WHERE id != '+sys.argv[2] if t=='saved_configurations' else '')+' ORDER BY 1').fetchall() for t in tables},sort_keys=True,default=lambda v:{'bytes_hex':v.hex()}))`, path.join(isolatedState, 'resmon.db'), String(allowedConfiguration)], { encoding: 'utf8' });
   test('one palette stays opaque over 12 page/window/OS cases', async ({ app, win, goto, backendPort }) => {
     const port = await backendPort(); expect(port).not.toBe('8742');
