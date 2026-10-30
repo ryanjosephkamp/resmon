@@ -8602,6 +8602,34 @@ def _credential_present(names) -> Optional[bool]:
     return False
 
 
+def _ai_key_step(display: dict[str, str]) -> dict:
+    """The first-run AI step, worded from what it checks: which AI provider keys are stored.
+
+    Whether a provider is *selected* is a different fact and not this step's:
+    the step is done when a key is stored. The keyring is read once, and as in
+    ``_credential_present`` a keyring that will not answer is not a missing key.
+    """
+    held = [name for name in sorted(AI_CREDENTIAL_NAMES) if probe_credential(name) == PRESENT]
+    if held:
+        providers = []
+        for name in held:
+            provider = "custom" if name == "custom_llm_api_key" else name.removesuffix("_api_key")
+            providers.append(display.get(provider, provider))
+        if len(providers) == 1:
+            return {"id": "ai_key", "done": True,
+                    "detail": f"A key for {providers[0]} is stored on this machine."}
+        named = (" and ".join(providers) if len(providers) == 2
+                 else f"{', '.join(providers[:-1])}, and {providers[-1]}")
+        return {"id": "ai_key", "done": True,
+                "detail": f"Keys for {named} are stored on this machine."}
+    if not keyring_is_responsive():
+        return {"id": "ai_key", "done": None,
+                "detail": ("The keychain did not answer, so resmon cannot say whether "
+                           "an AI provider key is stored on this machine.")}
+    return {"id": "ai_key", "done": False,
+            "detail": "No AI provider key is stored on this machine."}
+
+
 @app.get("/api/onboarding", response_model=response_models.OnboardingState,
          response_model_exclude_unset=True)
 def onboarding_state():
@@ -8622,7 +8650,6 @@ def onboarding_state():
         }
         dismissed = str(get_setting(conn, _ONBOARDING_DISMISSED_KEY) or "").lower() in (
             "1", "true", "yes")
-        ai_settings = _get_settings_group(conn, "ai")
     finally:
         _close_db(conn)
 
@@ -8648,15 +8675,7 @@ def onboarding_state():
                     "No agent CLI was found on this machine."
                 ),
             },
-            {
-                "id": "ai_key",
-                "done": _credential_present(AI_CREDENTIAL_NAMES),
-                "detail": (
-                    "An AI provider is selected."
-                    if (ai_settings.get("ai_provider") or ai_settings.get("ai_chain"))
-                    else "No AI provider is configured."
-                ),
-            },
+            _ai_key_step(_PROVIDER_DISPLAY),
             {
                 "id": "repository_key",
                 "done": _credential_present(repository_slots),
