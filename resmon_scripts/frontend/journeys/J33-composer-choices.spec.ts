@@ -62,8 +62,11 @@ journey.describe('J33 Composer choices', () => {
     expect(first.error, 'the authored runtime refused the turn').toBe('');
     expect(first.said.join(' ')).toContain('the first turn of J33');
 
-    // What was actually asked for, on the command line the app built.
-    const afterFirst = await resmon.readWhatTheAgentCommandReceived();
+    // What was actually asked for, on the command line the app built. Only the
+    // turns: Atlas also asks the command whether it is signed in
+    // (`auth status --json`), which makes no model call and names no model.
+    const turnsOf = (runs: string[][]) => runs.filter((argv) => argv.includes('-p'));
+    const afterFirst = turnsOf(await resmon.readWhatTheAgentCommandReceived());
     console.log(`[J33] the agent command was run ${afterFirst.length} time(s); `
       + `the first carried ${JSON.stringify(afterFirst[0])}`);
     expect(afterFirst, 'the app never ran the agent command').not.toEqual([]);
@@ -91,7 +94,7 @@ journey.describe('J33 Composer choices', () => {
     const second = await resmon.askTheAssistant('SAY:the second turn of J33');
     expect(second.error, 'the authored runtime refused the second turn').toBe('');
 
-    const afterSecond = await resmon.readWhatTheAgentCommandReceived();
+    const afterSecond = turnsOf(await resmon.readWhatTheAgentCommandReceived());
     console.log(`[J33] after the app-wide default moved to ${LATER_DEFAULT_MODEL}, `
       + `the agent command had been run ${afterSecond.length} time(s)`);
     expect(afterSecond.length, 'the second turn never reached the runtime')

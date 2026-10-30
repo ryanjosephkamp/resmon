@@ -189,7 +189,7 @@ print(json.dumps({t:c.execute('SELECT * FROM "'+t+'" ORDER BY 1').fetchall() for
   const native=await app!.evaluate(async({BrowserWindow})=>{const window=BrowserWindow.getAllWindows()[0];return {png:(await window.webContents.capturePage()).toPNG().toString('base64'),bounds:window.getContentBounds(),zoom:window.webContents.getZoomFactor()};});
   fs.writeFileSync(path.join(out,'composer-zoom200-native.png'),Buffer.from(native.png,'base64'));receipt('zoom200-native',{bounds:native.bounds,zoom:native.zoom,method:'Electron webContents.capturePage; Playwright zoom capture may crop'});
   await app!.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));receipt('geometry',geometry);
-  const after=rows();const intended=['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','app_settings','routines','saved_configurations','sqlite_sequence'];
+  const after=rows();const intended=['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','assistant_turn_failures','app_settings','routines','saved_configurations','sqlite_sequence'];
   for(const table of Object.keys(before).filter(t=>!intended.includes(t)))expect(after[table],table).toEqual(before[table]);
   expect(contacts).toEqual([]);receipt('after',after);receipt('preservation',{tables:Object.keys(before),intended,unexpectedContacts:contacts});receipt('cli-requests',captures());receipt('api-requests',requests);
  }finally{

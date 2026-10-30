@@ -597,7 +597,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     const trimmed = (texts: string[]) => texts.map((t) => t.trim());
     const card = pane.locator('.conv-card').first();
     const held = (await card.count()) > 0;
-    const error = pane.locator('.conv-error');
+    // A failure the engine kept with its turn is drawn under the message, and
+    // the one that has just ended there is the announced one.
+    const error = pane.locator('.conv-error, .conv-failed-message[role="alert"]');
     return {
       said: trimmed(await pane.locator('.conv-msg[data-role="assistant"] .conv-text').allInnerTexts()),
       toolCalls: trimmed(await pane.locator('.conv-call-name').allInnerTexts()),
@@ -2367,7 +2369,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const composer = pane.getByLabel('Message the assistant');
       const box = (await pane.boundingBox()) ?? { x: 0, y: 0, width: 0, height: 0 };
       const viewport = await win().evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }));
-      const errorRoles = await pane.locator('.conv-error').evaluateAll(
+      const errorRoles = await pane.locator('.conv-error, .conv-failed-message[role="alert"]').evaluateAll(
         (nodes) => nodes.map((node) => (node as HTMLElement).getAttribute('role') || ''));
       return {
         open: true,
@@ -2533,7 +2535,16 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         message: expected ? `Settings → AI never drew a status for the ${settings.ai_provider} lane`
           : 'Settings → AI drew a command status for a provider the engine reports none for',
       }).toBe(expected);
-      return (await status.count()) ? (await status.first().innerText()).replace(/\s+/g, ' ').trim() : '';
+      if (!await status.count()) return '';
+      // Under it, what the command said when asked whether it is signed in.
+      // Read once the check has answered, so the line is the answer and not
+      // "checking".
+      const signIn = win().locator('[aria-labelledby="ai-summaries"] [data-ai="sign-in"]');
+      await expect(signIn, 'Settings → AI did not ask the command whether it is signed in')
+        .not.toHaveAttribute('data-state', /^(checking|unchecked)$/, { timeout: 30_000 });
+      const lane = (await status.first().innerText()).replace(/\s+/g, ' ').trim();
+      const said = (await signIn.locator('.ai-signin-state').innerText()).replace(/\s+/g, ' ').trim();
+      return `${lane} ${said}`;
     },
 
     readRunLog: async (run) => {

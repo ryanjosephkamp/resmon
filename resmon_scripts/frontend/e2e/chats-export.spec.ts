@@ -132,7 +132,7 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     await win.getByRole('button',{name:'Stop',exact:true}).click();await expect(win.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
     await composer.fill('RESULT_ERROR:R04b authored error');await composer.press('Enter');await expect(win.locator('.assistant-error')).toBeVisible();await expect(win.getByRole('button',{name:'Stop',exact:true})).toBeHidden();
     const after=inventory();receipt('after',after);
-    const intentional=['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','routines','saved_configurations','sqlite_sequence'];
+    const intentional=['assistant_sessions','assistant_messages','assistant_session_choices','assistant_turn_choices','assistant_turn_failures','routines','saved_configurations','sqlite_sequence'];
     expect(after.assistant_session_choices.every((r:unknown[])=>r[0]===123)).toBe(true);
     const chosenMessageIds=after.assistant_messages.filter((m:unknown[])=>m[1]===123).map((m:unknown[])=>m[0]);
     expect(after.assistant_turn_choices.every((r:unknown[])=>chosenMessageIds.includes(r[0]))).toBe(true);
