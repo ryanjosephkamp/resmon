@@ -117,13 +117,22 @@ function BackUp({ last, folder }: { last: Last; folder: string }) {
     onSuccess: () => client.invalidateQueries({ queryKey: BACKUP_KEY }),
   });
   const latest = last.last_backup;
+  const recorded = last.last_backup_path_recorded;
+  // The record of the last backup lives in the database, written after the
+  // snapshot is taken; so a database put back by a restore holds no record of
+  // the backup it came from, and "none written" would not be true of it.
+  const restored = last.last_restore?.ok === true;
   return (
     <div className="backup-now" data-backup="now">
       <h3 className="field-title">Back up now</h3>
       <p className="field-lede" data-backup="last">
         {latest
           ? <>The last backup was written at {when(latest.created_at_utc)}: {latest.files} {latest.files === 1 ? 'file' : 'files'}{latest.includes_reports ? ', with the reports' : ''}, in <code>{latest.path}</code>.</>
-          : 'No backup has been written from this copy of resmon.'}
+          : recorded
+            ? <>The last backup was written to <code>{recorded}</code>, and resmon can no longer read a backup there.</>
+            : restored
+              ? 'No backup is recorded in this database. It is the one the last restore put back, and a backup records itself only after taking its snapshot, so a restored database never records the backup it came from.'
+              : 'No backup has been written from this copy of resmon.'}
       </p>
       <label className="backup-check">
         <input type="checkbox" checked={reports} onChange={(e) => setReports(e.target.checked)} />
@@ -191,6 +200,17 @@ function Restore({ last }: { last: Last }) {
     mutationFn: () => call(engine().POST('/api/restore/undo-copy/delete', { body: { confirm: 'CONFIRM' } })),
     onSuccess: (done) => { setSaid(`Deleted ${done.deleted} saved ${done.deleted === 1 ? 'copy' : 'copies'} of what a restore replaced.`); return refresh(); },
   });
+  // The undo copy is the last way back to what the restore replaced, so it is
+  // asked about first, as Restart is.
+  const askRemoveUndo = () => {
+    const n = last.undo_copies.length;
+    const question = n === 1
+      ? 'Delete what the last restore replaced? It is the only copy of what was there before the restore, and the last '
+        + 'way back to it. This cannot be undone.'
+      : `Delete the ${n} saved copies of what restores replaced? They are the only copies of what was there before `
+        + 'each restore, and the last way back to it. This cannot be undone.';
+    if (window.confirm(question)) removeUndo.mutate();
+  };
   const failed = last.last_restore && !last.last_restore.ok ? last.last_restore : null;
   const restored = last.last_restore && last.last_restore.ok ? last.last_restore : null;
   const undoKept = restored?.undo_copy ? last.undo_copies.includes(restored.undo_copy) : false;
@@ -232,7 +252,7 @@ function Restore({ last }: { last: Last }) {
           {verify.isPending ? 'Checking' : 'Restore from a backup…'}
         </button>
         {last.undo_copies.length > 0 && (
-          <button type="button" className="btn quiet" disabled={removeUndo.isPending} onClick={() => removeUndo.mutate()}>
+          <button type="button" className="btn quiet" disabled={removeUndo.isPending} onClick={askRemoveUndo}>
             Delete what the last restore replaced
           </button>
         )}

@@ -118,7 +118,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     const pane = reader.getByLabel('Canonical page text');
     // The engine's canonical text for a TXT file: every CRLF and CR read as LF, nothing else changed.
     await expect(pane).toHaveValue(text.replace(/\r\n/g, '\n').replace(/\r/g, '\n'), { timeout: 60_000 });
-    await expect(reader.locator('[data-evidence="examined"]')).toContainText('1 of 1 page examined by text extraction.');
+    await expect(reader.locator('[data-evidence="examined"]')).toContainText('Page 1 of 1, read by text extraction.');
     await reader.getByLabel('Find on this page’s text').fill('needle');
     await reader.getByRole('button', { name: 'Find', exact: true }).click();
     await expect(reader.locator('[data-evidence="found"]')).toHaveText('2 literal matches on this page’s text only.');
@@ -153,7 +153,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await expect(reader.getByRole('heading', { name: 'two-pages.pdf' })).toBeVisible();
     await expect(pane).toHaveValue(PAGE_ONE, { timeout: 60_000 });
     await expect(reader.locator('[data-evidence="examined"]'))
-      .toContainText('1 of 2 pages examined by text extraction. Other pages: not examined.');
+      .toContainText('Page 1 of 2, read by text extraction. Each page is read when you open it.');
     const image = reader.getByRole('region', { name: 'PDF page image' });
     await expect(image.getByRole('status')).toHaveText(/^Page 1 of 2 rendered · PDF\.js 6\.3\.289 · \d+ × \d+ pixels/, { timeout: 60_000 });
     const drawn = await image.locator('canvas[data-pdf-version="6.3.289"]').evaluate((el) => {
@@ -169,6 +169,9 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await reader.getByLabel('Page', { exact: true }).press('Enter');
     await expect(pane).toHaveValue(PAGE_TWO, { timeout: 60_000 });
     await expect(pane).toHaveAttribute('data-page', '2');
+    // The second page read says it is page 2, not that one page of two was examined.
+    await expect(reader.locator('[data-evidence="examined"]'))
+      .toContainText('Page 2 of 2, read by text extraction. Each page is read when you open it.');
     await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });
     await image.getByLabel('Zoom').selectOption('2');
     await expect(image.getByRole('status')).toHaveText(/^Page 2 of 2 rendered/, { timeout: 60_000 });

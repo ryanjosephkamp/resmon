@@ -68,9 +68,10 @@ test('an exported archive is named for the moment it was made, in local time', (
 
 describe('what an import says it did', () => {
   test.each([
-    [1, 0, 'Imported 1 saved search.'],
-    [3, 1, 'Imported 2 saved searches and 1 watch, which arrives paused.'],
-    [2, 2, 'Imported 2 watches, which arrive paused.'],
+    [1, 0, 'Imported 1 saved search. It is added as a new one; resmon never merges an import with what you have.'],
+    [3, 1, 'Imported 2 saved searches and 1 watch, which arrives paused. Each is added as a new one; resmon never merges an '
+      + 'import with what you have.'],
+    [2, 2, 'Imported 2 watches, which arrive paused. Each is added as a new one; resmon never merges an import with what you have.'],
     [0, 0, 'Nothing was imported.'],
   ])('%i imported, %i of them watches', (imported, watches, words) => {
     expect(importedWords(imported, watches)).toBe(words);

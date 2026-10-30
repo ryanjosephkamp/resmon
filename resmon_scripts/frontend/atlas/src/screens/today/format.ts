@@ -6,6 +6,17 @@ const MONTH_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeri
 const FULL_DATE = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 const NUMBER = new Intl.NumberFormat('en-US');
 
+/**
+ * An engine timestamp as an instant. The engine stores UTC, and SQLite writes
+ * it with no zone (`2026-10-28 22:04:26`); `Date` would read that as local
+ * time, which puts a UTC clock on the screen, so a date and time with no zone
+ * is read as UTC. Anything else is read as written.
+ */
+function instant(iso: string): Date {
+  const bare = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(iso) && !/(?:Z|[+-]\d\d:?\d\d)$/i.test(iso);
+  return new Date(bare ? `${iso.replace(' ', 'T')}Z` : iso);
+}
+
 function startOfDay(at: Date): number {
   return new Date(at.getFullYear(), at.getMonth(), at.getDate()).getTime();
 }
@@ -23,13 +34,13 @@ export function dayWord(at: Date, now: Date): string {
 /** "today at 8:05 AM", "Monday at 8:05 AM", "October 20 at 8:05 AM". */
 export function when(iso: string | null | undefined, now: Date): string {
   if (!iso) return 'at a time not recorded';
-  const at = new Date(iso);
+  const at = instant(iso);
   if (Number.isNaN(at.getTime())) return 'at a time not recorded';
   return `${dayWord(at, now)} at ${TIME.format(at)}`;
 }
 
 export function clock(iso: string): string {
-  return TIME.format(new Date(iso));
+  return TIME.format(instant(iso));
 }
 
 export function fullDate(at: Date): string {
@@ -48,7 +59,7 @@ export function count(n: number, singular: string, plural = `${singular}s`): str
 /** "41 s", "3 min 5 s", "1 h 2 min". Null when either end is missing. */
 export function duration(startIso: string | null | undefined, endIso: string | null | undefined): string | null {
   if (!startIso || !endIso) return null;
-  const seconds = Math.round((new Date(endIso).getTime() - new Date(startIso).getTime()) / 1000);
+  const seconds = Math.round((instant(endIso).getTime() - instant(startIso).getTime()) / 1000);
   if (!Number.isFinite(seconds) || seconds < 0) return null;
   if (seconds < 60) return `${seconds} s`;
   const minutes = Math.floor(seconds / 60);
@@ -66,7 +77,7 @@ export function authors(list: string | null | undefined): string {
 /** Days between two moments, in whole days, never negative. */
 export function daysAgo(iso: string | null | undefined, now: Date): number | null {
   if (!iso) return null;
-  const days = Math.floor((now.getTime() - new Date(iso).getTime()) / 86_400_000);
+  const days = Math.floor((now.getTime() - instant(iso).getTime()) / 86_400_000);
   return Number.isFinite(days) ? Math.max(0, days) : null;
 }
 

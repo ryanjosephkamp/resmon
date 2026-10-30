@@ -1,6 +1,8 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
-  MARK, lastAsked, markOf, pointRadius, runDays, scopeWords, thresholdWords, watchdogVerdict, windowSentence,
-  type WallRun, type WallSource, type WatchdogReport,
+  MARK, RETIRED_NAMES, findingWords, lastAsked, markOf, pointRadius, runDays, scopeWords, thresholdWords, watchdogVerdict,
+  windowSentence, type WallRun, type WallSource, type WatchdogFinding, type WatchdogReport,
 } from '../model';
 
 const STATES = ['answered', 'answered_empty', 'could_not_be_asked', 'failed', 'not_recorded', 'not_selected'];
@@ -84,6 +86,54 @@ describe('the watchdog', () => {
     const names = new Map([['arxiv', 'arXiv']]);
     expect(scopeWords({ type: 'source', id: 'arxiv' }, names)).toBe('Source · arXiv');
     expect(scopeWords({ type: 'routine', id: 4, name: 'Perovskites' }, names)).toBe('Watch · Perovskites');
+    // A withdrawn source is not in the catalog, and is still called by the name it had.
+    expect(scopeWords({ type: 'source', id: 'ieee' }, names)).toBe('Source · IEEE Xplore');
+  });
+
+  test('a source finding names its source as the catalog does, never by its key', () => {
+    const names = new Map([['semantic_scholar', 'Semantic Scholar'], ['arxiv', 'arXiv']]);
+    const finding = (over: Partial<WatchdogFinding>): WatchdogFinding => ({
+      key: 'k', severity: 'broken', kind: 'source_errors', scope: { type: 'source', id: 'semantic_scholar' },
+      title: 'semantic_scholar has failed on its last 4 runs',
+      detail: 'resmon got no answer from semantic_scholar on each of its last 4 runs. The most recent one: the source answered HTTP 429.',
+      what_to_do: 'Check whether semantic_scholar is reachable and whether any key it needs is still valid.',
+      evidence: { consecutive_errors: 4, last_zero_reason: 'upstream_failure' }, ...over,
+    } as WatchdogFinding);
+    const said = findingWords(finding({}), names);
+    expect(said.title).toBe('Semantic Scholar has failed on its last 4 runs');
+    expect(`${said.title} ${said.detail} ${said.what_to_do}`).not.toMatch(/semantic_scholar/);
+    expect(said.withdrawn).toBe(false);
+    // Only a whole word is the key: an address, or a longer name, is left as it was written.
+    const arxiv = findingWords(finding({
+      scope: { type: 'source', id: 'arxiv' }, title: 'arxiv has failed on its last 3 runs',
+      detail: 'From export.arxiv.org, arxiv_id 7, and arxiv/2410.1; then arxiv.', what_to_do: 'Check arxiv.',
+    }), names);
+    expect(arxiv.title).toBe('arXiv has failed on its last 3 runs');
+    expect(arxiv.detail).toBe('From export.arxiv.org, arxiv_id 7, and arxiv/2410.1; then arXiv.');
+    expect(arxiv.what_to_do).toBe('Check arXiv.');
+    // A withdrawn source, by the name it was withdrawn under; the engine's own paragraph stays whole.
+    const ieee = findingWords(finding({
+      scope: { type: 'source', id: 'ieee' }, title: 'ieee was withdrawn from resmon',
+      detail: 'ieee has been withdrawn, and resmon got nothing from it on each of its last 4 runs. IEEE Xplore was withdrawn in v1.8.1.',
+      what_to_do: 'No active routine selects ieee any more, so no future run will ask for it and nothing needs changing.',
+      evidence: { consecutive_errors: 4, last_zero_reason: 'retired' },
+    }), names);
+    expect(ieee.title).toBe('IEEE Xplore was withdrawn from resmon');
+    expect(ieee.detail).toBe('IEEE Xplore has been withdrawn, and resmon got nothing from it on each of its last 4 runs. '
+      + 'IEEE Xplore was withdrawn in v1.8.1.');
+    expect(ieee.what_to_do).toMatch(/^No active routine selects IEEE Xplore any more/);
+    expect(ieee.withdrawn).toBe(true);
+    // A watch's finding is left as the engine wrote it.
+    const watch = findingWords(finding({ kind: 'routine_overdue', scope: { type: 'routine', id: 3, name: 'arxiv' }, title: "'arxiv' has not run" }), names);
+    expect(watch.title).toBe("'arxiv' has not run");
+  });
+
+  test('the names withdrawn sources are shown under are the engine’s own', () => {
+    const registry = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', '..', '..', 'implementation_scripts', 'api_registry.py'), 'utf8');
+    const block = registry.match(/^RETIRED_NAMES: dict\[str, str\] = \{([\s\S]*?)^\}/m)?.[1] ?? '';
+    const served = Object.fromEntries([...block.matchAll(/"([^"]+)":\s*"([^"]+)"/g)].map((m) => [m[1], m[2]]));
+    expect(Object.keys(served).length).toBeGreaterThan(0);
+    expect(served).toEqual(RETIRED_NAMES);
   });
 
   test('the rules are stated with the numbers they were judged against', () => {

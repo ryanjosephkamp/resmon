@@ -1,7 +1,7 @@
 import { listWords, troubleParts } from '../format';
 import {
-  GRID, buildSky, contour, density, emptiestCorner, epochDay, gridCell, rampClass, spanningTree, watchShape,
-  type MapPoints, type MapRegion,
+  GRID, buildSky, contour, density, emptiestCorner, epochDay, gridCell, labelSpots, placeName, rampClass, spanningTree,
+  watchShape, type Box, type MapPoints, type MapRegion,
 } from '../model';
 
 describe('a run’s sources that did not answer, as one line', () => {
@@ -103,14 +103,30 @@ describe('density and outlines', () => {
     expect(Math.min(...ys)).toBeLessThan(-0.2);
     expect(Math.max(...ys)).toBeGreaterThan(-0.2);
     expect(Math.max(...xs) - Math.min(...xs)).toBeLessThan(0.8);
-    expect(shape.labelAt![1]).toBeGreaterThan(-0.2);
+    // Places for its name lie on the outline, each pointing out of the blob, away from its middle.
+    expect(shape.spots.length).toBeGreaterThan(4);
+    for (const spot of shape.spots) {
+      expect(Math.hypot(spot.nx, spot.ny)).toBeCloseTo(1, 5);
+      const out = (spot.x - 0.3) * spot.nx + (spot.y + 0.2) * spot.ny;
+      expect(out).toBeGreaterThan(0);
+    }
   });
 
   test('a watch whose papers are not on the plate has no shape', () => {
     const s = sky(blob);
     const shape = watchShape(s, [], { id: 2, name: 'Elsewhere', members: [99999] });
     expect(shape.outline).toEqual([]);
-    expect(shape.labelAt).toBeNull();
+    expect(shape.spots).toEqual([]);
+  });
+
+  test('places for a name spread along the outline, a bounded number of them', () => {
+    const s = sky(blob);
+    const field = density(s, 64, 2);
+    const outline = contour(field, field.max * 0.2, s.bounds);
+    const spots = labelSpots(outline, field, s.bounds, 12);
+    expect(spots.length).toBeGreaterThan(4);
+    expect(spots.length).toBeLessThanOrEqual(12);
+    expect(labelSpots([], field, s.bounds)).toEqual([]);
   });
 
   test('contour returns nothing above the peak', () => {
@@ -118,6 +134,30 @@ describe('density and outlines', () => {
     const field = density(s, 32, 1);
     expect(contour(field, field.max * 1.01, s.bounds)).toEqual([]);
   });
+});
+
+describe("a watch's name, beside its outline", () => {
+  const all = () => true;
+  test('it sits outside the line, at the place with the fewest papers beside it', () => {
+    // A spot on the top of an outline pointing up, and one on its right pointing right.
+    const spots = [{ x: 100, y: 50, nx: 0, ny: -1 }, { x: 200, y: 100, nx: 1, ny: 0 }];
+    const crowdedAbove = (box: Box) => (box.y < 50 ? 30 : 0);
+    const box = placeName(spots, 80, 16, all, crowdedAbove, 5);
+    expect(box).toEqual({ x: 203, y: 92, w: 80, h: 16 });
+    // With nothing beside either, above wins: where a reader looks for a region's name.
+    expect(placeName([...spots].reverse(), 80, 16, all, () => 0, 5)).toEqual({ x: 60, y: 31, w: 80, h: 16 });
+    // Below the line only where it is emptier than above.
+    const down = [{ x: 100, y: 50, nx: 0, ny: -1 }, { x: 100, y: 150, nx: 0, ny: 1 }];
+    expect(placeName(down, 80, 16, all, (b) => (b.y < 50 ? 4 : 1), 5)?.y).toBe(153);
+  });
+
+  test('a name with no place that fits, or none clear of the dots, is not drawn', () => {
+    const spots = [{ x: 100, y: 50, nx: 0, ny: -1 }];
+    expect(placeName(spots, 80, 16, all, () => 12, 5)).toBeNull();
+    expect(placeName(spots, 80, 16, () => false, () => 0, 5)).toBeNull();
+    expect(placeName([], 80, 16, all, () => 0, 5)).toBeNull();
+  });
+
 });
 
 describe('constellation lines', () => {

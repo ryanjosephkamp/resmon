@@ -86,7 +86,7 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     await expect(card).toContainText('not the same as working');
     await expect(card).not.toContainText(/\bready\b/i);
     for (const mark of await card.locator('.first-run-mark').all()) {
-      expect(['done', 'not done', 'could not check']).toContain(await mark.getAttribute('aria-label'));
+      expect(['done', 'found', 'not done', 'could not check']).toContain(await mark.getAttribute('aria-label'));
     }
     const dismissed = win.waitForResponse((r) => r.url().includes('/api/onboarding/dismiss'));
     await card.getByRole('button', { name: 'Skip', exact: true }).click();
@@ -266,7 +266,7 @@ test('a resmon that had the upload to Google Drive on is told once, on Backup, t
   }
 });
 
-test('a staged restore restarts resmon from Backup, and the next start shows what it did', async () => {
+test('a staged restore restarts resmon from Backup, the next start shows what it did, and its undo copy goes only when asked', async () => {
   test.setTimeout(300_000);
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-restart-')));
   const stateDir = path.join(root, 'state');
@@ -351,9 +351,27 @@ test('a staged restore restarts resmon from Backup, and the next start shows wha
     const restored = win.locator('[data-backup="restored"]');
     await expect(restored).toContainText(bundle);
     await expect(restored).toContainText(`What it replaced is kept in ${last.last_restore.undo_copy}`);
-    await expect(win.getByRole('button', { name: 'Delete what the last restore replaced' })).toBeVisible();
+    // The restored database is the snapshot the backup took before it recorded itself, so it records no backup,
+    // and Backup says why rather than that none was ever written.
+    await expect(win.locator('[data-backup="last"]')).toHaveText(/^No backup is recorded in this database\. It is the one the last restore put back/);
+    const deleteUndo = win.getByRole('button', { name: 'Delete what the last restore replaced' });
+    await expect(deleteUndo).toBeVisible();
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-restore-restarted.png') });
+
+    // The undo copy is the last way back, so deleting it is asked first: declined, it stays.
+    const asked: string[] = [];
+    win.once('dialog', (dialog) => { asked.push(dialog.message()); void dialog.dismiss(); });
+    await deleteUndo.click();
+    await expect.poll(() => asked.length).toBe(1);
+    expect(asked[0]).toMatch(/^Delete what the last restore replaced\? It is the only copy of what was there before the restore/);
+    expect(fs.existsSync(last.last_restore.undo_copy!), 'declining the question deleted the undo copy').toBe(true);
+    await expect(deleteUndo).toBeVisible();
+    // Accepted, it goes.
+    win.once('dialog', (dialog) => { void dialog.accept(); });
+    await deleteUndo.click();
+    await expect(win.getByText('Deleted 1 saved copy of what a restore replaced.')).toBeVisible({ timeout: 30_000 });
+    expect(fs.existsSync(last.last_restore.undo_copy!)).toBe(false);
   } finally {
     await app.close().catch(() => {});
     fs.rmSync(root, { recursive: true, force: true });

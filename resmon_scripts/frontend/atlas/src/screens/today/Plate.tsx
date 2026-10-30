@@ -4,7 +4,7 @@ import {
 } from 'react';
 import { Icon } from '../../shell/Icon';
 import {
-  GRID, GRID_LETTERS, RAMP_DAYS, gridCell, type Field, type MapRegion, type Sky, type WatchShape,
+  GRID, GRID_LETTERS, RAMP_DAYS, gridCell, placeName, type Box, type Field, type MapRegion, type Sky, type WatchShape,
 } from './model';
 
 /** Where the plate is looking: a plate-space center and pixels per plate unit. */
@@ -41,6 +41,12 @@ interface Props {
 }
 
 const MARGIN = 26;
+/**
+ * The most a watch's name may cover, as a share of the papers a box its size
+ * holds on average where the papers are: beside an outline, at the edge of the
+ * crowd, a name covers a few; across the middle of it, many.
+ */
+const NAME_COVER = 0.35;
 const RAMP_RADIUS = [2.3, 1.8, 1.4, 1.1, 0.85];
 const RAMP_ALPHA = [1, 0.86, 0.66, 0.46, 0.32];
 
@@ -148,6 +154,24 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     (sx - size.w / 2) / v.scale + v.cx,
     (size.h / 2 - sy) / v.scale + v.cy,
   ], [size]);
+
+  /** How many papers lie under a screen box, read from the spatial hash. */
+  const papersUnder = useCallback((box: Box, v: View): number => {
+    const [ax, ay] = toPlate(box.x, box.y + box.h, v);
+    const [bx, by] = toPlate(box.x + box.w, box.y, v);
+    const { minX, minY, size } = sky.bounds;
+    const cell = (value: number, min: number) => Math.min(hash.cells - 1, Math.max(0, Math.floor(((value - min) / size) * hash.cells)));
+    let count = 0;
+    for (let r = cell(ay, minY); r <= cell(by, minY); r++) {
+      for (let c = cell(ax, minX); c <= cell(bx, minX); c++) {
+        for (const i of hash.buckets.get(r * hash.cells + c) ?? []) {
+          const px = sky.x[i] ?? 0, py = sky.y[i] ?? 0;
+          if (px >= ax && px <= bx && py >= ay && py <= by) count++;
+        }
+      }
+    }
+    return count;
+  }, [sky, hash, toPlate]);
 
   const draw = useCallback(() => {
     frame.current = 0;
@@ -261,9 +285,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     // Region names, largest first, only where the region is big enough on
     // screen to own one, and never over another name.
     const placed: [number, number, number, number][] = [];
-    // The title block sits over the plate; no name is drawn under it.
-    const block = wrap.current?.querySelector<HTMLElement>('.cartouche:not(.away)');
-    if (block && canvas.current) {
+    // The title block and the zoom buttons sit over the plate; no name is drawn under either.
+    const over = ['.cartouche:not(.away)', '.plate-tools'].map((selector) => wrap.current?.querySelector<HTMLElement>(selector));
+    for (const block of over) {
+      if (!block || !canvas.current) continue;
       const a = block.getBoundingClientRect();
       const c = canvas.current.getBoundingClientRect();
       placed.push([a.left - c.left - 6, a.top - c.top - 6, a.width + 12, a.height + 12]);
@@ -294,20 +319,49 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ctx.fillText(region.label, rx, ly);
     }
 
-    // Watch names, in the atlas's italic.
-    ctx.font = 'italic 400 21px Spectral, Georgia, serif';
+    // Watch names, in the atlas's italic, as labels of their outlines: small,
+    // set just outside the dashed line where it has the fewest papers beside
+    // it, and dropped where every such place would sit across the dots (or off
+    // the plate, or over another name). Set large over the plate, a long name
+    // blanked a band of papers as wide as itself.
+    ctx.font = 'italic 400 14.5px Spectral, Georgia, serif';
+    // Papers per square pixel where the papers are, on average, at this zoom.
+    const crowd = 1 / Math.max(1, spacing * spacing);
+    const inside = (box: Box) => box.x >= inner.x + 4 && box.y >= inner.y + 4
+      && box.x + box.w <= inner.x + inner.w - 4 && box.y + box.h <= inner.y + inner.h - 4;
+    // The new papers' rings are drawn over the names, so no name is set under one.
+    const rings: [number, number][] = [];
+    for (let k = 0; k < Math.min(litCount, arr.length); k++) {
+      const i = arr[k];
+      if (i !== undefined) rings.push(toScreen(s.x[i] ?? 0, s.y[i] ?? 0, v));
+    }
+    const clearOfRings = (box: Box) => !rings.some(([rx, ry]) =>
+      rx + 8 > box.x && rx - 8 < box.x + box.w && ry + 8 > box.y && ry - 8 < box.y + box.h);
     for (const w of ws) {
-      if (!w.labelAt) continue;
-      const [wx, wy] = toScreen(w.labelAt[0], w.labelAt[1], v);
-      const ly = wy - 14;
-      const width = ctx.measureText(w.name).width + 10;
-      if (!free(wx - width / 2, ly - 14, width, 28)) continue;
-      placed.push([wx - width / 2, ly - 14, width, 28]);
-      ctx.lineWidth = 5;
+      if (!w.spots.length) continue;
+      const width = ctx.measureText(w.name).width + 6;
+      const height = 17;
+      // Its own line, as points, so a name is never set across it.
+      const line = w.outline.map(([x1, y1, x2, y2]) => toScreen((x1 + x2) / 2, (y1 + y2) / 2, v));
+      const offLine = (box: Box) => !line.some(([lx, ly]) => lx > box.x && lx < box.x + box.w && ly > box.y && ly < box.y + box.h);
+      const spots = w.spots.map((spot) => {
+        const [sx, sy] = toScreen(spot.x, spot.y, v);
+        return { x: sx, y: sy, nx: spot.nx, ny: -spot.ny };
+      });
+      const box = placeName(
+        spots, width, height,
+        (b) => inside(b) && free(b.x, b.y, b.w, b.h) && clearOfRings(b) && offLine(b),
+        (b) => papersUnder(b, v),
+        Math.max(2, NAME_COVER * crowd * width * height),
+      );
+      if (!box) continue;
+      placed.push([box.x, box.y, box.w, box.h]);
+      const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2 + 0.5];
+      ctx.lineWidth = 3;
       ctx.strokeStyle = p.plate;
-      ctx.strokeText(w.name, wx, ly);
+      ctx.strokeText(w.name, cx, cy);
       ctx.fillStyle = p.ink;
-      ctx.fillText(w.name, wx, ly);
+      ctx.fillText(w.name, cx, cy);
     }
 
     ctx.lineJoin = 'miter';
@@ -416,7 +470,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     // How long this frame took to draw, where a test or a person can read it.
     node.dataset.frameMs = (performance.now() - started).toFixed(1);
     if (glide.current) frame.current = requestAnimationFrame(() => drawRef.current());
-  }, [size, toScreen, arrivalRank, occupied]);
+  }, [size, toScreen, arrivalRank, occupied, papersUnder]);
   useEffect(() => { drawRef.current = draw; }, [draw]);
 
   const schedule = useCallback(() => {

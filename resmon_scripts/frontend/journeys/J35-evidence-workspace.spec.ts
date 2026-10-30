@@ -64,8 +64,8 @@ journey.describe('J35 Evidence workspace', () => {
     expect(first.page).toBe(1);
     expect(first.text, 'the canonical text of page 1 is not what the PDF says').toBe(PAGES[0]);
     expect(first.image, 'PDF.js did not draw the page it was asked for').toMatch(/^Page 1 of 2 rendered/);
-    expect(first.examined, 'reading one page claimed more than one page was examined')
-      .toMatch(/^1 of 2 pages examined by text extraction\. Other pages: not examined\./);
+    expect(first.examined, 'reading one page said something other than which page it read')
+      .toMatch(/^Page 1 of 2, read by text extraction\. Each page is read when you open it\./);
 
     const held = await resmon.addToTheEvidenceProject([NOTE, ASIDE]);
     expect(held.sort(), 'the collection does not hold the three files added to it')

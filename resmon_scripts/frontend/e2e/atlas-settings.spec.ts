@@ -219,7 +219,8 @@ test('Settings and Saved: what runs in the background, email and its password, n
     const picker = await chooser;
     expect(await picker.element().getAttribute('accept')).toContain('.zip');
     await picker.setFiles(archive);
-    await expect(win.locator('[data-saved="imported"]')).toHaveText('Imported 1 saved search.', { timeout: 30_000 });
+    await expect(win.locator('[data-saved="imported"]'))
+      .toHaveText('Imported 1 saved search. It is added as a new one; resmon never merges an import with what you have.', { timeout: 30_000 });
     await expect(win.locator('li.saved[data-kind="manual_sweep"]')).toHaveCount(2);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-saved.png') });
 

@@ -49,12 +49,17 @@ export function profilesInFile(text: string, fileName: string):
 /**
  * The import's result in sentences: who came in, and each entry that did not,
  * by its place in the file and the engine's reason. One bad entry never hides
- * the good ones, and a file with none says that rather than nothing.
+ * the good ones, and a file with none says that rather than nothing. The
+ * engine adds every person in the file as a new one and never merges
+ * (`/api/profiles/import`), so a person already here comes in twice; that is
+ * said with the result, where it can be acted on.
  */
 export function importSentence(result: ImportResult, fileName: string): string {
   const came = result.imported.map((p) => p.display_name);
   const head = came.length
-    ? `Imported ${count(came.length, 'person', 'people')} from ${fileName}: ${listWords(came)}.`
+    ? `Imported ${count(came.length, 'person', 'people')} from ${fileName}: ${listWords(came)}. `
+      + `${came.length === 1 ? 'It is added as a new person' : 'Each is added as a new person'}; `
+      + 'resmon never merges an import with the people you have.'
     : `Nothing was imported from ${fileName}.`;
   if (!result.failed.length) return head;
   const why = result.failed.map((f) => `entry ${f.index + 1}, ${f.reason}`).join('; ');

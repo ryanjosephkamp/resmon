@@ -7,7 +7,10 @@ import { queueWords } from '../collection/Paper';
 import { authors, number } from '../today/format';
 import { saveReport, saveSearchRecord } from './downloads';
 import { Markdown } from './markdown';
-import { absentRecordWords, dayAndTime, eventTime, storedInstant, type LiveSource, type ProgressEvent, type Run } from './model';
+import {
+  absentRecordWords, dayAndTime, eventTime, localStamp, reportInLocalTime, storedInstant, type LiveSource, type ProgressEvent,
+  type Run,
+} from './model';
 import { LivePanel } from './LivePanel';
 
 /** One of a run's papers, with its place in the reading queue. */
@@ -135,7 +138,7 @@ function TextRecord({ run, kind, running }: { run: Run; kind: 'report' | 'log'; 
           Save as Markdown
         </button>
       </div>
-      <div className="record-text is-report"><Markdown text={text.data} /></div>
+      <div className="record-text is-report"><Markdown text={reportInLocalTime(text.data)} /></div>
     </>
   );
 }
@@ -167,6 +170,8 @@ function Value({ value }: { value: unknown }): ReactNode {
     );
   }
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
+  // A stored instant reads as a local day and time, as the run's heading does; a plain date stays a date.
+  if (typeof value === 'string') return localStamp(value) ?? value;
   return String(value);
 }
 

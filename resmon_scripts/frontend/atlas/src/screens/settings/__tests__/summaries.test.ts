@@ -4,7 +4,7 @@ import {
   type AiSettings,
 } from '../summaryLanes';
 import {
-  NO_CHOICE, choiceLanes, choiceOf, choiceSentence, overrideOf, settingsLanes, stateSentence, wordingSet, type SummaryChoice,
+  NO_CHOICE, choiceLanes, choiceOf, choiceSentence, offSentence, overrideOf, settingsLanes, stateSentence, wordingSet, type SummaryChoice,
 } from '../summaryChoice';
 
 const STORED: AiSettings = {
@@ -180,5 +180,8 @@ describe('summaries for one run or one watch', () => {
     expect(stateSentence(own({ provider: 'xai', model: 'grok-4' }), WITH_CHAIN, 'this watch')).toMatch(/^On, with xAI · grok-4, with your xAI key/);
     expect(stateSentence({ ...NO_CHOICE, on: true }, STORED, 'this watch')).toMatch(/^On, but Settings › AI has no provider chosen/);
     expect(stateSentence(NO_CHOICE, WITH_CHAIN, 'this watch')).toBe('Off: the papers are found and kept, with no summary.');
+    // Off, the field still says where summaries would come from once turned on.
+    expect(offSentence('this watch')).toBe('When on, summaries are written with the connections Settings › AI holds when a run '
+      + 'starts, unless you choose one for this watch.');
   });
 });

@@ -1718,6 +1718,8 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .first-run-mark { width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--ink-3); justify-self: center; }
 .first-run-mark[data-state="yes"] { background: var(--accent-mark); border-color: var(--accent-mark); }
 .first-run-mark[data-state="unknown"] { border-style: dashed; }
+/* Found, not checked: a ring with a center, in the quiet ink, never the done mark's fill. */
+.first-run-mark[data-state="found"] { border-color: var(--ink-2); background: radial-gradient(circle, var(--ink-2) 0 1.5px, transparent 2px); }
 
 /* Settings: Danger zone */
 .btn.danger { border-color: var(--fault); color: var(--fault); background: transparent; }

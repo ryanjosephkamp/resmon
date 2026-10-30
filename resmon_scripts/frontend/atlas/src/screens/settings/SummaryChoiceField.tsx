@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { ModelField, useModelList, type ModelQuery } from './ModelField';
-import { choiceSentence, ownLane, type SummaryChoice } from './summaryChoice';
+import { choiceSentence, offSentence, ownLane, type SummaryChoice } from './summaryChoice';
 import {
   CLI_PROVIDERS, DEFAULT_GOALS, DEFAULT_TEMPERATURE, KEY_NAMES, LENGTHS, PROVIDERS, TONES, laneName, rememberedModels,
   temperatureProblem, wordingOf, type AiSettings,
@@ -134,7 +134,9 @@ export function SummaryChoiceField({ id, value, onChange, stored, whose, toggle 
       )}
       <p className="ask-lane" data-ai="choice-lanes">
         {!stored ? 'Reading Settings › AI.' : choiceSentence(value, stored, whose)}
-        {value.on && <>{' '}A paper that cannot be summarized is kept without one, and the run’s log says why.</>}
+        {value.on
+          ? <>{' '}A paper that cannot be summarized is kept without one, and the run’s log says why.</>
+          : <>{' '}{offSentence(whose)}</>}
         {' '}<Link to="/settings/ai">Settings › AI</Link>
       </p>
     </div>

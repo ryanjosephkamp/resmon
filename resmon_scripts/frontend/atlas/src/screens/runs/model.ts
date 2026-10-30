@@ -249,6 +249,32 @@ export function dayAndTime(at: Date): string {
   return `${DAY.format(at)} at ${MINUTES.format(at)}`;
 }
 
+/**
+ * An ISO date and time, as the engine writes an instant: `2026-10-30T15:38:27Z`,
+ * or SQLite's `2026-10-30 15:38:27`. A plain date (`2026-10-23`) is a day, not
+ * an instant, and is never matched.
+ */
+const STAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/i;
+
+/** A stored instant written as text, as a day and a time in the reader's zone; null for anything else. */
+export function localStamp(text: string): string | null {
+  if (!STAMP.test(text)) return null;
+  const at = storedInstant(text.replace(' ', 'T'));
+  return at ? dayAndTime(at) : null;
+}
+
+/**
+ * A run's report as the screen shows it: the time it was generated in the
+ * reader's own time, as every other time here is. The file keeps it in UTC,
+ * and only that line is changed; a date a source wrote stays as it wrote it.
+ */
+export function reportInLocalTime(text: string): string {
+  return text.replace(/^(\*\*Generated:\*\*[ \t]+)(\S+)/gm, (line, head: string, stamp: string) => {
+    const local = localStamp(stamp);
+    return local ? `${head}${local}` : line;
+  });
+}
+
 /** "4:34:12 PM": a progress event's time, in the reader's own time zone like every other time here. */
 export function eventTime(iso: string | null | undefined): string {
   const at = storedInstant(iso);
@@ -334,35 +360,41 @@ export interface RestartFacts {
  * search verbatim; it summarizes only when the run recorded an attempt to,
  * with today's AI settings; and the delivery hook sends only a watch's run,
  * as that watch is set when the run finishes, never a search asked by hand.
- * The run's parameters hold the search alone, so whether AI or email was on
- * is said to be not recorded unless they hold it. Where the run's summary
- * lanes are known (`ai_lanes`, one row per connection it tried), they are
- * exactly what Restart reads, so whether it summarizes is said outright.
+ * A watch's run whose watch has since been deleted keeps its kind and loses
+ * its `routine_id`, and a restart of it has no watch to be sent as, so it is
+ * not emailed or delivered either. The run's parameters hold the search
+ * alone, so whether AI or email was on is said to be not recorded unless they
+ * hold it. Where the run's summary lanes are known (`ai_lanes`, one row per
+ * connection it tried), they are exactly what Restart reads, so whether it
+ * summarizes is said outright.
  */
 export function restartFacts(
   run: Pick<RunRow, 'parameters' | 'execution_type' | 'routine_id'> & { ai_lanes?: readonly unknown[] },
 ): RestartFacts {
   const ai = recordedFlag(run.parameters, 'ai_enabled');
   const email = recordedFlag(run.parameters, 'email_enabled');
-  const watchRun = run.execution_type === 'automated_sweep' && run.routine_id !== null;
+  const ofAWatch = run.execution_type === 'automated_sweep';
+  const watchRun = ofAWatch && run.routine_id !== null;
   const aiThen = ai === null ? 'Not recorded with this run.' : `${ai ? 'On' : 'Off'} when this run started, as its parameters record.`;
+  const delivery = watchRun
+    ? `${emailThen(email)} A restarted run is emailed and delivered as its watch is set when the run finishes.`
+    : ofAWatch
+      ? 'None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.'
+      : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.';
+  const watchId = watchRun ? run.routine_id : null;
   if (run.ai_lanes) {
     return {
       ai: run.ai_lanes.length
         ? 'This run tried to summarize, so Restart does too, with what Settings › AI holds now. A connection or wording set for this run alone is not carried over.'
         : 'This run recorded no attempt to summarize, so Restart does not summarize.',
-      delivery: watchRun
-        ? `${emailThen(email)} A restarted run is emailed and delivered as its watch is set when the run finishes.`
-        : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.',
-      watchId: watchRun ? run.routine_id : null,
+      delivery,
+      watchId,
     };
   }
   return {
     ai: `${aiThen} Restart summarizes only if this run recorded an attempt to, using what Settings › AI holds now.`,
-    delivery: watchRun
-      ? `${emailThen(email)} A restarted run is emailed and delivered as its watch is set when the run finishes.`
-      : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.',
-    watchId: watchRun ? run.routine_id : null,
+    delivery,
+    watchId,
   };
 }
 

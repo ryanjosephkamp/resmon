@@ -18,10 +18,16 @@ const STEPS: Record<string, { to: string; title: string; action: string }> = {
   repository_key: { to: '/settings/sources', title: 'Add a key for a source that wants one', action: 'Settings › Sources' },
 };
 
-/** A step's mark, with the words a screen reader reads. `null` is "could not check", never "no". */
-function mark(done: Step['done']): { label: 'done' | 'not done' | 'could not check'; state: string } {
-  if (done === null || done === undefined) return { label: 'could not check', state: 'unknown' };
-  return done ? { label: 'done', state: 'yes' } : { label: 'not done', state: 'no' };
+/**
+ * A step's mark, with the words a screen reader reads. `null` is "could not
+ * check", never "no". A command is only ever found (the engine looks for it
+ * and does not run it), which is less than a key that is stored, so it has a
+ * neutral mark of its own rather than the done mark.
+ */
+export function stepMark(step: Pick<Step, 'id' | 'done'>): { label: 'done' | 'found' | 'not done' | 'could not check'; state: string } {
+  if (step.done === null || step.done === undefined) return { label: 'could not check', state: 'unknown' };
+  if (!step.done) return { label: 'not done', state: 'no' };
+  return step.id === 'agent_cli' ? { label: 'found', state: 'found' } : { label: 'done', state: 'yes' };
 }
 
 /**
@@ -63,7 +69,7 @@ export function FirstRun() {
         {state.data.steps.map((step) => {
           const where = STEPS[step.id];
           if (!where) return null;
-          const m = mark(step.done);
+          const m = stepMark(step);
           return (
             <li key={step.id} data-step={step.id}>
               <span className="first-run-mark" data-state={m.state} role="img" aria-label={m.label} title={m.label} />

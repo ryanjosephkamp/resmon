@@ -6,8 +6,10 @@
  * draws is on it: arXiv answers, answers with nothing, and has one run with
  * no row (not recorded); CrossRef answers and then fails three runs in a row
  * (broken, to the watchdog); Springer Nature is left out of three runs (not
- * asked) and could not be asked in the fourth (no key). Each screen is held to
- * what the engine served for it, rather than to numbers written here.
+ * asked) and could not be asked in the fourth (no key); and IEEE Xplore, long
+ * withdrawn, is still selected by the last three, as an old watch's runs are.
+ * Each screen is held to what the engine served for it, rather than to numbers
+ * written here.
  *
  * The journeys J06, J30 and J45 drive the same screens through
  * `journeys/drivers/atlas.ts`; this spec is the part that runs on every pull
@@ -26,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, sys.argv[1])
 from implementation_scripts.database import (init_db, get_connection, insert_execution, record_execution_source,
     update_execution_status)
+from implementation_scripts.api_registry import RETIRED_REPOSITORIES
 path = os.environ["RESMON_DB_PATH"]
 init_db(path)
 conn = get_connection(path)
@@ -34,10 +37,11 @@ iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
 plan = [
     # (days ago, selection, {source: (status, count, zero_reason)}; a selected source with no entry has no row)
     (4, ["arxiv", "crossref"], {"arxiv": ("ok", 5, None), "crossref": ("ok", 3, None)}),
-    (3, ["arxiv", "crossref"], {"arxiv": ("ok", 0, "answered_empty"), "crossref": ("error", 0, "upstream_failure")}),
-    (2, ["arxiv", "crossref"], {"crossref": ("error", 0, "upstream_failure")}),
-    (1, ["arxiv", "crossref", "springer"], {"arxiv": ("ok", 4, None), "crossref": ("error", 0, "upstream_failure"),
-        "springer": ("skipped_missing_key", 0, "missing_key")}),
+    (3, ["arxiv", "crossref", "ieee"], {"arxiv": ("ok", 0, "answered_empty"), "crossref": ("error", 0, "upstream_failure"),
+        "ieee": ("error", 0, "retired")}),
+    (2, ["arxiv", "crossref", "ieee"], {"crossref": ("error", 0, "upstream_failure"), "ieee": ("error", 0, "retired")}),
+    (1, ["arxiv", "crossref", "springer", "ieee"], {"arxiv": ("ok", 4, None), "crossref": ("error", 0, "upstream_failure"),
+        "springer": ("skipped_missing_key", 0, "missing_key"), "ieee": ("error", 0, "retired")}),
 ]
 runs = []
 for days, selection, outcomes in plan:
@@ -45,7 +49,11 @@ for days, selection, outcomes in plan:
     run = insert_execution(conn, {"execution_type": "deep_sweep", "start_time": iso(start),
         "parameters": json.dumps({"repositories": selection, "keywords": ["perovskite"], "query": "perovskite"})})
     for source, (status, count, reason) in outcomes.items():
-        record_execution_source(conn, run, source, status, result_count=count, zero_reason=reason)
+        # A withdrawn source is recorded as the sweep records it: the registry's refusal, with its reason.
+        retired = RETIRED_REPOSITORIES.get(source) if reason == "retired" else None
+        record_execution_source(conn, run, source, status, result_count=count, zero_reason=reason,
+            error_message=f"{source} is no longer available. {retired}" if retired else None,
+            zero_detail=json.dumps({"detail": retired}) if retired else None)
     update_execution_status(conn, run, "completed", end_time=iso(start + timedelta(seconds=30)),
                             result_count=sum(c for _s, c, _r in outcomes.values()), new_result_count=0)
     runs.append(run)
@@ -143,7 +151,10 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     await expect(win.locator('[data-health="window"]')).toHaveText('Showing 4 of 4 recorded runs');
 
     // — the watchdog -------------------------------------------------------------
-    type Report = { counts: { alarms: number; broken: number; unusual: number }; findings: { title: string; severity: string; scope: Json }[] };
+    type Report = {
+      counts: { alarms: number; broken: number; unusual: number };
+      findings: { key: string; title: string; severity: string; scope: Json }[];
+    };
     // The headline from the engine's own counts: the seed makes CrossRef broken,
     // and what else the rules find in it (Springer Nature's missing key) is theirs to say.
     const headline = (c: Report['counts']): string => [
@@ -157,11 +168,27 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     await win.getByRole('navigation', { name: 'Health' }).getByRole('link', { name: /Watchdog/ }).click();
     const wdVerdict = win.locator('[data-health="watchdog-verdict"] .wall-headline');
     await expect(wdVerdict).toHaveText(headline(report.counts), { timeout: 30_000 });
-    const card = win.locator('li.finding').filter({ hasText: broken!.title });
+    const card = win.locator(`li.finding[data-key="${broken!.key}"]`);
     await expect(card.locator('.finding-severity')).toHaveText('Broken');
     await expect(card.locator('.finding-scope')).toHaveText(`Source · ${crossref!.name}`);
+    // The source by its name in the finding's own sentences, as on its scope, never by its key.
+    await expect(card.locator('.finding-title')).toHaveText(`${crossref!.name} has failed on its last 3 runs`);
+    await expect(card).not.toContainText(/\bcrossref\b/);
     // Stored timestamps read as times, never as ISO.
     await expect(card.locator('.finding-evidence')).not.toContainText(/\d{4}-\d{2}-\d{2}T/);
+
+    // A withdrawn source: by the name it had, its streak not called failures, and its paragraph said once, whole.
+    const withdrawn = win.locator('li.finding[data-key="source_errors:ieee"]');
+    await expect(withdrawn).toHaveAttribute('data-withdrawn', 'true');
+    await expect(withdrawn.locator('.finding-title')).toHaveText('IEEE Xplore was withdrawn from resmon');
+    await expect(withdrawn.locator('.finding-scope')).toHaveText('Source · IEEE Xplore');
+    await expect(withdrawn).not.toContainText(/\bieee\b/);
+    await expect(withdrawn.locator('.finding-evidence')).not.toContainText('Failed runs in a row');
+    await expect(withdrawn.locator('.finding-evidence')).toContainText('Runs in a row with nothing from it');
+    await expect(withdrawn.locator('.finding-evidence')).not.toContainText('Most recent error');
+    await expect(withdrawn.locator('.finding-detail')).toContainText('the terms they accepted at registration.');
+    await withdrawn.scrollIntoViewIfNeeded();
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-health-withdrawn.png') });
 
     await card.getByRole('button', { name: 'Mute', exact: true }).click();
     await expect(win.locator('[data-health="muted"] h2')).toHaveText('Muted (1)', { timeout: 30_000 });

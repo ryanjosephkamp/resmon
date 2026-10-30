@@ -55,9 +55,10 @@ describe('a file of people, read for the engine', () => {
 });
 
 describe('what came of an import', () => {
-  test('everyone who came in, by name', () => {
+  test('everyone who came in, by name, each as a new person and never merged', () => {
     expect(importSentence({ imported: [person(), person({ display_name: 'Bo Fixture' })], failed: [] }, 'p.json'))
-      .toBe('Imported 2 people from p.json: Ada Fixture and Bo Fixture.');
+      .toBe('Imported 2 people from p.json: Ada Fixture and Bo Fixture. Each is added as a new person; resmon never merges '
+        + 'an import with the people you have.');
   });
 
   test('an entry that could not be read is named by its place in the file and the engine\'s reason, beside the rest', () => {
@@ -65,7 +66,8 @@ describe('what came of an import', () => {
       imported: [person()],
       failed: [{ index: 1, reason: "This file has no 'schema' field, so resmon cannot tell what it is." }],
     }, 'p.json')).toBe(
-      "Imported 1 person from p.json: Ada Fixture. 1 entry could not be read: entry 2, This file has no 'schema' field, "
+      'Imported 1 person from p.json: Ada Fixture. It is added as a new person; resmon never merges an import with the '
+        + "people you have. 1 entry could not be read: entry 2, This file has no 'schema' field, "
         + 'so resmon cannot tell what it is.',
     );
   });

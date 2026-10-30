@@ -84,9 +84,13 @@ export function runSummaries(
   const running = run.status === 'running';
   const lanes = rows.map((row) => laneSentence(row, running));
   if (!choice) {
-    return rows.length
-      ? { on: true, head: 'On.', lanes, note: null }
-      : { on: null, head: 'Not recorded with this run.', lanes: [], note: null };
+    if (rows.length) return { on: true, head: 'On.', lanes, note: null };
+    // An interrupted run keeps no events, so its choice is not known; but a
+    // lane's row is written before its first call, so a settled run with none
+    // made no attempt, and that is said first, as Restart's own line says it.
+    if (running || !run.ai_lanes) return { on: null, head: 'Not recorded with this run.', lanes: [], note: null };
+    const stopped = run.status === 'completed' ? '' : ' before it stopped';
+    return { on: null, head: `This run recorded no attempt to summarize${stopped}, and not whether it was set to.`, lanes: [], note: null };
   }
   if (!choice.enabled) return { on: false, head: 'Off for this run.', lanes: [], note: null };
   const labels = choice.lanes.map((lane) => lane.label);

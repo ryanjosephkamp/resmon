@@ -84,10 +84,21 @@ export function AskProvider({ children }: { children: ReactNode }) {
     setDraftState(choice);
   }, []);
 
+  // `null` is New conversation, which starts from the defaults Settings › AI
+  // holds now, even when the composer is already a new one: a connection,
+  // model or effort chosen for the unsent one is let go, and the defaults are
+  // read again, since Settings › AI may have changed them since they were read.
+  // The unsent text stays: it was written for a new conversation, which this
+  // still is, and a field emptied by a button has no undo.
   const select = useCallback((id: number | null) => {
+    if (id === null) {
+      chosen.current = false;
+      setDraftState(firstChoice(client.getQueryData<Status>(STATUS_KEY)?.composer_choices));
+      void client.invalidateQueries({ queryKey: STATUS_KEY });
+    }
     setSelected(id);
     setFailure((f) => (f && f.session === id ? f : null));
-  }, []);
+  }, [client]);
 
   const update = (change: (current: Live) => Live) => {
     setLive((current) => {
