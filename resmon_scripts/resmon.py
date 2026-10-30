@@ -1781,6 +1781,43 @@ def _validated_date_window(parameters: dict) -> Optional[dict]:
         raise HTTPException(400, str(exc)) from None
 
 
+def _search_terms(parameters: object) -> list[str]:
+    """The words a routine's runs search for: its query and its keywords.
+
+    Both editors store the terms twice, as a ``keywords`` list and as the
+    ``query`` string a run sends, and an MCP-made routine stores only
+    ``query``; a term in either counts.
+    """
+    if not isinstance(parameters, dict):
+        return []
+    words = [str(k) for k in parameters.get("keywords") or [] if str(k).strip()] \
+        if isinstance(parameters.get("keywords"), list) else []
+    query = parameters.get("query")
+    if isinstance(query, str) and query.strip():
+        words.append(query)
+    return words
+
+
+def _validated_terms(parameters: dict) -> None:
+    """Refuse a keyword routine with nothing to search for.
+
+    Stored, such a routine sends every source it names an empty search on every
+    run. arXiv, DOAJ, and PLOS answer that with HTTP 400, so each run reads as a
+    row of failing sources when nothing about the sources is wrong. A routine
+    that follows a person (``entity``) has no terms by design, and its entity is
+    checked by ``_validated_entity`` instead.
+    """
+    if isinstance(parameters, dict) and parameters.get("entity") is not None:
+        return
+    if not _search_terms(parameters):
+        raise HTTPException(
+            400,
+            "A watch needs at least one search term, or a person to follow. With "
+            "none, every run would send its sources an empty search, which some "
+            "of them refuse.",
+        )
+
+
 def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional[str]:
     """Whether the sources this routine names can be asked about a person at all.
 
@@ -1837,6 +1874,7 @@ def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
         entity = _validated_entity(conn, body.parameters)
+        _validated_terms(body.parameters)
         _validated_date_window(body.parameters)
         _readable_schedule(body.schedule_cron, body.parameters)
         routine_dict = {
@@ -1886,6 +1924,7 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["schedule_cron"] = body.schedule_cron
         if body.parameters is not None:
             _validated_entity(conn, body.parameters)
+            _validated_terms(body.parameters)
             _validated_date_window(body.parameters)
             updates["parameters"] = json.dumps(body.parameters)
         if body.schedule_cron is not None or body.parameters is not None:

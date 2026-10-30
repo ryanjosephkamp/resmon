@@ -238,8 +238,8 @@ export function watchWarnings(
   if (!p.entity && ('keywords' in p || 'query' in p) && !words.length) {
     out.push({
       kind: 'no_terms',
-      text: 'It has no words to look for, so every run sends its sources an empty query. '
-        + 'Add the words it should look for under Change.',
+      text: 'It needs search terms. It has none, so every run sends its sources an empty search, and a source '
+        + 'that refuses one answers HTTP 400. Add the terms it should look for under Change.',
     });
   }
   const from = typeof p.date_from === 'string' ? p.date_from.trim() : '';

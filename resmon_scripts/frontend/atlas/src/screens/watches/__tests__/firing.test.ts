@@ -90,7 +90,8 @@ describe('what a watch keeps itself from finding', () => {
     expect(watchWarnings(JSON.stringify({ repositories: ['arxiv'], keywords: [], query: '' }), now).map((w) => w.kind))
       .toEqual(['no_terms']);
     expect(watchWarnings(JSON.stringify({ keywords: ['  '], query: ' ' }), now)[0]?.text)
-      .toBe('It has no words to look for, so every run sends its sources an empty query. Add the words it should look for under Change.');
+      .toBe('It needs search terms. It has none, so every run sends its sources an empty search, and a source that refuses one '
+        + 'answers HTTP 400. Add the terms it should look for under Change.');
   });
 
   test('a watch on a person has no words by design', () => {
