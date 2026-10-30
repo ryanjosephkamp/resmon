@@ -87,8 +87,8 @@ said “three tools … each recorded in the execution history” for three cont
 after the seventh arrived, which is the permissive direction for a document whose
 implementation is reviewed against it.</li>
 <li><strong><code>update_settings</code> admits a key by name.</strong> Since v2.4 the settings a tool may change
-are an allowlist of <strong>21 keys of the 41</strong> the app has across the seven reachable
-groups; the other <strong>20</strong> are refused on the name before any request is built, each with
+are an allowlist of <strong>20 keys of the 39</strong> the app has across the six reachable
+groups; the other <strong>19</strong> are refused on the name before any request is built, each with
 the reason it is withheld. The line is that a tool may change what resmon <em>says</em> —
 which model, which ceilings, what is retained, what is notified — and may not change
 where resmon sends things, what resmon runs, where resmon writes, what resmon is told,
@@ -304,7 +304,7 @@ would make an honest product dishonest through an integration.</p>
 
 
 
-<table><thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th><th>Backed by</th></tr></thead><tbody><tr><td><code>run_sweep</code></td><td><code>query</code>, <code>sources</code>, <code>date_from?</code>, <code>date_to?</code>, <code>max_results?</code>, <code>ai_enabled?</code></td><td><code>exec_id</code>, immediately</td><td><code>POST /api/search/sweep</code></td></tr><tr><td><code>create_routine</code></td><td><code>name</code>, <code>keywords</code>, <code>sources</code>, <code>schedule</code>, optional <code>intent</code>, optional <code>entity</code> (<code>profile_id</code> + <code>mode</code>), plus optional notification and AI settings</td><td>the created routine, plus <code>entity_warning</code> where none of the named sources can be asked about an author</td><td><code>POST /api/routines</code></td></tr><tr><td><code>create_watch_profile</code></td><td><code>name</code>, optional <code>orcid</code>, <code>orcid_cited</code>, <code>aliases</code>, <code>affiliations</code>, <code>field_hints</code></td><td>the created profile, with <code>basis_warning</code> <strong>lifted to the top of the answer</strong> when it has no identifier</td><td><code>POST /api/profiles</code></td></tr><tr><td><code>run_routine</code></td><td><code>routine_id</code></td><td><code>exec_id</code>, immediately; or a <code>conflict</code> error carrying <code>{"conflict": "routine_already_running", "execution_id": N}</code> when that routine is already running</td><td><strong>needs a new endpoint — see below</strong></td></tr><tr><td><code>activate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: true</code></td><td><code>POST /api/routines/{id}/activate</code></td></tr><tr><td><code>deactivate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: false</code></td><td><code>POST /api/routines/{id}/deactivate</code></td></tr><tr><td><code>update_settings</code></td><td><code>group</code>, <code>settings</code> — the group on <code>SETTINGS_GROUPS</code>, every key on <code>SETTINGS_KEYS_WRITABLE</code> (21 of the app’s 41; see the v2.4 narrowing amendment)</td><td><code>group</code>, <code>changed</code> (a per-key <code>{from, to}</code> diff), <code>requested</code>, <code>unchanged_key_count</code></td><td><code>GET</code> + <code>PUT /api/settings/{group}</code></td></tr></tbody></table>
+<table><thead><tr><th>Tool</th><th>Arguments</th><th>Returns</th><th>Backed by</th></tr></thead><tbody><tr><td><code>run_sweep</code></td><td><code>query</code>, <code>sources</code>, <code>date_from?</code>, <code>date_to?</code>, <code>max_results?</code>, <code>ai_enabled?</code></td><td><code>exec_id</code>, immediately</td><td><code>POST /api/search/sweep</code></td></tr><tr><td><code>create_routine</code></td><td><code>name</code>, <code>keywords</code>, <code>sources</code>, <code>schedule</code>, optional <code>intent</code>, optional <code>entity</code> (<code>profile_id</code> + <code>mode</code>), plus optional notification and AI settings</td><td>the created routine, plus <code>entity_warning</code> where none of the named sources can be asked about an author</td><td><code>POST /api/routines</code></td></tr><tr><td><code>create_watch_profile</code></td><td><code>name</code>, optional <code>orcid</code>, <code>orcid_cited</code>, <code>aliases</code>, <code>affiliations</code>, <code>field_hints</code></td><td>the created profile, with <code>basis_warning</code> <strong>lifted to the top of the answer</strong> when it has no identifier</td><td><code>POST /api/profiles</code></td></tr><tr><td><code>run_routine</code></td><td><code>routine_id</code></td><td><code>exec_id</code>, immediately; or a <code>conflict</code> error carrying <code>{"conflict": "routine_already_running", "execution_id": N}</code> when that routine is already running</td><td><strong>needs a new endpoint — see below</strong></td></tr><tr><td><code>activate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: true</code></td><td><code>POST /api/routines/{id}/activate</code></td></tr><tr><td><code>deactivate_routine</code></td><td><code>routine_id</code></td><td><code>id</code>, <code>is_active: false</code></td><td><code>POST /api/routines/{id}/deactivate</code></td></tr><tr><td><code>update_settings</code></td><td><code>group</code>, <code>settings</code> — the group on <code>SETTINGS_GROUPS</code>, every key on <code>SETTINGS_KEYS_WRITABLE</code> (20 of the app’s 39; see the v2.4 narrowing amendment)</td><td><code>group</code>, <code>changed</code> (a per-key <code>{from, to}</code> diff), <code>requested</code>, <code>unchanged_key_count</code></td><td><code>GET</code> + <code>PUT /api/settings/{group}</code></td></tr></tbody></table>
 <p><strong>Every write tool carries <code>requires_confirmation: true</code> in <code>tools/list</code>, and every
 read tool carries it as <code>false</code>.</strong> The field is resmon’s own, not part of MCP. It is
 emitted for both, because a harness that has to infer “no flag means safe” is one
@@ -378,13 +378,20 @@ its response. <code>is_active</code> governs scheduling, not permission.</p>
 
 
 
-
-
-
-
-<table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.4 so are the 20 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/cloud/*</code></td><td>Google Drive linking is an OAuth flow that needs a browser and a person.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
+<table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.4 so are the 19 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
 <hr>
 <h2 id="amendments">Amendments</h2>
+<h3 id="a-group-not-a-version--30-october-2026">A group, not a version — 30 October 2026</h3>
+<p><strong>25 tools, 44 distinct method-and-path pairs.</strong> The two that went are <code>GET</code> and <code>PUT /api/settings/cloud</code>, which <code>update_settings</code> reached through its <code>cloud</code> group; it was 46.</p>
+<p>resmon no longer signs in to Google or uploads to Google Drive: a backup is written into a
+folder the person chooses, and Google Drive for desktop’s folder is one. The <code>cloud</code> group’s
+two keys, <code>cloud_provider</code> and <code>cloud_auto_backup</code>, set that upload, and the app no longer
+has them or the routes that served them. So <code>update_settings</code>’s <code>group</code> enum loses <code>cloud</code>,
+the app’s key count goes from 41 to 39, the writable list from 21 to 20 and the withheld
+list from 20 to 19. <strong>No tool arrives, none is removed, no return shape moves and the
+contract version does not change</strong>: a call naming <code>cloud</code> would have reached a route that
+is gone, and it is now refused with the groups there are. Where the backup goes,
+<code>export_directory</code>, stays withheld.</p>
 <h3 id="a-field-not-a-version--21-september-2026-schema-21">A field, not a version — 21 September 2026, schema 21</h3>
 <p><strong>25 tools, 46 distinct method-and-path pairs.</strong> The new one is
 <code>GET /api/routines/{id}/deliveries</code>, which <code>get_routine</code> calls for the summary below; it was 45.</p>
@@ -817,7 +824,7 @@ decision moved into the server.</p>
 
 
 
-<table><thead><tr><th></th><th>Count</th></tr></thead><tbody><tr><td>Settings keys the app has, across the seven reachable groups</td><td><strong>41</strong></td></tr><tr><td>Writable through <code>update_settings</code></td><td><strong>21</strong></td></tr><tr><td>Withheld, refused on the name before any request is built</td><td><strong>20</strong></td></tr></tbody></table>
+<table><thead><tr><th></th><th>Count</th></tr></thead><tbody><tr><td>Settings keys the app has, across the six reachable groups</td><td><strong>39</strong></td></tr><tr><td>Writable through <code>update_settings</code></td><td><strong>20</strong></td></tr><tr><td>Withheld, refused on the name before any request is built</td><td><strong>19</strong></td></tr></tbody></table>
 <p>The line, and the question the next person adding a key has to answer:</p>
 <blockquote>
 <p><strong>A tool may change what resmon says. It may not change where resmon sends things, what
@@ -878,11 +885,7 @@ result was produced.</strong></p>
 
 
 
-
-
-
-
-<table><thead><tr><th>Key</th><th>Why</th></tr></thead><tbody><tr><td><code>ai_cli_path</code></td><td>the executable resmon spawns</td></tr><tr><td><code>assistant_runtime</code></td><td>decides whether resmon spawns a process at all</td></tr><tr><td><code>ai_provider</code>, <code>assistant_provider</code></td><td>select which provider’s host the key and prompt go to</td></tr><tr><td><code>ai_custom_base_url</code>, <code>ai_local_endpoint</code></td><td>the endpoint those requests are sent to</td></tr><tr><td><code>ai_custom_header_prefix</code></td><td>names the headers a custom endpoint’s requests carry, which is where the key rides</td></tr><tr><td><code>ai_chain</code></td><td>a JSON list of fallback lanes, each naming its own provider</td></tr><tr><td><code>embedding_provider</code>, <code>embedding_endpoint</code>, <code>embedding_base_url</code></td><td>where corpus text is sent to be embedded</td></tr><tr><td><code>cloud_provider</code></td><td>which service a corpus backup is uploaded to</td></tr><tr><td><code>smtp_server</code>, <code>smtp_port</code>, <code>smtp_to</code></td><td>where routine reports are delivered</td></tr><tr><td><code>export_directory</code></td><td>where resmon writes exported files</td></tr><tr><td><code>ai_extraction_goals</code>, <code>ai_tone</code>, <code>ai_summary_length</code></td><td><strong>what resmon is told.</strong> All three are interpolated verbatim into <code>SUMMARIZE_ABSTRACT</code>, in the same block, above the abstract</td></tr><tr><td><code>ai_show_audit_prefix</code></td><td><strong>whether the user is told how a result was produced.</strong> The line that tells a reader a summary came from a model, and which model</td></tr></tbody></table>
+<table><thead><tr><th>Key</th><th>Why</th></tr></thead><tbody><tr><td><code>ai_cli_path</code></td><td>the executable resmon spawns</td></tr><tr><td><code>assistant_runtime</code></td><td>decides whether resmon spawns a process at all</td></tr><tr><td><code>ai_provider</code>, <code>assistant_provider</code></td><td>select which provider’s host the key and prompt go to</td></tr><tr><td><code>ai_custom_base_url</code>, <code>ai_local_endpoint</code></td><td>the endpoint those requests are sent to</td></tr><tr><td><code>ai_custom_header_prefix</code></td><td>names the headers a custom endpoint’s requests carry, which is where the key rides</td></tr><tr><td><code>ai_chain</code></td><td>a JSON list of fallback lanes, each naming its own provider</td></tr><tr><td><code>embedding_provider</code>, <code>embedding_endpoint</code>, <code>embedding_base_url</code></td><td>where corpus text is sent to be embedded</td></tr><tr><td><code>smtp_server</code>, <code>smtp_port</code>, <code>smtp_to</code></td><td>where routine reports are delivered</td></tr><tr><td><code>export_directory</code></td><td>where resmon writes exported files</td></tr><tr><td><code>ai_extraction_goals</code>, <code>ai_tone</code>, <code>ai_summary_length</code></td><td><strong>what resmon is told.</strong> All three are interpolated verbatim into <code>SUMMARIZE_ABSTRACT</code>, in the same block, above the abstract</td></tr><tr><td><code>ai_show_audit_prefix</code></td><td><strong>whether the user is told how a result was produced.</strong> The line that tells a reader a summary came from a model, and which model</td></tr></tbody></table>
 <p><strong>The last four move no request, and that is the point of listing them.</strong> A guard that
 asks only “does this change where a request goes” admits all four.</p>
 <p><code>SUMMARIZE_ABSTRACT</code> has three adjacent slots — <code>{tone}</code>, <code>{length}</code>,
@@ -905,11 +908,11 @@ nominally configures.</p>
 “summarized by …”. Whether a reader can tell a model wrote a sentence is never
 overclaiming at its most concrete.</p>
 <p><strong>Both of those clauses are checked as mechanisms, not as lists.</strong>
-<code>test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld</code> sentinels all 41
+<code>test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld</code> sentinels all 39
 keys through the real <code>_build_prompt_params</code> and the real template and requires every key
 whose value arrives to be withheld; a companion case sends the injection sentence above
 and requires it to land before the abstract.
-<code>test_no_writable_key_can_switch_off_the_audit_prefix</code> drives all 41 keys with the one
+<code>test_no_writable_key_can_switch_off_the_audit_prefix</code> drives all 39 keys with the one
 string that disables the flag and requires the set that can to hold no writable key.
 Neither consults the withheld list to decide what <em>should</em> be withheld, and the first was
 red on <code>ai_tone</code> and <code>ai_summary_length</code> when it was written.</p>
@@ -929,7 +932,7 @@ other direction of the v2.1 finding, one level down from the group.
 refuse a conversation whose route moved — over the whole key list, and requires every key
 it reads to be withheld. That is what keeps this list and the codebase’s existing notion
 of a route from drifting apart, since neither file imports the other.</p>
-<p><strong>Four slices of this list are mechanical, and they cover 8 of the 20 withheld keys.</strong>
+<p><strong>Four slices of this list are mechanical, and they cover 8 of the 19 withheld keys.</strong>
 Each has a test that derives its answer from behavior rather than from this list:</p>
 
 
@@ -957,15 +960,15 @@ Each has a test that derives its answer from behavior rather than from this list
 
 
 <table><thead><tr><th>Mechanism</th><th>Derives</th></tr></thead><tbody><tr><td><code>assistant_choices.route_digest</code> moves</td><td><code>ai_cli_path</code>, <code>ai_custom_base_url</code></td></tr><tr><td>the value reaches <code>SUMMARIZE_ABSTRACT</code></td><td><code>ai_extraction_goals</code>, <code>ai_tone</code>, <code>ai_summary_length</code></td></tr><tr><td>the value can clear <code>_show_audit_prefix</code></td><td><code>ai_show_audit_prefix</code></td></tr><tr><td>the value moves an <code>EmbeddingLane</code> destination</td><td><code>embedding_endpoint</code>, <code>embedding_base_url</code></td></tr></tbody></table>
-<p><strong>The other 12 are withheld by category, with no mechanism behind them</strong> — <code>ai_chain</code>,
+<p><strong>The other 11 are withheld by category, with no mechanism behind them</strong> — <code>ai_chain</code>,
 <code>ai_custom_header_prefix</code>, <code>ai_local_endpoint</code>, <code>ai_provider</code>, <code>assistant_provider</code>,
-<code>assistant_runtime</code>, <code>cloud_provider</code>, <code>embedding_provider</code>, <code>export_directory</code>,
-<code>smtp_server</code>, <code>smtp_port</code>, <code>smtp_to</code>. Most of those are plainly route-shaped and the
-reasons beside them in <code>mcp_server.SETTINGS_KEYS_WITHHELD</code> say why each is there, but a
-reason in a dict is not a test: moving one of these twelve to the writable list would be
-caught only by the count assertions in this document, which the same change would update.
-So for those twelve the mechanisms are a <strong>floor and not the line</strong>, and a reviewer is
-what stands behind them.</p>
+<code>assistant_runtime</code>, <code>embedding_provider</code>, <code>export_directory</code>, <code>smtp_server</code>,
+<code>smtp_port</code>, <code>smtp_to</code>. Most of those are plainly route-shaped and the reasons beside
+them in <code>mcp_server.SETTINGS_KEYS_WITHHELD</code> say why each is there, but a reason in a dict
+is not a test: moving one of these eleven to the writable list would be caught only by
+the count assertions in this document, which the same change would update. So for those
+eleven the mechanisms are a <strong>floor and not the line</strong>, and a reviewer is what stands
+behind them.</p>
 <p>The credential denylist is unchanged and is still checked first, because it answers a
 credential-shaped name with a better sentence than the allowlist would: resmon’s keys are
 not settings, they live in the system keychain, and they are changed in the app.</p>

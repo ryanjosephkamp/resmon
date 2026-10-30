@@ -353,10 +353,7 @@ HTTP request returns immediately. The thread:
    only when *every* requested repository errored (`all_repos_errored`);
    otherwise it is `completed`, even if a subset failed (their errors
    remain in the task log and as `repo_error` events).
-9. **Auto-backup.** `_maybe_auto_backup(...)` spawns a daemon thread to
-   optionally push the report and log to cloud storage; failures are
-   logged but never fail the execution.
-10. **Final events.** `complete` event (with `status`, `result_count`,
+9. **Final events.** `complete` event (with `status`, `result_count`,
     `new_count`, `elapsed`, and — on full failure — the `error` summary),
     followed by `progress_store.mark_complete(exec_id)`.
 

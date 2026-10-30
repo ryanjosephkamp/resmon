@@ -33,7 +33,7 @@ existing behavior. Runtime matching does not authenticate a hostile local servic
 <ul>
 <li><em>Targeted Deep Dive</em> — a focused, manual query against a single repository within a defined date range, with support for an ephemeral per-execution API key that never persists to disk.</li>
 <li><em>Broad Deep Sweep</em> — a cross-repository manual query that applies Deep Dive parameters to every selected repository in one run.</li>
-<li><em>Automated Deep Sweep (Routine)</em> — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications and Google Drive uploads on completion.</li>
+<li><em>Automated Deep Sweep (Routine)</em> — a background-scheduled Deep Sweep that runs on a cron expression, emits progress events, and optionally triggers email notifications on completion.</li>
 </ul>
 </li>
 <li>
@@ -89,7 +89,7 @@ Matching now preserves initials and surname particles and compares affiliations 
 <p><strong>Email notifications</strong> — per-routine and global SMTP-based notifications on routine completion, including attachment of the execution bundle produced by the shared export pipeline.</p>
 </li>
 <li>
-<p><strong>Google Drive backup</strong> — optional, least-privilege (<code>drive.file</code>) backup of the report tree to a user-supplied Drive OAuth client.</p>
+<p><strong>Backup and restore</strong> — the database, the Library vault and the reports in one hashed bundle, written into a folder you choose; Google Drive for desktop’s folder keeps it in Drive with no sign-in inside resmon.</p>
 </li>
 <li>
 <p><strong>Coverage before conclusions</strong> — opening a Results run shows answered, recorded non-answer and unknown sources above its six existing tabs. Counts use saved selected sources when that selection is established; otherwise they describe recorded sources and the full selection stays unknown. A selected source without an outcome is unknown. Genuine empty answers are included in answered; failed requests, unreadable replies and missing history never become evidence that no papers exist. <strong>View source details</strong> opens the Search record. Explicit report ZIP exports include generated <code>search-record.json</code> and <code>search-record.md</code> companions per execution; these describe saved facts at export time and leave the original report/log and existing PDF behavior unchanged. Routine mail bundles retain their existing behavior.</p>
@@ -101,7 +101,7 @@ Matching now preserves initials and surname particles and compares affiliations 
 <p><strong>Configuration export and import</strong> — serialize any Deep Dive, Deep Sweep, or routine configuration to JSON and re-import it on the same or another device for reproducible surveillance setups.</p>
 </li>
 <li>
-<p><strong>Local-first storage and logging</strong> — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles; no credentials or data leave the machine unless the user opts in to Google Drive backup.</p>
+<p><strong>Local-first storage and logging</strong> — SQLite-backed state, per-execution log files, and a configurable export directory for report and artifact bundles. Data leaves the machine only for a feature in use: each query to the source it searches, paper text to an AI summary or embedding service you configure, DOIs to Crossref, bioRxiv and arXiv when papers are checked for retractions and newer versions, reports by email or webhook, and the check for an app update.</p>
 </li>
 <li>
 <p><strong>In-app About resmon page</strong> — a dedicated top-level page hosting four self-contained tabs: <strong>Tutorials</strong> (25 written walk-throughs covering the full app, every page, and every Settings sub-tab, with a shared Tutorial deep-link button rendered next to every page header and every Settings sub-panel header; 17 of them also have a video, <strong>linked</strong> rather than embedded — the tab renders no third-party frame and sends no request to YouTube, and every link opens in your own browser through the Electron shell), <strong>Issues</strong> (a credentials-free form that builds either a <code>mailto:</code> link to the maintainer or a pre-populated GitHub issue deep link — the app never posts the report itself), <strong>Blog</strong> (an in-app reader for the public resmon blog at <code>https://ryanjosephkamp.github.io/resmon/</code>, fed by the GitHub Pages source under <code>docs/_posts/</code> and rendered through an origin-locked Electron <code>&#x3C;webview></code>), and <strong>About App</strong> (build version, recent-update notes, license, privacy notice, author links — relocated out of Settings).</p>

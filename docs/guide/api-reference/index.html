@@ -573,7 +573,6 @@ separate export route, and the formats and citation-key allocation are the ones 
 <li><code>GET /api/settings/email</code> / <code>PUT /api/settings/email</code> — <code>smtp_server</code>, <code>smtp_port</code>, <code>smtp_username</code>, <code>smtp_from</code>, <code>smtp_to</code>.</li>
 <li><code>POST /api/settings/email/test</code> — sends a test email using the saved SMTP settings and the stored <code>smtp_password</code> credential.</li>
 <li><code>GET /api/settings/ai</code> / <code>PUT /api/settings/ai</code> — <code>ai_provider</code>, <code>ai_model</code>, <code>ai_local_model</code>, <code>ai_summary_length</code>, <code>ai_tone</code>, <code>ai_temperature</code>, <code>ai_extraction_goals</code>, <code>ai_custom_base_url</code>, <code>ai_custom_header_prefix</code>.</li>
-<li><code>GET /api/settings/cloud</code> / <code>PUT /api/settings/cloud</code> — <code>cloud_auto_backup</code> and related toggles.</li>
 <li><code>GET /api/settings/storage</code> / <code>PUT /api/settings/storage</code> — <code>pdf_policy</code>, <code>txt_policy</code>, <code>archive_after_days</code>, <code>export_directory</code> (policy values are constrained to <code>save</code> / <code>archive</code> / <code>discard</code>).</li>
 <li><code>GET /api/settings/notifications</code> / <code>PUT /api/settings/notifications</code> — desktop-notification toggles.</li>
 <li><code>GET /api/settings/execution</code> / <code>PUT /api/settings/execution</code> — admission-controller tunables (<code>max_concurrent</code> clamped to <code>[1, 8]</code>, routine queue clamped to <code>[1, 64]</code>); reloaded live by the admission controller.</li>
@@ -588,13 +587,14 @@ separate export route, and the formats and citation-key allocation are the ones 
 <li><code>POST /api/credentials/validate</code> — validate a remote LLM key (Test key button on the AI panel).</li>
 <li><code>POST /api/ai/models</code> — list the per-provider model catalog using either the freshly typed key or the stored credential (Load models button on the AI panel).</li>
 </ul>
-<h3 id="apicloud"><code>/api/cloud</code></h3>
-<p>Google Drive backup — see <a href="/resmon/guide/backup/#google-drive-backup">Google Drive Backup</a>.</p>
+<h3 id="apibackup-and-apirestore"><code>/api/backup</code> and <code>/api/restore</code></h3>
+<p>Backup and restore — see <a href="/resmon/guide/backup/#google-drive-backup">Google Drive Backup</a> for keeping a backup in Drive. resmon does not sign in to Google; the <code>/api/cloud</code> routes were removed on October 30, 2026.</p>
 <ul>
-<li><code>GET /api/cloud/status</code> — <code>{ is_linked, api_ok, api_reason }</code> describing the Google Drive link state.</li>
-<li><code>POST /api/cloud/link</code> — triggers the Google Drive OAuth installed-app flow; the resulting token is stored in the OS keyring.</li>
-<li><code>POST /api/cloud/unlink</code> — removes the stored token.</li>
-<li><code>POST /api/cloud/backup</code> — ad-hoc backup of the report tree to the linked Drive folder; returns <code>{ uploaded, total_files, folder_name, web_view_link }</code>.</li>
+<li><code>POST /api/backup</code> — writes one bundle into <code>export_directory</code> (the system’s temporary folder when it is unset); the body carries <code>confirm: "CONFIRM"</code> and <code>include_reports</code>.</li>
+<li><code>POST /api/backup/verify</code> — recomputes a bundle’s hashes and reports what a restore would do with it.</li>
+<li><code>GET /api/backup/last</code> — the last bundle, a staged restore, the last restore’s record, the undo copies, and <code>drive_upload_retired</code>: whether this database still has the removed upload to Google Drive switched on.</li>
+<li><code>POST /api/backup/drive-upload-notice/acknowledge</code> — dismisses the notice that the upload has gone, and deletes its two settings.</li>
+<li><code>POST /api/restore</code>, <code>POST /api/restore/cancel</code>, <code>POST /api/restore/acknowledge</code>, <code>POST /api/restore/undo-copy/delete</code> — stage a restore for the next start, cancel it, dismiss the card it leaves, and delete the copies it set aside.</li>
 </ul></div> </article>   </main> <footer class="footer" data-astro-cid-5hce7sga> <div class="shell footer-inner" data-astro-cid-5hce7sga> <p class="footer-line" data-astro-cid-5hce7sga> <svg class="mark" viewBox="0 0 100 100" aria-hidden="true" focusable="false" data-astro-cid-iifiznic> <rect class="mark-ground" width="100" height="100" rx="24" data-astro-cid-iifiznic></rect> <circle class="mark-dot" cx="28" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="51" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="62.5" cy="27" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="39.5" cy="38.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-open" cx="74" cy="38.5" r="3.5" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="50" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="61.5" r="4.7" data-astro-cid-iifiznic></circle><circle class="mark-dot" cx="28" cy="73" r="4.7" data-astro-cid-iifiznic></circle> </svg>  <span data-astro-cid-5hce7sga>
 resmon is free and open source under the MIT license. Everything it retrieves stays
             on the computer that retrieved it.

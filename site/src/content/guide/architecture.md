@@ -92,9 +92,9 @@ The completion hook no longer sends anything: it enqueues one row per enabled de
 
 What resmon claims is what it did: that it handed the report to your mail server, wrote it into the folder, or got a 2xx from your receiver. Whether the message reached an inbox, whether the folder finished syncing, and what the receiver did with the envelope after answering, it cannot see, and the panel says so.
 
-### Optional Google Drive Backup
+### Backup into a folder
 
-`implementation_scripts/cloud_storage.py` wraps the Drive v3 API with the least-privilege `drive.file` OAuth 2.0 scope. The token is stored in the OS keyring, and uploads are triggered by `SweepEngine._maybe_auto_backup` when the `cloud_auto_backup` setting is on. Configured under Settings → Cloud Storage. It is the only way any report leaves the machine, and it is off by default.
+`implementation_scripts/backup.py` writes a bundle — the database through SQLite's backup API, the Library vault, optionally the reports, and a manifest of hashes — into the folder `export_directory` names. resmon does not sign in to Google: a backup kept in Google Drive is one written into the folder Google Drive for desktop keeps, which that client uploads. The Google Drive sign-in and upload resmon used to have (`cloud_storage.py`) were removed on October 30, 2026, along with the Google client libraries.
 
 ## Technology Stack
 
@@ -103,7 +103,6 @@ What resmon claims is what it did: that it handed the report to your mail server
 | **Backend** | Python 3.10+, FastAPI 0.135, Starlette 1.0, Uvicorn 0.44, Pydantic 2.12 | HTTP server, request validation, ASGI runtime |
 | **Backend** | httpx 0.28, lxml 6.0, beautifulsoup4 4.14 | Repository API clients, XML/HTML parsing |
 | **Backend** | cryptography 46, keyring 25.7 | OS-keyring credential storage, envelope encryption helpers |
-| **Backend** | google-api-python-client 2.194, google-auth-oauthlib 1.3 | Google Drive artifact backup (OAuth 2.0, `drive.file` scope) |
 | **Backend** | nltk 3.9, tiktoken 0.12 | Text normalization and token-aware chunking for summarization |
 | **Frontend** | Electron 41, Node.js 22.13+, npm 10+ | Desktop shell, main-process bridging |
 | **Frontend** | React 19, React Router 7 (`HashRouter`), TypeScript 6 | Renderer SPA and routing |
@@ -126,7 +125,6 @@ resmon/
 ├── README.md                       # This file.
 ├── LICENSE                         # MIT license.
 ├── requirements.txt                # Pinned Python dependencies.
-├── credentials.json                # Google OAuth 2.0 client secrets (user-supplied, gitignored).
 ├── resmon.db                       # SQLite database (created on first launch).
 │
 ├── resmon_scripts/                 # All application source code.
@@ -140,7 +138,6 @@ resmon/
 │   │   ├── api_*.py                  # Per-repository API clients (26 active sources).
 │   │   ├── api_base.py               # Shared rate limiter + HTTP client base class.
 │   │   ├── api_registry.py           # Slug → client dispatch table.
-│   │   ├── cloud_storage.py          # Google Drive backup (drive.file scope).
 │   │   ├── config.py                 # APP_NAME, paths, defaults.
 │   │   ├── config_manager.py         # Configuration JSON export/import.
 │   │   ├── credential_manager.py     # OS-keyring credential vault + ephemeral stack.

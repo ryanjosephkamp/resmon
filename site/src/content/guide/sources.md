@@ -117,7 +117,7 @@ Each credit records the clause that imposes it, so any of them can be re-checked
 
 IEEE Xplore was an active source through v1.8.0 and is no longer queried. The client worked; the reason is the [IEEE Xplore API Terms of Use](https://developer.ieee.org/API_Terms_of_Use2), which limit the grant to non-commercial activity within the licensee's own institution, forbid using a "site search/retrieval application" against the content (4(c)), forbid retaining it in bulk (4(f)), and require deleting it on termination (12).
 
-resmon is a retrieval application that keeps a corpus indefinitely and can back it up to Google Drive, so no setting reconciles it with those clauses — and because each user registers for their own IEEE key, continuing to ship the integration would put the account holder in breach of terms they accepted personally. Withdrawing it was the honest option.
+resmon is a retrieval application that keeps a corpus indefinitely and can back it up into a folder Google Drive syncs, so no setting reconciles it with those clauses — and because each user registers for their own IEEE key, continuing to ship the integration would put the account holder in breach of terms they accepted personally. Withdrawing it was the honest option.
 
 Existing routines that name `ieee` keep running; that source is reported as unavailable with the reason above, and the rest of the routine is unaffected. Any IEEE key you stored is no longer used. The client is retained in the source tree, so a written license from IEEE would restore the source unchanged.
 

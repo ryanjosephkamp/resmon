@@ -4,7 +4,7 @@
 
 ### Purpose
 
-The About resmon page is the in-app documentation and identity surface for `resmon`. It hosts four self-contained sub-tabs — **Tutorials**, **Issues**, **Blog**, and **About App** — under a single top-level route. The Tutorials tab hosts a guided walk-through for every existing top-level page (Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, Settings) and every Settings sub-tab (Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, Advanced), plus a full-app overview entry. The Issues tab provides a credentials-free path to file bug reports, feature requests, and questions either by email or as a pre-populated GitHub issue. The Blog tab embeds the public resmon GitHub Pages blog so per-update posts can be read in-app without a release cycle. The About App tab — relocated out of Settings in this update — surfaces the build version, recent-update notes, license, privacy notice, and author social links.
+The About resmon page is the in-app documentation and identity surface for `resmon`. It hosts four self-contained sub-tabs — **Tutorials**, **Issues**, **Blog**, and **About App** — under a single top-level route. The Tutorials tab hosts a guided walk-through for every existing top-level page (Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, Settings) and every Settings sub-tab (Email, Cloud Account, AI, Storage, Notifications, Advanced), plus a full-app overview entry. The Issues tab provides a credentials-free path to file bug reports, feature requests, and questions either by email or as a pre-populated GitHub issue. The Blog tab embeds the public resmon GitHub Pages blog so per-update posts can be read in-app without a release cycle. The About App tab — relocated out of Settings in this update — surfaces the build version, recent-update notes, license, privacy notice, and author social links.
 
 The page also defines the shared `TutorialLinkButton` component that is rendered next to every page header (and next to each Settings sub-panel header) across the app, so any user can jump from an arbitrary page directly to that page's tutorial section in a single click.
 
@@ -47,7 +47,7 @@ The page also defines the shared `TutorialLinkButton` component that is rendered
   - `BlogTab` ([resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx](resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx)).
   - `AboutAppTab` ([resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx](resmon_scripts/frontend/src/components/AboutResmon/AboutAppTab.tsx)).
 - Shared deep-link component:
-  - `TutorialLinkButton` ([resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx](resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx)) — a small primary-styled button rendered next to every page header (Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, Settings) and next to each Settings sub-panel header (Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, Advanced). Clicking the button navigates to `/about-resmon/tutorials` with `hash: <anchor>`.
+  - `TutorialLinkButton` ([resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx](resmon_scripts/frontend/src/components/AboutResmon/TutorialLinkButton.tsx)) — a small primary-styled button rendered next to every page header (Dashboard, Deep Dive, Deep Sweep, Routines, Calendar, Results & Logs, Configurations, Monitor, Repositories & API Keys, Settings) and next to each Settings sub-panel header (Email, Cloud Account, AI, Storage, Notifications, Advanced). Clicking the button navigates to `/about-resmon/tutorials` with `hash: <anchor>`.
 - Reused shared components: `PageHelp` (storage key `about-resmon-about-app`).
 - Hooks: `NavLink`, `Navigate`, `Routes`, `Route`, `useNavigate`, `useLocation` from `react-router-dom`; `useEffect`, `useRef`, `useState` for tab-local state; `apiClient` for the version `GET`.
 
@@ -137,7 +137,7 @@ The page also defines the shared `TutorialLinkButton` component that is rendered
 - Renders a `<button type="button">` with className `btn btn-sm btn-primary tutorial-link-btn`, `data-testid={`tutorial-link-${anchor}`}`, and `aria-label={`Open the ${anchor} tutorial`}`. The click handler calls `navigate({ pathname: '/about-resmon/tutorials', hash: anchor })`.
 - Wired into every top-level page header and every Settings sub-panel header. Anchor mapping:
   - Dashboard → `dashboard`; Deep Dive → `deep-dive`; Deep Sweep → `deep-sweep`; Routines → `routines`; Calendar → `calendar`; Results & Logs → `results`; Configurations → `configurations`; Monitor → `monitor`; Repositories & API Keys → `repositories`; Settings → `settings`.
-  - Settings sub-panels: Email → `settings-email`; Cloud Account → `settings-account`; Cloud Storage → `settings-cloud`; AI → `settings-ai`; Storage → `settings-storage`; Notifications → `settings-notifications`; Advanced → `settings-advanced`.
+  - Settings sub-panels: Email → `settings-email`; Cloud Account → `settings-account`; AI → `settings-ai`; Storage → `settings-storage`; Notifications → `settings-notifications`; Advanced → `settings-advanced`.
 
 ### Sidebar Wiring
 
