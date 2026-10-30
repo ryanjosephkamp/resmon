@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
+import { SAVED_KEY, savedFromRun } from './collection/savedSearches';
 import { duration, when } from './today/format';
 import {
   deletedSentence, deleteQuestion, FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle,
@@ -16,7 +17,7 @@ import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
-import { runSummaries } from './runs/summaries';
+import { aiChoiceOf, runSummaries } from './runs/summaries';
 import { runWindowSentence } from './watches/window';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
@@ -134,6 +135,25 @@ export function Run() {
     mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: [id] }, format, `resmon-references-${id}`),
   });
   const bundle = useMutation({ mutationFn: (runId: number) => saveBundle(runId) });
+  // Save as a search: the run's own sources, terms, dates, and cap as a saved
+  // search, linked back to this run by the engine (`link_to_execution_id`).
+  /** The name being typed, and for which run; the field is open only on that run's page. */
+  const [typed, setTyped] = useState<{ runId: number; name: string } | null>(null);
+  const naming = typed?.runId === id ? typed.name : null;
+  const setNaming = (name: string | null) => setTyped(name === null ? null : { runId: id, name });
+  const keep = useMutation({
+    mutationFn: ({ runId, name, search }: {
+      runId: number; name: string; search: NonNullable<ReturnType<typeof savedFromRun>>;
+    }) => answer(engine().POST('/api/configurations', {
+      body: { name, config_type: search.config_type, parameters: search.parameters, link_to_execution_id: runId },
+    })),
+    onSuccess: (_saved, { runId }) => {
+      setNaming(null);
+      void client.invalidateQueries({ queryKey: SAVED_KEY });
+      void client.invalidateQueries({ queryKey: ['run', runId] });
+      void client.invalidateQueries({ queryKey: RUNS_KEY });
+    },
+  });
   // Deleted, the run has no page: back to the log, which no longer lists it,
   // in place of this page in the history so Back does not return to it.
   const remove = useDeleteRuns();
@@ -175,11 +195,19 @@ export function Run() {
   // says a stop was asked for until the run says it has ended.
   const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
   const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
-    ?? (bundle.variables === id ? bundle.error : null);
+    ?? (bundle.variables === id ? bundle.error : null) ?? (keep.variables?.runId === id ? keep.error : null);
   const title = runTitle(data, watch);
   // The dates this run asked for, as its own parameters record them: for a
   // watch whose window moves, the dates the engine computed when it fired.
   const dates = runWindowSentence(data.parameters);
+  // A watch's run is not offered: its search is the watch's, and Saved already keeps a copy of it.
+  // Whether it summarized is read from the run's `ai_choice` event, so a save waits for the events.
+  const choice = aiChoiceOf(events.data ?? []);
+  const search = savedFromRun(data, choice?.enabled === true);
+  const kept = keep.isSuccess && keep.variables.runId === id ? keep.variables.name : null;
+  const saveSearch = (name: string) => {
+    if (search && name.trim() && !keep.isPending && !events.isPending) keep.mutate({ runId: id, name: name.trim(), search });
+  };
 
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
@@ -213,6 +241,12 @@ export function Run() {
                 <Icon name="download" size={14} />{bundle.isPending && bundle.variables === id ? 'Building the bundle' : 'Bundle'}
               </button>
             )}
+            {search && naming === null && (
+              <button type="button" className="btn" data-run="save-search" disabled={keep.isPending}
+                onClick={() => { keep.reset(); setNaming(''); }}>
+                Save as a search
+              </button>
+            )}
             {/* A run still running is not offered: the engine refuses to delete it. */}
             {!running && (
               <button type="button" className="btn quiet" data-run="delete" disabled={remove.isPending}
@@ -238,6 +272,10 @@ export function Run() {
           {data.restarted_into.map((next) => (
             <span key={next}><span className="sep" /> <Link to={`/runs/${next}`}>restarted as run {next}</Link></span>
           ))}
+          {/* Either the search it was started from or the one it was saved as: the engine keeps one link and does not say which. */}
+          {data.saved_configuration_name && (
+            <><span className="sep" /><Link to="/search/saved" data-run="saved-search">linked to the saved search “{data.saved_configuration_name}”</Link></>
+          )}
         </div>
         {dates && (
           <p className="run-dates" data-run="window">
@@ -245,6 +283,40 @@ export function Run() {
           </p>
         )}
         <RunSummaryNote run={data} events={events.data ?? null} />
+        {search && naming !== null && (
+          <div className="run-keep">
+            <p className="form-hint">
+              Saves this run’s {search.config_type === 'manual_dive' ? 'source' : 'sources'}, terms, dates, and cap as a
+              search under Saved, and links this run to it.
+              {choice?.enabled === true && ' The search is saved to summarize each paper, as this run was set to.'}
+              {events.isSuccess && !choice && ' This run did not record whether it summarized, so the search is saved not to.'}
+            </p>
+            <span className="keep-row">
+              <label className="sr-only" htmlFor="run-keep-name">A name for this saved search</label>
+              <input
+                id="run-keep-name"
+                value={naming}
+                placeholder="A name for this search"
+                autoFocus
+                onChange={(event) => setNaming(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') { event.preventDefault(); saveSearch(naming); }
+                  else if (event.key === 'Escape') setNaming(null);
+                }}
+              />
+              <button type="button" className="btn" disabled={!naming.trim() || keep.isPending || events.isPending}
+                onClick={() => saveSearch(naming)}>
+                {keep.isPending ? 'Saving' : 'Save'}
+              </button>
+              <button type="button" className="btn quiet" onClick={() => setNaming(null)}>Cancel</button>
+            </span>
+          </div>
+        )}
+        {kept && naming === null && (
+          <p className="settings-said" role="status" data-run="kept">
+            Saved as “{kept}”, under <Link to="/search/saved">Saved</Link>.
+          </p>
+        )}
         {stopping && (
           <p className="run-note" role="status" data-run="stopping">
             Stopping. resmon has asked this run to stop, and it stops at its next checkpoint; until then it is still running.

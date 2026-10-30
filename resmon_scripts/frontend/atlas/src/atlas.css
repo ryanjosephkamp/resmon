@@ -1852,3 +1852,41 @@ button.ai-link {
 .watch-dates, .run-dates { margin: 12px 0 0; max-width: 84ch; font: 400 13px/1.5 var(--sans); color: var(--ink-2); }
 .watch-dates-label, .run-dates-label { margin-right: 4px; font-weight: 600; color: var(--ink); }
 .watch-dates a { color: var(--ink); text-underline-offset: 3px; }
+
+/* A saved search changed in place: the editor opens under its row, across the row's full width. */
+.saved.editing { padding-bottom: 20px; }
+.saved .settings-said { margin: 4px 0 0; font-size: 13px; }
+.saved-editor { grid-column: 1 / -1; min-width: 0; padding: 18px 20px 20px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); }
+.saved-editor-name { max-width: 520px; }
+.saved-editor .catalog { margin-top: 22px; }
+.saved-editor .ask-window { margin-top: 20px; }
+.saved-editor-hint { margin-top: 8px; }
+.saved-editor-facts p { margin: 8px 0 0; font: 400 13px/1.5 var(--sans); color: var(--ink-2); max-width: 72ch; }
+.saved-editor .form-actions { margin-top: 18px; }
+
+/* A run saved as a search: the name field, under the run's headline. */
+.run-keep { margin-top: 12px; display: grid; gap: 8px; justify-items: start; }
+.run-head .settings-said { margin-top: 12px; }
+
+/* The reading queue, a page at a time. */
+.queue-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.queue-pager .index-cap { margin: 0 8px 0 0; }
+
+/* Settings › About resmon. */
+.about-part { margin-top: 26px; max-width: 820px; }
+.about-part > .field-title + * { margin-top: 10px; }
+.about-part .facts { margin-top: 10px; }
+.about-part > .form-hint { margin-top: 10px; }
+.about-part > .form-hint a, .about-list a, .about-text a { color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.about-text { margin: 10px 0 0; font: 400 13.5px/1.55 var(--sans); color: var(--ink); max-width: 76ch; }
+.about-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 8px; font: 400 13.5px/1.55 var(--sans); color: var(--ink); max-width: 80ch; }
+.about-list + .field-title { margin-top: 22px; }
+.about-list b { font-weight: 600; }
+.about-license { margin-top: 10px; }
+.about-license summary { cursor: pointer; font: 500 13px/1.4 var(--sans); color: var(--ink-2); }
+.about-license summary:hover { color: var(--ink); }
+.about-license pre {
+  margin: 10px 0 0; padding: 12px 14px; width: fit-content; max-width: 100%; border-radius: var(--r); background: var(--plate);
+  font: 400 12.5px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.about-actions { margin: 14px 0 0; }
