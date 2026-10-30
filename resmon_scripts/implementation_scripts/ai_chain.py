@@ -34,7 +34,7 @@ from typing import Any, Optional
 
 from .ai_errors import AIError, classify_exception
 from .ai_lanes import AILane
-from .database import finish_ai_lane, start_ai_lane
+from .database import finish_ai_lane, record_ai_lane_models, start_ai_lane
 
 logger = logging.getLogger(__name__)
 
@@ -501,6 +501,20 @@ class ChainRunner:
                 logger.exception(
                     "Could not close execution_ai row for lane %d", state.index,
                 )
+            # What the lane's CLI said answered, beside what was asked for. Only
+            # a client that reports it has the method; the rest record nothing,
+            # and the run page says "not reported" rather than repeating the
+            # requested alias as if it were the answer.
+            reported = getattr(state._client, "reported_models", None)
+            if callable(reported):
+                try:
+                    models = reported()
+                    if isinstance(models, list) and models:
+                        record_ai_lane_models(self._db, self._exec_id, state.index, models)
+                except Exception:
+                    logger.exception(
+                        "Could not record the reported models for lane %d", state.index,
+                    )
 
     # ------------------------------------------------------------------
     # Internals

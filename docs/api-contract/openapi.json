@@ -160,6 +160,191 @@
         "title": "AiCliProbe",
         "type": "object"
       },
+      "AiCliSignIn": {
+        "additionalProperties": true,
+        "description": "``GET /api/ai/cli/sign-in``: what the command said about its own sign-in.\n\n``state`` is ``signed_in`` or ``signed_out`` only when the command said so,\n``expired`` when its words say the sign-in it had expired, ``unknown`` when\nit answered without saying (``said`` then holds its own words), ``missing``\nwhen resmon did not find the command, and ``failed`` when it could not be\nrun. ``email``, ``plan`` and ``method`` are present only when the command\nreported them. ``message`` is one sentence for a person. ``command`` is the\nstatus command as it would be typed. Nothing in this answer is stored.",
+        "properties": {
+          "checked_at_utc": {
+            "title": "Checked At Utc",
+            "type": "string"
+          },
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "method": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Method"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "plan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "said": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Said"
+          },
+          "state": {
+            "enum": [
+              "signed_in",
+              "signed_out",
+              "expired",
+              "unknown",
+              "missing",
+              "failed"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "state",
+          "message",
+          "email",
+          "plan",
+          "method",
+          "said",
+          "command",
+          "path",
+          "checked_at_utc"
+        ],
+        "title": "AiCliSignIn",
+        "type": "object"
+      },
+      "AiCliSignInBody": {
+        "additionalProperties": false,
+        "properties": {
+          "binary_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Binary Path"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "purpose": {
+            "default": "summaries",
+            "title": "Purpose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "title": "AiCliSignInBody",
+        "type": "object"
+      },
+      "AiCliSignInOpened": {
+        "additionalProperties": true,
+        "description": "``POST /api/ai/cli/sign-in``: whether the command's own login was opened.\n\n``how`` is ``terminal`` when a Terminal window was asked to run it,\n``copy`` when the person runs ``command`` themselves, and ``none`` when\nthere is no command to run. ``message`` says which, in a sentence.",
+        "properties": {
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "how": {
+            "enum": [
+              "terminal",
+              "copy",
+              "none"
+            ],
+            "title": "How",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "opened": {
+            "title": "Opened",
+            "type": "boolean"
+          },
+          "path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "opened",
+          "how",
+          "command",
+          "path",
+          "message"
+        ],
+        "title": "AiCliSignInOpened",
+        "type": "object"
+      },
       "AiCliStatus": {
         "additionalProperties": true,
         "description": "``GET /api/settings/ai/cli-status``.",
@@ -196,6 +381,68 @@
           "ai_keys_removed"
         ],
         "title": "AiKeysErased",
+        "type": "object"
+      },
+      "AiLastAnswered": {
+        "additionalProperties": true,
+        "description": "``GET /api/ai/last-answered``: one entry per command and requested model.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/AiLastAnsweredEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries"
+        ],
+        "title": "AiLastAnswered",
+        "type": "object"
+      },
+      "AiLastAnsweredEntry": {
+        "additionalProperties": true,
+        "description": "The model that last answered one requested model on one command.\n\n``requested`` is the alias or id that was asked for, ``\"\"`` where the\ncommand chose. ``model`` is what the answer reported, ``name`` the same in\na person's words. ``where`` is ``ask`` or ``summaries``.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "observed_at_utc": {
+            "title": "Observed At Utc",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "requested": {
+            "title": "Requested",
+            "type": "string"
+          },
+          "where": {
+            "enum": [
+              "ask",
+              "summaries"
+            ],
+            "title": "Where",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "requested",
+          "model",
+          "name",
+          "where",
+          "observed_at_utc"
+        ],
+        "title": "AiLastAnsweredEntry",
         "type": "object"
       },
       "AiSettings": {
@@ -450,6 +697,31 @@
           "basis"
         ],
         "title": "AssistantActivity",
+        "type": "object"
+      },
+      "AssistantAnsweredBy": {
+        "additionalProperties": true,
+        "description": "Which reported model answered a turn, chosen from its reports.\n\n``source`` is the report it was taken from: ``claude_result_model_usage``\n(the models the turn was billed for) first, the provider's reply next, and\nthe model the CLI announced as it started last. ``name`` is ``model`` in a\nperson's words, or ``model`` itself where its shape is not recognized.",
+        "properties": {
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "name",
+          "source"
+        ],
+        "title": "AssistantAnsweredBy",
         "type": "object"
       },
       "AssistantChoices": {
@@ -847,6 +1119,10 @@
             "title": "Model",
             "type": "string"
           },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
           "observed_at_utc": {
             "title": "Observed At Utc",
             "type": "string"
@@ -864,7 +1140,8 @@
           "sequence",
           "model",
           "source",
-          "observed_at_utc"
+          "observed_at_utc",
+          "name"
         ],
         "title": "AssistantModelReport",
         "type": "object"
@@ -1765,8 +2042,18 @@
       },
       "AssistantTurnChoices": {
         "additionalProperties": true,
-        "description": "One turn's request, and the reports its runtime made, kept apart.\n\n``assistant_message_id`` is ``None`` until an answer is stored, and stays\nso for a turn that never got one. ``requested`` and ``reported`` are each\n``AssistantUnreadable`` when their stored JSON fails validation, and both\nare, with ``assistant_message_id`` cleared, when the row points at\nmessages outside this conversation.",
+        "description": "One turn's request, and the reports its runtime made, kept apart.\n\n``assistant_message_id`` is ``None`` until an answer is stored, and stays\nso for a turn that never got one; ``failure`` then says why, where the turn\nended in a failure resmon recorded. ``answered_by`` is the model the\nreports say answered, for a turn that has an answer, and ``None``\notherwise. ``requested`` and ``reported`` are each\n``AssistantUnreadable`` when their stored JSON fails validation, and both\nare, with ``assistant_message_id`` cleared, when the row points at\nmessages outside this conversation.",
         "properties": {
+          "answered_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantAnsweredBy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "assistant_message_id": {
             "anyOf": [
               {
@@ -1781,6 +2068,16 @@
           "created_at_utc": {
             "title": "Created At Utc",
             "type": "string"
+          },
+          "failure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantTurnFailure"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "reported": {
             "anyOf": [
@@ -1822,9 +2119,102 @@
           "version",
           "created_at_utc",
           "requested",
-          "reported"
+          "reported",
+          "answered_by",
+          "failure"
         ],
         "title": "AssistantTurnChoices",
+        "type": "object"
+      },
+      "AssistantTurnFailure": {
+        "additionalProperties": true,
+        "description": "A turn that produced no answer, kept as a failure and never as one.\n\n``code`` is ``cli_auth`` when the command said it is not signed in or its\nsign-in expired, ``stopped`` when the turn was stopped, and ``failed``\notherwise. ``message`` is the sentence the panel showed. ``partial_text``,\n``tool_calls`` and ``tool_results`` are what the turn wrote and called\nbefore it ended. ``cost_usd`` is present only when the runtime reported a\ncost above zero for it.",
+        "properties": {
+          "code": {
+            "enum": [
+              "cli_auth",
+              "stopped",
+              "failed"
+            ],
+            "title": "Code",
+            "type": "string"
+          },
+          "cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Usd"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "failed_at_utc": {
+            "title": "Failed At Utc",
+            "type": "string"
+          },
+          "input_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Tokens"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "output_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Tokens"
+          },
+          "partial_text": {
+            "title": "Partial Text",
+            "type": "string"
+          },
+          "tool_calls": {
+            "title": "Tool Calls"
+          },
+          "tool_results": {
+            "title": "Tool Results"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "detail",
+          "partial_text",
+          "tool_calls",
+          "tool_results",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd",
+          "failed_at_utc"
+        ],
+        "title": "AssistantTurnFailure",
         "type": "object"
       },
       "AssistantUnreadable": {
@@ -11464,8 +11854,15 @@
       },
       "RunAiLane": {
         "additionalProperties": true,
-        "description": "One summary lane a run tried, as ``execution_ai`` records it.\n\n``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,\n``skipped`` (an earlier lane covered everything) or ``running`` (the process\nstopped while the lane held the work). ``credential_alias`` names a keyring\nslot, never a key.",
+        "description": "One summary lane a run tried, as ``execution_ai`` records it.\n\n``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,\n``skipped`` (an earlier lane covered everything) or ``running`` (the process\nstopped while the lane held the work). ``credential_alias`` names a keyring\nslot, never a key. ``model`` is what was asked for, often an alias;\n``answered_by`` is what the lane's command reported answered, biggest\nwriter first, and is empty where nothing was reported.",
         "properties": {
+          "answered_by": {
+            "items": {
+              "$ref": "#/components/schemas/RunAiLaneModel"
+            },
+            "title": "Answered By",
+            "type": "array"
+          },
           "credential_alias": {
             "anyOf": [
               {
@@ -11591,9 +11988,35 @@
           "docs_attempted",
           "docs_succeeded",
           "started_at",
-          "ended_at"
+          "ended_at",
+          "answered_by"
         ],
         "title": "RunAiLane",
+        "type": "object"
+      },
+      "RunAiLaneModel": {
+        "additionalProperties": true,
+        "description": "A model an agent CLI reported for a lane's calls.\n\n``model`` is the id as the command reported it, ``name`` the same id in a\nperson's words (\"Haiku 4.5\"), or the id itself where resmon does not\nrecognize its shape. ``calls`` is how many of the lane's calls named it.",
+        "properties": {
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "name",
+          "calls"
+        ],
+        "title": "RunAiLaneModel",
         "type": "object"
       },
       "RunCancelRequested": {
@@ -17758,6 +18181,131 @@
           }
         },
         "summary": "Admin Reset Settings"
+      }
+    },
+    "/api/ai/cli/sign-in": {
+      "get": {
+        "description": "Ask the command itself whether it is signed in. No model call, no cost.\n\nRuns ``claude auth status --json`` or ``codex login status`` in the\nenvironment the lanes use, and answers with what is safe to show. Nothing\nis stored: the next check runs the command again. Called when Settings ›\nAI is opened and on Check again, never on a timer.",
+        "operationId": "check_ai_cli_sign_in_api_ai_cli_sign_in_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "purpose",
+            "required": false,
+            "schema": {
+              "default": "summaries",
+              "maxLength": 32,
+              "title": "Purpose",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "binary_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 4096,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Binary Path"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiCliSignIn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Ai Cli Sign In"
+      },
+      "post": {
+        "description": "Start the command's own login in a terminal, or say the command to run.\n\nThe sign-in happens between the person and the provider, in the command's\nown login; resmon does not see or keep it. On macOS a ``.command`` script in\nresmon's state directory is opened with ``open`` (``RESMON_SIGN_IN_OPENER``\nnames another opener, for a test that must not open Terminal); elsewhere\nthe command is returned to be copied.",
+        "operationId": "open_ai_cli_sign_in_api_ai_cli_sign_in_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiCliSignInBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiCliSignInOpened"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Ai Cli Sign In"
+      }
+    },
+    "/api/ai/last-answered": {
+      "get": {
+        "description": "Which model last answered each requested alias, from answers already kept.\n\nAn alias resolves to the CLI's newest model when it runs, so the version is\nknown only once an answer reports it. The pickers say \"Haiku 5.5 when it\nlast answered\" from this, and only the alias where nothing has answered yet.",
+        "operationId": "get_ai_last_answered_api_ai_last_answered_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiLastAnswered"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Ai Last Answered"
       }
     },
     "/api/ai/models": {

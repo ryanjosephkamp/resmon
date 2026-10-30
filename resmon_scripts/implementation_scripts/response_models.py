@@ -731,6 +731,68 @@ class AiCliStatus(LosslessModel):
     providers: list[AiCliProbe]
 
 
+class AiCliSignIn(LosslessModel):
+    """``GET /api/ai/cli/sign-in``: what the command said about its own sign-in.
+
+    ``state`` is ``signed_in`` or ``signed_out`` only when the command said so,
+    ``expired`` when its words say the sign-in it had expired, ``unknown`` when
+    it answered without saying (``said`` then holds its own words), ``missing``
+    when resmon did not find the command, and ``failed`` when it could not be
+    run. ``email``, ``plan`` and ``method`` are present only when the command
+    reported them. ``message`` is one sentence for a person. ``command`` is the
+    status command as it would be typed. Nothing in this answer is stored.
+    """
+
+    provider: str
+    state: Literal["signed_in", "signed_out", "expired", "unknown", "missing", "failed"]
+    message: str
+    email: Optional[str]
+    plan: Optional[str]
+    method: Optional[str]
+    said: Optional[str]
+    command: str
+    path: Optional[str]
+    checked_at_utc: str
+
+
+class AiCliSignInOpened(LosslessModel):
+    """``POST /api/ai/cli/sign-in``: whether the command's own login was opened.
+
+    ``how`` is ``terminal`` when a Terminal window was asked to run it,
+    ``copy`` when the person runs ``command`` themselves, and ``none`` when
+    there is no command to run. ``message`` says which, in a sentence.
+    """
+
+    provider: str
+    opened: bool
+    how: Literal["terminal", "copy", "none"]
+    command: str
+    path: Optional[str]
+    message: str
+
+
+class AiLastAnsweredEntry(LosslessModel):
+    """The model that last answered one requested model on one command.
+
+    ``requested`` is the alias or id that was asked for, ``""`` where the
+    command chose. ``model`` is what the answer reported, ``name`` the same in
+    a person's words. ``where`` is ``ask`` or ``summaries``.
+    """
+
+    provider: str
+    requested: str
+    model: str
+    name: str
+    where: Literal["ask", "summaries"]
+    observed_at_utc: str
+
+
+class AiLastAnswered(LosslessModel):
+    """``GET /api/ai/last-answered``: one entry per command and requested model."""
+
+    entries: list[AiLastAnsweredEntry]
+
+
 # ---------------------------------------------------------------------------
 # Embeddings — the settings page that is a page rather than a map
 # ---------------------------------------------------------------------------
@@ -1743,13 +1805,28 @@ class RunRow(RunColumns):
     source_outcomes: Optional[RunSourceOutcomes]
 
 
+class RunAiLaneModel(LosslessModel):
+    """A model an agent CLI reported for a lane's calls.
+
+    ``model`` is the id as the command reported it, ``name`` the same id in a
+    person's words ("Haiku 4.5"), or the id itself where resmon does not
+    recognize its shape. ``calls`` is how many of the lane's calls named it.
+    """
+
+    model: str
+    name: str
+    calls: int
+
+
 class RunAiLane(LosslessModel):
     """One summary lane a run tried, as ``execution_ai`` records it.
 
     ``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,
     ``skipped`` (an earlier lane covered everything) or ``running`` (the process
     stopped while the lane held the work). ``credential_alias`` names a keyring
-    slot, never a key.
+    slot, never a key. ``model`` is what was asked for, often an alias;
+    ``answered_by`` is what the lane's command reported answered, biggest
+    writer first, and is empty where nothing was reported.
     """
 
     lane_index: int
@@ -1766,6 +1843,7 @@ class RunAiLane(LosslessModel):
     docs_succeeded: int
     started_at: str
     ended_at: Optional[str]
+    answered_by: list[RunAiLaneModel]
 
 
 class Run(RunColumns):
@@ -3690,13 +3768,54 @@ class AssistantModelReport(LosslessModel):
     model: str
     source: str
     observed_at_utc: str
+    name: str
+
+
+class AssistantAnsweredBy(LosslessModel):
+    """Which reported model answered a turn, chosen from its reports.
+
+    ``source`` is the report it was taken from: ``claude_result_model_usage``
+    (the models the turn was billed for) first, the provider's reply next, and
+    the model the CLI announced as it started last. ``name`` is ``model`` in a
+    person's words, or ``model`` itself where its shape is not recognized.
+    """
+
+    model: str
+    name: str
+    source: str
+
+
+class AssistantTurnFailure(LosslessModel):
+    """A turn that produced no answer, kept as a failure and never as one.
+
+    ``code`` is ``cli_auth`` when the command said it is not signed in or its
+    sign-in expired, ``stopped`` when the turn was stopped, and ``failed``
+    otherwise. ``message`` is the sentence the panel showed. ``partial_text``,
+    ``tool_calls`` and ``tool_results`` are what the turn wrote and called
+    before it ended. ``cost_usd`` is present only when the runtime reported a
+    cost above zero for it.
+    """
+
+    code: Literal["cli_auth", "stopped", "failed"]
+    message: str
+    detail: Optional[str]
+    partial_text: str
+    tool_calls: Any
+    tool_results: Any
+    input_tokens: Optional[int]
+    output_tokens: Optional[int]
+    cost_usd: Optional[float]
+    failed_at_utc: str
 
 
 class AssistantTurnChoices(LosslessModel):
     """One turn's request, and the reports its runtime made, kept apart.
 
     ``assistant_message_id`` is ``None`` until an answer is stored, and stays
-    so for a turn that never got one. ``requested`` and ``reported`` are each
+    so for a turn that never got one; ``failure`` then says why, where the turn
+    ended in a failure resmon recorded. ``answered_by`` is the model the
+    reports say answered, for a turn that has an answer, and ``None``
+    otherwise. ``requested`` and ``reported`` are each
     ``AssistantUnreadable`` when their stored JSON fails validation, and both
     are, with ``assistant_message_id`` cleared, when the row points at
     messages outside this conversation.
@@ -3708,6 +3827,8 @@ class AssistantTurnChoices(LosslessModel):
     created_at_utc: str
     requested: Union[AssistantRequested, AssistantUnreadable]
     reported: Union[list[AssistantModelReport], AssistantUnreadable]
+    answered_by: Optional[AssistantAnsweredBy]
+    failure: Optional[AssistantTurnFailure]
 
 
 class AssistantActivity(LosslessModel):

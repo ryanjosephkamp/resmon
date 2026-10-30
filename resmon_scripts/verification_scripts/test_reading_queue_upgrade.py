@@ -465,7 +465,10 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "deliveries", "idx_deliveries_due",
                             "idx_deliveries_execution",
                             # Schema 22: the index the duplicate check reads.
-                            "idx_documents_metadata_hash"}
+                            "idx_documents_metadata_hash",
+                            # Schema 23: failed Ask turns, and the models a
+                            # summary lane's command reported.
+                            "assistant_turn_failures", "execution_ai_models"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

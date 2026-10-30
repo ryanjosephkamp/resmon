@@ -38,7 +38,9 @@ from typing import Any, Optional
 __all__ = [
     "AIErrorKind",
     "AIError",
+    "CLI_SIGN_IN_MARKERS",
     "classify_exception",
+    "is_cli_sign_in_failure",
     "sanitize",
     "LANE_FATAL_KINDS",
 ]
@@ -69,6 +71,42 @@ LANE_FATAL_KINDS: frozenset[AIErrorKind] = frozenset({
     AIErrorKind.CLI_MISSING,
     AIErrorKind.CLI_AUTH,
 })
+
+
+# What an agent CLI says when nobody is signed into it, or the sign-in it held
+# has expired. Matched case-insensitively against the CLI's own words. Shared by
+# Ask and the summary lanes, so the two cannot disagree about whether the same
+# sentence means "sign in again".
+#
+# ``failed to authenticate`` and ``oauth session expired`` are claude's words
+# for an expired subscription login (captured from ``claude -p`` against an
+# expired session); ``not logged in`` and ``please run /login`` its words for
+# none at all; ``codex login`` is how codex says it.
+CLI_SIGN_IN_MARKERS = (
+    "not logged in",
+    "not signed in",
+    "please run /login",
+    "run /login",
+    "failed to authenticate",
+    "oauth",
+    "expired",
+    "please log in",
+    "log in again",
+    "sign in again",
+    "claude auth login",
+    "codex login",
+    "authentication required",
+    "authentication_error",
+    "unauthenticated",
+    "no credentials found",
+    "re-authenticate",
+)
+
+
+def is_cli_sign_in_failure(text: Any) -> bool:
+    """Whether an agent CLI's own words say it is not signed in."""
+    lowered = str(text or "").lower()
+    return any(marker in lowered for marker in CLI_SIGN_IN_MARKERS)
 
 
 # ---------------------------------------------------------------------------

@@ -353,3 +353,66 @@ def test_client_exposes_the_pipeline_contract():
     assert client.provider == "claude_code"
     assert client.model == "opus"
     assert callable(client.summarize)
+
+
+# ---------------------------------------------------------------------------
+# A failed run is never a summary, and what answered is kept
+# ---------------------------------------------------------------------------
+
+def test_a_claude_result_from_a_run_that_exited_non_zero_is_not_a_summary(runs):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps({"is_error": False, "result": "Looks like a summary"}), returncode=1,
+    )
+    with pytest.raises(AIError):
+        _claude().summarize("t")
+
+
+def test_a_codex_message_from_a_run_that_exited_non_zero_is_not_a_summary(runs):
+    runs["script"]["writes"] = "You are not logged in. Run `codex login` to continue."
+    runs["script"]["result"] = _FakeCompleted(stdout="", returncode=1)
+    with pytest.raises(AIError) as excinfo:
+        _codex().summarize("t")
+    assert excinfo.value.kind is AIErrorKind.CLI_AUTH
+
+
+@pytest.mark.parametrize("client, words", [(_claude, "Claude Code"), (_codex, "Codex")])
+def test_a_sign_in_failure_says_so_plainly_and_keeps_the_commands_words(runs, client, words):
+    runs["script"]["result"] = _FakeCompleted(
+        stdout=json.dumps(_CLAUDE_AUTH_FAILURE), stderr="Failed to authenticate: OAuth session expired",
+        returncode=1,
+    )
+    with pytest.raises(AIError) as excinfo:
+        client().summarize("t")
+    message = str(excinfo.value)
+    assert message.startswith(f"The {words} command on this computer is not signed in, or its sign-in expired.")
+    assert "Failed to authenticate" in message
+
+
+def test_claude_reports_the_models_a_call_was_billed_for(runs):
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps({
+        "is_error": False, "result": "s",
+        "modelUsage": {"claude-haiku-4-5-20251001": {"outputTokens": 3},
+                       "claude-haiku-5-5": {"outputTokens": 90}},
+    }))
+    client = _claude(model="haiku")
+    client.summarize("one")
+    client.summarize("two")
+    assert client.reported_models() == [("claude-haiku-5-5", 2), ("claude-haiku-4-5-20251001", 2)]
+
+
+def test_codex_reports_the_model_from_its_header(runs):
+    runs["script"]["writes"] = "s"
+    runs["script"]["result"] = _FakeCompleted(
+        stdout="", stderr="OpenAI Codex v0.166.0\n--------\nworkdir: /tmp/x\nmodel: gpt-5.5-codex\n"
+                          "provider: openai\n--------\nuser\nmodel: not-this-one\n",
+    )
+    client = _codex()
+    client.summarize("t")
+    assert client.reported_models() == [("gpt-5.5-codex", 1)]
+
+
+def test_a_call_that_reports_no_model_reports_none(runs):
+    runs["script"]["result"] = _FakeCompleted(stdout=json.dumps({"is_error": False, "result": "s"}))
+    client = _claude()
+    client.summarize("t")
+    assert client.reported_models() == []

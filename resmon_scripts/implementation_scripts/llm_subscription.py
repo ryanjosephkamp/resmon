@@ -66,7 +66,7 @@ import tempfile
 import threading
 from typing import Optional
 
-from .ai_errors import AIError, AIErrorKind
+from .ai_errors import AIError, AIErrorKind, is_cli_sign_in_failure
 from .prompt_templates import (
     BATCH_SUMMARY_SCHEMA,
     SUMMARIZE_ABSTRACT,
@@ -133,6 +133,9 @@ _AUTH_MARKERS = (
     "no credentials found",
 )
 
+# The command as a person knows it, for the sentences a run records.
+_COMMAND_NAMES = {"claude_code": "Claude Code", "codex": "Codex"}
+
 # Substrings that mean the plan's usage window is exhausted.
 _QUOTA_MARKERS = (
     "usage limit",
@@ -141,6 +144,47 @@ _QUOTA_MARKERS = (
     "too many requests",
     "resets at",
 )
+
+
+def _claude_usage_models(usage) -> list[tuple[str, Optional[int]]]:
+    """The models a ``claude`` result envelope says the call used.
+
+    ``modelUsage`` is keyed by the model id the CLI resolved an alias to, with
+    that model's tokens under it. Biggest writer first, by ``outputTokens``,
+    because a call can bill a second, smaller model for its own housekeeping.
+    Anything that is not that shape is skipped rather than guessed at.
+    """
+    if not isinstance(usage, dict):
+        return []
+    found: list[tuple[str, Optional[int]]] = []
+    for model, figures in usage.items():
+        if not isinstance(model, str) or not model.strip():
+            continue
+        output = figures.get("outputTokens") if isinstance(figures, dict) else None
+        found.append((model, output if isinstance(output, int) and not isinstance(output, bool) else None))
+    return sorted(found, key=lambda item: -(item[1] or 0))
+
+
+def _codex_header_model(*streams: Optional[str]) -> Optional[str]:
+    """The ``model:`` line of the header ``codex exec`` prints as it starts.
+
+    The header is a block of ``key: value`` lines (workdir, model, provider,
+    sandbox) before the conversation; which stream it goes to has varied
+    between releases, so both are read. Only the header is read: a ``model:``
+    line further down could be the paper's own text echoed back.
+    """
+    for stream in streams:
+        lines = (stream or "").splitlines()
+        for line in lines[:40]:
+            stripped = line.strip()
+            if stripped.lower() == "user":
+                break
+            key, sep, value = stripped.partition(":")
+            if sep and key.strip().lower() == "model":
+                model = value.strip()
+                if model and " " not in model:
+                    return model
+    return None
 
 
 class SubscriptionLLMClient:
@@ -514,8 +558,9 @@ class SubscriptionLLMClient:
         # arrives with is_error true and subtype still "success", so a count
         # check that ran first would report a lane-fatal auth problem as a
         # document-local malformed answer and keep re-presenting a dead
-        # session once per document.
-        if payload.get("is_error"):
+        # session once per document. A non-zero exit is a failure whatever
+        # the envelope says about itself.
+        if payload.get("is_error") or completed.returncode:
             result = payload.get("result")
             self._raise_for_output(
                 completed, result if isinstance(result, str) else raw,
@@ -627,11 +672,13 @@ class SubscriptionLLMClient:
         except OSError:
             message = ""
 
-        if not message:
-            # No final message means the run did not get as far as answering.
-            # stdout carries the banner and any error text, so it is what gets
-            # classified -- and it is never read as a summary.
-            self._raise_for_output(completed, "")
+        if not message or completed.returncode:
+            # No final message means the run did not get as far as answering,
+            # and a non-zero exit means it did not finish. stdout carries the
+            # banner and any error text, so it is what gets classified, with the
+            # final message of a run that failed -- and neither is ever read as
+            # a summary.
+            self._raise_for_output(completed, message)
 
         try:
             payload = json.loads(message)
@@ -756,8 +803,10 @@ class SubscriptionLLMClient:
         # `is_error` is the field that matters, and it is not the obvious one:
         # an authentication failure comes back with is_error true while
         # `subtype` still reads "success". Keying on subtype would store the
-        # error message as the paper's summary.
-        if payload.get("is_error"):
+        # error message as the paper's summary. A non-zero exit is checked
+        # beside it, so text from a run that did not finish is never stored
+        # as a summary either, whatever the envelope says about itself.
+        if payload.get("is_error") or completed.returncode:
             self._raise_for_output(
                 completed, result if isinstance(result, str) else raw,
             )
@@ -777,13 +826,15 @@ class SubscriptionLLMClient:
         except OSError:
             message = ""
 
-        if message:
+        if message and not completed.returncode:
             return message
 
-        # No final message file means the run did not get as far as answering.
-        # stdout carries the banner and any error text, so it is what gets
-        # classified -- but it is never returned as a summary.
-        self._raise_for_output(completed, "")
+        # No final message file means the run did not get as far as answering,
+        # and a non-zero exit means it did not finish. stdout carries the
+        # banner and any error text, so it is what gets classified, with the
+        # final message of a run that failed -- but neither is ever returned as
+        # a summary.
+        self._raise_for_output(completed, message)
 
     # ------------------------------------------------------------------
     # What the call cost
@@ -809,6 +860,7 @@ class SubscriptionLLMClient:
             "output_tokens": usage.get("output_tokens"),
             "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
             "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+            "models": _claude_usage_models(payload.get("modelUsage")),
         })
 
     def _record_codex_telemetry(
@@ -828,6 +880,7 @@ class SubscriptionLLMClient:
             stripped = line.strip().replace(",", "")
             if stripped.isdigit():
                 tokens = int(stripped)
+        model = _codex_header_model(completed.stdout, completed.stderr)
         self.telemetry.append({
             "provider": self.provider,
             "documents": documents,
@@ -840,7 +893,31 @@ class SubscriptionLLMClient:
             "cache_creation_input_tokens": None,
             "cache_read_input_tokens": None,
             "tokens_used": tokens,
+            "models": [(model, None)] if model else [],
         })
+
+    def reported_models(self) -> list[tuple[str, int]]:
+        """The model ids the CLI reported across this lane's calls.
+
+        ``(model_id, calls)``, the biggest writer first: by the output tokens
+        claude reported for it, then by how many calls named it, then by which
+        came first. codex reports no per-model tokens, so its order is by
+        calls. Empty when the CLI reported none, which is said as "not
+        reported" rather than filled in from what was asked for.
+        """
+        order: list[str] = []
+        calls: dict[str, int] = {}
+        tokens: dict[str, int] = {}
+        for row in self.telemetry:
+            for model, output in row.get("models") or []:
+                if model not in calls:
+                    order.append(model)
+                    calls[model] = 0
+                    tokens[model] = 0
+                calls[model] += 1
+                tokens[model] += output or 0
+        ranked = sorted(order, key=lambda m: (-tokens[m], -calls[m], order.index(m)))
+        return [(model, calls[model]) for model in ranked]
 
     # ------------------------------------------------------------------
     # Failure classification
@@ -853,11 +930,14 @@ class SubscriptionLLMClient:
         stderr = (completed.stderr or "").strip()
         haystack = " ".join(p for p in (message, stderr) if p).lower()
 
-        if any(marker in haystack for marker in _AUTH_MARKERS):
+        if (any(marker in haystack for marker in _AUTH_MARKERS)
+                or is_cli_sign_in_failure(haystack)):
+            said = self._first_line(message or stderr)
             raise self._error(
                 AIErrorKind.CLI_AUTH,
-                self._first_line(message or stderr)
-                or f"The {self.provider} CLI is not logged in.",
+                f"The {_COMMAND_NAMES.get(self.provider, self.provider)} command "
+                f"on this computer is not signed in, or its sign-in expired."
+                + (f" It said: {said}" if said else ""),
             )
 
         if any(marker in haystack for marker in _QUOTA_MARKERS):

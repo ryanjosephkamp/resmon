@@ -17,7 +17,7 @@ from .assistant_tool_calling import PROVIDER_TOOL_CALLING
 REQUEST_FIELDS = ('version', 'runtime', 'provider', 'requested_model',
                   'requested_effort', 'model_basis', 'effort_basis', 'binding_basis')
 REPORT_SOURCES = ('claude_system_init_model', 'api_response_model',
-                  'google_response_modelVersion')
+                  'google_response_modelVersion', 'claude_result_model_usage')
 LIMITS = (
     'Local prerequisites are not authentication or account/model compatibility. '
     'Claude suggestions are aliases; the CLI checks model/effort acceptance at use time. '
