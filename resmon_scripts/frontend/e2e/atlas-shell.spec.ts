@@ -8,7 +8,9 @@
  * name in the top bar goes home, a click on the bar leaves no ring for the
  * next key to show, the keyboard's shortcuts (and the app menu's items, sent
  * through the bridge) reach every section and start a new search or
- * conversation, and New search starts either kind from anywhere.
+ * conversation, New search starts either kind from anywhere, and a
+ * two-finger swipe, sent as the wheel events a trackpad sends, goes back and
+ * forward once per swipe and leaves alone what is not its own.
  *
  * Nothing leaves this machine: the assistant is the repository's agent-CLI
  * double, and no message is sent to it.
@@ -320,6 +322,116 @@ test('New search: a Deep Dive or a Deep Sweep from any screen, and a search not 
     await expect.poll(() => hash(win)).toBe('#/search/ask');
     await expect(kind.getByRole('button', { name: 'Deep Sweep' })).toHaveAttribute('aria-pressed', 'true');
     await expect(terms).toBeFocused();
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
+test('a two-finger swipe goes back and forward, once per swipe, and leaves alone what is not its own', async () => {
+  test.setTimeout(240_000);
+  const { app, win, problems, done } = await launchAtlas('swipe');
+  try {
+    // The system's own setting decides, as it does for Safari; unset is on.
+    const setting = await app.evaluate(({ systemPreferences }) => (process.platform === 'darwin'
+      ? systemPreferences.getUserDefault('AppleEnableSwipeNavigateWithScrolls', 'string') : ''));
+    const on = setting !== '0';
+    const swipe = async (dx: number, samples = 12, dy = 0) => {
+      for (let i = 0; i < samples; i += 1) await win.mouse.wheel(dx, dy);
+    };
+    const settle = () => win.waitForTimeout(450);
+    const arrow = win.locator('.swipe-arrow');
+
+    await win.evaluate(() => { window.location.replace('#/settings'); });
+    await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
+    const title = win.getByRole('heading', { name: 'Settings', level: 1 });
+    const box = (await title.boundingBox())!;
+    await win.mouse.move(box.x + box.width + 200, box.y + box.height / 2);
+
+    // No page back: nothing is drawn, nothing happens.
+    await swipe(-20);
+    expect(await arrow.count()).toBe(0);
+    expect(await hash(win)).toBe('#/settings');
+    await settle();
+
+    for (const group of ['about', 'tutorials']) {
+      await win.getByRole('navigation', { name: 'Settings groups' }).getByRole('link', { name: group === 'about' ? 'About resmon' : 'Tutorials' }).click();
+      await expect.poll(() => hash(win)).toBe(`#/settings/${group}`);
+    }
+    if (!on) {
+      // Two fingers do not move between pages here; three do, through the window's `swipe` event.
+      await swipe(-20);
+      await settle();
+      expect(await hash(win)).toBe('#/settings/tutorials');
+      console.log('SWIPE — two-finger swipe navigation is off in System Settings; checked that nothing moved');
+      return;
+    }
+
+    // — back: the arrow at the left edge grows, then it goes, once, however long the tail ------
+    await swipe(-20, 4);
+    await expect(arrow).toHaveAttribute('data-toward', 'back');
+    const early = Number(await arrow.evaluate((node) => getComputedStyle(node).getPropertyValue('--swipe')));
+    expect(early).toBeGreaterThan(0);
+    expect(early).toBeLessThan(1);
+    await swipe(-20, 6);
+    await expect.poll(() => hash(win)).toBe('#/settings/about');
+    // A three-finger `swipe` arriving just after is the same gesture, not a second.
+    await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.emit('swipe', {}, 'left'); });
+    // The momentum tail, still arriving after the swipe went.
+    for (const dx of [-30, -25, -20, -16, -12, -9, -6, -4, -3, -2, -1]) await win.mouse.wheel(dx, 0);
+    await settle();
+    expect(await hash(win)).toBe('#/settings/about');
+    await expect(arrow).toHaveCount(0);
+
+    // — forward ---------------------------------------------------------------------------
+    await swipe(20);
+    await expect.poll(() => hash(win)).toBe('#/settings/tutorials');
+    await settle();
+
+    // — up and down is scrolling --------------------------------------------------------
+    await swipe(-6, 12, 30);
+    await settle();
+    expect(await hash(win)).toBe('#/settings/tutorials');
+
+    // — a box that can still scroll that way takes the swipe; at its edge, the page does ----------
+    await win.evaluate(() => {
+      const strip = document.createElement('div');
+      strip.id = 'e2e-strip';
+      Object.assign(strip.style, { position: 'fixed', left: '40px', bottom: '40px', width: '300px', height: '80px', overflowX: 'auto', zIndex: '9' });
+      strip.innerHTML = '<div style="width: 1200px; height: 60px"></div>';
+      document.body.append(strip);
+      strip.scrollLeft = 300;
+    });
+    const strip = (await win.locator('#e2e-strip').boundingBox())!;
+    await win.mouse.move(strip.x + 150, strip.y + 40);
+    await swipe(-20, 6);
+    await settle();
+    expect(await hash(win)).toBe('#/settings/tutorials');
+    expect(await win.locator('#e2e-strip').evaluate((node) => node.scrollLeft)).toBeLessThan(300);
+    await win.locator('#e2e-strip').evaluate((node) => { node.scrollLeft = 0; });
+    await swipe(-20);
+    await expect.poll(() => hash(win)).toBe('#/settings/about');
+    await win.evaluate(() => document.getElementById('e2e-strip')?.remove());
+    await settle();
+
+    // — a text field keeps its swipe ----------------------------------------------------
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    const terms = win.getByLabel('Search terms');
+    const field = (await terms.boundingBox())!;
+    await win.mouse.move(field.x + 40, field.y + field.height / 2);
+    await swipe(-20);
+    await settle();
+    expect(await hash(win)).toBe('#/search/ask');
+
+    // — with reduced motion, the arrow does not slide -------------------------------------
+    await win.emulateMedia({ reducedMotion: 'reduce' });
+    await win.mouse.move(box.x + box.width + 200, 200);
+    await swipe(-20, 3);
+    await expect(arrow).toHaveAttribute('data-toward', 'back');
+    expect(await arrow.evaluate((node) => getComputedStyle(node).transform)).toBe('none');
+    await settle();
+    await win.emulateMedia({ reducedMotion: null });
+    console.log('SWIPE — back and forward once per swipe; tail, vertical, scrollable strip, text field and three-finger repeat left alone');
     expect(problems).toEqual([]);
   } finally {
     await done();

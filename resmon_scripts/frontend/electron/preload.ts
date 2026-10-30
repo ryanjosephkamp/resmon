@@ -61,4 +61,8 @@ contextBridge.exposeInMainWorld('resmonAPI', {
     ipcRenderer.on('resmon:command', listener);
     return () => { ipcRenderer.removeListener('resmon:command', listener); };
   },
+  // Two-finger swipe: whether the system lets two fingers swipe between pages,
+  // and the move, which the main process makes.
+  swipeNavigation: (): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-navigation'),
+  swipeHistory: (direction: 'back' | 'forward'): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-history', direction),
 });

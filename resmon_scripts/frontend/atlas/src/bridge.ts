@@ -1,8 +1,8 @@
 /**
  * What the preload script hands the renderer: the backend's port, this
  * window's API token, the platform, the desktop's file choosers and opener,
- * a relaunch, and the app menu's commands (`electron/preload.ts`). Read
- * through
+ * a relaunch, the app menu's commands, and the trackpad's swipe between
+ * pages (`electron/preload.ts`). Read through
  * one typed accessor so nothing in the Atlas renderer reaches for `window`
  * directly.
  */
@@ -19,6 +19,10 @@ export interface ResmonBridge {
   relaunch?: () => Promise<boolean>;
   /** The app menu's commands (New Deep Dive and the rest, `shell/shortcuts.ts`); returns the way to stop listening. */
   onCommand?: (callback: (command: string) => void) => () => void;
+  /** Whether a two-finger swipe moves between pages here, by the system's own trackpad setting. */
+  swipeNavigation?: () => Promise<boolean>;
+  /** Go back or forward for a two-finger swipe; false where there is no page that way. */
+  swipeHistory?: (direction: 'back' | 'forward') => Promise<boolean>;
 }
 
 export function bridge(): ResmonBridge | null {

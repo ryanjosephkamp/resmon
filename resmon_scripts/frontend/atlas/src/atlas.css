@@ -114,6 +114,22 @@ kbd {
 
 .stage { overflow: auto; min-height: 0; }
 
+/* A two-finger swipe's arrow, at the edge it goes toward: it slides in as the swipe travels, and fills as it goes. */
+.swipe-arrow {
+  position: fixed; top: calc(50% + var(--bar-h) / 2); z-index: 5; width: 40px; height: 40px; margin-top: -20px;
+  display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--rule-2); background: var(--raise); color: var(--ink-2); box-shadow: var(--shadow);
+  pointer-events: none; opacity: calc(.25 + .75 * var(--swipe));
+}
+.swipe-arrow[data-toward="back"] { left: 14px; transform: translateX(calc(-56px * (1 - var(--swipe)))) scale(calc(.75 + .25 * var(--swipe))); }
+.swipe-arrow[data-toward="forward"] { right: 14px; transform: translateX(calc(56px * (1 - var(--swipe)))) scale(calc(.75 + .25 * var(--swipe))); }
+.swipe-arrow[data-went] { background: var(--accent-fill); border-color: var(--accent-fill); color: var(--on-accent); animation: swipe-went 280ms var(--ease-out) forwards; }
+@keyframes swipe-went { 60% { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .swipe-arrow[data-toward] { transform: none; }
+  .swipe-arrow[data-went] { animation: none; }
+}
+
 /* -------------------------------------------------------------- controls */
 
 .btn {

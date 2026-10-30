@@ -10,6 +10,7 @@ import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
+import { SwipeNavigation } from './SwipeNavigation';
 import {
   ariaKeys, blockingDialogOpen, isMenuCommand, isTyping, keysText, sectionIndex, shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
@@ -183,6 +184,7 @@ export function Shell() {
       </main>
       <CommandPalette open={paletteOpen} onClose={closePalette} onRun={run} dialog={palette} mac={mac} />
       <ShortcutsSheet open={sheetOpen} onClose={closeSheet} dialog={sheet} mac={mac} />
+      <SwipeNavigation />
     </div>
   );
 }
