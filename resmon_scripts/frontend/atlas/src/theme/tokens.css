@@ -55,6 +55,18 @@
   /* A chart's context segment beside the accent: checked against the accent for color-blind separation
      (worst ΔE 18.7) and against the panel for contrast (3:1 or more). */
   --chart-context: #6f6c66;
+  /* A map's colors by watch or source: four hues that stay apart for every pair, with color-blind
+     vision too, on this ground (checked all-pairs; orange is left out, as the default accent's). */
+  --map-1: #3987e5;
+  --map-2: #c98500;
+  --map-3: #d55181;
+  --map-4: #008300;
+  /* A map's colors by age: one hue, the newest brightest. */
+  --age-0: #b7d3f6;
+  --age-1: #86b6ef;
+  --age-2: #5598e7;
+  --age-3: #2a78d6;
+  --age-4: #1c5cab;
   --shadow: 0 10px 28px rgba(0, 0, 0, .45);
   --scrim: rgba(0, 0, 0, .55);
 }
@@ -80,6 +92,15 @@
   --bound: #7d7a72;
   --fault: #c22b1d;
   --chart-context: #8a867e;
+  --map-1: #2a78d6;
+  --map-2: #eda100;
+  --map-3: #e87ba4;
+  --map-4: #008300;
+  --age-0: #1c5cab;
+  --age-1: #2a78d6;
+  --age-2: #5598e7;
+  --age-3: #86b6ef;
+  --age-4: #b7d3f6;
   --shadow: 0 10px 28px rgba(20, 20, 19, .12);
   --scrim: rgba(20, 20, 19, .28);
 }
