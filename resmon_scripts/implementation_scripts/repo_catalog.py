@@ -53,6 +53,24 @@ AttributionRequirement = Literal["none", "requested", "required"]
 # is the field that says which a source does.
 DateGranularity = Literal["day", "month", "year"]
 
+# The order a keyword search comes back in, read from the client's request
+# rather than from a description of the upstream, because it is the order the
+# client asks for that decides what a watch with no date limit finds.
+#
+# ``newest_first``  the client asks the upstream to sort by a date, descending.
+#                   A watch with no date limit gets the newest papers each run.
+# ``relevance``     the client asks for relevance order, or sends no sort to an
+#                   upstream that ranks a query by relevance. A watch with no
+#                   date limit gets the most relevant papers of all years,
+#                   mostly the same ones every run, and finds little that is new.
+# ``unstated``      the client sends no sort and nothing establishes the
+#                   upstream's default, so resmon says nothing about it.
+#
+# No client changes its sort when a date is set; a date only narrows what the
+# order is applied to. ``result_order_established`` cites the line, as
+# ``established`` does for the constraints, and an empty one fails the guard.
+ResultOrder = Literal["newest_first", "relevance", "unstated"]
+
 
 # ---------------------------------------------------------------------------
 # entity_search (2.1) — what a source can be asked about a *person*
@@ -384,6 +402,8 @@ class RepoCatalogEntry:
     attribution_requirement: AttributionRequirement
     attribution_source: str
     date_granularity: DateGranularity
+    result_order: ResultOrder
+    result_order_established: str
     entity_search: EntitySearch
     constraints: SourceConstraints
 
@@ -424,6 +444,8 @@ def _entry(
     attribution_requirement: AttributionRequirement = "none",
     attribution_source: str = "",
     date_granularity: DateGranularity = "day",
+    result_order: ResultOrder = "unstated",
+    result_order_established: str = "",
     entity_search: EntitySearch | None = None,
     constraints: SourceConstraints | None = None,
 ) -> RepoCatalogEntry:
@@ -450,6 +472,11 @@ def _entry(
         attribution_requirement=attribution_requirement,
         attribution_source=attribution_source,
         date_granularity=date_granularity,
+        # "unstated" is a real answer, but only with a citation saying why:
+        # the omitted default has none, and fails
+        # ``test_every_entry_states_its_result_order``.
+        result_order=result_order,
+        result_order_established=result_order_established,
         # No default that means "cannot be asked": a source added without an
         # answer would then silently claim one. ``None`` becomes an explicit
         # ``unknown`` and ``test_every_entry_has_an_established_entity_capability``
@@ -492,6 +519,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Conservative by design. Do not drop the delay.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="arXiv treats space-separated terms in the all: field as implicit AND across title, abstract, and author.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_arxiv.py`: `search()` sends `sortBy=submittedDate` and "
+            "`sortOrder=descending`."
+        ),
         attribution='Thank you to arXiv for use of its open access interoperability.',
         attribution_requirement="requested",
         attribution_source='https://info.arxiv.org/help/api/index.html',
@@ -537,6 +569,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="The /details endpoint has reported upstream outages; resmon surfaces those failures.",
         keyword_combination="Explicit OR",
         keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_biorxiv.py`: `search()` pages through the `/details` "
+            "date-range endpoint with no sort parameter (from 2020-01-01 when "
+            "no start date is set) and matches the terms itself; nothing in the "
+            "client establishes the order within the range."
+        ),
         constraints=_constraints(
             keyword_search="client_side",
             established=(
@@ -596,6 +635,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Must register for an API key before use.",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="CORE's Solr/Lucene backend defaults to OR between terms; documents matching more terms rank higher but single-term matches still appear.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_core.py`: `search()` sends no sort, and CORE's Lucene backend "
+            "ranks documents matching more terms higher "
+            "(`keyword_combination_notes`)."
+        ),
         attribution='Powered by CORE',
         attribution_requirement="required",
         attribution_source='https://core.ac.uk/faq',
@@ -643,6 +688,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set a contact email in the UA for priority.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_crossref.py`: `search()` sends no sort, and Crossref ranks a "
+            "`query` by relevance (`keyword_combination_notes`)."
+        ),
         constraints=_constraints(
             established=(
                 "`api_crossref.py`: `search()` sends `from-pub-date` and "
@@ -677,6 +727,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
         keyword_combination="Implicit OR",
         keyword_combination_notes="DataCite documents every unfielded term as optional so long as at least one matches. Unfielded search covers common metadata fields; explicit AND, OR, and NOT remain available in the forwarded query.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_datacite.py`: `search()` sends `sort=relevance`."
+        ),
         attribution='Metadata from DataCite',
         attribution_requirement="requested",
         attribution_source='https://support.datacite.org/docs/datacite-data-file-use-policy',
@@ -751,6 +805,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Relevance-ranked (upstream-default, unverified)",
         keyword_combination_notes="DBLP forwards the space-separated query string verbatim; the upstream search box's exact combination semantics are not authoritatively documented.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_dblp.py`: the REST search sends no sort, and DBLP's default "
+            "order is not authoritatively documented "
+            "(`keyword_combination_notes`)."
+        ),
         attribution='Bibliographic data from the dblp computer science bibliography',
         attribution_requirement="requested",
         attribution_source='https://dblp.org/faq/1474677.html',
@@ -819,6 +879,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_doaj.py`: `search()` sends no sort, and DOAJ returns results "
+            "in relevance-scored order (`keyword_combination_notes`)."
+        ),
         constraints=_constraints(
             window_effect="whole_years",
             window_rounding="outward",
@@ -869,6 +934,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Implicit AND",
         keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_dryad.py`: `search()` sends no sort, and nothing establishes "
+            "Dryad's default order."
+        ),
         constraints=_constraints(
             established=(
                 "`api_dryad.py`: `search()` sends `publishedSince` and "
@@ -900,6 +970,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match. A date window narrower than one whole year therefore returns nothing from ERIC — there is no field to filter on, so resmon reports zero results rather than widening the window you asked for.",
         keyword_combination="Implicit OR",
         keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_eric.py`: `search()` sends no sort, and nothing establishes "
+            "ERIC's default order."
+        ),
         # api_eric.py:168-172 — a window with no whole calendar year inside it is refused, not widened.
         date_granularity="year",
         constraints=_constraints(
@@ -948,6 +1023,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="",
         keyword_combination="Relevance-ranked (Lucene OR default)",
         keyword_combination_notes="EuropePMC's Lucene backend defaults to OR between terms; you can place explicit AND/OR/quoted phrases inside a single keyword chip and they will be forwarded verbatim.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_europepmc.py`: `search()` sends no sort, and Europe PMC's "
+            "Lucene backend ranks a query by relevance (`keyword_combination`)."
+        ),
         attribution='Data from Europe PMC',
         attribution_requirement="requested",
         attribution_source='https://www.ebi.ac.uk/about/terms-of-use/',
@@ -982,6 +1062,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         date_granularity="day",
         keyword_combination="Implicit AND",
         keyword_combination_notes="Spaces imply AND; proper names may become phrases. Explicit Boolean/field syntax is forwarded. https://www.govinfo.gov/help/search-operators",
+        result_order="relevance",
+        result_order_established=(
+            "`api_govinfo.py`: `search()` sends `sorts` on `score`, `DESC`."
+        ),
         notes=(
             "Terms verdict: compatible for official bibliographic metadata. GPO permits local digital collections; "
             "its copyright notice warns that embedded third-party content is not automatically public domain. "
@@ -1024,8 +1108,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No published rate; courtesy use expected",
         parallel_safe="Yes",
         notes="",
-        keyword_combination="Relevance-ranked (Solr OR default)",
-        keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase; results are returned in relevance-scored order.",
+        keyword_combination="Implicit OR (Solr default)",
+        keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase. resmon asks for the results newest first, not in relevance order.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_hal.py`: `search()` sends `sort=producedDate_tdate desc`."
+        ),
         attribution='Data from HAL, the French national open archive',
         attribution_requirement="requested",
         attribution_source='https://doc.hal.science/en/legal-aspects/',
@@ -1064,6 +1152,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Author names remain in the upstream Surname, Given form. Abstracts are stored only where INSPIRE reports the abstract's own source as arXiv or CERN, which is the limit its terms of use set; records carrying only a publisher-supplied abstract are indexed without one. In a 100-record sample that was about a fifth of them.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="Adjacent free-form terms currently return the same total as explicit AND in the live API; explicit OR broadens the result set. INSPIRE's help page documents the operators but not this default.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_inspire_hep.py`: `search()` sends `sort=mostrecent`."
+        ),
         constraints=_constraints(
             established=(
                 "`api_inspire_hep.py`: `search()` appends `de>` and `de<` "
@@ -1098,6 +1190,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Shares the /details client implementation with bioRxiv while remaining a distinct selectable source.",
         keyword_combination="Explicit OR",
         keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_biorxiv.py`, as for bioRxiv: the `/details` date-range "
+            "endpoint with no sort parameter (from 2020-01-01 when no start "
+            "date is set), the terms matched by resmon; nothing establishes the "
+            "order within the range."
+        ),
         constraints=_constraints(
             keyword_search="client_side",
             established=(
@@ -1150,8 +1249,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="5000 calls/day per token; no strict req/s",
         parallel_safe="Yes",
         notes="Daily quota (not per-second) is the binding limit.",
-        keyword_combination="Relevance-ranked (Solr OR default)",
-        keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR and results are returned in relevance-scored order.",
+        keyword_combination="Implicit OR (Solr default)",
+        keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR. resmon asks for the results newest first, not in relevance order.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_nasa_ads.py`: `search()` sends `sort=date desc`."
+        ),
         # api_nasa_ads.py:38-43 sends `pubdate:[YYYY-MM TO YYYY-MM]`.
         date_granularity="month",
         constraints=_constraints(
@@ -1209,6 +1312,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Implicit AND (documented for anywhere)",
         keyword_combination_notes="NDL Search API v1.4 documents AND as the default when multiple values are specified for the anywhere search field. resmon sends the query as one safely quoted anywhere value and does not claim local keyword filtering.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_ndl_search.py`: `search()` sends no sort, and nothing "
+            "establishes NDL Search's default order."
+        ),
         attribution='Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.',
         attribution_requirement="required",
         attribution_source='https://ndlsearch.ndl.go.jp/en/help/api/',
@@ -1281,6 +1389,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
         keyword_combination="Undocumented",
         keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_nist_rmm.py`: `search()` sends no sort, and nothing "
+            "establishes NIST RMM's default order."
+        ),
         attribution='Data created by NIST (National Institute of Standards and Technology).',
         attribution_requirement="required",
         attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
@@ -1346,6 +1459,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes="OpenAIRE documents keywords only as a whitespace-separated list and lists its behavior as N/A. resmon forwards the query and does not infer Boolean semantics or perform local filtering.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_openaire.py`: `search()` sends no sort, and nothing "
+            "establishes OpenAIRE's default order."
+        ),
         attribution='Data from the OpenAIRE Graph, licensed CC BY 4.0. Changes: resmon stores a normalized subset of the returned metadata.',
         attribution_requirement="required",
         attribution_source='https://graph.openaire.eu/docs/apis/terms/',
@@ -1394,6 +1512,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Set mailto for stable performance.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_openalex.py`: `search()` sends no sort, and OpenAlex's "
+            "`search` ranks by relevance (`keyword_combination_notes`)."
+        ),
         constraints=_constraints(
             established=(
                 "`api_openalex.py`: `search()` sends "
@@ -1432,6 +1555,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
         keyword_combination="Undocumented",
         keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_openlibrary.py`: `search()` sends no sort, and Open Library "
+            "does not document its default order (`keyword_combination_notes`)."
+        ),
         # api_openlibrary.py:162-166 — a window with no whole calendar year inside it is refused, not widened.
         date_granularity="year",
         constraints=_constraints(
@@ -1480,6 +1608,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes="OSTI documents q only as searching the full record for provided terms; it does not state how multiple terms are combined. resmon forwards the query unchanged.",
+        result_order="unstated",
+        result_order_established=(
+            "`api_osti.py`: `search()` sends no sort, and nothing establishes "
+            "OSTI's default order."
+        ),
         attribution='Courtesy of OSTI.GOV, U.S. Department of Energy',
         attribution_requirement="requested",
         attribution_source='https://www.osti.gov/disclaim',
@@ -1512,8 +1645,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="10 req/min soft guidance (resmon is faster)",
         parallel_safe="Yes",
         notes="If you see 429s lower the limiter to 0.2 req/s.",
-        keyword_combination="Relevance-ranked (upstream-default, unverified)",
-        keyword_combination_notes="PLOS uses a Solr backend; the default operator is typically OR with relevance scoring, but the upstream's exact configuration is not authoritatively documented.",
+        keyword_combination="Upstream default, unverified",
+        keyword_combination_notes="PLOS uses a Solr backend; the default operator is typically OR, but the upstream's exact configuration is not authoritatively documented. resmon asks for the results newest first, not in relevance order.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_plos.py`: `search()` sends `sort=publication_date desc`."
+        ),
         attribution='Data Provided by PLOS',
         attribution_requirement="required",
         attribution_source='https://api.plos.org/api-display-policy/',
@@ -1548,6 +1685,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Add an API key to raise the ceiling.",
         keyword_combination="Implicit AND",
         keyword_combination_notes="NCBI E-utilities default operator is AND; space-separated terms are joined with AND before submission to PubMed's search index.",
+        result_order="newest_first",
+        result_order_established=(
+            "`api_pubmed.py`: `search()` sends E-utilities `sort=pub_date`, "
+            "which NCBI documents as newest publication date first."
+        ),
         constraints=_constraints(
             established=(
                 "`api_pubmed.py`: `_esearch` sends `mindate` and `maxdate` "
@@ -1581,6 +1723,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Expect 429s without a key in bursts.",
         keyword_combination="Relevance-ranked",
         keyword_combination_notes="Semantic Scholar's paper search ranks by relevance across multiple fields; not a strict boolean.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_semantic_scholar.py`: `search()` sends no sort, and Semantic "
+            "Scholar's paper search ranks by relevance "
+            "(`keyword_combination_notes`)."
+        ),
         attribution='Data from Semantic Scholar',
         attribution_requirement="required",
         attribution_source='https://www.semanticscholar.org/product/api/license',
@@ -1636,6 +1784,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Daily quota is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
         keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_springer.py`: `search()` sends no sort, and Springer Nature "
+            "ranks by relevance (`keyword_combination_notes`)."
+        ),
         constraints=_constraints(
             established=(
                 "`api_springer.py`: `search()` appends `onlinedatefrom` and "
@@ -1680,6 +1833,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         notes="Date bounds are expressed as a publication_date range inside the q query.",
         keyword_combination="Relevance-ranked (implicit OR)",
         keyword_combination_notes="Zenodo's search guide says space-separated terms match with OR by default and results are ranked against the query; explicit AND requires both terms.",
+        result_order="relevance",
+        result_order_established=(
+            "`api_zenodo.py`: `search()` sends `sort=bestmatch`."
+        ),
         constraints=_constraints(
             established=(
                 "`api_zenodo.py`: `search()` wraps `publication_date` into "

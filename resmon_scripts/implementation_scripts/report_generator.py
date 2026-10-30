@@ -12,6 +12,24 @@ from .utils import now_iso
 logger = logging.getLogger(__name__)
 
 
+def _date_bound(value: object) -> str:
+    text = str(value).strip() if value is not None else ""
+    return "" if text in ("", "N/A", "None") else text
+
+
+def _date_range(date_from: object, date_to: object) -> str:
+    """The window as asked. One bound is said as one bound: "2026-10-27"
+    alone would read as a single day, and "2026-10-27 to None" as a fault."""
+    start, end = _date_bound(date_from), _date_bound(date_to)
+    if start and end:
+        return f"{start} to {end}"
+    if start:
+        return f"from {start}, with no end date"
+    if end:
+        return f"up to {end}"
+    return "no date limit"
+
+
 def generate_report(documents: list[dict], metadata: dict) -> str:
     """Generate a Markdown reading report from a list of document dicts.
 
@@ -88,7 +106,12 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
         lines.append(f"**Watching:** {watch_profile.strip()}  ")
     else:
         lines.append(f"**Query:** {query_display}  ")
-    lines.append(f"**Date Range:** {date_from} to {date_to}  ")
+    lines.append(f"**Date Range:** {_date_range(date_from, date_to)}  ")
+    # A watch whose window moves: how this run's dates were reached, with the
+    # dates, so the report never says "since the previous run" without them.
+    window = metadata.get("date_window")
+    if isinstance(window, dict) and window.get("sentence"):
+        lines.append(f"**How the dates were set:** {window['sentence']}  ")
     if cancellation is None:
         count_line = f"**Total Results:** {total} ({new} new)"
     else:

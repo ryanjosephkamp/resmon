@@ -204,6 +204,9 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
             "query_as_sent": _query_as_sent(params),
             "date_from": params.get("date_from"),
             "date_to": params.get("date_to"),
+            # How a watch's moving window reached these dates, when it moves:
+            # the record of the fire, sentence and all. None for fixed dates.
+            "date_window": params.get("date_window_computed"),
             "max_results_per_source": params.get("max_results"),
             "routine_name": execution.get("routine_name"),
             "routine_schedule": execution.get("routine_schedule"),
@@ -527,10 +530,15 @@ def to_markdown(record: dict) -> str:
     )
     if search.get("query_as_sent"):
         lines.append(f"| Query as sent | `{search['query_as_sent']}` |")
-    window = " to ".join(
-        x for x in (search.get("date_from"), search.get("date_to")) if x
-    )
-    lines.append(f"| Publication window | {window or 'unbounded'} |")
+    start, end = search.get("date_from"), search.get("date_to")
+    # One bound is said as one bound: a start date alone would read as a day.
+    window = (f"{start} to {end}" if start and end else
+              f"from {start}, with no end date" if start else
+              f"up to {end}" if end else "unbounded")
+    lines.append(f"| Publication window | {window} |")
+    computed = search.get("date_window")
+    if isinstance(computed, dict) and computed.get("sentence"):
+        lines.append(f"| How the dates were set | {_text(computed['sentence'])} |")
     lines.append(
         f"| Per-source cap | {_n(search.get('max_results_per_source'))} |"
     )

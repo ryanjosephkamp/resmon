@@ -91,6 +91,7 @@ def test_catalog_as_dicts_shape():
         "keyword_combination", "keyword_combination_notes",
         "attribution", "attribution_requirement", "attribution_source",
         "date_granularity",
+        "result_order", "result_order_established",
         "entity_search",
         "constraints",
     }

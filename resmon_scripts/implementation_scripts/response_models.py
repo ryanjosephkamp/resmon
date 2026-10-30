@@ -1420,6 +1420,8 @@ class RepositoryCatalogEntry(LosslessModel):
     attribution_requirement: str
     attribution_source: Optional[str]
     date_granularity: str
+    result_order: Literal["newest_first", "relevance", "unstated"]
+    result_order_established: str
     entity_search: RepositoryEntitySearch
     constraints: RepositoryConstraints
 
@@ -2036,6 +2038,31 @@ class MissedFire(LosslessModel):
     disposition: Optional[str]
 
 
+class DateWindowComputed(LosslessModel):
+    """The dates a moving window asked for, or would ask for now, and how.
+
+    ``mode`` is the watch's choice (``date_window`` in its parameters):
+    ``since_previous_run`` or ``last_days``. ``basis`` is how the start was
+    reached: ``previous_run`` (that run's start, less ``overlap_days``),
+    ``no_previous_run`` (no earlier run in which a source answered, so the last
+    ``default_days``) or ``last_days`` (``days`` before the run). ``date_to`` is
+    always ``None``: the window has no end. ``sentence`` says all of it, dates
+    included, in the words a run's record and a watch's page show.
+    """
+
+    mode: Literal["since_previous_run", "last_days"]
+    basis: Literal["previous_run", "no_previous_run", "last_days"]
+    date_from: str
+    date_to: Optional[str]
+    days: Optional[int]
+    previous_execution_id: Optional[int]
+    previous_start_time: Optional[str]
+    overlap_days: Optional[int]
+    default_days: Optional[int]
+    computed_at: str
+    sentence: str
+
+
 class RoutineRow(LosslessModel):
     """One row of ``GET /api/routines``: the ``routines`` row as stored, and
     what its latest run did.
@@ -2071,7 +2098,9 @@ class RoutineRow(LosslessModel):
 
 class Routine(LosslessModel):
     """``GET /api/routines/{routine_id}``: one routine, its switches as
-    booleans, and every fire it missed, oldest first."""
+    booleans, and every fire it missed, oldest first. ``date_window_next`` is
+    present only for a watch whose window moves (``date_window`` in its
+    parameters): the dates a run starting now would ask for."""
 
     id: int
     name: str
@@ -2091,6 +2120,7 @@ class Routine(LosslessModel):
     last_executed_at: Optional[str]
     missed_fires: MissedFires
     missed_fire_details: list[MissedFire]
+    date_window_next: Optional[DateWindowComputed] = None
 
 
 class RoutineCreated(LosslessModel):
@@ -2297,7 +2327,9 @@ class RoutineCoverage(LosslessModel):
     ``summary`` is present whenever the audit itself ran, including to say why
     it measured nothing; ``missed_reference_distance`` (the median of this
     routine's own distances, which a missed paper must be inside) only when it
-    measured.
+    measured. ``window_note`` is present for a watch whose window moves and
+    has run with it: the earliest date its runs asked from, and that an older
+    paper was never asked for.
     """
 
     routine_id: int
@@ -2317,6 +2349,7 @@ class RoutineCoverage(LosslessModel):
     reason: Optional[str]
     missed_reference_distance: Optional[float] = None
     summary: Optional[str] = None
+    window_note: Optional[str] = None
 
 
 class CalendarEvent(LosslessModel):

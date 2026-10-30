@@ -5347,6 +5347,50 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * DateWindowComputed
+         * @description The dates a moving window asked for, or would ask for now, and how.
+         *
+         *     ``mode`` is the watch's choice (``date_window`` in its parameters):
+         *     ``since_previous_run`` or ``last_days``. ``basis`` is how the start was
+         *     reached: ``previous_run`` (that run's start, less ``overlap_days``),
+         *     ``no_previous_run`` (no earlier run in which a source answered, so the last
+         *     ``default_days``) or ``last_days`` (``days`` before the run). ``date_to`` is
+         *     always ``None``: the window has no end. ``sentence`` says all of it, dates
+         *     included, in the words a run's record and a watch's page show.
+         */
+        DateWindowComputed: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "previous_run" | "no_previous_run" | "last_days";
+            /** Computed At */
+            computed_at: string;
+            /** Date From */
+            date_from: string;
+            /** Date To */
+            date_to: string | null;
+            /** Days */
+            days: number | null;
+            /** Default Days */
+            default_days: number | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "since_previous_run" | "last_days";
+            /** Overlap Days */
+            overlap_days: number | null;
+            /** Previous Execution Id */
+            previous_execution_id: number | null;
+            /** Previous Start Time */
+            previous_start_time: string | null;
+            /** Sentence */
+            sentence: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * Delivery
          * @description One report's journey to one destination, as recorded.
          *
@@ -7803,6 +7847,13 @@ export interface components {
             rate_limit: string;
             /** Registration Url */
             registration_url: string | null;
+            /**
+             * Result Order
+             * @enum {string}
+             */
+            result_order: "newest_first" | "relevance" | "unstated";
+            /** Result Order Established */
+            result_order_established: string;
             /** Slug */
             slug: string;
             /** Subject Coverage */
@@ -8194,7 +8245,9 @@ export interface components {
         /**
          * Routine
          * @description ``GET /api/routines/{routine_id}``: one routine, its switches as
-         *     booleans, and every fire it missed, oldest first.
+         *     booleans, and every fire it missed, oldest first. ``date_window_next`` is
+         *     present only for a watch whose window moves (``date_window`` in its
+         *     parameters): the dates a run starting now would ask for.
          */
         Routine: {
             /** Ai Enabled */
@@ -8203,6 +8256,7 @@ export interface components {
             ai_settings: string | null;
             /** Created At */
             created_at: string;
+            date_window_next?: components["schemas"]["DateWindowComputed"] | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled: boolean;
             /** Email Enabled */
@@ -8261,7 +8315,9 @@ export interface components {
          *     ``summary`` is present whenever the audit itself ran, including to say why
          *     it measured nothing; ``missed_reference_distance`` (the median of this
          *     routine's own distances, which a missed paper must be inside) only when it
-         *     measured.
+         *     measured. ``window_note`` is present for a watch whose window moves and
+         *     has run with it: the earliest date its runs asked from, and that an older
+         *     paper was never asked for.
          */
         RoutineCoverage: {
             /** Cannot See */
@@ -8297,6 +8353,8 @@ export interface components {
             routine_name: string | null;
             /** Summary */
             summary?: string | null;
+            /** Window Note */
+            window_note?: string | null;
         } & {
             [key: string]: unknown;
         };
