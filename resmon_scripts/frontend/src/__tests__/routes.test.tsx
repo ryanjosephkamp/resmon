@@ -186,5 +186,5 @@ it('includes the Library in the shared route sweep', () => {
   expect(allRouteHashes().map(r => r.hash)).toContain('/library');
   expect(allRouteHashes().map(r => r.hash)).toContain('/evidence');
   expect(allRouteHashes().map(r => r.hash)).toContain('/source-wall');
-  expect(allRouteHashes()).toHaveLength(30);
+  expect(allRouteHashes()).toHaveLength(29);
 });

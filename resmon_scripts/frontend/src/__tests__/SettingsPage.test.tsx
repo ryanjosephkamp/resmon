@@ -1,6 +1,7 @@
 /**
- * Settings — the tab bar's contract after the cloud removal: six tabs, with
- * Cloud Storage (Google Drive backup) intact and Cloud Account gone.
+ * Settings — the tab bar's contract: five tabs. Cloud Account went with the
+ * cloud service, and Cloud Storage with the Google sign-in: a backup is
+ * written into a folder chosen on the Storage tab, Google Drive's among them.
  */
 
 import React from 'react';
@@ -11,11 +12,9 @@ import { mockRoutedFetch, renderWithProviders } from './testUtils';
 
 const SETTINGS_ROUTES = {
   '/api/settings/email': {},
-  '/api/settings/cloud': {},
   '/api/settings/ai': {},
   '/api/settings/storage': {},
   '/api/settings/execution': {},
-  '/api/cloud/status': { is_linked: false, api_ok: false, api_reason: 'no_token' },
   '/api/service/status': { installed: false, unit_path: '', platform: 'darwin' },
   '/api/service/daemon-status': { running: false },
 };
@@ -30,21 +29,15 @@ async function renderSettings(path: string) {
 }
 
 describe('SettingsPage', () => {
-  test('renders exactly the six post-cloud tabs', async () => {
+  test('renders exactly the five tabs', async () => {
     await mockRoutedFetch(SETTINGS_ROUTES);
     await renderSettings('/settings/email');
 
-    for (const tab of ['Email', 'Cloud Storage', 'AI', 'Storage', 'Notifications', 'Advanced']) {
+    for (const tab of ['Email', 'AI', 'Storage', 'Notifications', 'Advanced']) {
       expect(screen.getByRole('link', { name: tab })).toBeInTheDocument();
     }
-    expect(screen.queryByRole('link', { name: 'Cloud Account' })).not.toBeInTheDocument();
-  });
-
-  test('Cloud Storage tab is Google Drive backup and still stands', async () => {
-    await mockRoutedFetch(SETTINGS_ROUTES);
-    await renderSettings('/settings/cloud');
-
-    expect(screen.getAllByText(/Google Drive/i).length).toBeGreaterThan(0);
-    expect(screen.queryByRole('button', { name: /sign in/i })).not.toBeInTheDocument();
+    for (const gone of ['Cloud Account', 'Cloud Storage']) {
+      expect(screen.queryByRole('link', { name: gone })).not.toBeInTheDocument();
+    }
   });
 });

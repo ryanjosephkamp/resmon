@@ -191,7 +191,6 @@ __all__ = [
     "AiCliStatus",
     "AiSettings",
     "AssistantSettings",
-    "CloudSettings",
     "ConfigurationCreated",
     "ConfigurationDeleted",
     "ConfigurationExport",
@@ -624,13 +623,6 @@ class AiSettings(LosslessModel):
     ai_cli_path: str
     ai_subscription_doc_cap: str
     ai_effort: str
-
-
-class CloudSettings(LosslessModel):
-    """``GET /api/settings/cloud`` — the Google Drive backup lane's two keys."""
-
-    cloud_provider: str
-    cloud_auto_backup: str
 
 
 class StorageSettings(LosslessModel):
@@ -3814,85 +3806,6 @@ class AssistantPermissionAnswered(LosslessModel):
 
 
 # ---------------------------------------------------------------------------
-# Google Drive storage
-# ---------------------------------------------------------------------------
-#
-# ``/api/cloud/*`` is the Google Drive backup in ``cloud_storage.py``, a live
-# desktop feature, and has nothing to do with the deleted resmon-cloud
-# service. What these bodies can say is narrow: whether a token is stored in
-# this machine's keyring, what one call to the Drive API answered, and what an
-# upload reported about itself.
-
-
-class CloudLinked(LosslessModel):
-    """``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.
-
-    ``auth_url`` is the fixed string ``oauth_completed``, not a URL. The
-    sign-in runs to its end inside this request, in a browser on this
-    machine, so there is no address left to hand back. A stored token is not a
-    working Drive: ``GET /api/cloud/status`` is the route that asks the API.
-    Only this body is modeled; a missing ``credentials.json`` is a 400 and a
-    flow that fails is a 500.
-    """
-
-    auth_url: str
-
-
-class CloudUnlinked(LosslessModel):
-    """``POST /api/cloud/unlink``: no Google Drive token is stored here any more.
-
-    ``success`` is true on every 200. With a token stored, resmon sends Google
-    a revocation request when the token carries an access token, does not read
-    the answer, and deletes the token from the keyring either way, so this
-    says the local token is gone, not that Google revoked it. With no token
-    stored, nothing is sent anywhere.
-    """
-
-    success: bool
-
-
-class CloudStatus(LosslessModel):
-    """``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.
-
-    ``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of
-    one ``about.get`` call made with that token during this request, so it can
-    be false while linked, for instance when the Drive API is not enabled on
-    the OAuth project. ``api_reason`` is ``None`` when that call succeeded;
-    otherwise a short code: Google's own error reason (such as
-    ``accessNotConfigured``), ``http_error`` when the error carried none, the
-    name of the Python exception that stopped the call, or ``no_token`` when
-    nothing is linked and no call was made.
-    """
-
-    is_linked: bool
-    api_ok: bool
-    api_reason: Optional[str]
-
-
-class CloudBackupUploaded(LosslessModel):
-    """``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.
-
-    The whole reports folder is uploaded into a ``backup-<local timestamp>``
-    folder under ``resmon`` in the person's Drive. It is the reports folder
-    only: not the database and not the Library, which ``POST /api/backup``
-    carries. The request's ``execution_ids`` are not read.
-
-    ``success`` is true on every 200, including an upload that sent nothing.
-    ``uploaded`` counts the files Drive accepted and ``total_files`` the files
-    found in the folder, so ``uploaded < total_files`` means some were not
-    sent, and both are 0 when the upload stopped before walking the folder.
-    ``folder_name`` is ``None`` when it stopped before a Drive folder was made,
-    and ``web_view_link`` when Drive did not return the folder's link.
-    """
-
-    success: bool
-    uploaded: int
-    total_files: int
-    folder_name: Optional[str]
-    web_view_link: Optional[str]
-
-
-# ---------------------------------------------------------------------------
 # Backup
 # ---------------------------------------------------------------------------
 #
@@ -4288,7 +4201,10 @@ class BackupLast(LosslessModel):
     is the record of the last restore a start acted on, applied or refused,
     and ``None`` when there is none or its file is not a JSON object.
     ``undo_copies`` lists the folders restores set aside, sorted by name,
-    which is the UTC time each was made.
+    which is the UTC time each was made. ``drive_upload_retired`` is true
+    while this database still has the removed upload to Google Drive after
+    each run switched on, until ``POST
+    /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
 
     A pointer or record edited by hand into a shape no resmon wrote matches
     neither model of its union, and this route then answers 500 rather than a
@@ -4302,6 +4218,7 @@ class BackupLast(LosslessModel):
     pending_restore_runs_on: Optional[Literal["app_restart", "service_restart", "service_stopped"]]
     last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
     undo_copies: list[str]
+    drive_upload_retired: bool
 
 
 class RestoreCancelled(LosslessModel):
@@ -4330,6 +4247,19 @@ class RestoreAcknowledged(LosslessModel):
 
     ``acknowledged`` is false when there was no record to dismiss, and true
     when the record was rewritten with ``acknowledged: true``.
+    """
+
+    success: bool
+    acknowledged: bool
+
+
+class DriveUploadNoticeAcknowledged(LosslessModel):
+    """``POST /api/backup/drive-upload-notice/acknowledge``: the notice that the upload to Google Drive is gone, dismissed.
+
+    The removed upload's two settings are deleted, so ``GET
+    /api/backup/last`` answers ``drive_upload_retired: false`` from then on.
+    ``acknowledged`` is whether the upload was switched on when this was
+    asked; ``success`` is true either way.
     """
 
     success: bool
@@ -4450,9 +4380,10 @@ class FactoryReset(LosslessModel):
     """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
 
     The counts are as the single-purpose routes count them, so the key counts
-    are of names cleared. It does not clear the Google Drive token or a
-    delivery target's webhook secret, and it does not touch the Library's
-    files, report files on disk, or a restore's undo copies.
+    are of names cleared. It does not clear a Google Drive sign-in stored by
+    the removed upload or a delivery target's webhook secret, and it does not
+    touch the Library's files, report files on disk, or a restore's undo
+    copies.
     """
 
     success: bool

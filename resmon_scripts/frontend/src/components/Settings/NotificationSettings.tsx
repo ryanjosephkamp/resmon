@@ -74,8 +74,8 @@ const NotificationSettings: React.FC = () => {
             body: (
               <p>
                 Desktop notifications require OS-level permission the first
-                time they are displayed. Email notifications and Google Drive
-                uploads are independent of this tab.
+                time they are displayed. Email notifications are independent
+                of this tab.
               </p>
             ),
           },

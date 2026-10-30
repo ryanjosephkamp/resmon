@@ -116,7 +116,7 @@ MAX_LIMIT = 100
 # The group allowlist is only half the decision. Which *keys* inside a reachable
 # group a tool may change is the other half, and it is below.
 SETTINGS_GROUPS: tuple[str, ...] = (
-    "ai", "assistant", "email", "embeddings", "cloud", "storage", "notifications",
+    "ai", "assistant", "email", "embeddings", "storage", "notifications",
 )
 
 # A key whose name contains any of these is refused before the request is
@@ -206,7 +206,7 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # fails when they stop doing so -- so a key the app grows later is a decision
 # someone has to make rather than a key that arrives writable.
 #
-# **Four mechanisms derive 8 of the 20 keys below, and twelve are category
+# **Four mechanisms derive 8 of the 19 keys below, and eleven are category
 # judgements.** Count them honestly, because the first draft of this comment's
 # neighboring prose claimed sixteen by counting a key as covered when it
 # merely belonged to a category a mechanism was named after:
@@ -217,14 +217,14 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 #   can clear _show_audit_prefix        ai_show_audit_prefix
 #   moves an EmbeddingLane destination   embedding_endpoint, embedding_base_url
 #
-# The remaining twelve -- ai_chain, ai_custom_header_prefix, ai_local_endpoint,
-# ai_provider, assistant_provider, assistant_runtime, cloud_provider,
-# embedding_provider, export_directory, smtp_server, smtp_port, smtp_to -- have
-# a reason each, and a reason is not a test. Move one of those to the writable
-# set and the only thing that goes red is the count assertion in the contract
-# document, which the same change would update: that was measured, not assumed.
-# So the mechanisms are a **floor, not the line**, and for those twelve the
-# thing standing behind the list is a reviewer. A fifth mechanism that retires
+# The remaining eleven -- ai_chain, ai_custom_header_prefix, ai_local_endpoint,
+# ai_provider, assistant_provider, assistant_runtime, embedding_provider,
+# export_directory, smtp_server, smtp_port, smtp_to -- have a reason each, and
+# a reason is not a test. Move one of those to the writable set and the only
+# thing that goes red is the count assertion in the contract document, which
+# the same change would update: that was measured, not assumed. So the
+# mechanisms are a **floor, not the line**, and for those eleven the thing
+# standing behind the list is a reviewer. A fifth mechanism that retires
 # some of them is the obvious next improvement here.
 SETTINGS_KEYS_WITHHELD: dict[str, str] = {
     # -- what resmon executes ------------------------------------------------
@@ -248,7 +248,6 @@ SETTINGS_KEYS_WITHHELD: dict[str, str] = {
     "embedding_provider": "selects which host corpus text is embedded by",
     "embedding_endpoint": "the endpoint corpus text is POSTed to for embedding",
     "embedding_base_url": "the base URL corpus text is POSTed to for embedding",
-    "cloud_provider": "selects which service a corpus backup is uploaded to",
     "smtp_server": "the mail host routine reports are handed to",
     "smtp_port": "the port on that mail host, the other half of the same route",
     "smtp_to": "the address routine reports are delivered to",
@@ -301,8 +300,6 @@ SETTINGS_KEYS_WRITABLE: frozenset[str] = frozenset({
     # embeddings -- which model, and how much of it at a time
     "embedding_enabled", "embedding_model", "embedding_batch_size",
     "embedding_dims", "embedding_input_limit",
-    # cloud -- whether the already-authorized destination is used automatically
-    "cloud_auto_backup",
     # storage -- retention policy, not location
     "pdf_policy", "txt_policy", "archive_after_days",
     # notifications -- desktop only; these reach no network

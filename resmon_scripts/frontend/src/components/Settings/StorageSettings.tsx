@@ -141,8 +141,10 @@ const StorageSettings: React.FC = () => {
         <div className="form-field">
           <label className="form-label">Export Location</label>
           <p className="text-muted" style={{ marginTop: 0 }}>
-            Destination folder for exported files (e.g., configuration <code>.zip</code> archives).
-            Leave blank to use a temporary location.
+            Destination folder for exported files (e.g., configuration <code>.zip</code> archives)
+            and for a backup. Leave blank to use a temporary location. To keep a backup in Google
+            Drive, choose the folder Google Drive for desktop keeps on this computer: it syncs what
+            resmon writes there, and resmon does not sign in to Google.
           </p>
           <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
             <input

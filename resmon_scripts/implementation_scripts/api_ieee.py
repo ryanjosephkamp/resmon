@@ -14,8 +14,9 @@ index any portion of the Content" (4(c)), require users to agree not to retain
 Content in bulk (4(f)), and require its removal from your system on termination
 (12).
 
-resmon is a retrieval application that keeps a corpus indefinitely and can copy
-it to Google Drive. No field-level gate reconciles that with 4(c), which is why
+resmon is a retrieval application that keeps a corpus indefinitely and can back
+it up into a folder Google Drive syncs. No field-level gate reconciles that with
+4(c), which is why
 this source was withdrawn outright while INSPIRE-HEP — whose terms restrict a
 single field — was fixed in place instead.
 

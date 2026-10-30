@@ -180,8 +180,8 @@ const AboutAppTab: React.FC = () => {
           <ul>
             <li>resmon is local-first: execution data and reports are stored on your machine.</li>
             <li>Credentials are stored in the OS keychain via keyring, not in plaintext project files.</li>
-            <li>Only services you explicitly configure are contacted (repository APIs, optional LLM providers, optional SMTP, optional Google Drive backup).</li>
-            <li>You control what is exported, emailed, or uploaded to cloud storage.</li>
+            <li>Only services you explicitly configure are contacted (repository APIs, optional LLM providers, optional SMTP).</li>
+            <li>You control what is exported, emailed, or written to a folder you choose.</li>
           </ul>
         </section>
 

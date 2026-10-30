@@ -262,5 +262,6 @@ def test_fresh_database_has_no_cloud_mirror_tables():
     }
     for gone in ("cloud_executions", "cloud_routines", "cloud_cache_meta", "sync_state"):
         assert gone not in tables, f"{gone} should not be created any more"
-    # The Google Drive table is a different feature and stays.
+    # The Google Drive table belonged to a different feature. Nothing reads it
+    # now, and it stays so a fresh database and an upgraded one agree.
     assert "cloud_sync" in tables

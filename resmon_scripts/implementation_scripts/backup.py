@@ -1,9 +1,9 @@
 """Consistent backup of the database and the Library vault, and the restore that undoes it.
 
-Until this module there was no backup and no restore. ``POST /api/cloud/backup``
-uploaded ``REPORTS_DIR`` to Google Drive and nothing else -- not the database,
-not one vault byte -- and nothing anywhere could read a backup back. The two
-facts that shape everything here:
+Until this module there was no backup and no restore: an upload to Google
+Drive, since removed, sent ``REPORTS_DIR`` and nothing else -- not the
+database, not one vault byte -- and nothing anywhere could read a backup back.
+The two facts that shape everything here:
 
 * **The database and the vault are a pair.** ``library._catalog_tree`` requires
   the directory listing to equal the catalog exactly, so a database restored
@@ -69,6 +69,11 @@ RESTORE_LOG_NAME = "restore-last.json"
 #: restorable, and the manifest names it so a reader is not left wondering
 #: whether the bundle simply missed it.
 PROCESS_STATE_FILES = ("daemon.lock", "resmon.port", "api-token-<port>")
+
+#: The Google Drive sign-in of the upload resmon no longer has. A bundle
+#: written before the upload was removed may name them, and a restore does not
+#: ask for them back: nothing can enter them, and nothing reads them.
+RETIRED_CREDENTIALS = frozenset({"google_drive_token", "google_drive_client_id", "google_drive_client_secret"})
 
 
 #: How many foreign-key violations a manifest lists individually. A corpus that
@@ -161,7 +166,6 @@ def credential_names_present(probe: Callable[[str], str] | None = None) -> list[
         candidates += sorted(catalog_names())
     except Exception:  # pragma: no cover - catalog is always importable in-app
         logger.debug("Repository catalog unavailable while listing credential names")
-    candidates += ["google_drive_token", "google_drive_client_id", "google_drive_client_secret"]
     for name in candidates:
         try:
             if probe(name) == cm.PRESENT:
@@ -686,7 +690,8 @@ def verify_bundle(
         "vault_destination": describe_vault_destination(bundle, manifest),
         "ok": not problems,
         "will_not_restore": {
-            "credentials": list(excluded.get("credentials", [])),
+            "credentials": [name for name in excluded.get("credentials", [])
+                            if name not in RETIRED_CREDENTIALS],
             "process_state": list(excluded.get("process_state", [])),
             "note": (
                 "Executions that were running and deliveries that were in flight "

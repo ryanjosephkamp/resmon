@@ -1,5 +1,5 @@
 import {
-  autoBackupOn, daemonSentence, daemonState, groupPath, keychainName, limitProblem, limitsReach, restartRestores, RUN_LIMITS,
+  daemonSentence, daemonState, groupPath, keychainName, limitProblem, limitsReach, restartRestores, RUN_LIMITS,
   unitKind, type BackupLast, type DaemonStatus,
 } from '../model';
 
@@ -69,7 +69,7 @@ test('every Settings group has its own address, and the rail lists each once', a
   const { GROUPS, groupPath } = await import('../model');
   const slugs = GROUPS.map((g) => g.slug);
   expect(new Set(slugs).size).toBe(slugs.length);
-  expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'cloud', 'tutorials', 'about', 'danger']);
+  expect(slugs).toEqual(['', 'background', 'email', 'notifications', 'ai', 'sources', 'storage', 'tutorials', 'about', 'danger']);
   expect(groupPath('danger')).toBe('/settings/danger');
 });
 
@@ -96,12 +96,6 @@ describe('how many runs at once, and how many watch runs wait', () => {
     expect(limitsReach('beside')).toContain('a separate engine with its own count');
     expect(limitsReach(null)).toBe('A change applies at once to the engine this window uses. Any other engine reads these limits when it next starts.');
   });
-});
-
-test('the upload after each run is on only as the engine reads it', () => {
-  expect(autoBackupOn('true')).toBe(true);
-  expect(autoBackupOn(' TRUE ')).toBe(true);
-  for (const stored of ['', 'false', '1', 'yes', 'on', null, undefined]) expect(autoBackupOn(stored)).toBe(false);
 });
 
 describe('Restart resmon now is offered only where restarting the app restores', () => {

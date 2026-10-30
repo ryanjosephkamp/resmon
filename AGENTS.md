@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 197 routes, the API seam
+├── resmon.py                       FastAPI app — 192 routes, the API seam
 │                                   described in docs/api-contract/ (generated, guarded)
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
@@ -332,14 +332,23 @@ engine. Under `RESMON_E2E` or `RESMON_NOTICES_TO_LOG` the app logs each notice a
 `[main] notice {…}` line instead of putting it on the screen. Journey:
 `e2e/service-host.spec.ts`; the memory each form costs: `python -m perf host`.
 
-## The two "cloud"s — do not conflate them
+## The two "cloud"s — both gone
 
 `resmon_scripts/cloud/`, the resmon-cloud microservice, was **deleted**. It is gone on
 purpose and does not come back.
 
-`implementation_scripts/cloud_storage.py` is **Google Drive backup**, a live desktop
-feature. `/api/cloud/*`, `/api/settings/cloud`, the `cloud_sync` table and the
-Settings → Cloud Storage tab all belong to it and all stay.
+The Google Drive upload (`cloud_storage.py`, `/api/cloud/*`, `/api/settings/cloud`, Settings
+→ Cloud Storage, and the upload after each run) was **retired on October 30, 2026**: resmon
+does not sign in to Google. A backup (`backup.py`, `POST /api/backup`) is written into the
+folder `export_directory` names, and Settings › Backup names Google Drive for desktop's folder
+as the way to keep a copy in Drive; journey J24. Signing in again would need an OAuth client
+the project registers, publishes and keeps alive for every user, which is why it went. What
+stays: `cloud_auto_backup` and `cloud_provider` are read only for Backup's one notice to a
+person who had the upload switched on (`drive_upload_retired` on `GET /api/backup/last`;
+`POST /api/backup/drive-upload-notice/acknowledge` deletes both), and the `cloud_sync` table
+stays in the schema, empty and unread, so a fresh database matches an upgraded one. A Drive
+sign-in left in the keyring is never read; a restore does not ask for it back
+(`backup.RETIRED_CREDENTIALS`). Pinned by `test_retired_drive_upload.py`.
 
 ---
 
@@ -575,14 +584,14 @@ that lane alone (`resmon._merge_ai_override`). Every run emits an `ai_choice` ev
 `GET /api/executions/{id}` carries the lanes it tried as `ai_lanes`, which the run page states
 (`runs/summaries.ts`). Real-app journey `e2e/atlas-ai-summaries.spec.ts`, on a loopback provider.
 Atlas Settings' last groups and Today's first-run card (`settings/Sources.tsx`, `Storage.tsx`,
-`Cloud.tsx`, `Tutorials.tsx`, `DangerZone.tsx`, `today/FirstRun.tsx`): Sources draws a stored key
-as a fixed 12-character mask and every required credit unconditionally; Backup writes to the chosen
+`Tutorials.tsx`, `DangerZone.tsx`, `today/FirstRun.tsx`): Sources draws a stored key as a fixed
+12-character mask and every required credit unconditionally; Backup writes to the chosen
 `export_directory` (unset, the system's temporary folder, which it says) and names Google Drive for
-desktop's folder as the way to keep a copy in Drive; Cloud Storage is the existing Google sign-in
-upload of the reports folder, carried unchanged; the Danger zone's typed erasures need CONFIRM,
-which the engine checks again. The admin, backup, restore and cloud bodies are the "danger zone",
-"backup", "restore" and "cloud storage" slices of `test_response_models.py`; real-app journey
-`e2e/atlas-edges.spec.ts`, which uses an in-memory keyring so a stored key's mask is checked.
+desktop's folder as the way to keep a copy in Drive, and tells a person who had the removed upload
+to Drive switched on, once, that it is gone; the Danger zone's typed erasures need CONFIRM, which
+the engine checks again. The admin, backup and restore bodies are the "danger zone", "backup" and
+"restore" slices of `test_response_models.py`; real-app journey `e2e/atlas-edges.spec.ts`, which
+uses an in-memory keyring so a stored key's mask is checked.
 
 Composer choices: `docs/api-contract/assistant-choices.md` (schema 15); captured fake-runtime journey: `resmon_scripts/frontend/e2e/composer-choices.spec.ts`.
 

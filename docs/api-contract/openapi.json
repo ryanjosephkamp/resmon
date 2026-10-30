@@ -1913,8 +1913,12 @@
       },
       "BackupLast": {
         "additionalProperties": true,
-        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
+        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made. ``drive_upload_retired`` is true\nwhile this database still has the removed upload to Google Drive after\neach run switched on, until ``POST\n/api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
         "properties": {
+          "drive_upload_retired": {
+            "title": "Drive Upload Retired",
+            "type": "boolean"
+          },
           "last_backup": {
             "anyOf": [
               {
@@ -2006,7 +2010,8 @@
           "pending_restore_runs_when",
           "pending_restore_runs_on",
           "last_restore",
-          "undo_copies"
+          "undo_copies",
+          "drive_upload_retired"
         ],
         "title": "BackupLast",
         "type": "object"
@@ -2592,157 +2597,6 @@
           "new_results"
         ],
         "title": "CalendarEvent",
-        "type": "object"
-      },
-      "CloudBackup": {
-        "properties": {
-          "execution_ids": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Execution Ids"
-          }
-        },
-        "title": "CloudBackup",
-        "type": "object"
-      },
-      "CloudBackupUploaded": {
-        "additionalProperties": true,
-        "description": "``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.\n\nThe whole reports folder is uploaded into a ``backup-<local timestamp>``\nfolder under ``resmon`` in the person's Drive. It is the reports folder\nonly: not the database and not the Library, which ``POST /api/backup``\ncarries. The request's ``execution_ids`` are not read.\n\n``success`` is true on every 200, including an upload that sent nothing.\n``uploaded`` counts the files Drive accepted and ``total_files`` the files\nfound in the folder, so ``uploaded < total_files`` means some were not\nsent, and both are 0 when the upload stopped before walking the folder.\n``folder_name`` is ``None`` when it stopped before a Drive folder was made,\nand ``web_view_link`` when Drive did not return the folder's link.",
-        "properties": {
-          "folder_name": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Folder Name"
-          },
-          "success": {
-            "title": "Success",
-            "type": "boolean"
-          },
-          "total_files": {
-            "title": "Total Files",
-            "type": "integer"
-          },
-          "uploaded": {
-            "title": "Uploaded",
-            "type": "integer"
-          },
-          "web_view_link": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Web View Link"
-          }
-        },
-        "required": [
-          "success",
-          "uploaded",
-          "total_files",
-          "folder_name",
-          "web_view_link"
-        ],
-        "title": "CloudBackupUploaded",
-        "type": "object"
-      },
-      "CloudLinked": {
-        "additionalProperties": true,
-        "description": "``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.\n\n``auth_url`` is the fixed string ``oauth_completed``, not a URL. The\nsign-in runs to its end inside this request, in a browser on this\nmachine, so there is no address left to hand back. A stored token is not a\nworking Drive: ``GET /api/cloud/status`` is the route that asks the API.\nOnly this body is modeled; a missing ``credentials.json`` is a 400 and a\nflow that fails is a 500.",
-        "properties": {
-          "auth_url": {
-            "title": "Auth Url",
-            "type": "string"
-          }
-        },
-        "required": [
-          "auth_url"
-        ],
-        "title": "CloudLinked",
-        "type": "object"
-      },
-      "CloudSettings": {
-        "additionalProperties": true,
-        "description": "``GET /api/settings/cloud`` — the Google Drive backup lane's two keys.",
-        "properties": {
-          "cloud_auto_backup": {
-            "title": "Cloud Auto Backup",
-            "type": "string"
-          },
-          "cloud_provider": {
-            "title": "Cloud Provider",
-            "type": "string"
-          }
-        },
-        "required": [
-          "cloud_provider",
-          "cloud_auto_backup"
-        ],
-        "title": "CloudSettings",
-        "type": "object"
-      },
-      "CloudStatus": {
-        "additionalProperties": true,
-        "description": "``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.\n\n``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of\none ``about.get`` call made with that token during this request, so it can\nbe false while linked, for instance when the Drive API is not enabled on\nthe OAuth project. ``api_reason`` is ``None`` when that call succeeded;\notherwise a short code: Google's own error reason (such as\n``accessNotConfigured``), ``http_error`` when the error carried none, the\nname of the Python exception that stopped the call, or ``no_token`` when\nnothing is linked and no call was made.",
-        "properties": {
-          "api_ok": {
-            "title": "Api Ok",
-            "type": "boolean"
-          },
-          "api_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Api Reason"
-          },
-          "is_linked": {
-            "title": "Is Linked",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "is_linked",
-          "api_ok",
-          "api_reason"
-        ],
-        "title": "CloudStatus",
-        "type": "object"
-      },
-      "CloudUnlinked": {
-        "additionalProperties": true,
-        "description": "``POST /api/cloud/unlink``: no Google Drive token is stored here any more.\n\n``success`` is true on every 200. With a token stored, resmon sends Google\na revocation request when the token carries an access token, does not read\nthe answer, and deletes the token from the keyring either way, so this\nsays the local token is gone, not that Google revoked it. With no token\nstored, nothing is sent anywhere.",
-        "properties": {
-          "success": {
-            "title": "Success",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "success"
-        ],
-        "title": "CloudUnlinked",
         "type": "object"
       },
       "CollapsePreview": {
@@ -4395,6 +4249,26 @@
           }
         },
         "title": "DocumentIdsBody",
+        "type": "object"
+      },
+      "DriveUploadNoticeAcknowledged": {
+        "additionalProperties": true,
+        "description": "``POST /api/backup/drive-upload-notice/acknowledge``: the notice that the upload to Google Drive is gone, dismissed.\n\nThe removed upload's two settings are deleted, so ``GET\n/api/backup/last`` answers ``drive_upload_retired: false`` from then on.\n``acknowledged`` is whether the upload was switched on when this was\nasked; ``success`` is true either way.",
+        "properties": {
+          "acknowledged": {
+            "title": "Acknowledged",
+            "type": "boolean"
+          },
+          "success": {
+            "title": "Success",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "success",
+          "acknowledged"
+        ],
+        "title": "DriveUploadNoticeAcknowledged",
         "type": "object"
       },
       "EmailSettings": {
@@ -6336,7 +6210,7 @@
       },
       "FactoryReset": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes count them, so the key counts\nare of names cleared. It does not clear the Google Drive token or a\ndelivery target's webhook secret, and it does not touch the Library's\nfiles, report files on disk, or a restore's undo copies.",
+        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes count them, so the key counts\nare of names cleared. It does not clear a Google Drive sign-in stored by\nthe removed upload or a delivery target's webhook secret, and it does not\ntouch the Library's files, report files on disk, or a restore's undo\ncopies.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
@@ -17355,6 +17229,25 @@
         "summary": "Backup Now"
       }
     },
+    "/api/backup/drive-upload-notice/acknowledge": {
+      "post": {
+        "description": "Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from.",
+        "operationId": "drive_upload_notice_acknowledge_api_backup_drive_upload_notice_acknowledge_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriveUploadNoticeAcknowledged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Drive Upload Notice Acknowledge"
+      }
+    },
     "/api/backup/last": {
       "get": {
         "description": "The last bundle, the last restore outcome, and whether an undo copy exists.",
@@ -17477,98 +17370,6 @@
           }
         },
         "summary": "Calendar Events"
-      }
-    },
-    "/api/cloud/backup": {
-      "post": {
-        "operationId": "cloud_backup_api_cloud_backup_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CloudBackup"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CloudBackupUploaded"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Cloud Backup"
-      }
-    },
-    "/api/cloud/link": {
-      "post": {
-        "operationId": "cloud_link_api_cloud_link_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CloudLinked"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Cloud Link"
-      }
-    },
-    "/api/cloud/status": {
-      "get": {
-        "operationId": "cloud_status_api_cloud_status_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CloudStatus"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Cloud Status"
-      }
-    },
-    "/api/cloud/unlink": {
-      "post": {
-        "operationId": "cloud_unlink_api_cloud_unlink_post",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CloudUnlinked"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Cloud Unlink"
       }
     },
     "/api/configurations": {
@@ -22924,60 +22725,6 @@
           }
         },
         "summary": "Update Assistant Settings"
-      }
-    },
-    "/api/settings/cloud": {
-      "get": {
-        "operationId": "get_cloud_settings_api_settings_cloud_get",
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CloudSettings"
-                }
-              }
-            },
-            "description": "Successful Response"
-          }
-        },
-        "summary": "Get Cloud Settings"
-      },
-      "put": {
-        "operationId": "update_cloud_settings_api_settings_cloud_put",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SettingsBody"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SettingsSaved"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Update Cloud Settings"
       }
     },
     "/api/settings/email": {

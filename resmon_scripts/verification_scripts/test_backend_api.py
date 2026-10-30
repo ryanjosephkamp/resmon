@@ -72,13 +72,13 @@ def test_configurations_crud():
 
 
 def test_settings_roundtrip():
-    """PUT and GET settings for email, AI, cloud, and storage."""
+    """PUT and GET settings for email, AI, and storage."""
     _reset_db()
     from resmon import app
     client = TestClient(app)
 
     for endpoint in ["/api/settings/email", "/api/settings/ai",
-                     "/api/settings/cloud", "/api/settings/storage"]:
+                     "/api/settings/storage"]:
         resp = client.get(endpoint)
         assert resp.status_code == 200
 

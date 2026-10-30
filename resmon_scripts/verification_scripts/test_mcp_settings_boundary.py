@@ -157,7 +157,7 @@ def test_boolean_effects_cross_the_real_mcp_http_and_storage_boundary(isolated_b
     # tool does not get to change. It is checked below as a refusal instead,
     # because a key that merely vanished from this list would leave no trace
     # of why.
-    string_flags = [("cloud", "cloud_auto_backup"), ("embeddings", "embedding_enabled")]
+    string_flags = [("embeddings", "embedding_enabled")]
     for group, key in [("ai", "ai_show_audit_prefix")]:
         before = _settings(base, group)
         stored_before = _stored(state)

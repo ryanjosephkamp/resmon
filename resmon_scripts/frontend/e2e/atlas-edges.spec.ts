@@ -7,12 +7,12 @@
  * Backup writes a bundle to a chosen folder, checks it, stages a restore and
  * cancels it, and the staged restore never moves a byte; a second case stages
  * one, restarts resmon from the Backup screen, and reads what the next start
- * did. Cloud Storage says
- * it is not connected and, asked to connect without the OAuth client this
- * build lacks, shows the engine's own sentence and reaches nothing. The
- * Danger zone refuses the wrong word on screen and in the engine, and the
- * right word erases only what it names. Tutorials are links, never frames,
- * and say what has changed since they were recorded.
+ * did; a third opens a resmon that had the upload to Google Drive after each
+ * run switched on, which was removed, and Backup says so once. There is no
+ * Cloud Storage group: resmon does not sign in to Google. The Danger zone
+ * refuses the wrong word on screen and in the engine, and the right word
+ * erases only what it names. Tutorials are links, never frames, and say what
+ * has changed since they were recorded.
  *
  * **Scripted:** the folder chooser. Each state is held to the engine's record.
  * No network beyond loopback.
@@ -21,7 +21,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { execFileSync } from 'child_process';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 
 async function engine<T>(win: Page, route: string, method = 'GET', body?: unknown): Promise<{ status: number; body: T }> {
   return win.evaluate(async ([r, m, b]) => {
@@ -35,7 +36,7 @@ async function engine<T>(win: Page, route: string, method = 'GET', body?: unknow
   }, [route, method, body] as const) as Promise<{ status: number; body: T }>;
 }
 
-test('Settings and Today: first run, sources and keys, backup and restore, cloud, the danger zone, tutorials', async () => {
+test('Settings and Today: first run, sources and keys, backup and restore, the danger zone, tutorials', async () => {
   test.setTimeout(300_000);
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-edges-')));
   const stateDir = path.join(root, 'state');
@@ -152,14 +153,15 @@ test('Settings and Today: first run, sources and keys, backup and restore, cloud
     await expect(win.locator('[data-backup="pending"]')).toHaveCount(0, { timeout: 30_000 });
     expect((await engine<{ pending_restore: unknown }>(win, '/api/backup/last')).body.pending_restore).toBeFalsy();
 
-    // — Cloud Storage: not connected, and connecting without a client reaches nothing ---
-    await win.evaluate(() => { window.location.hash = '#/settings/cloud'; });
-    await expect(win.locator('[data-cloud="state"]')).toContainText('Not connected', { timeout: 30_000 });
-    expect(/backs? up your database|Library vault/i.test(await win.locator('main.stage').innerText())).toBe(false);
-    const refused = win.waitForResponse((r) => r.url().endsWith('/api/cloud/link'));
-    await win.getByRole('button', { name: 'Connect Google Drive' }).click();
-    expect((await refused).status()).toBe(400);
-    await expect(win.locator('section.cloud [role="alert"]')).toContainText('credentials', { timeout: 30_000 });
+    // — No Cloud Storage: resmon does not sign in to Google, on screen or in the engine ---
+    const rail = win.getByRole('navigation', { name: 'Settings groups' });
+    await expect(rail.getByRole('link', { name: 'Backup', exact: true })).toBeVisible();
+    await expect(rail.getByRole('link', { name: 'Cloud Storage' })).toHaveCount(0);
+    expect((await engine(win, '/api/cloud/status')).status).toBe(404);
+    expect((await engine(win, '/api/settings/cloud')).status).toBe(404);
+    // Fresh, nothing was switched on, so Backup has nothing to say about the upload.
+    expect((await engine<{ drive_upload_retired: boolean }>(win, '/api/backup/last')).body.drive_upload_retired).toBe(false);
+    await expect(win.locator('[data-backup="drive-upload-removed"]')).toHaveCount(0);
 
     // — the Danger zone: the wrong word refused twice, the right word exact -----------
     await engine(win, '/api/configurations', 'POST', { name: 'Kept through the erase', config_type: 'manual_dive',
@@ -197,6 +199,70 @@ test('Settings and Today: first run, sources and keys, backup and restore, cloud
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
+  }
+});
+
+test('a resmon that had the upload to Google Drive on is told once, on Backup, that it has gone', async () => {
+  test.setTimeout(300_000);
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-drive-')));
+  const stateDir = path.join(root, 'state');
+  fs.mkdirSync(stateDir);
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  // What a person who switched the upload on before it was removed has: the
+  // switch, as the engine stored it, in a database this version has opened.
+  execFileSync(env.RESMON_PYTHON, ['-c', [
+    'import sys',
+    'from implementation_scripts.database import get_connection, init_db, set_setting',
+    'conn = get_connection(sys.argv[1])',
+    'init_db(conn=conn)',
+    "set_setting(conn, 'cloud_provider', 'google_drive')",
+    "set_setting(conn, 'cloud_auto_backup', 'true')",
+    'conn.commit()',
+  ].join('\n'), env.RESMON_DB_PATH], { cwd: path.join(REPO_ROOT, 'resmon_scripts'), env });
+  const launch = () => electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  let app = await launch();
+  try {
+    let win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+    expect((await engine<{ drive_upload_retired: boolean }>(win, '/api/backup/last')).body.drive_upload_retired).toBe(true);
+
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    const notice = win.getByRole('group', { name: 'The upload to Google Drive was removed' });
+    await expect(notice).toContainText('resmon no longer uploads to Google Drive.');
+    await expect(notice).toContainText('which was switched on here, has been removed, and resmon does not sign in to Google');
+    // What replaces it is on the same screen, where the notice says it is.
+    await expect(notice).toContainText('under Where backups go');
+    await expect(win.locator('[data-backup="destination"]')).toContainText('Google Drive for desktop');
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-backup-drive-upload-removed.png') });
+
+    const dismissed = win.waitForResponse((r) => r.url().endsWith('/api/backup/drive-upload-notice/acknowledge'));
+    await notice.getByRole('button', { name: 'Got it' }).click();
+    expect((await dismissed).ok()).toBe(true);
+    await expect(notice).toHaveCount(0, { timeout: 30_000 });
+    expect((await engine<{ drive_upload_retired: boolean }>(win, '/api/backup/last')).body.drive_upload_retired).toBe(false);
+
+    // Once: not on the next start either.
+    await app.close();
+    app = await launch();
+    win = await app.firstWindow({ timeout: 180_000 });
+    win.on('pageerror', (e) => problems.push(e.message));
+    await expect(win.getByRole('navigation', { name: 'Sections' })).toBeVisible({ timeout: 120_000 });
+    await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
+    await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win.locator('[data-backup="destination"]')).toBeVisible();
+    await expect(win.locator('[data-backup="drive-upload-removed"]')).toHaveCount(0);
+    expect(problems, 'the renderer threw').toEqual([]);
+  } finally {
+    await app.close().catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
 

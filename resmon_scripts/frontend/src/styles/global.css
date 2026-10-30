@@ -1054,13 +1054,6 @@ html, body, #root {
   flex: 1;
 }
 
-.cloud-status-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
 .policy-btns {
   display: flex;
   gap: 6px;

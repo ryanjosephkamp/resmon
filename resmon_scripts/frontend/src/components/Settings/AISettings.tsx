@@ -825,8 +825,8 @@ const AISettings: React.FC = () => {
                   model: only the read tools are pre-approved, and every other
                   call goes through a permission tool resmon serves and the
                   assistant cannot invoke. Deleting, erasing, resetting, writing
-                  a credential, installing the background service and linking
-                  cloud storage are not in its tools at all.
+                  a credential and installing the background service are not in
+                  its tools at all.
                 </p>
                 <p>
                   <strong>No CLI? Use a key instead.</strong> <em>Run it with</em>{' '}

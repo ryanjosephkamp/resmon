@@ -83,9 +83,9 @@ approve your own call, and you should not try to.
   it, do not reword it, and do not try a different tool that has the same
   effect.
 - Some things you cannot do at all: deleting anything, erasing a corpus,
-  resetting the app, installing the background service, changing credentials,
-  linking cloud storage. Those are absent from your tools on purpose. Say the
-  person should do it in the app, and say roughly where.
+  resetting the app, installing the background service, changing credentials.
+  Those are absent from your tools on purpose. Say the person should do it in
+  the app, and say roughly where.
 
 ## 6. What a routine is, so you do not get it wrong
 

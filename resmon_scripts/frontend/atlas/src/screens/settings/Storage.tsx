@@ -63,6 +63,7 @@ export function Storage() {
         after a restore, resmon lists by name the ones to enter again.
       </p>
       {last.data && <Reentry last={last.data} />}
+      {last.data?.drive_upload_retired && <DriveUploadRemoved />}
       {settings.data && <Destination stored={settings.data.export_directory} />}
       {last.data && <BackUp last={last.data} folder={settings.data?.export_directory ?? ''} />}
       {last.data && <Restore last={last.data} />}
@@ -255,6 +256,33 @@ function Restore({ last }: { last: Last }) {
       )}
       {said && <p className="settings-said" role="status">{said}</p>}
       {error && <p className="field-error" role="alert">{refusal(error)}</p>}
+    </div>
+  );
+}
+
+/**
+ * For a copy of resmon that had the upload to Google Drive after each run
+ * switched on. That upload, and the Google sign-in it used, were removed, so
+ * the switch does nothing now; this says so once, until Got it, which deletes
+ * the setting it is read from.
+ */
+function DriveUploadRemoved() {
+  const client = useQueryClient();
+  const done = useMutation({
+    mutationFn: () => call(engine().POST('/api/backup/drive-upload-notice/acknowledge')),
+    onSuccess: () => client.invalidateQueries({ queryKey: BACKUP_KEY }),
+  });
+  return (
+    <div className="backup-notice" role="group" aria-label="The upload to Google Drive was removed" data-backup="drive-upload-removed">
+      <p>
+        <strong>resmon no longer uploads to Google Drive.</strong> The upload of each run’s report and log, which was
+        switched on here, has been removed, and resmon does not sign in to Google. To keep a copy in Google Drive,
+        choose the folder Google Drive for desktop keeps on this computer under Where backups go, then back up into
+        it: a backup holds your database and your Library, not only the reports.
+      </p>
+      <p className="form-hint">If you connected Google Drive to resmon, you can remove its access in your Google Account.</p>
+      <button type="button" className="btn sm" disabled={done.isPending} onClick={() => done.mutate()}>Got it</button>
+      {done.error && <p className="field-error" role="alert">{refusal(done.error)}</p>}
     </div>
   );
 }

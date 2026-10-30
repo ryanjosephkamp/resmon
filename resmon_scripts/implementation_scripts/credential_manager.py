@@ -24,11 +24,9 @@ _SERVICE = APP_NAME  # "resmon"
 #
 # OS keyring backends can block indefinitely. On macOS ``SecItemCopyMatching``
 # waits on a GUI authorisation prompt; if nobody answers it, the call never
-# returns. Because several request paths read credentials (``GET
-# /api/cloud/status`` is the worst offender, since it runs on every Cloud
-# settings render), an unbounded call there hangs the HTTP request and holds an
-# ASGI worker thread with it. The same block made the verification suite hang
-# forever rather than fail.
+# returns. Because several request paths read credentials, an unbounded call
+# there hangs the HTTP request and holds an ASGI worker thread with it. The
+# same block made the verification suite hang forever rather than fail.
 #
 # Every keyring call is therefore run on a short-lived daemon thread and
 # joined with a timeout. A stuck OS call cannot be cancelled, but the caller is

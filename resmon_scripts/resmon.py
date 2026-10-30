@@ -97,14 +97,6 @@ from implementation_scripts.ai_models import (
     list_subscription_catalog,
     ModelListError,
 )
-from implementation_scripts.cloud_storage import (
-    check_connection as cloud_check_connection,
-    authorize_google_drive,
-    revoke_authorization,
-    upload_directory,
-    is_token_stored as cloud_is_token_stored,
-    probe_api as cloud_probe_api,
-)
 from implementation_scripts.config_manager import (
     export_configs,
     import_configs,
@@ -493,9 +485,6 @@ class AIModelsRequest(BaseModel):
     # 1.8.5, subscription lanes only — the full path to the agent CLI, when the
     # user has set one. Never a credential: it is a path to a binary.
     binary_path: Optional[str] = None
-
-class CloudBackup(BaseModel):
-    execution_ids: Optional[list[int]] = None
 
 class ConfigExport(BaseModel):
     ids: list[int]
@@ -5164,7 +5153,7 @@ def calendar_events(
 
 
 # ---------------------------------------------------------------------------
-# Settings (email, ai, cloud, storage)
+# Settings (email, ai, storage)
 # ---------------------------------------------------------------------------
 
 # The assistant's own settings. ``ai_cli_path`` is deliberately *not* here: the
@@ -5226,7 +5215,6 @@ _SETTINGS_GROUPS = {
     # the two lists and not the other, so the PUT stored nothing and the read
     # could never return anything. One tuple, spliced into both.
     "assistant": list(_ASSISTANT_SETTING_KEYS),
-    "cloud": ["cloud_provider", "cloud_auto_backup"],
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
     "notifications": ["notify_manual", "notify_automatic_mode"],
 }
@@ -5673,27 +5661,6 @@ def rebuild_embedding_index():
         if lane is None:
             raise HTTPException(400, "No embedding lane is configured.")
         return vector_index.rebuild(conn, lane.model)
-    finally:
-        _close_db(conn)
-
-
-@app.get("/api/settings/cloud", response_model=response_models.CloudSettings,
-         response_model_exclude_unset=True)
-def get_cloud_settings():
-    conn = _get_db()
-    try:
-        return _get_settings_group(conn, "cloud")
-    finally:
-        _close_db(conn)
-
-
-@app.put("/api/settings/cloud", response_model=response_models.SettingsSaved,
-         response_model_exclude_unset=True)
-def update_cloud_settings(body: SettingsBody):
-    conn = _get_db()
-    try:
-        _set_settings_group(conn, "cloud", body.settings)
-        return {"success": True}
     finally:
         _close_db(conn)
 
@@ -6624,77 +6591,6 @@ def delete_credential_endpoint(key_name: str):
 
 
 # ---------------------------------------------------------------------------
-# Cloud (Google Drive storage integration — unrelated to resmon-cloud)
-# ---------------------------------------------------------------------------
-
-@app.post("/api/cloud/link", response_model=response_models.CloudLinked,
-          response_model_exclude_unset=True)
-def cloud_link():
-    # Pre-flight: the Google OAuth client secrets file is required for the
-    # InstalledAppFlow. If it is absent, return a descriptive 400 so the
-    # UI can surface actionable guidance instead of a generic 500.
-    from implementation_scripts.config import PROJECT_ROOT as _PROJECT_ROOT
-    secrets_path = _PROJECT_ROOT / "credentials.json"
-    if not secrets_path.exists():
-        raise HTTPException(
-            400,
-            (
-                "Google Drive credentials not configured. "
-                "Google Drive linking requires an OAuth client secrets file "
-                f"at '{secrets_path}'. Create an OAuth 2.0 Client ID of type "
-                "'Desktop app' in the Google Cloud Console, download the "
-                "credentials.json, and place it at that path, then try again."
-            ),
-        )
-    success = authorize_google_drive()
-    if not success:
-        raise HTTPException(
-            500,
-            (
-                "Google Drive authorization failed. Check that credentials.json "
-                "is valid and that the OAuth consent screen is configured for "
-                "your Google account."
-            ),
-        )
-    return {"auth_url": "oauth_completed"}
-
-
-@app.post("/api/cloud/unlink", response_model=response_models.CloudUnlinked,
-          response_model_exclude_unset=True)
-def cloud_unlink():
-    revoke_authorization()
-    return {"success": True}
-
-
-@app.get("/api/cloud/status", response_model=response_models.CloudStatus,
-         response_model_exclude_unset=True)
-def cloud_status():
-    # ``is_linked`` reflects link state (token stored, user completed OAuth).
-    # ``api_ok`` is a live probe of the Drive API; it can be False even when
-    # linked (e.g. the Drive API is not enabled on the OAuth project).
-    linked = cloud_is_token_stored()
-    if not linked:
-        return {"is_linked": False, "api_ok": False, "api_reason": "no_token"}
-    ok, reason = cloud_probe_api()
-    return {"is_linked": True, "api_ok": ok, "api_reason": reason}
-
-
-@app.post("/api/cloud/backup", response_model=response_models.CloudBackupUploaded,
-          response_model_exclude_unset=True)
-def cloud_backup(body: CloudBackup):
-    if not cloud_check_connection():
-        raise HTTPException(400, "Cloud storage not linked")
-    result = upload_directory(REPORTS_DIR)
-    return {
-        "success": True,
-        "uploaded": len(result.get("uploaded_ids", [])),
-        "total_files": result.get("total_files", 0),
-        "folder_name": result.get("folder_name"),
-        "web_view_link": result.get("web_view_link"),
-    }
-
-
-# ---------------------------------------------------------------------------
 # Service unit install / uninstall (IMPL-26)
 # ---------------------------------------------------------------------------
 
@@ -7590,6 +7486,7 @@ def backup_last():
     conn = _get_db()
     try:
         last_path = get_setting(conn, "last_backup_path") or ""
+        drive_upload_retired = _drive_upload_was_on(conn)
     finally:
         _close_db(conn)
     state = _backup_state_dir()
@@ -7625,7 +7522,37 @@ def backup_last():
         "pending_restore_runs_on": runs_on,
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
+        "drive_upload_retired": drive_upload_retired,
     }
+
+
+# The upload to Google Drive after each run, which signed in to Google, was
+# removed. Its two settings may still be stored, and nothing reads them now
+# except the notice that says the upload has gone.
+_RETIRED_DRIVE_UPLOAD_KEYS = ("cloud_auto_backup", "cloud_provider")
+
+
+def _drive_upload_was_on(conn) -> bool:
+    """Whether this database had the upload after each run switched on, read as the upload used to read it."""
+    return (get_setting(conn, "cloud_auto_backup") or "").strip().lower() == "true"
+
+
+@app.post("/api/backup/drive-upload-notice/acknowledge",
+          response_model=response_models.DriveUploadNoticeAcknowledged,
+          response_model_exclude_unset=True)
+def drive_upload_notice_acknowledge():
+    """Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from."""
+    conn = _get_db()
+    try:
+        was_on = _drive_upload_was_on(conn)
+        conn.execute(
+            f"DELETE FROM app_settings WHERE key IN ({','.join('?' * len(_RETIRED_DRIVE_UPLOAD_KEYS))})",
+            _RETIRED_DRIVE_UPLOAD_KEYS,
+        )
+        conn.commit()
+    finally:
+        _close_db(conn)
+    return {"success": True, "acknowledged": was_on}
 
 
 @app.post("/api/restore/cancel", response_model=response_models.RestoreCancelled,

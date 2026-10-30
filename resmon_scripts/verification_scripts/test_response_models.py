@@ -119,8 +119,6 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/settings/ai/cli-status"),
         ("GET", "/api/settings/assistant"),
         ("PUT", "/api/settings/assistant"),
-        ("GET", "/api/settings/cloud"),
-        ("PUT", "/api/settings/cloud"),
         ("GET", "/api/settings/email"),
         ("PUT", "/api/settings/email"),
         ("POST", "/api/settings/email/test"),
@@ -286,18 +284,13 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/assistant/permissions"),
         ("POST", "/api/assistant/permissions/{request_id}"),
     ),
-    "cloud storage": (
-        ("GET", "/api/cloud/status"),
-        ("POST", "/api/cloud/unlink"),
-        ("POST", "/api/cloud/link"),
-        ("POST", "/api/cloud/backup"),
-    ),
     # Backup and restore are one feature over two path prefixes, so they are two
     # slices here: the slice-coherence test below holds a slice to one prefix.
     "backup": (
         ("POST", "/api/backup"),
         ("POST", "/api/backup/verify"),
         ("GET", "/api/backup/last"),
+        ("POST", "/api/backup/drive-upload-notice/acknowledge"),
     ),
     "restore": (
         ("POST", "/api/restore"),
@@ -632,7 +625,6 @@ def driven() -> Drive:
         kept = _drive_library(drive, doc_ids[0])
         _drive_evidence(drive, *kept)
         _drive_assistant(drive)
-        _drive_cloud_storage(drive)
         _drive_backup_and_restore(drive)
         # Last, because it erases what every slice above made: the corpus, the
         # runs, the configurations, the settings and the keyring's keys.
@@ -1066,80 +1058,6 @@ def _scratch(prefix: str) -> Iterator[Path]:
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def _drive_cloud_storage(drive: Drive) -> None:
-    """Google Drive's four routes, with nothing reaching Google.
-
-    ``cloud_storage.py`` signs in through a browser and uploads to Drive, and
-    neither runs here. The status and the unlink are driven for real against a
-    keyring holding no Drive token, the one state in which neither makes a
-    call, and that is checked first. For the linked status, the link and the
-    upload, the functions each handler calls are replaced in ``resmon``'s
-    namespace, where the handlers look them up, for those requests only: the
-    API probe, the sign-in flow and the upload never run, and what is compared
-    is the body each handler builds from their answers. The link also needs a
-    ``credentials.json`` to exist, so ``config.PROJECT_ROOT`` names a scratch
-    folder holding an empty one. The upload stand-in answers in
-    ``upload_directory``'s documented shape, once for an upload that sent one
-    of two files and once for one that stopped before it made a folder, which
-    the route still answers as a success.
-    """
-    from implementation_scripts import config as config_module  # noqa: PLC0415 — only this slice needs these
-    from implementation_scripts import credential_manager  # noqa: PLC0415
-
-    assert not credential_manager.get_credential("google_drive_token"), (
-        "a Drive token is stored, so the unlink would ask Google to revoke it; nothing was driven")
-    unlinked = drive("GET", "/api/cloud/status")
-    assert unlinked == {"is_linked": False, "api_ok": False, "api_reason": "no_token"}, unlinked
-    drive("POST", "/api/cloud/unlink")
-
-    with mock.patch.object(resmon_mod, "cloud_is_token_stored", lambda: True):
-        with mock.patch.object(resmon_mod, "cloud_probe_api", lambda: (False, "accessNotConfigured")):
-            refused = drive("GET", "/api/cloud/status")
-        with mock.patch.object(resmon_mod, "cloud_probe_api", lambda: (True, None)):
-            working = drive("GET", "/api/cloud/status")
-    assert (refused["api_ok"], working["api_ok"], working["api_reason"]) == (False, True, None)
-
-    with _scratch("resmon-scenario-drive-") as scratch:
-        (scratch / "credentials.json").write_text("{}", encoding="utf-8")
-        flows: list[bool] = []
-
-        def signed_in() -> bool:
-            flows.append(True)
-            return True
-
-        with mock.patch.object(config_module, "PROJECT_ROOT", scratch), \
-                mock.patch.object(resmon_mod, "authorize_google_drive", signed_in):
-            drive("POST", "/api/cloud/link")
-        assert flows == [True] and not credential_manager.get_credential("google_drive_token")
-
-        reports = scratch / "reports"
-        reports.mkdir()
-        for name in ("a.md", "b.md"):
-            (reports / name).write_text("# A report\n", encoding="utf-8")
-        answers = [
-            {"uploaded_ids": ["drive-file-a"], "total_files": 2, "folder_id": "drive-folder",
-             "folder_name": "backup-20261029-120000",
-             "web_view_link": "https://drive.example.org/folders/drive-folder"},
-            {"uploaded_ids": [], "total_files": 0, "folder_id": None, "folder_name": None,
-             "web_view_link": None},
-        ]
-        handed: list[Path] = []
-
-        def uploaded(local_dir: Any) -> dict:
-            handed.append(Path(local_dir))
-            return answers[len(handed) - 1]
-
-        with mock.patch.object(resmon_mod, "cloud_check_connection", lambda: True), \
-                mock.patch.object(resmon_mod, "REPORTS_DIR", reports), \
-                mock.patch.object(resmon_mod, "upload_directory", uploaded):
-            # ``execution_ids`` is accepted and not read: the whole folder goes.
-            partly = drive("POST", "/api/cloud/backup", json={"execution_ids": [1]})
-            stopped = drive("POST", "/api/cloud/backup", json={})
-        assert handed == [reports, reports], handed
-        assert (partly["uploaded"], partly["total_files"]) == (1, 2), partly
-        assert (stopped["success"], stopped["uploaded"], stopped["folder_name"]) == (True, 0, None), stopped
-
-
 def _database_file() -> Path:
     """The file behind the app's database connection: for ``:memory:``, its temp-file stand-in."""
     conn = resmon_mod._get_db()
@@ -1244,7 +1162,22 @@ def _drive_backup_and_restore(drive: Drive) -> None:
             assert nothing == {"last_backup": None, "last_backup_path_recorded": None,
                                "pending_restore": None, "pending_restore_runs_when": None,
                                "pending_restore_runs_on": None,
-                               "last_restore": None, "undo_copies": []}, nothing
+                               "last_restore": None, "undo_copies": [],
+                               "drive_upload_retired": False}, nothing
+
+            # A database from before the upload to Google Drive was removed,
+            # with it switched on, as that version stored it.
+            conn = resmon_mod._get_db()
+            try:
+                resmon_mod.set_setting(conn, "cloud_auto_backup", "true")
+                conn.commit()
+            finally:
+                resmon_mod._close_db(conn)
+            assert drive("GET", "/api/backup/last")["drive_upload_retired"] is True
+            dismissed_notice = drive("POST", "/api/backup/drive-upload-notice/acknowledge")
+            assert dismissed_notice == {"success": True, "acknowledged": True}, dismissed_notice
+            assert drive("GET", "/api/backup/last")["drive_upload_retired"] is False
+            assert drive("POST", "/api/backup/drive-upload-notice/acknowledge")["acknowledged"] is False
 
             orphan = "00000000-0000-4000-8000-000000000000"
             conn = resmon_mod._get_db()
@@ -1737,8 +1670,6 @@ def _drive_settings(drive: Drive) -> None:
                                 "smtp_username": "someone",
                                 "smtp_from": "someone@example.org",
                                 "smtp_to": "someone@example.org"}}),
-        ("cloud", {"settings": {"cloud_provider": "gdrive",
-                                "cloud_auto_backup": "1"}}),
         ("storage", {"settings": {"pdf_policy": "keep", "txt_policy": "keep",
                                   "archive_after_days": "30",
                                   "export_directory": ""}}),

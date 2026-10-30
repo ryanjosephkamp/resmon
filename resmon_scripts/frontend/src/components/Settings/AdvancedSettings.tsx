@@ -98,7 +98,7 @@ const DANGER_ACTIONS: DangerAction[] = [
     shortDescription:
       'Resets every settings tab to defaults and erases every API key (both AI and research-repository keys plus the SMTP password). Configs and execution history are kept.',
     longWarning:
-      'This will reset every Settings tab (Email, Cloud Storage, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password). Saved configurations and execution history are kept. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
+      'This will reset every Settings tab (Email, AI, Storage, Notifications, Advanced) to defaults, erase every saved API key (AI + research-repository + SMTP password). Saved configurations and execution history are kept. Library catalog, retained files, paper associations, Evidence projects and saved notes remain.',
     needsTyping: true,
   },
   {

@@ -30,8 +30,8 @@ Decision 2. The table is the source of truth because matching joins against
 a ``schema`` field so a file written today can be read by a resmon that has
 moved on.
 
-Google Drive backup covers the database, and therefore covers profiles, with no
-new code.
+A backup (``POST /api/backup``) holds the database, and therefore the profiles,
+with no new code.
 """
 
 from __future__ import annotations
