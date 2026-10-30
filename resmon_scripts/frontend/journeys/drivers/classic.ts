@@ -59,16 +59,17 @@ import type {
 import type { ComposerChoice, LibraryItem, TurnChoiceFacts, VaultOnDisk } from '../driver';
 // The saved-configuration round trip's own shapes, in their own import for the same reason.
 import type { ImportOutcome } from '../driver';
-import { startProviderEndpoint } from '../fixtures/provider-endpoint';
-import type { ProviderEndpoint } from '../fixtures/provider-endpoint';
+import { providerEndpointOf, startProviderEndpointFor } from '../fixtures/provider-endpoint';
 // The register refresh's, in its own import for the same reason.
 import type {
   EvidenceBundle, EvidencePageView, ExportedFile, OfflineDocument, OpenedCitation, ReopenedPassage,
   SavedEvidenceNote, SelectedAnswerPreview, SelectedAnswerView, SourceWallCellView, SourceWallReading,
   SourceWallView, StoredAnswer, StoredEvidenceNote, StoredSourceWall,
 } from '../driver';
-import { startSelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoint';
-import type { SelectedAnswerEndpoint } from '../fixtures/selected-answer-endpoint';
+import { selectedAnswerEndpointOf, startSelectedAnswerEndpointFor } from '../fixtures/selected-answer-endpoint';
+import {
+  readTheAgentCommandArguments, writeTheAuthoredAgentCommand, writeTheLapsedSummarizer,
+} from '../fixtures/authored-commands';
 import type { Session } from './session';
 
 /**
@@ -128,9 +129,6 @@ function literally(text: string): string {
 
 export function createClassicDriver(session: Session, testInfo: TestInfo): JourneyDriver {
   const win = () => session.win;
-
-  /** The authored model provider, once a journey has asked for one. */
-  let provider: ProviderEndpoint | null = null;
 
   /**
    * The landmark a place publishes once React Router — not the address bar —
@@ -580,45 +578,15 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
    *  Slice 4's helpers.
    * ---------------------------------------------------------------------- */
 
-  /** Where the recording shim writes what it was handed, once one is in place. */
-  const agentArgumentLog = path.join(session.stateDir, 'authored-agent-arguments');
-
-  /** The record separator the shim writes after each invocation's arguments. */
-  const END_OF_INVOCATION = '--journey-end-of-invocation--';
-
   /**
-   * Point Settings → AI at the repository's own agent-CLI double.
-   *
-   * A one-line shim around it, run under the same interpreter the backend uses,
-   * written into this session's own state directory so it is removed with
-   * everything else this run made.
-   *
-   * With `recordArguments`, the shim first appends every argument it was given
-   * to a log and then execs the double unchanged. **NUL-separated**, because
-   * the last argument is the person's own prompt and a prompt with a newline in
-   * it would otherwise be read back as several arguments — which is precisely
-   * the kind of silent corruption this row is about.
+   * Point Settings → AI at the repository's own agent-CLI double, written by
+   * `fixtures/authored-commands.ts` into this session's own state directory,
+   * so it is removed with everything else this run made.
    */
   const pointTheAssistantAtTheDouble = async (
     options: { recordArguments: boolean },
   ): Promise<void> => {
-    const command = path.join(session.stateDir, 'authored-agent-command');
-    const double = path.join(
-      session.root.repo, 'resmon_scripts', 'verification_scripts', 'fixtures', 'fake_claude.py',
-    );
-    expect(
-      fs.existsSync(double),
-      'the build under test carries no agent-CLI double to drive the assistant with',
-    ).toBe(true);
-    // The interpreter has to be absolute: a bare name in a shebang is not
-    // looked up on PATH the way a command is.
-    const python = execFileSync(session.python, ['-c', 'import sys; print(sys.executable)'],
-      { encoding: 'utf8' }).trim();
-    const record = options.recordArguments
-      ? `{ for argument in "$@"; do printf '%s\\0' "$argument"; done; `
-        + `printf '%s\\0' '${END_OF_INVOCATION}'; } >> "${agentArgumentLog}"\n`
-      : '';
-    fs.writeFileSync(command, `#!/bin/sh\n${record}exec "${python}" "${double}" "$@"\n`, { mode: 0o755 });
+    const command = writeTheAuthoredAgentCommand(session, options);
     await session.api('PUT', '/api/settings/ai', { settings: { ai_cli_path: command } });
     // The panel reads the lane when it opens, so the window has to see the
     // setting. Reopening is what a person would do, and it also proves the
@@ -971,9 +939,6 @@ export function createClassicDriver(session: Session, testInfo: TestInfo): Journ
       timeout: 60_000, message: `the download to ${target} never completed`,
     }).toBe('completed');
   };
-
-  /** The authored model a J36 or J37 journey answers its selected evidence with. */
-  let selectedModel: SelectedAnswerEndpoint | null = null;
 
   /** The saved answer on screen, once it shows the state and cleanup the app recorded. */
   const readTheAnswerHere = async (id: string): Promise<SelectedAnswerView> => {
@@ -3014,22 +2979,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     useAnAuthoredSummarizerThatIsNotSignedIn: async () => {
-      // The summarization lane runs `claude -p --output-format json …` and
-      // reads one JSON envelope off stdout. A CLI whose OAuth session has
-      // lapsed answers with `is_error` set and says so in `result`, and exits
-      // zero doing it — which is why the lane keys on the field rather than on
-      // the status. This is that envelope, byte for byte as
-      // `test_llm_subscription.py` recorded it from the real CLI.
-      const command = path.join(session.stateDir, 'authored-summarizer');
-      fs.writeFileSync(command, '#!/bin/sh\ncat <<\'JSON\'\n'
-        + JSON.stringify({
-          is_error: true,
-          subtype: 'success',
-          terminal_reason: 'api_error',
-          result: 'Failed to authenticate: OAuth session expired and could not be refreshed',
-          type: 'result',
-        })
-        + '\nJSON\n', { mode: 0o755 });
+      // A command whose sign-in has lapsed: the envelope the real CLI sends
+      // then, written by `fixtures/authored-commands.ts`.
+      const command = writeTheLapsedSummarizer(session);
       // Through the settings the page writes, not around them: `ai_cli_path` is
       // only consulted for the provider `ai_provider` names, so both have to be
       // set or the lane looks for the binary in the usual places instead — and
@@ -3284,8 +3236,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     useAnAuthoredProviderOnAKey: async ({ answer, key, model }) => {
-      provider = await startProviderEndpoint(answer);
-      session.alsoCloseOnClose(() => provider!.close());
+      const provider = await startProviderEndpointFor(session, answer);
       // Two settings groups, because they are two different questions: which
       // endpoint the app talks to, and which lane the assistant runs in. Both
       // through the routes the AI tab writes.
@@ -3315,6 +3266,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     readWhatTheProviderReceived: async (): Promise<ProviderRequest[]> => {
+      // Whichever driver pointed the app at it: what it received is the same read.
+      const provider = providerEndpointOf(session);
       expect(provider, 'this journey never started an authored provider').toBeTruthy();
       return provider!.calls().map((call) => ({
         path: call.path,
@@ -3343,19 +3296,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     useAnAuthoredAgentCommandThatRecordsItsArguments: () =>
       pointTheAssistantAtTheDouble({ recordArguments: true }),
 
-    readWhatTheAgentCommandReceived: async (): Promise<string[][]> => {
-      if (!fs.existsSync(agentArgumentLog)) return [];
-      const invocations: string[][] = [];
-      let current: string[] = [];
-      // The trailing separator leaves one empty field, which is not an argument.
-      const fields = fs.readFileSync(agentArgumentLog, 'utf8').split('\0');
-      if (fields[fields.length - 1] === '') fields.pop();
-      for (const field of fields) {
-        if (field === END_OF_INVOCATION) { invocations.push(current); current = []; } else current.push(field);
-      }
-      expect(current, 'the agent command was recorded mid-invocation').toEqual([]);
-      return invocations;
-    },
+    readWhatTheAgentCommandReceived: async (): Promise<string[][]> => readTheAgentCommandArguments(session),
 
     fixTheChoicesForThisConversation: async (choice): Promise<ComposerChoice> => {
       const panel = await assistantPanel();
@@ -3681,8 +3622,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     useAnAuthoredModelForSelectedAnswers: async () => {
-      selectedModel = await startSelectedAnswerEndpoint();
-      session.alsoCloseOnClose(() => selectedModel!.close());
+      const selectedModel = await startSelectedAnswerEndpointFor(session);
       // The CLI path points at a file that does not exist, on purpose. The
       // selection dialog offers the Claude Code connection beside the API one,
       // and a CLI path left blank is found wherever the installers put the real
@@ -3704,11 +3644,13 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     theAuthoredModelCitesTextItWasNotSent: (quote) => {
+      const selectedModel = selectedAnswerEndpointOf(session);
       expect(selectedModel, 'this journey never started an authored model').toBeTruthy();
       selectedModel!.citeTextItWasNotSent(quote);
     },
 
     readWhatTheAuthoredModelReceived: () => {
+      const selectedModel = selectedAnswerEndpointOf(session);
       expect(selectedModel, 'this journey never started an authored model').toBeTruthy();
       return selectedModel!.calls().map((call) => ({ raw: call.raw, userPayload: call.userPayload }));
     },

@@ -1,7 +1,7 @@
 /**
  * The guards that make the rest of this directory a denominator.
  *
- * Four things are checked here and all four fail the run rather than logging.
+ * Six things are checked here and all six fail the run rather than logging.
  *
  * 1. **Every built row has exactly one spec, and every spec has a row.** Both
  *    directions matter. One direction alone gives you either a register with
@@ -16,6 +16,12 @@
  *    three compare the register with this directory; this one compares it
  *    with the app, which nothing did until the Source wall had been a page
  *    with no row for nine days.
+ * 5. **A driver waits for a state, never for a duration**, and never reads the
+ *    screen before it has waited for something.
+ * 6. **The candidate takes a person's setup through Atlas's screen.** It
+ *    borrows from the classic driver only what `drivers/borrowed.ts` lists:
+ *    what has no screen in any interface, and setup Atlas has no screen for
+ *    yet, each entry with its reason, and none that Atlas now implements.
  *
  * These are plain filesystem reads: there is no app to launch to know whether a
  * file exists. They run first because they are named `register.spec.ts` and the
@@ -29,6 +35,7 @@ import {
   ALLOWED_SPEC_IMPORTS, FORBIDDEN_RENDERER_PATTERNS, JOURNEY_REGISTER, LATER_SLICES, ROUTE_ROWS,
   builtRows, pendingRows, specStem,
 } from './register';
+import { API_SETUP, SCREENLESS } from './drivers/borrowed';
 import { allRouteHashes } from '../src/routes';
 
 const HERE = __dirname;
@@ -344,6 +351,145 @@ test.describe('the driver waits for states, not for durations', () => {
       hits,
       'a driver method reads the screen before it has waited for anything — which is how a read '
       + 'measures the state before the write that produced it, and reports it as a fact',
+    ).toEqual([]);
+  });
+});
+
+/**
+ * Setup a person does on a screen goes through Atlas's screen.
+ *
+ * The candidate drives Atlas and borrows from the classic driver only what
+ * `drivers/borrowed.ts` lists: members that touch no screen in any interface,
+ * and setup steps Atlas has no screen for yet, each with the reason. Before
+ * this guard the borrowed list mixed the two, and a journey whose setup was
+ * borrowed passed whether or not Atlas could take the step: Atlas shipped
+ * without Settings › AI › Embeddings while J09 and J11 passed. So the lists
+ * are held to four things, all read from the files rather than from a running
+ * driver, because this guard launches nothing:
+ *
+ * 1. Nothing is borrowed except through the two lists, and each name in them
+ *    is a member of the driver that the classic driver implements.
+ * 2. Each API-setup entry says, as a fact, which Atlas screen is missing and
+ *    which route the classic driver takes instead.
+ * 3. No entry outlives the Atlas screen: once `atlas.ts` implements a member,
+ *    the candidate takes that step through Atlas, and the entry has to go.
+ * 4. A screenless member writes nothing to the app in its own body. That is
+ *    the check that keeps a setup step from being filed as screenless to skip
+ *    giving a reason. It reads the member's own body, not the helpers it
+ *    calls, and `backend` is the engine's record by definition.
+ */
+const DRIVER = path.join(HERE, 'driver.ts');
+
+/** Every member the `JourneyDriver` interface declares, across each of its declarations. */
+function journeyDriverMembers(): Set<string> {
+  const lines = fs.readFileSync(DRIVER, 'utf8').split('\n');
+  const members = new Set<string>();
+  let inside = false;
+  for (const line of lines) {
+    if (/^export interface JourneyDriver\b/.test(line)) { inside = true; continue; }
+    if (inside && /^}/.test(line)) { inside = false; continue; }
+    const match = inside ? /^ {2}(?:readonly )?([A-Za-z_][A-Za-z0-9_]*)\??[(:<]/.exec(line) : null;
+    if (match) members.add(match[1]);
+  }
+  return members;
+}
+
+/** The members the classic driver's object carries: each `name: (…)` and each shorthand `name,`. */
+function classicMembers(): { names: Set<string>; bodies: Map<string, string[]> } {
+  const source = fs.readFileSync(path.join(DRIVERS, 'classic.ts'), 'utf8');
+  const methods = driverMethods(source);
+  const names = new Set(methods.map((m) => m.name));
+  for (const line of source.split('\n')) {
+    const shorthand = /^ {4}([A-Za-z_][A-Za-z0-9_]*),$/.exec(line);
+    if (shorthand) names.add(shorthand[1]);
+  }
+  return { names, bodies: new Map(methods.map((m) => [m.name, m.body])) };
+}
+
+/** What `atlas.ts` implements: its `AtlasDriver` type, which TypeScript holds to the object it returns. */
+function atlasMembers(): Set<string> {
+  const source = fs.readFileSync(path.join(DRIVERS, 'atlas.ts'), 'utf8');
+  const declared = /export type AtlasDriver = Pick<JourneyDriver,([\s\S]*?)>;/.exec(source);
+  expect(declared, 'atlas.ts no longer declares the AtlasDriver type this guard reads').toBeTruthy();
+  return new Set([...declared![1].matchAll(/'([A-Za-z_][A-Za-z0-9_]*)'/g)].map((m) => m[1]));
+}
+
+/** A write to the app's API, in any of the shapes the drivers make one. */
+const API_WRITE = /\bapi(?:<[^>]*>)?\(\s*['"](?:POST|PUT|PATCH|DELETE)['"]|\bmethod:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/;
+
+test.describe('the candidate borrows from the classic driver only what Atlas has no screen for', () => {
+  const setup = Object.keys(API_SETUP);
+
+  test('nothing is borrowed except through the two lists, and each name is a classic member', () => {
+    const declared = journeyDriverMembers();
+    expect(declared.size, 'the JourneyDriver scan found nothing, so this guard proves nothing').toBeGreaterThan(100);
+    const classic = classicMembers().names;
+    const problems: string[] = [];
+    for (const name of SCREENLESS.filter((n) => setup.includes(n))) problems.push(`${name} is in both lists`);
+    for (const name of [...SCREENLESS, ...setup]) {
+      if (!declared.has(name)) problems.push(`${name} is not a member of JourneyDriver`);
+      else if (!classic.has(name)) problems.push(`${name} is not implemented by the classic driver`);
+    }
+    // The candidate itself: every read of the classic driver's members goes
+    // through `borrowedFromClassic`, and the one member it hands Atlas by name
+    // is screenless.
+    const candidate = fs.readFileSync(path.join(DRIVERS, 'candidate.ts'), 'utf8').split('\n').map(code);
+    candidate.forEach((line, index) => {
+      if (/\b(?:shared|classic)\s*\[/.test(line) && !line.includes('borrowedFromClassic(')) {
+        problems.push(`candidate.ts:${index + 1} reads the classic driver outside borrowedFromClassic: ${line.trim()}`);
+      }
+      for (const [, name] of line.matchAll(/\bclassic\.([A-Za-z_][A-Za-z0-9_]*)/g)) {
+        if (!SCREENLESS.includes(name)) problems.push(`candidate.ts:${index + 1} hands Atlas classic.${name}, which is not screenless`);
+      }
+    });
+    expect(problems, 'a member reaches the candidate from the classic driver without a list that says why').toEqual([]);
+  });
+
+  test('every API-setup entry says which Atlas screen is missing', () => {
+    const reasons = Object.entries(API_SETUP);
+    const problems: string[] = [];
+    for (const [name, reason] of reasons) {
+      const said = reason.trim();
+      if (said.length < 60) problems.push(`${name}: "${said}" is too short to say which screen is missing and why`);
+      if (!/\bAtlas\b/.test(said)) problems.push(`${name}: the reason never says what Atlas lacks`);
+      if (!/\/api\//.test(said)) problems.push(`${name}: the reason never names the route the classic driver takes`);
+      if (/\b(?:TODO|TBD|FIXME|XXX)\b|not in Atlas yet|same as (?:above|classic)/i.test(said)) {
+        problems.push(`${name}: "${said}" is a placeholder, not a reason`);
+      }
+      if (reasons.some(([other, text]) => other !== name && text.trim() === said)) {
+        problems.push(`${name}: the same reason is given for another member, so it says nothing about this one`);
+      }
+    }
+    expect(problems, 'an API-setup entry does not say, as a fact, why no Atlas screen takes the step').toEqual([]);
+  });
+
+  test('no borrowed entry outlives the Atlas screen that now takes its step', () => {
+    const atlas = atlasMembers();
+    expect(atlas.size, 'the AtlasDriver scan found nothing, so this guard proves nothing').toBeGreaterThan(50);
+    const outlived = setup.filter((name) => atlas.has(name))
+      .map((name) => `${name}: atlas.ts implements it, so the API-setup entry is an exception with no screen missing`);
+    const unreached = SCREENLESS.filter((name) => atlas.has(name))
+      .map((name) => `${name}: atlas.ts implements it, so the candidate never borrows it`);
+    expect([...outlived, ...unreached], 'a borrowed entry names a member Atlas now takes itself; remove it').toEqual([]);
+  });
+
+  test('a screenless member writes nothing to the app', () => {
+    const { names, bodies } = classicMembers();
+    const writes: string[] = [];
+    for (const name of SCREENLESS) {
+      const body = bodies.get(name);
+      if (!body) {
+        // A shorthand member carries no body here; `backend` is the only one
+        // the classic driver has, and it is the engine's record.
+        if (name !== 'backend' || !names.has(name)) writes.push(`${name}: no body found to check`);
+        continue;
+      }
+      if (API_WRITE.test(body.map(code).join('\n'))) writes.push(`${name} writes to the app's API`);
+    }
+    expect(
+      writes,
+      'a member filed as screenless writes to the app, which makes it setup: move it to API_SETUP with '
+      + 'the reason no Atlas screen does it, or take the step through Atlas',
     ).toEqual([]);
   });
 });

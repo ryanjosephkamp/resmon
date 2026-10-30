@@ -25,8 +25,11 @@ import type {
   SourceOutcome, SourceWallCellView, SourceWallReading, SourceWallView, ThemeChoice, TodayReading, UpcomingFire,
   WatchdogFinding, WatchdogView, WhyPanel,
 } from '../driver';
-import type { EmbeddingBackfill, EmbeddingProviderChoice } from '../driver';
+import type { DeliveryDestination, EmbeddingBackfill, EmbeddingProviderChoice } from '../driver';
+import { writeTheAuthoredAgentCommand, writeTheLapsedSummarizer } from '../fixtures/authored-commands';
 import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/embedding-endpoint';
+import { startProviderEndpointFor } from '../fixtures/provider-endpoint';
+import { startSelectedAnswerEndpointFor } from '../fixtures/selected-answer-endpoint';
 import type { Session } from './session';
 
 /** The hash behind each place Atlas has. */
@@ -113,7 +116,11 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'
   | 'observeOwnRequests' | 'readSidebarPlaces' | 'readTheFirstRunCard' | 'skipTheFirstRunCard' | 'eraseWith'
   | 'saveKeyFor' | 'readKeyFields' | 'readSourceDetails' | 'readRequiredAttributions'
-  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'backUpNow' | 'readRestoreCard'>;
+  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'backUpNow' | 'readRestoreCard'
+  // The setup a person does on a screen, taken through Atlas's own.
+  | 'createRoutine' | 'fireRoutineNow' | 'addDeliveryTarget' | 'restoreIntoFreshState'
+  | 'useAnAuthoredAgentCommand' | 'useAnAuthoredAgentCommandThatRecordsItsArguments' | 'useAnAuthoredProviderOnAKey'
+  | 'useAnAuthoredSummarizerThatIsNotSignedIn' | 'useAnAuthoredModelForSelectedAnswers'>;
 
 /** The reading-queue filter buttons, by the journey's word for each. */
 const QUEUE_FILTER: Record<'to read' | 'read' | 'all', string> = { 'to read': 'To read', read: 'Read', all: 'All' };
@@ -145,6 +152,46 @@ function isoDate(at: Date): string {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
+/** A schedule as the watch editor offers it: the cadence's button, the time, and the day where it has one. */
+interface EditorSchedule {
+  cadence: 'Every day' | 'Weekdays' | 'Once a week' | 'Once a month';
+  time: string;
+  weekday?: string;
+  monthDay?: string;
+}
+
+/**
+ * The watch editor's choice that stores this cron expression, or null where
+ * it offers none. The editor stores `M H * * *` for Every day, `M H * * 1-5`
+ * for Weekdays, `M H * * D` for Once a week and `M H D * *` (days 1 to 28) for
+ * Once a month, and nothing else; a journey asking for another schedule is
+ * asking for one a person cannot make there, and the step says so.
+ */
+function editorSchedule(cron: string): EditorSchedule | null {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [minute = '', hour = '', day = '', month = '', weekday = ''] = fields;
+  if (!/^\d{1,2}$/.test(minute) || !/^\d{1,2}$/.test(hour) || month !== '*') return null;
+  if (Number(minute) > 59 || Number(hour) > 23) return null;
+  const time = `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`;
+  if (day === '*' && weekday === '*') return { cadence: 'Every day', time };
+  if (day === '*' && weekday === '1-5') return { cadence: 'Weekdays', time };
+  if (day === '*' && /^[0-6]$/.test(weekday)) return { cadence: 'Once a week', time, weekday };
+  if (weekday === '*' && /^\d{1,2}$/.test(day) && Number(day) >= 1 && Number(day) <= 28) {
+    return { cadence: 'Once a month', time, monthDay: day };
+  }
+  return null;
+}
+
+/** A routine's parameters, which the engine may hand back as the JSON text it stores. */
+function parametersOf(raw: unknown): Record<string, unknown> {
+  let value = raw;
+  if (typeof value === 'string') {
+    try { value = JSON.parse(value); } catch { return {}; }
+  }
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
 export function createAtlasDriver(session: Session, testInfo: TestInfo, backend: BackendFacts): AtlasDriver {
   const win = () => session.win;
   /** The folder chosen for the Library, which the vault is made inside. */
@@ -153,6 +200,20 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
   const notInAtlasYet = (what: string): never => {
     testInfo.skip(true, `Not in Atlas yet: ${what}.`);
     throw new Error('unreachable: a skipped journey does not continue');
+  };
+
+  /**
+   * Wait until the engine has stored what the screen was asked to write: its
+   * own record, read back over its API, as the classic driver's `stored` does.
+   * Every setup step here ends on this, and reads the screen only afterwards,
+   * for a state the screen could not have shown before the write.
+   */
+  const stored = async <T>(
+    what: string, read: () => Promise<T>, holds: (value: T) => boolean, timeout = 30_000,
+  ): Promise<void> => {
+    await expect
+      .poll(async () => holds(await read()), { timeout, message: `the app never recorded ${what}` })
+      .toBe(true);
   };
 
   const goto = async (place: Place): Promise<void> => {
@@ -386,6 +447,18 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       .toHaveText(project, { timeout: 30_000 });
   };
 
+  /** Library › Evidence, and the named project opened from its list. */
+  const openTheProject = async (project: string): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/library/evidence'; });
+    await expect(win().getByRole('heading', { name: 'Evidence', level: 1 })).toBeVisible({ timeout: 30_000 });
+    const button = named(win().getByRole('navigation', { name: 'Evidence projects' }).locator('button.ev-project'), '.lib-name', project);
+    await expect(button, `Evidence lists no project called ${project}`).toBeVisible({ timeout: 60_000 });
+    await button.click();
+    await expect(button).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
+    await theWorkspaceIs(project);
+    openProject = project;
+  };
+
   /** Select a file of the open project, and wait for the reader to be on it. */
   const pickTheProjectFile = async (name: string): Promise<void> => {
     const item = named(win().getByRole('region', { name: 'Files in this project' }).locator('button.library-file'), '.lib-name', name);
@@ -563,6 +636,82 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         : (await controls.locator('.conv-no-effort').innerText()).trim(),
       fixedAs: '',
     };
+  };
+
+  // — Settings › AI, set up for a journey ---------------------------------------
+
+  /** Settings › AI › Summaries as a step sets it: the provider, and only the fields the step types. */
+  interface SummaryLane {
+    provider: string;
+    model?: string;
+    /** The command's path, for Claude Code or Codex. */
+    command?: string;
+    /** A custom endpoint's address. */
+    endpoint?: string;
+    /** A key, typed into the provider's own key field and stored by its own button. */
+    key?: string;
+  }
+
+  /**
+   * Settings › AI › Summaries, set as a person sets it: the provider, the
+   * fields that provider shows, a key typed into the provider's key field and
+   * stored by its button, then Save summary settings.
+   *
+   * The key goes where the classic driver's PUT sends it, the credential
+   * store, which in this suite is an in-memory one inside this backend. The
+   * command and the custom address are the ones Ask and selected answers use
+   * too: Atlas keeps one of each for every part of Settings › AI, as the
+   * engine does (`ai_cli_path`, `ai_custom_base_url`).
+   */
+  const setTheSummaryLane = async (lane: SummaryLane): Promise<void> => {
+    await goto('AI settings');
+    const form = win().getByRole('form', { name: 'Summary settings' });
+    await expect(form, 'Settings › AI has no summary settings').toBeVisible({ timeout: 30_000 });
+    await form.locator('#ai-provider').selectOption(lane.provider);
+    if (lane.model !== undefined) await form.locator('#ai-model').fill(lane.model);
+    if (lane.command !== undefined) await form.locator('#ai-cli-path').fill(lane.command);
+    if (lane.endpoint !== undefined) await form.locator('#ai-base-url').fill(lane.endpoint);
+    if (lane.key !== undefined) {
+      const field = form.locator('[data-ai="key"] input[type="password"]');
+      await expect(field, `Settings › AI shows no key field for ${lane.provider}`).toBeVisible({ timeout: 30_000 });
+      const kept = win().waitForResponse((r) => r.url().includes('/api/credentials/') && r.request().method() === 'PUT');
+      await field.fill(lane.key);
+      await form.locator('[data-ai="key"]').getByRole('button', { name: /^(Store|Replace)$/ }).click();
+      const response = await kept;
+      expect(response.ok(), `the ${lane.provider} key was refused: HTTP ${response.status()}`).toBe(true);
+      const name = decodeURIComponent(new URL(response.url()).pathname.split('/').pop() ?? '');
+      await stored(`a stored ${name}`, () => backend.credentials(), (c) => c.credentials?.[name]?.status === 'present');
+      await expect(field, 'the key was stored and its field still holds it').toHaveValue('', { timeout: 30_000 });
+    }
+    const holds = (s: Record<string, unknown>): boolean => s.ai_provider === lane.provider
+      && (lane.model === undefined || s.ai_model === lane.model)
+      && (lane.command === undefined || s.ai_cli_path === lane.command)
+      && (lane.endpoint === undefined || s.ai_custom_base_url === lane.endpoint);
+    // Where the engine already holds all of it, there is nothing to save, and
+    // the screen says so by leaving Save disabled.
+    if (holds(await backend.aiSettings())) return;
+    const save = form.getByRole('button', { name: 'Save summary settings', exact: true });
+    await expect(save, 'Settings › AI will not save the summary settings as typed').toBeEnabled({ timeout: 15_000 });
+    await save.click();
+    await stored(`the summary lane on ${lane.provider}`, () => backend.aiSettings(), holds);
+    await expect(form.locator('.form-actions').getByRole('status'), 'the engine stored it and the form never said so')
+      .toHaveText('Saved.', { timeout: 30_000 });
+  };
+
+  /** Settings › AI › Ask, set to run on a key: An API key, the provider, its model, then Save. */
+  const runAskOnAKey = async (provider: string, model: string): Promise<void> => {
+    await goto('AI settings');
+    const form = win().getByRole('form', { name: 'Assistant settings' });
+    await expect(form, 'Settings › AI has no Ask settings').toBeVisible({ timeout: 30_000 });
+    await form.locator('#assistant-runtime').selectOption('api_key');
+    await form.locator('#assistant-provider').selectOption(provider);
+    await form.locator('#assistant-model').fill(model);
+    await form.getByRole('button', { name: 'Save assistant settings', exact: true }).click();
+    await stored(`Ask on a ${provider} key with ${model}`,
+      () => session.api<Record<string, string>>('GET', '/api/settings/assistant'),
+      (s) => s.assistant_runtime === 'api_key' && s.assistant_provider === provider && s.assistant_model === model);
+    await expect(form.getByRole('status'), 'the engine stored it and the form never said so')
+      .toHaveText(/^Saved\./, { timeout: 30_000 });
   };
 
   // — selected-evidence answers -------------------------------------------------
@@ -990,16 +1139,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       return (await members.locator('button.library-file .lib-name').allInnerTexts()).map((t) => t.trim());
     },
 
-    openTheEvidenceProject: async (project) => {
-      await win().evaluate(() => { window.location.hash = '#/library/evidence'; });
-      await expect(win().getByRole('heading', { name: 'Evidence', level: 1 })).toBeVisible({ timeout: 30_000 });
-      const button = named(win().getByRole('navigation', { name: 'Evidence projects' }).locator('button.ev-project'), '.lib-name', project);
-      await expect(button, `Evidence lists no project called ${project}`).toBeVisible({ timeout: 60_000 });
-      await button.click();
-      await expect(button).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
-      await theWorkspaceIs(project);
-      openProject = project;
-    },
+    openTheEvidenceProject: (project) => openTheProject(project),
 
     readTheEvidencePage: async (file, page): Promise<EvidencePageView> => {
       await pickTheProjectFile(file);
@@ -1513,6 +1653,111 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
 
     // — watches -------------------------------------------------------------
 
+    createRoutine: async (routine) => {
+      // Watches › New watch, as a person makes one: a name, the terms, the
+      // sources, a schedule chosen in words, and "Start watching when saved"
+      // turned off, because a journey's routine starts paused (J03 and J20
+      // assert it) and an active one would ask real sources at its next fire.
+      const schedule = editorSchedule(routine.cron);
+      if (!schedule) throw new Error(`the watch editor offers no schedule that stores "${routine.cron}"`);
+      await goto('Routines');
+      await win().locator('[data-editor="new"]').click();
+      const editor = win().getByRole('form', { name: 'A new watch' });
+      await expect(editor, 'New watch did not open the editor').toBeVisible({ timeout: 30_000 });
+      await editor.locator('#watch-name').fill(routine.name);
+      const terms = editor.locator('#watch-terms');
+      for (const term of routine.keywords) {
+        await terms.fill(term);
+        await terms.press('Enter');
+      }
+      await expect(editor.locator('.term'), 'the editor does not hold the terms typed').toHaveText(routine.keywords);
+      for (const source of routine.sources) {
+        const row = editor.locator(`.source[data-source="${source}"]`);
+        await expect(row, `the watch editor lists no source "${source}"`).toBeVisible({ timeout: 60_000 });
+        await row.locator('input').check();
+      }
+      const cadence = editor.getByRole('group', { name: 'How often' }).getByRole('button', { name: schedule.cadence, exact: true });
+      await cadence.click();
+      await expect(cadence).toHaveAttribute('aria-pressed', 'true');
+      if (schedule.weekday !== undefined) await editor.getByLabel('Day of the week').selectOption(schedule.weekday);
+      if (schedule.monthDay !== undefined) await editor.getByLabel('Day of the month').selectOption(schedule.monthDay);
+      await editor.getByLabel('Time of day').fill(schedule.time);
+      const start = editor.locator('[data-switch="is_active"]');
+      if ((await start.getAttribute('aria-checked')) !== 'false') await start.click();
+      await expect(start, 'the new watch would start watching when saved').toHaveAttribute('aria-checked', 'false');
+      const save = editor.getByRole('button', { name: 'Save watch', exact: true });
+      await expect(save, 'the editor will not save the watch as filled in').toBeEnabled({ timeout: 30_000 });
+      const created = win().waitForResponse((r) => r.url().endsWith('/api/routines') && r.request().method() === 'POST');
+      await save.click();
+      const response = await created;
+      expect(response.ok(), `Save watch was refused: HTTP ${response.status()}`).toBe(true);
+      const id = Number((await response.json()).id);
+      await stored(`${routine.name} as a paused watch on ${routine.cron}`,
+        () => session.api<Record<string, unknown>>('GET', `/api/routines/${id}`),
+        (record) => {
+          const parameters = parametersOf(record.parameters);
+          return record.name === routine.name && record.schedule_cron === routine.cron && !record.is_active
+            && JSON.stringify(parameters.repositories) === JSON.stringify(routine.sources)
+            && JSON.stringify(parameters.keywords) === JSON.stringify(routine.keywords);
+        });
+      await expect(win().locator(`.watch-page[data-routine="${id}"] [data-editor="said"]`),
+        'the watch was stored and its page never said so').toHaveText('Saved, paused.', { timeout: 30_000 });
+      return id;
+    },
+
+    fireRoutineNow: async (name): Promise<RunHandle> => {
+      // The watch page's Run now, on every watch, paused or not. As with
+      // `askForThisRoutineToRunNow`, the run starts in the window's own engine,
+      // which never runs watches on a clock (`RESMON_DISABLE_SCHEDULER=1`), so
+      // what this observes is the run a fire produces, not what produces one.
+      const id = await openWatch(name);
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith(`/api/routines/${id}/run`) && r.request().method() === 'POST',
+      );
+      await win().getByRole('button', { name: 'Run now', exact: true }).click();
+      const response = await answered;
+      expect(response.ok(), `Run now on ${name} was refused: HTTP ${response.status()}`).toBe(true);
+      const run: RunHandle = { id: Number((await response.json()).execution_id) };
+      await stored(`run ${run.id} as ${name}'s`, () => backend.execution(run), (row) => Number(row.routine_id) === id);
+      await expect(win().locator('.run-now-said'), 'the run was recorded and the page never said it started')
+        .toHaveAttribute('data-run-started', String(run.id), { timeout: 30_000 });
+      return run;
+    },
+
+    addDeliveryTarget: async (routine, target): Promise<DeliveryDestination> => {
+      // A folder or a feed is refused unless the directory exists: the engine
+      // will not make one, so a mistyped path reports itself rather than
+      // quietly succeeding. So the journey makes the folder a person would
+      // have chosen, inside this session's own state directory.
+      let destination = target.destination ?? '';
+      if (!destination && target.channel !== 'webhook') {
+        destination = path.join(session.stateDir, `delivery-${target.channel}`);
+        fs.mkdirSync(destination, { recursive: true });
+      }
+      const mode = target.mode ?? 'automatic';
+      // The watch's own Where reports go tab, where a person adds one.
+      const id = await openWatchTab(routine, 'Where reports go');
+      const add = win().getByRole('form', { name: 'Add a destination' });
+      await expect(add, `${routine}'s page offers no way to add a destination`).toBeVisible({ timeout: 30_000 });
+      await add.getByLabel('Kind of destination', { exact: true }).selectOption(target.channel);
+      await add.getByLabel('Where it goes', { exact: true }).fill(destination);
+      await add.getByLabel('When reports go there', { exact: true }).selectOption(mode);
+      const answered = win().waitForResponse(
+        (r) => r.url().endsWith(`/api/routines/${id}/delivery-targets`) && r.request().method() === 'POST',
+      );
+      await add.getByRole('button', { name: 'Add', exact: true }).click();
+      const response = await answered;
+      expect(response.ok(), `the ${target.channel} destination was refused: HTTP ${response.status()}`).toBe(true);
+      const created = Number((await response.json()).id);
+      await stored(`a ${target.channel} destination for ${routine}`,
+        () => session.api<{ targets: Record<string, unknown>[] }>('GET', `/api/routines/${id}/delivery-targets`),
+        ({ targets }) => targets.some((t) => Number(t.id) === created && t.channel === target.channel
+          && t.target === destination && t.mode === mode && Boolean(t.enabled)));
+      await expect(win().locator(`.destinations li[data-target="${created}"]`), 'the destination was stored and the tab does not list it')
+        .toBeVisible({ timeout: 30_000 });
+      return { id: created, channel: target.channel, destination };
+    },
+
     listRoutineNames: async () => {
       await goto('Routines');
       // The denominator is the engine's own list: wait until every name it
@@ -1705,6 +1950,11 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await expect(probe, 'the probe drew no answer').toBeVisible({ timeout: 30_000 });
       expect(await probe.getAttribute('data-ok'), `the embedding probe said: ${await probe.innerText()}`).toBe('true');
       await form.getByRole('button', { name: 'Save embedding settings', exact: true }).click();
+      await stored(`ranking by meaning on ${JOURNEY_EMBEDDING_MODEL}`,
+        () => session.api<{ settings: Record<string, string> }>('GET', '/api/settings/embeddings'),
+        ({ settings }) => ['true', '1'].includes(String(settings.embedding_enabled).trim().toLowerCase())
+          && settings.embedding_provider === 'local'
+          && settings.embedding_model === JOURNEY_EMBEDDING_MODEL && settings.embedding_endpoint === endpoint.url);
       await expect(form.locator('[data-embeddings="saved"]')).toBeVisible({ timeout: 30_000 });
       await expect(part).toHaveAttribute('data-embeddings-lane', 'set', { timeout: 30_000 });
       return JOURNEY_EMBEDDING_MODEL;
@@ -2196,6 +2446,73 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       await expect(form.getByRole('status')).toHaveText(/^Saved\./, { timeout: 30_000 });
     },
 
+    // — Settings › AI, pointed at the journey's authored models and commands -----
+
+    useAnAuthoredAgentCommand: async () => {
+      // The command Ask runs is the one Summaries' Command field names: the
+      // engine keeps one `ai_cli_path` for both, and Atlas shows its field once
+      // Claude Code is the summary provider.
+      await setTheSummaryLane({ provider: 'claude_code', command: writeTheAuthoredAgentCommand(session, { recordArguments: false }) });
+    },
+
+    useAnAuthoredAgentCommandThatRecordsItsArguments: async () => {
+      await setTheSummaryLane({ provider: 'claude_code', command: writeTheAuthoredAgentCommand(session, { recordArguments: true }) });
+    },
+
+    useAnAuthoredSummarizerThatIsNotSignedIn: async () => {
+      // Claude Code as the summary provider, its model, and the path to a
+      // command whose sign-in has lapsed: the command is consulted only for
+      // the provider chosen, so a path alone would leave the lane looking for
+      // a real one where the installers put it.
+      await setTheSummaryLane({ provider: 'claude_code', model: 'sonnet', command: writeTheLapsedSummarizer(session) });
+    },
+
+    useAnAuthoredProviderOnAKey: async ({ answer, key, model }) => {
+      // Two parts of Settings › AI, because they are two questions: where the
+      // custom endpoint is and the key it takes (Summaries, which keeps one of
+      // each for every part), and which connection Ask runs on.
+      const provider = await startProviderEndpointFor(session, answer);
+      await setTheSummaryLane({ provider: 'custom', endpoint: provider.url });
+      await runAskOnAKey('custom', model);
+      // Ask takes a new conversation's connection from these defaults once per
+      // window (`AskProvider` seeds its draft on the first status it reads), so
+      // a default saved here reaches the composer only after the window is
+      // reopened, as the classic driver reopens it for the same reason.
+      await session.relaunch();
+      // The key after the reopen, and not as an ordering preference: this
+      // suite's keyring lives inside the backend process, so a key stored
+      // before the reopen would be gone with it.
+      await setTheSummaryLane({ provider: 'custom', key });
+      // Checked before anything is sent: a composer still on Claude Code would
+      // run whatever `claude` this machine has, since no command is set here.
+      await openAsk();
+      const controls = conversation().locator('fieldset.conv-choices');
+      await expect(controls.getByLabel('Connection', { exact: true }), 'a new conversation does not start on the key saved for Ask')
+        .toHaveValue('api_key:custom', { timeout: 30_000 });
+      await expect(controls.getByLabel('Model', { exact: true }), 'a new conversation does not start on the model saved for Ask')
+        .toHaveValue(model);
+    },
+
+    useAnAuthoredModelForSelectedAnswers: async () => {
+      const model = await startSelectedAnswerEndpointFor(session);
+      // The address and the key, under Summaries' custom endpoint, which is
+      // the one address and the one key selected answers send to.
+      await setTheSummaryLane({ provider: 'custom', endpoint: model.url, key: 'journey-authored-selected-key' });
+      // Then the Claude Code command, set to a path with nothing at it, on
+      // purpose. The answer composer offers Claude Code beside the API
+      // connection, and a command left blank is found wherever the installers
+      // put the real one; a path that is not an executable is reported missing
+      // and never falls through to another binary (`ai_cli.discover_cli`). So
+      // this journey cannot start a signed-in agent CLI even by a misclick.
+      // Choosing Claude Code is what shows the command's field; the custom
+      // address stays stored beside it.
+      await setTheSummaryLane({ provider: 'claude_code', command: path.join(session.stateDir, 'no-agent-cli-in-this-journey') });
+      await stored('the custom address kept beside the command', () => backend.aiSettings(),
+        (settings) => settings.ai_custom_base_url === model.url);
+      // Back to the project the person was working in, as they would go back.
+      if (openProject) await openTheProject(openProject);
+    },
+
     readAiLaneStatus: async () => {
       await goto('AI settings');
       const status = win().locator('[data-ai="lane-status"]');
@@ -2367,6 +2684,39 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       session.alsoRemoveOnClose(String(body.path));
       await expect(win().locator('[data-backup="written"]')).toBeVisible({ timeout: 30_000 });
       return { directory: String(body.path), manifest: body.manifest as Record<string, unknown> };
+    },
+
+    restoreIntoFreshState: async (bundle) => {
+      // A brand-new, empty state directory, as on another computer; then the
+      // Storage group's own restore. The folder dialog is answered with the
+      // bundle, because nothing automated can operate a native one; the check,
+      // the staging and the report are the app's.
+      await session.relaunchOverFreshState();
+      await goto('Storage settings');
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, bundle.directory);
+      const restore = win().locator('[data-backup="restore"]');
+      await restore.getByRole('button', { name: 'Restore from a backup…', exact: true }).click();
+      const report = restore.getByRole('group', { name: 'The backup, checked' });
+      await expect(report, 'the chosen backup was never checked').toBeVisible({ timeout: 60_000 });
+      await expect(report, 'the backup this journey wrote does not check out').toContainText('It checks out');
+      const staged = win().waitForResponse((r) => r.url().endsWith('/api/restore') && r.request().method() === 'POST');
+      await report.getByRole('button', { name: 'Stage this restore', exact: true }).click();
+      const response = await staged;
+      expect(response.ok(), `Stage this restore was refused: HTTP ${response.status()}`).toBe(true);
+      const same = (a: unknown, b: string): boolean => {
+        try { return fs.realpathSync(String(a)) === fs.realpathSync(b); } catch { return false; }
+      };
+      await stored('the restore as staged', () => session.api<{ pending_restore: { bundle?: unknown } | null }>('GET', '/api/backup/last'),
+        (last) => same(last.pending_restore?.bundle, bundle.directory));
+      await expect(restore.locator('[data-backup="pending"]'), 'the restore was staged and the card never said so')
+        .toBeVisible({ timeout: 30_000 });
+      // Then the start that applies it. Restart resmon now quits and reopens
+      // the app from its own main process, which would leave this session
+      // holding an app that has gone; quitting and opening it again, the
+      // other way the card names, is the same start.
+      await session.relaunch();
     },
 
     readRestoreCard: async (): Promise<RestoreCard> => {

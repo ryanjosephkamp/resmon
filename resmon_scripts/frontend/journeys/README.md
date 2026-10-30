@@ -93,19 +93,22 @@ other half of that check and it is in the pull request.
 | File | What it is |
 |---|---|
 | `register.ts` | The denominator: all 48 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
-| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer. |
+| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration; the candidate borrows from the classic driver only what `drivers/borrowed.ts` lists, with its reasons. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |
-| `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the classic driver's renderer-free members (`backend`, pictures, the authored source), and a skip with its reason for everything else. |
-| `drivers/atlas.ts` | The journeys Atlas can take so far, in Atlas's markup. |
+| `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the classic driver's members that `drivers/borrowed.ts` lists, and a skip with its reason for everything else. |
+| `drivers/atlas.ts` | The journeys Atlas can take so far, in Atlas's markup, the setup a person does on a screen included. |
+| `drivers/borrowed.ts` | What the candidate may take from the classic driver: `SCREENLESS`, the members that touch no screen in any interface, and `API_SETUP`, setup Atlas has no screen for yet, each entry with the reason. Data only, so the guard reads it without launching anything. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
 | `fixtures/authored-pdf.ts` | A PDF built from sentences a spec wrote, so J35–J37 can hold the reader's text against a known page. |
 | `fixtures/selected-answer-endpoint.ts` | An authored model on loopback for selected-evidence answers, which can be told to cite text it was not sent. |
+| `fixtures/provider-endpoint.ts` | An authored provider on loopback for the assistant on a key, which records every request it is sent. |
+| `fixtures/authored-commands.ts` | The agent-CLI double the assistant runs, with or without a record of every argument it is handed, and a summarizer whose sign-in has lapsed: files a person could point Settings › AI at. |
 | `J<nn>-<slug>.spec.ts` | One register row each. |
 
-## Six things to know before adding a row
+## Seven things to know before adding a row
 
 **A driver waits for a state, never for a duration.** A `waitForTimeout` under
 `drivers/` fails `register.spec.ts` unless the line, or the comment above it,
@@ -126,6 +129,23 @@ has quietly stopped covering the register. The same holds one level out: every
 page `src/routes.ts` routes to has an entry in `ROUTE_ROWS` naming the rows that
 carry it, so a new page with no journey is a red guard rather than a page
 nobody measures — which is what the Source wall was for nine days.
+
+**Setup a person does on a screen goes through Atlas's screen.** A
+step taken over the API passes whether or not Atlas has a screen for it, which
+is how Atlas shipped without Settings › AI › Embeddings while J09 and J11
+passed. So where Atlas has a screen for a setup step — a watch made in the
+editor, Run now, a destination, Settings › AI, a restore — `drivers/atlas.ts`
+takes the step through it and ends on `stored(…)`, the engine's record of what
+the screen wrote. The candidate borrows from the classic driver only what
+`drivers/borrowed.ts` lists: `SCREENLESS`, members that touch no screen in any
+interface (the engine's record, a picture, a fixture, a gate, a file on disk,
+what an authored command received), and `API_SETUP`, setup Atlas has no screen
+for yet, each entry with a reason that says which screen is missing and which
+route the classic driver takes instead. `register.spec.ts` fails on a member
+borrowed from neither list, on a reason that is missing or a placeholder, on an
+entry `drivers/atlas.ts` now implements, and on a screenless member whose
+classic body writes to the app. A setup step Atlas has no screen for is a gap
+in Atlas, and its entry comes off the list the day the screen lands.
 
 **Nothing here touches the renderer.** If a spec needs something the driver
 cannot do, the answer is a new driver method named for what the *person* does,

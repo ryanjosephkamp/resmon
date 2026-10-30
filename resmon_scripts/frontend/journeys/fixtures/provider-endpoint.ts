@@ -20,6 +20,7 @@
  * that wrote down what it received.
  */
 import * as http from 'http';
+import type { Session } from '../drivers/session';
 
 /** One request the app made of the provider. */
 export interface ProviderCall {
@@ -86,4 +87,27 @@ export async function startProviderEndpoint(answer: string): Promise<ProviderEnd
     // has already paid for once.
     close: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
   };
+}
+
+/** The authored provider each launched app was pointed at, by its session. */
+const pointedAt = new WeakMap<Session, ProviderEndpoint>();
+
+/**
+ * Start one for this launched app, closed with it, and remembered against it.
+ *
+ * Remembered because pointing the app at it and reading what it received can
+ * be two drivers' members: the candidate points Atlas at it through Settings ›
+ * AI, and reads what it received with the classic driver's member, which
+ * touches no screen.
+ */
+export async function startProviderEndpointFor(session: Session, answer: string): Promise<ProviderEndpoint> {
+  const endpoint = await startProviderEndpoint(answer);
+  session.alsoCloseOnClose(() => endpoint.close());
+  pointedAt.set(session, endpoint);
+  return endpoint;
+}
+
+/** The authored provider this launched app was pointed at, or null where none was started. */
+export function providerEndpointOf(session: Session): ProviderEndpoint | null {
+  return pointedAt.get(session) ?? null;
 }
