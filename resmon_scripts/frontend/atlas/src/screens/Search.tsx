@@ -4,11 +4,13 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters, type SavedConfiguration } from './collection/savedSearches';
-import { providerWords } from './ask/askModel';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
+import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
+import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
+import { AI_KEY } from './settings/summaryLanes';
 
 type Mode = 'dive' | 'sweep';
 
@@ -22,13 +24,6 @@ const WINDOWS: readonly { days: number | null; label: string }[] = [
 
 function isoDay(at: Date): string {
   return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
-}
-
-/** Which lane would write a run's summaries, and what happens where it cannot. */
-function laneSentence(provider: string, model: string): string {
-  if (!provider) return 'No provider is chosen for summaries, so none can be written. The papers are kept either way.';
-  return `Written with ${providerWords(provider)}${model ? ` (${model})` : ''}. A paper it cannot summarize is kept`
-    + ' without one, and the run’s log says why.';
 }
 
 function windowDates(days: number | null): { from: string; to: string } {
@@ -63,8 +58,9 @@ export function Search() {
   const [windowDays, setWindowDays] = useState<number | null | undefined>(from ? undefined : 30);
   const [dates, setDates] = useState(() => (from ? { from: from.dateFrom, to: from.dateTo } : windowDates(30)));
   const [cap, setCap] = useState(from?.cap ?? 100);
-  const [summarize, setSummarize] = useState(from?.summarize ?? false);
-  const lane = useQuery({ queryKey: ['ai-settings'], queryFn: () => answer(engine().GET('/api/settings/ai')), enabled: summarize });
+  // Summaries for this run alone: on or off, and anything set here rather than in Settings › AI.
+  const [summaries, setSummaries] = useState<SummaryChoice>({ ...NO_CHOICE, on: from?.summarize ?? false });
+  const lane = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')), enabled: summaries.on });
   /** The name being typed for Save this search; `null` while the field is closed. */
   const [naming, setNaming] = useState<string | null>(null);
 
@@ -90,13 +86,15 @@ export function Search() {
 
   const start = useMutation({
     mutationFn: async () => {
+      const override = summaries.on && lane.data ? overrideOf(summaries, lane.data) : {};
       const base = {
         query: allTerms.join(' '),
         keywords: allTerms,
         date_from: dates.from || null,
         date_to: dates.to || null,
         max_results: cap,
-        ai_enabled: summarize,
+        ai_enabled: summaries.on,
+        ...(Object.keys(override).length ? { ai_settings: override } : {}),
         request_id: crypto.randomUUID(),
         saved_configuration_id: opened?.id ?? null,
       };
@@ -107,12 +105,18 @@ export function Search() {
     onSuccess: (started) => navigate(`/runs/${started.execution_id}`),
   });
 
-  const ready = allTerms.length > 0 && picked.length > 0 && !start.isPending;
+  // A run that summarizes waits for Settings › AI: a lane of its own is built from it, and without it the
+  // screen could not say what the run will use.
+  const summaryProblem = choiceProblem(summaries) ?? (summaries.on && !lane.data
+    ? (lane.isError ? 'Settings › AI could not be read, so this run cannot summarize. Turn summaries off, or try again.' : 'Reading Settings › AI.')
+    : null);
+  const ready = allTerms.length > 0 && picked.length > 0 && !summaryProblem && !start.isPending;
 
   const keep = useMutation({
     mutationFn: (name: string) => {
       const { config_type, parameters } = savedParameters({
-        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap, summarize,
+        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap,
+        summarize: summaries.on,
       });
       return answer(engine().POST('/api/configurations', { body: { name, config_type, parameters } }));
     },
@@ -219,19 +223,9 @@ export function Search() {
           </label>
         </div>
 
-        <div className="ask-summarize">
-          <label>
-            <input type="checkbox" checked={summarize} onChange={(e) => setSummarize(e.target.checked)} />
-            <span>Summarize each paper</span>
-          </label>
-          {summarize && (
-            <p className="ask-lane" data-ask="summary-lane">
-              {lane.data ? laneSentence(lane.data.ai_provider, lane.data.ai_model)
-                : lane.isError ? `The engine did not say which lane would write them (${lane.error.message}).`
-                  : 'Reading which lane would write them.'}
-              {' '}<Link to="/settings/ai">Settings → AI</Link>
-            </p>
-          )}
+        <div className="ask-summarize" data-ask="summaries">
+          <SummaryChoiceField id="ask-ai" value={summaries} onChange={setSummaries} stored={lane.data} whose="this run" toggle="checkbox" />
+          {lane.isError && <p className="field-error" role="alert">The engine did not say what Settings › AI holds ({lane.error.message}).</p>}
         </div>
 
         <div className="ask-go">
@@ -242,6 +236,7 @@ export function Search() {
           </button>
           <div className="ask-facts" aria-live="polite">
             {!allTerms.length && <p>Add at least one term.</p>}
+            {summaryProblem && summaryProblem !== 'Reading Settings › AI.' && <p data-ask="summary-problem">{summaryProblem}</p>}
             {allTerms.length > 0 && !picked.length && <p>Choose {mode === 'dive' ? 'a source' : 'one or more sources'}.</p>}
             {pace && (
               <p>

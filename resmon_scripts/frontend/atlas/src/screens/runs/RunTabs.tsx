@@ -219,7 +219,8 @@ function SearchRecord({ id, settledAt }: { id: number; settledAt: string | null 
 }
 
 function Metadata({ run }: { run: Run }) {
-  const skip = new Set(['coverage', 'identity', 'progress_events', 'source_outcomes']);
+  // `ai_lanes` is said in words under the run's head.
+  const skip = new Set(['coverage', 'identity', 'progress_events', 'source_outcomes', 'ai_lanes']);
   return (
     <dl className="record-dl">
       {Object.entries(run).filter(([k]) => !skip.has(k)).map(([k, v]) => (
