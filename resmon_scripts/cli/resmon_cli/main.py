@@ -132,8 +132,9 @@ def build_parser() -> argparse.ArgumentParser:
     _json_flag(s)
     s = watch.add_parser("add", help="add a watch",
                          description="Add a watch: the keywords it searches for, the sources it asks, "
-                                     "and when. It is active unless --inactive, as the app's editor "
-                                     "saves it.")
+                                     "and when. Each run asks for papers published since the previous "
+                                     "run unless --last-days or --no-date-limit says otherwise, and it is "
+                                     "active unless --inactive, as the app's editor saves it.")
     s.add_argument("name", help="what to call it")
     s.add_argument("--keyword", action="append", required=True, metavar="WORDS",
                    help="a keyword or phrase (repeatable)")
@@ -145,6 +146,13 @@ def build_parser() -> argparse.ArgumentParser:
                    help="most results per source per run (default 100)")
     s.add_argument("--intent", metavar="SENTENCE",
                    help="what you are really looking for, in your words; the coverage audit uses it")
+    window = s.add_mutually_exclusive_group()
+    window.add_argument("--last-days", type=_positive(3650), metavar="N",
+                        help="ask each run for papers published in the N days before it, rather than "
+                             "since the previous run (the default, as the app's editor saves one)")
+    window.add_argument("--no-date-limit", action="store_true",
+                        help="ask each source in its own order with no dates: newest first for some, "
+                             "the most relevant of all years for others")
     s.add_argument("--inactive", action="store_true", help="save it without putting it on its schedule")
     _json_flag(s)
     return parser

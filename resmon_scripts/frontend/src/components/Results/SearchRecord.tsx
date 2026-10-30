@@ -116,7 +116,10 @@ const SearchRecord: React.FC<{ executionId: number; recordState?: SearchRecordSt
   const recordedAnswered = data.coverage
     ? data.sources.filter(s => s.coverage?.category === 'answered').length
     : identification.sources_that_answered;
-  const window = [search.date_from, search.date_to].filter(Boolean).join(' to ');
+  // One bound is said as one bound: a start date alone would read as a single day.
+  const window = search.date_from && search.date_to ? `${search.date_from} to ${search.date_to}`
+    : search.date_from ? `from ${search.date_from}, with no end date`
+      : search.date_to ? `up to ${search.date_to}` : '';
 
   const rows: Array<{ label: string; block: DedupBlock }> = [
     { label: 'Duplicates of a record from another source', block: dd.cross_source_duplicates },

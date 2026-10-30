@@ -72,6 +72,10 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
   const [formRepos, setFormRepos] = useState<string[]>([]);
   const [formDateFrom, setFormDateFrom] = useState('');
   const [formDateTo, setFormDateTo] = useState('');
+  // A window that moves with each run (`date_window`), set in the newer
+  // interface. This form has no control for it, so it is held as stored and
+  // sent back, unless dates are typed here, which choose fixed dates instead.
+  const [keptWindow, setKeptWindow] = useState<Record<string, unknown> | null>(null);
   const [formKeywords, setFormKeywords] = useState<string[]>([]);
   const [formIntent, setFormIntent] = useState('');
   // 2.1 — a routine watches words or it watches a person. `''` is the keyword
@@ -97,6 +101,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormRepos([]);
     setFormDateFrom('');
     setFormDateTo('');
+    setKeptWindow(null);
     setFormKeywords([]);
     setFormIntent('');
     setFormWatchMode('');
@@ -125,6 +130,7 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     setFormRepos(params.repositories || []);
     setFormDateFrom(params.date_from || '');
     setFormDateTo(params.date_to || '');
+    setKeptWindow(params.date_window && typeof params.date_window === 'object' ? params.date_window : null);
     setFormKeywords(params.keywords || []);
     setFormIntent(r.intent || '');
     const entity = params.entity && typeof params.entity === 'object' ? params.entity : null;
@@ -194,6 +200,9 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
     };
     if (formSchedule) {
       parameters._schedule = formSchedule;
+    }
+    if (keptWindow && !formDateFrom && !formDateTo) {
+      parameters.date_window = keptWindow;
     }
     if (formWatchMode) {
       if (formProfileId === null) {
@@ -394,6 +403,14 @@ const RoutineEditModal: React.FC<Props> = ({ open, target, onClose, onSaved }) =
           </div>
         )}
         <DateRangePicker dateFrom={formDateFrom} dateTo={formDateTo} onDateFromChange={setFormDateFrom} onDateToChange={setFormDateTo} />
+        {keptWindow && !formDateFrom && !formDateTo && (
+          <p className="form-hint" data-testid="kept-date-window">
+            {typeof keptWindow.last_days === 'number'
+              ? `Each run asks for papers published in the ${keptWindow.last_days} days before it.`
+              : 'Each run asks for papers published since the previous run.'}
+            {' '}Typing dates here replaces that with fixed dates.
+          </p>
+        )}
         {/*
           A retractions routine queries no source at all — the hint above says
           so — and "DBLP will search all of 2025" would be a sentence about

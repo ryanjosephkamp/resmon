@@ -39,7 +39,9 @@ which. Where it cannot know something, it says so instead of showing a plausible
   can honor your dates, whether it needs a key.
 - **Routines:** the same search on a schedule, fired by an optional background service (launchd,
   a systemd user unit, or Task Scheduler). Without the service, the Routines page says nothing will
-  run them.
+  run them. A routine can ask each run for the papers published since its previous run (or in the
+  last N days), with the dates computed when it runs and recorded with the run, so a source that
+  ranks by relevance is not asked for the same papers every time.
 - **Reports and a reading queue:** Markdown reports for every run, with its log and search record;
   save papers to read, and export references as BibTeX, RIS, or CSV.
 - **Explorer:** search everything resmon has collected, filtered by source, category, author, and
