@@ -2,7 +2,8 @@
  * Ask's defaults, saved in Settings › AI while the window is open, are what the
  * next new conversation starts with: no reopening the window. A choice the
  * person made in the composer is theirs, and a later saved default does not
- * replace it. Nothing is sent, so no command runs.
+ * replace it until New conversation is pressed. Nothing is sent, so no command
+ * runs.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -87,6 +88,14 @@ test('Ask: a default saved in Settings › AI reaches the next new conversation,
     await nav.getByRole('link', { name: 'Ask' }).click();
     await expect(model).toBeVisible({ timeout: 30_000 });
     await expect(model).toHaveValue('my-own-model');
+
+    // New conversation starts from the saved defaults, even when the composer is
+    // already a new conversation; the unsent text stays where it was.
+    const message = pane.getByLabel('Message the assistant');
+    await message.fill('words not sent yet');
+    await win.getByRole('region', { name: 'Saved chats' }).getByRole('button', { name: 'New conversation' }).click();
+    await expect(model).toHaveValue(second, { timeout: 30_000 });
+    await expect(message).toHaveValue('words not sent yet');
 
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
