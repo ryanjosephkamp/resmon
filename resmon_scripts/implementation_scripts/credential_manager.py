@@ -469,10 +469,45 @@ def validate_api_key(provider: str, key: str, base_url: str | None = None) -> bo
     ``base_url`` is honored only for ``provider == "custom"`` (IMPL-AI12):
     the probe is a ``GET {base_url}/models`` with ``Authorization: Bearer``.
     """
+    return probe_api_key(provider, key, base_url=base_url)["outcome"] == "accepted"
+
+
+def _probe_answer(provider: str, status: int) -> dict:
+    """What one HTTP status from a key probe establishes, and no more."""
+    if status == 200:
+        logger.info("API key validation succeeded for provider '%s'", provider)
+        return {"outcome": "accepted", "http_status": status,
+                "detail": "The provider accepted the key."}
+    logger.warning("API key validation failed for provider '%s': HTTP %d", provider, status)
+    if status in (401, 403):
+        return {"outcome": "refused", "http_status": status,
+                "detail": f"The provider refused the key (HTTP {status})."}
+    return {"outcome": "unanswered", "http_status": status,
+            "detail": f"The provider answered HTTP {status}, which does not say whether it accepts the key."}
+
+
+def _probe_unreached(provider: str, exc: Exception) -> dict:
+    logger.error("API key validation error for provider '%s': %s", provider, type(exc).__name__)
+    return {"outcome": "unreachable", "http_status": None,
+            "detail": f"resmon could not reach the provider ({type(exc).__name__}), so the key was not tested."}
+
+
+def probe_api_key(provider: str, key: str, base_url: str | None = None) -> dict:
+    """Test a key against its provider, and say what the answer establishes.
+
+    ``validate_api_key`` folds everything into one boolean, so a provider that
+    could not be reached reads exactly like one that refused the key. This keeps
+    them apart: ``outcome`` is ``accepted`` (HTTP 200), ``refused`` (401 or
+    403), ``unanswered`` (any other status, which says nothing about the key),
+    ``unreachable`` (no answer at all) or ``untestable`` (resmon has no probe
+    for this provider). ``detail`` is that in a sentence. Never raises, and
+    the key appears in neither the result nor a log record.
+    """
     if provider == "custom":
         if not base_url:
             logger.warning("Custom provider validation requires a base_url")
-            return False
+            return {"outcome": "untestable", "http_status": None,
+                    "detail": "A custom endpoint's key can be tested only once its base URL is set."}
         probe_url = base_url.rstrip("/") + "/models"
         try:
             with httpx.Client(timeout=15) as client:
@@ -480,28 +515,17 @@ def validate_api_key(provider: str, key: str, base_url: str | None = None) -> bo
                     probe_url,
                     headers={"Authorization": f"Bearer {key}"},
                 )
-            if response.status_code == 200:
-                logger.info("API key validation succeeded for provider 'custom'")
-                return True
-            logger.warning(
-                "API key validation failed for provider 'custom': HTTP %d",
-                response.status_code,
-            )
-            return False
+            return _probe_answer(provider, response.status_code)
         except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
-            logger.error("API key validation error for provider 'custom': %s", type(exc).__name__)
-            return False
+            return _probe_unreached(provider, exc)
         except Exception as exc:  # pragma: no cover - defensive catch-all
-            logger.error(
-                "Unexpected validation error for provider 'custom': %s",
-                type(exc).__name__,
-            )
-            return False
+            return _probe_unreached(provider, exc)
 
     spec = _VALIDATION_ENDPOINTS.get(provider)
     if spec is None:
         logger.warning("No validation endpoint configured for provider '%s'", provider)
-        return False
+        return {"outcome": "untestable", "http_status": None,
+                "detail": "resmon has no way to test a key for this provider."}
 
     headers = spec["headers_fn"](key)
     params = spec.get("params_fn", lambda _: {})(key)
@@ -514,21 +538,9 @@ def validate_api_key(provider: str, key: str, base_url: str | None = None) -> bo
                 headers=headers,
                 params=params,
             )
-        if response.status_code == 200:
-            logger.info("API key validation succeeded for provider '%s'", provider)
-            return True
-        logger.warning(
-            "API key validation failed for provider '%s': HTTP %d",
-            provider, response.status_code,
-        )
-        return False
+        return _probe_answer(provider, response.status_code)
     except (httpx.TimeoutException, httpx.TransportError, httpx.HTTPError) as exc:
         # TransportError covers ConnectError, ReadError, and related subclasses.
-        logger.error("API key validation error for provider '%s': %s", provider, type(exc).__name__)
-        return False
+        return _probe_unreached(provider, exc)
     except Exception as exc:  # pragma: no cover - defensive catch-all
-        logger.error(
-            "Unexpected validation error for provider '%s': %s",
-            provider, type(exc).__name__,
-        )
-        return False
+        return _probe_unreached(provider, exc)

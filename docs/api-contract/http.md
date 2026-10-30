@@ -10,7 +10,7 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 98 of 197 routes that have one. The remaining 99 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 99 of 197 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
 **Response.** The `response_model` the route declares, for the 157 of 197 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 40 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
@@ -241,7 +241,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
-| `POST` | `/api/credentials/validate` | token | — | — | *Validate Credential* |
+| `POST` | `/api/credentials/validate` | token | — | — | Test a key against its provider: one typed here, or the AI key already stored. |
 | `DELETE` | `/api/credentials/{key_name}` | token | — | `CredentialChanged` | *Delete Credential Endpoint* |
 | `PUT` | `/api/credentials/{key_name}` | token | — | `CredentialChanged` | *Store Credential Endpoint* |
 | `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
