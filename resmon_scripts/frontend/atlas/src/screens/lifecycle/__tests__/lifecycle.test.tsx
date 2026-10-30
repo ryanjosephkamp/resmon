@@ -218,9 +218,9 @@ describe('the marks on a paper', () => {
   });
 
   test('the service\'s note is shown on the paper\'s own page, not on a row', () => {
-    const noted = [event({ kind: 'preprint_published', severity: 'informational', detail: 'Cite the published version.' })];
-    expect(render(<LifecycleMarks events={noted} />).container.textContent).not.toContain('Cite the published version.');
-    expect(render(<LifecycleMarks events={noted} full />).container.textContent).toContain('Cite the published version.');
+    const noted = [event({ kind: 'preprint_published', severity: 'informational', detail: 'bioRxiv records that this preprint has since appeared as a journal article.' })];
+    expect(render(<LifecycleMarks events={noted} />).container.textContent).not.toContain('bioRxiv records');
+    expect(render(<LifecycleMarks events={noted} full />).container.textContent).toContain('bioRxiv records that this preprint has since appeared as a journal article.');
   });
 
   test('a paper with nothing recorded draws nothing', () => {

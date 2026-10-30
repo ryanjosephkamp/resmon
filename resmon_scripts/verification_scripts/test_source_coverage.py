@@ -106,3 +106,33 @@ def test_positive_reason_without_partial_fact_keeps_historical_rendering():
     )])
     assert result["counts"]["partial"] == 0
     assert result["sources"][0]["label"] == "answered"
+
+
+@pytest.mark.parametrize(("rows", "selected", "summary"), [
+    ([row("a", 3, None)], ["a"], "1 selected source: 1 answered, 0 recorded non-answers, 0 unknown."),
+    ([row("a", 3, None), row("b", reason="upstream_failure")], ["a", "b"],
+     "2 selected sources: 1 answered, 1 recorded non-answer (could not answer), 0 unknown."),
+    ([row("a", reason="upstream_failure"), row("b", reason="parse_failure")], ["a", "b", "c"],
+     "3 selected sources: 0 answered, 2 recorded non-answers (could not answer), 1 unknown."),
+    ([row("a", 3, None)], None, "1 recorded source: 1 answered, 0 recorded non-answers, 0 unknown."),
+])
+def test_the_summary_agrees_with_its_counts(rows, selected, summary):
+    params = {"repositories": selected} if selected else None
+    assert project(params, rows)["summary"] == summary
+
+
+def test_a_source_still_being_asked_when_the_run_was_cancelled_did_not_fail_to_answer():
+    cancelled = row("hal", status="cancelled", reason=None)
+    result = project({"repository": "hal"}, [cancelled], status="cancelled")
+    assert result["summary"] == (
+        "1 selected source: 0 answered, 1 recorded non-answer (cancelled before it answered), 0 unknown.")
+    assert "could not answer" not in result["summary"]
+
+    both = project({"repositories": ["hal", "plos"]},
+                   [row("hal", status="cancelled", reason=None), row("plos", status="cancelled", reason=None)],
+                   status="cancelled")
+    assert "2 recorded non-answers (cancelled before they answered)" in both["summary"]
+
+    mixed = project({"repositories": ["hal", "plos"]},
+                    [cancelled, row("plos", reason="upstream_failure")], status="cancelled")
+    assert "2 recorded non-answers (1 could not answer, 1 cancelled before it answered)" in mixed["summary"]

@@ -14,6 +14,19 @@ _PLOS_API_URL = "https://api.plos.org/search"
 _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
 
 
+def _publication_date_range(date_from: str | None, date_to: str | None) -> str:
+    """The Solr range for a window, with an open side written as a bare ``*``.
+
+    A time suffix belongs only on a date. Glued to the open side, as in
+    ``[2026-10-23T00:00:00Z TO *T23:59:59Z]``, it makes a range PLOS answers
+    with HTTP 400. A watch asking for papers since its previous run has no end
+    date, so this is the ordinary case, not an edge.
+    """
+    lower = f"{date_from}T00:00:00Z" if date_from else "*"
+    upper = f"{date_to}T23:59:59Z" if date_to else "*"
+    return f"[{lower} TO {upper}]"
+
+
 class PlosClient(BaseAPIClient):
     """PLOS repository API client (Tier 2)."""
 
@@ -36,9 +49,7 @@ class PlosClient(BaseAPIClient):
             # Build query with optional date filter
             q = query
             if date_from or date_to:
-                d_from = date_from or "*"
-                d_to = date_to or "*"
-                q += f" AND publication_date:[{d_from}T00:00:00Z TO {d_to}T23:59:59Z]"
+                q += f" AND publication_date:{_publication_date_range(date_from, date_to)}"
 
             params = {
                 "q": q,

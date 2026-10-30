@@ -178,7 +178,7 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     const erased = win.waitForResponse((r) => r.url().includes('/api/admin/erase-corpus'));
     await form.getByRole('button', { name: 'Confirm' }).click();
     expect((await erased).status()).toBe(200);
-    await expect(row.getByRole('status')).toContainText(/^Removed 0 papers\.$/, { timeout: 30_000 });
+    await expect(row.getByRole('status')).toContainText(/^There were no papers to remove\.$/, { timeout: 30_000 });
     expect((await engine<unknown[]>(win, '/api/configurations')).body.length, 'erasing papers took a saved search').toBe(configsBefore);
 
     // — Tutorials: links that leave, never frames ---------------------------------------

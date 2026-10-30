@@ -21,7 +21,7 @@ const FRESH = {
   counts: { documents: 0, executions: 0, routines: 0 },
   steps: [
     { id: 'agent_cli', done: true, detail: 'resmon found Claude Code on this machine.' },
-    { id: 'ai_key', done: false, detail: 'No AI provider is configured.' },
+    { id: 'ai_key', done: false, detail: 'No AI provider key is stored on this machine.' },
     { id: 'repository_key', done: null, detail: '5 of resmon’s sources can take a key of their own. The rest need none.' },
   ],
 };

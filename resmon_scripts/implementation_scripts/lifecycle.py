@@ -59,6 +59,7 @@ from typing import Optional, Sequence
 
 from .api_base import RateLimiter, safe_request
 from .database import (
+    BIORXIV_PUBLISHED_DETAIL,
     MissingNoticeError,
     record_lifecycle_check,
     record_lifecycle_finding,
@@ -266,11 +267,7 @@ def findings_from_biorxiv(detail: dict, *, stored_version: int | None = None) ->
             label="Published in a journal",
             notice_doi=published,
             notice_date=str(latest.get("date") or "") or None,
-            detail=(
-                "This preprint has since appeared as a journal article. Cite "
-                "the published version where you can — it is the one that was "
-                "peer reviewed."
-            ),
+            detail=BIORXIV_PUBLISHED_DETAIL,
             provider="biorxiv",
         ))
 

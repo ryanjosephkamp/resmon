@@ -274,8 +274,8 @@ const RECORD = {
     records_added: { count: 12, prisma: 'Records screened', meaning: 'm' },
   },
   caveats: [
-    '1 of the 3 sources selected returned zero because they could not answer, '
-    + 'not because there was nothing to find (crossref).',
+    '1 of the 3 recorded sources did not answer, so there is nothing to count (crossref). '
+    + 'Its note below says why. It did not contribute to this search.',
   ],
 };
 

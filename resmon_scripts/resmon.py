@@ -7116,19 +7116,23 @@ def _require_confirm(body: AdminConfirmBody) -> None:
         )
 
 
+# Each eraser counts the keys that were stored and are now gone, never the
+# names it asked about: with nothing stored, every count is 0. A delete that
+# times out raises, so a key that may still be there is never counted.
+
+
 def _erase_ai_keys() -> int:
-    for name in AI_CREDENTIAL_NAMES:
-        delete_credential(name)
-    # Legacy single global slot from pre-update_2 builds, if present.
-    delete_credential("ai_api_key")
-    return len(AI_CREDENTIAL_NAMES)
+    # The legacy single global slot from pre-update_2 builds is an AI key too.
+    names = sorted(AI_CREDENTIAL_NAMES) + ["ai_api_key"]
+    return sum(delete_credential(name) for name in names)
 
 
 def _erase_repo_keys() -> int:
-    names = sorted(catalog_credential_names())
-    for name in names:
-        delete_credential(name)
-    return len(names)
+    return sum(delete_credential(name) for name in sorted(catalog_credential_names()))
+
+
+def _erase_smtp_credentials() -> int:
+    return sum(delete_credential(name) for name in sorted(SMTP_CREDENTIAL_NAMES))
 
 
 def _erase_configs(conn) -> int:
@@ -7318,13 +7322,13 @@ def admin_reset_settings(body: AdminConfirmBody):
     r = _erase_repo_keys()
     # Also clear the SMTP password stored under SMTP_CREDENTIAL_NAMES so a
     # settings reset truly removes every secret tied to settings.
-    for name in SMTP_CREDENTIAL_NAMES:
-        delete_credential(name)
+    m = _erase_smtp_credentials()
     return {
         "success": True,
         "settings_cleared": n,
         "ai_keys_removed": a,
         "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
     }
 
 
@@ -7348,8 +7352,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         _close_db(conn)
     a = _erase_ai_keys()
     r = _erase_repo_keys()
-    for name in SMTP_CREDENTIAL_NAMES:
-        delete_credential(name)
+    m = _erase_smtp_credentials()
     return {
         "success": True,
         "configs_removed": c,
@@ -7358,6 +7361,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         "settings_cleared": s,
         "ai_keys_removed": a,
         "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
     }
 
 
@@ -8598,6 +8602,34 @@ def _credential_present(names) -> Optional[bool]:
     return False
 
 
+def _ai_key_step(display: dict[str, str]) -> dict:
+    """The first-run AI step, worded from what it checks: which AI provider keys are stored.
+
+    Whether a provider is *selected* is a different fact and not this step's:
+    the step is done when a key is stored. The keyring is read once, and as in
+    ``_credential_present`` a keyring that will not answer is not a missing key.
+    """
+    held = [name for name in sorted(AI_CREDENTIAL_NAMES) if probe_credential(name) == PRESENT]
+    if held:
+        providers = []
+        for name in held:
+            provider = "custom" if name == "custom_llm_api_key" else name.removesuffix("_api_key")
+            providers.append(display.get(provider, provider))
+        if len(providers) == 1:
+            return {"id": "ai_key", "done": True,
+                    "detail": f"A key for {providers[0]} is stored on this machine."}
+        named = (" and ".join(providers) if len(providers) == 2
+                 else f"{', '.join(providers[:-1])}, and {providers[-1]}")
+        return {"id": "ai_key", "done": True,
+                "detail": f"Keys for {named} are stored on this machine."}
+    if not keyring_is_responsive():
+        return {"id": "ai_key", "done": None,
+                "detail": ("The keychain did not answer, so resmon cannot say whether "
+                           "an AI provider key is stored on this machine.")}
+    return {"id": "ai_key", "done": False,
+            "detail": "No AI provider key is stored on this machine."}
+
+
 @app.get("/api/onboarding", response_model=response_models.OnboardingState,
          response_model_exclude_unset=True)
 def onboarding_state():
@@ -8618,7 +8650,6 @@ def onboarding_state():
         }
         dismissed = str(get_setting(conn, _ONBOARDING_DISMISSED_KEY) or "").lower() in (
             "1", "true", "yes")
-        ai_settings = _get_settings_group(conn, "ai")
     finally:
         _close_db(conn)
 
@@ -8644,15 +8675,7 @@ def onboarding_state():
                     "No agent CLI was found on this machine."
                 ),
             },
-            {
-                "id": "ai_key",
-                "done": _credential_present(AI_CREDENTIAL_NAMES),
-                "detail": (
-                    "An AI provider is selected."
-                    if (ai_settings.get("ai_provider") or ai_settings.get("ai_chain"))
-                    else "No AI provider is configured."
-                ),
-            },
+            _ai_key_step(_PROVIDER_DISPLAY),
             {
                 "id": "repository_key",
                 "done": _credential_present(repository_slots),

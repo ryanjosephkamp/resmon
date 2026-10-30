@@ -322,6 +322,100 @@ def test_a_source_that_stopped_answering_is_named_rather_than_counted(conn):
     assert verdict["headline"] == "arXiv has stopped answering."
 
 
+def _answered_then(conn, slug, last: dict, *, day: int = 3) -> None:
+    """``slug`` answers two runs, then its run on ``day`` records ``last``."""
+    for earlier, count in ((1, 9), (2, 7)):
+        run = make_run(conn, started=f"2026-10-0{earlier}T09:00:00", repositories=[slug])
+        record(conn, run, slug, count=count)
+    run = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=[slug])
+    record(conn, run, slug, **last)
+
+
+def test_a_reply_that_could_not_be_read_is_not_called_a_silence(conn):
+    _answered_then(conn, "hal", {"count": 0, "reason": "parse_failure",
+                                 "detail": {"detail": "parse_error", "attempts": 1}})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert verdict["headline"] == "HAL's last reply could not be read."
+
+
+@pytest.mark.parametrize("detail", [
+    {"detail": "http_400", "status": 400, "attempts": 1},
+    {"detail": "rate_limited", "status": 429, "attempts": 3},
+    {"detail": "refused", "status": None, "attempts": 1},
+])
+def test_a_request_the_source_refused_is_named_as_refused(conn, detail):
+    _answered_then(conn, "plos", {"count": 0, "reason": "upstream_failure", "detail": detail})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["level"] == "attention"
+    assert verdict["headline"] == "PLOS refused resmon's last request."
+
+
+@pytest.mark.parametrize("detail", [
+    {"detail": "timeout", "status": None, "attempts": 2},
+    {"detail": "connect", "status": None, "attempts": 2},
+    {"detail": "http_503", "status": 503, "attempts": 2},
+])
+def test_no_answer_at_all_is_still_stopped_answering(conn, detail):
+    _answered_then(conn, "arxiv", {"count": 0, "reason": "upstream_failure", "detail": detail})
+
+    assert source_wall.build(conn)["verdict"]["headline"] == "arXiv has stopped answering."
+
+
+def test_a_failure_detail_that_cannot_be_read_is_not_guessed_into_a_refusal():
+    row = {"zero_reason": "upstream_failure", "zero_detail": "not json"}
+    assert source_wall._last_outcome_kind("failed", row) == "stopped"
+    assert source_wall._last_outcome_kind("failed", None) == "stopped"
+
+
+def test_a_source_that_could_not_be_asked_is_not_said_to_have_stopped(conn):
+    _answered_then(conn, "springer", {"status": "skipped_missing_key", "count": 0, "reason": "missing_key"})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == "Springer Nature could not be asked on the last run that included it."
+
+
+def test_each_last_outcome_gets_its_own_sentence(conn):
+    sources = ["arxiv", "doaj", "hal", "plos"]
+    for day in (1, 2):
+        run = make_run(conn, started=f"2026-10-0{day}T09:00:00", repositories=sources)
+        for slug in sources:
+            record(conn, run, slug, count=4)
+    last = make_run(conn, started="2026-10-03T09:00:00", repositories=sources)
+    record(conn, last, "arxiv", count=0, reason="upstream_failure",
+           detail={"detail": "timeout", "attempts": 2})
+    record(conn, last, "doaj", count=0, reason="parse_failure", detail={"detail": "parse_error"})
+    record(conn, last, "hal", count=0, reason="parse_failure", detail={"detail": "parse_error"})
+    record(conn, last, "plos", count=0, reason="upstream_failure",
+           detail={"detail": "http_400", "status": 400, "attempts": 1})
+
+    verdict = source_wall.build(conn)["verdict"]
+
+    assert verdict["headline"] == (
+        "arXiv has stopped answering. PLOS refused resmon's last request. "
+        "The last replies from DOAJ and HAL could not be read."
+    )
+    assert verdict["detail"][0] == (
+        "Each of these answered earlier in this window, and the last outcome "
+        "resmon recorded for it was not an answer."
+    )
+
+
+def test_a_trailing_silence_does_not_change_what_the_last_outcome_was(conn):
+    """A cancelled run after HAL's unreadable reply is resmon's own stop, not a new fact about HAL."""
+    _answered_then(conn, "hal", {"count": 0, "reason": "parse_failure", "detail": {"detail": "parse_error"}})
+    cancelled = make_run(conn, started="2026-10-04T09:00:00", repositories=["hal"], status="cancelled")
+    record(conn, cancelled, "hal", status="cancelled")
+    make_run(conn, started="2026-10-05T09:00:00", repositories=["arxiv"])
+
+    assert source_wall.build(conn)["verdict"]["headline"] == "HAL's last reply could not be read."
+
+
 def test_the_verdict_partitions_every_state_it_can_meet(conn):
     """The verdict's own three buckets, checked against the state list.
 
@@ -387,6 +481,21 @@ def test_a_source_deselected_after_it_broke_is_still_reported_as_broken(conn):
     verdict = source_wall.build(conn)["verdict"]
 
     assert verdict["headline"] == "DOAJ has stopped answering."
+
+
+def test_a_withdrawn_source_is_shown_by_the_name_it_had(conn):
+    """``ieee`` is a slug; the wall names IEEE Xplore, and still says it is not in the catalog."""
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
+    record(conn, run, "ieee", status="error", reason="retired",
+           detail={"detail": "IEEE Xplore was withdrawn on its terms."})
+
+    wall = source_wall.build(conn)
+    ieee = next(s for s in wall["sources"] if s["slug"] == "ieee")
+
+    assert ieee["name"] == "IEEE Xplore"
+    assert ieee["in_catalog"] is False
+    assert "IEEE Xplore" in wall["verdict"]["headline"]
+    assert "ieee " not in wall["verdict"]["headline"]
 
 
 def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):

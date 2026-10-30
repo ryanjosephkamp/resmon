@@ -291,10 +291,30 @@ def test_a_missing_key_is_reported_as_a_fact_not_an_inference(conn):
     assert len(findings) == 1
     finding = findings[0]
     assert finding["severity"] == "broken"
-    assert finding["evidence"]["credential_name"] == "nasa_ads_api_key"
     assert finding["evidence"]["selected_by_active_routines"] == ["ADS watch"]
     # It must say why it is certain rather than implying it worked it out.
     assert "checks for the key before querying" in finding["detail"]
+
+
+def test_a_missing_key_is_named_by_its_source_not_its_keychain_slot(conn):
+    """The "Credential needed" row and the sentences say whose key, never the slot's name."""
+    _routine(conn, name="ADS watch", sources=("nasa_ads",))
+    _run(conn, days_ago=1, sources={
+        "nasa_ads": {
+            "status": "skipped_missing_key",
+            "credential_name": "nasa_ads_api_key",
+            "result_count": 0,
+        },
+    })
+
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_missing_key")[0]
+    assert finding["title"] == "NASA ADS has no API key configured"
+    assert finding["evidence"]["credential_name"] == "An API key for NASA ADS (none is stored)"
+    for words in (finding["title"], finding["detail"], finding["what_to_do"],
+                  finding["evidence"]["credential_name"]):
+        assert "nasa_ads_api_key" not in words
+    # A client that needs the slot still has it, under a key no screen labels.
+    assert finding["evidence"]["credential_slot"] == "nasa_ads_api_key"
 
 
 def test_an_old_one_off_sweep_does_not_alarm_forever(conn):
@@ -837,6 +857,17 @@ def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
     # read from the exception field, which an outage recorded as ``ok / 0``
     # never fills, so the card said HTTP 503 in prose and showed no error.
     assert findings[0]["evidence"]["last_error"] == "the source answered HTTP 503"
+
+
+def test_a_request_the_source_refused_is_named_as_a_refusal(conn):
+    """HAL answers a query it cannot run with HTTP 200 and an error, recorded as ``refused``."""
+    refused = {"status": "ok", "result_count": 0, "zero_reason": "upstream_failure",
+               "zero_detail": {"detail": "refused", "status": None, "attempts": 1}}
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"hal": refused})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["evidence"]["last_error"] == "the source refused the request"
+    assert "The most recent one: the source refused the request." in finding["detail"]
 
 
 def test_a_raised_error_is_still_the_most_recent_error_verbatim(conn):

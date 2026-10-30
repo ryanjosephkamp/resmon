@@ -112,6 +112,59 @@ def test_hal_normalizes_real_response_shape_and_preserves_query_window(wire):
     assert api_base.search_outcome().snapshot()["last_call_failed"] is False
 
 
+@pytest.mark.parametrize(("date_from", "date_to", "fq"), [
+    ("2026-10-23", None, "producedDate_tdate:[2026-10-23T00:00:00Z TO *]"),
+    (None, "2026-10-30", "producedDate_tdate:[* TO 2026-10-30T23:59:59Z]"),
+    ("2026-10-23", "2026-10-30", "producedDate_tdate:[2026-10-23T00:00:00Z TO 2026-10-30T23:59:59Z]"),
+])
+def test_an_open_side_of_the_window_is_a_bare_star(wire, date_from, date_to, fq):
+    """A time suffix on ``*`` is a range HAL cannot parse, and a watch since its previous run has no end."""
+    calls, _ = wire
+    api_hal.HalClient().search("synthetic", date_from, date_to, 3)
+    assert calls[0]["params"]["fq"] == fq
+
+
+def test_no_window_sends_no_date_filter(wire):
+    calls, _ = wire
+    api_hal.HalClient().search("synthetic", max_results=3)
+    assert "fq" not in calls[0]["params"]
+
+
+@pytest.mark.parametrize("body", [
+    {"error": {"msg": "Error. See help : /docs"}},
+    {"error": {"code": 400}},
+    {"error": "Error. See help : /docs"},
+])
+def test_an_error_in_a_200_reply_is_a_refused_request_not_an_unreadable_one(wire, body, caplog):
+    wire[1][:] = [body]
+    with caplog.at_level("ERROR", logger=api_hal.__name__):
+        assert api_hal.HalClient().search("synthetic", "2026-10-23", None, 3) == []
+    snapshot = api_base.search_outcome().snapshot()
+    assert snapshot["explicit_reason"] is None
+    assert snapshot["last_call_failed"] is True and snapshot["last_detail"] == "refused"
+    assert snapshot["last_status"] is None and snapshot["failure_history"] == ["refused"]
+    reason, detail = zero_reason.derive(snapshot)
+    assert (reason, detail) == ("upstream_failure", {"detail": "refused", "status": None, "attempts": 1})
+    assert zero_reason.sentence("HAL", reason, detail) == (
+        "HAL could not be queried: it refused the request after 1 attempt. "
+        "This is not a zero — the source did not answer.")
+    # HAL's own words reach the log, and nothing resmon keeps.
+    assert "HAL refused the request" in caplog.text
+    assert "See help" not in json.dumps(snapshot)
+
+
+def test_a_refusal_after_a_page_of_records_keeps_the_records_as_partial(wire):
+    wire[1][:] = [{"response": {"docs": [document(i) for i in range(100)]}},
+                  {"error": {"msg": "Error. See help : /docs"}}]
+    results = api_hal.HalClient().search("synthetic", max_results=101)
+    assert len(results) == 100
+    issue = zero_reason.terminal_issue(api_base.search_outcome().snapshot())
+    assert issue is not None and issue[0] == "upstream_failure"
+    assert zero_reason.partial_sentence("HAL", *issue, returned=100) == (
+        "HAL returned 100 usable records before a later request was refused. "
+        "The retained set may be incomplete.")
+
+
 def test_valid_empty_is_an_answer(wire):
     assert api_hal.HalClient().search("synthetic", max_results=3) == []
     assert zero_reason.derive(api_base.search_outcome().snapshot()) == ("answered_empty", {"attempts": 1})

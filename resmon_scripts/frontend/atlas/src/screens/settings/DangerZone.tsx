@@ -76,21 +76,43 @@ const ACTIONS: readonly Action[] = [
   },
 ];
 
-/** Each count the engine answers, by the name this screen gives the thing. */
-const COUNTED: Record<string, string> = {
-  ai_keys: 'AI keys', repo_keys: 'source keys', configs: 'saved configurations', executions: 'runs', documents: 'papers',
+/** Each count the engine answers, by the names this screen gives one of the thing and more than one. */
+const COUNTED: Record<string, readonly [string, string]> = {
+  ai_keys: ['AI key', 'AI keys'], repo_keys: ['source key', 'source keys'], smtp_credentials: ['email password', 'email passwords'],
+  configs: ['saved configuration', 'saved configurations'], executions: ['run', 'runs'], documents: ['paper', 'papers'],
 };
 
-/** What the engine said it removed, in words: every `<thing>_removed` count it answered, and nothing it did not. */
+/** The counts of what the keychain held: the engine counts a key only when one was stored and is now gone. */
+const KEYCHAIN = new Set(['ai_keys', 'repo_keys', 'smtp_credentials']);
+
+function listed(items: readonly string[], conjunction: 'and' | 'or'): string {
+  if (items.length < 3) return items.join(` ${conjunction} `);
+  return `${items.slice(0, -1).join(', ')}, ${conjunction} ${items[items.length - 1]}`;
+}
+
+/**
+ * What the engine said it removed, in words: every `<thing>_removed` count it answered, and nothing it did not.
+ * A count of none says there was none, so an erase that found nothing never reads like one that failed.
+ */
 export function removedWords(body: unknown): string {
   if (!body || typeof body !== 'object') return 'Done.';
-  const parts = Object.entries(body as Record<string, unknown>)
-    .filter(([key, value]) => key.endsWith('_removed') && typeof value === 'number')
-    .map(([key, value]) => {
-      const thing = key.replace(/_removed$/, '');
-      return `${value} ${COUNTED[thing] ?? thing.replace(/_/g, ' ')}`;
-    });
-  return parts.length ? `Removed ${parts.join(', ')}.` : 'Done.';
+  const removed: string[] = [];
+  const noneThere: string[] = [];
+  const noneStored: string[] = [];
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (!key.endsWith('_removed') || typeof value !== 'number') continue;
+    const thing = key.replace(/_removed$/, '');
+    const plain = thing.replace(/_/g, ' ');
+    const [one, many] = COUNTED[thing] ?? [plain, plain];
+    if (value > 0) removed.push(`${value.toLocaleString('en-US')} ${value === 1 ? one : many}`);
+    else if (KEYCHAIN.has(thing)) noneStored.push(many);
+    else noneThere.push(many);
+  }
+  const said: string[] = [];
+  if (removed.length) said.push(`Removed ${listed(removed, 'and')}.`);
+  if (noneThere.length) said.push(`There were no ${listed(noneThere, 'or')} to remove.`);
+  if (noneStored.length) said.push(`No ${listed(noneStored, 'or')} were stored, so none were removed.`);
+  return said.length ? said.join(' ') : 'Done.';
 }
 
 /**

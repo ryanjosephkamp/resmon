@@ -249,8 +249,28 @@ def get_credential(key_name: str) -> str | None:
     return value
 
 
-def delete_credential(key_name: str) -> None:
-    """Remove a credential from the OS keyring."""
+def delete_credential(key_name: str) -> bool:
+    """Remove a credential from the OS keyring.
+
+    Returns True when a stored credential was removed and False when there
+    was none to remove, so a caller that reports a count reports keys, not
+    names. A delete that times out raises: the credential may still be there,
+    and it is never counted as removed.
+
+    The keyring is read first because not every backend says on delete that
+    there was nothing there: the null backend, which stores nothing, deletes
+    without complaint. A read that says "absent" settles it. A read that does
+    not answer leaves the delete's own answer to decide, and the delete is
+    always attempted either way.
+    """
+    try:
+        read, value = _call_keyring(
+            "get_password", keyring.get_password, _SERVICE, key_name,
+            honour_breaker=True,
+        )
+        known_absent = read and value is None
+    except Exception:  # noqa: BLE001 - an unreadable item is not an absent one
+        known_absent = False
     try:
         ok, _ = _call_keyring("delete_password", keyring.delete_password, _SERVICE, key_name)
         if not ok:
@@ -258,9 +278,14 @@ def delete_credential(key_name: str) -> None:
                 f"Timed out deleting credential {key_name!r} from the OS keyring "
                 f"after {_KEYRING_TIMEOUT_SEC:.0f}s. It may still be present."
             )
-        logger.info("Credential deleted: %s (service=%s)", key_name, _SERVICE)
     except keyring.errors.PasswordDeleteError:
         logger.debug("Credential already absent: %s (service=%s)", key_name, _SERVICE)
+        return False
+    if known_absent:
+        logger.debug("Credential already absent: %s (service=%s)", key_name, _SERVICE)
+        return False
+    logger.info("Credential deleted: %s (service=%s)", key_name, _SERVICE)
+    return True
 
 
 # ---------------------------------------------------------------------------

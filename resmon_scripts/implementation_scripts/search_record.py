@@ -402,11 +402,12 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
     ]
     if could_not_answer:
         names = ", ".join(s["source"] for s in could_not_answer)
+        one = len(could_not_answer) == 1
         caveats.append(
             f"{len(could_not_answer)} of the {len(sources)} recorded sources "
-            f"returned zero because they could not answer, not because there "
-            f"was nothing to find ({names}). Their notes below say why. They "
-            "did not contribute to this search."
+            f"did not answer, so there is nothing to count ({names}). "
+            f"{'Its note below says' if one else 'Their notes below say'} why. "
+            f"{'It' if one else 'They'} did not contribute to this search."
         )
 
     partial = [s for s in sources if s.get("coverage", {}).get("partial")]

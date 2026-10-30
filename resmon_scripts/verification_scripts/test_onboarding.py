@@ -147,3 +147,27 @@ def test_a_present_key_is_reported_as_present(client, monkeypatch):
     by_id = {s["id"]: s for s in _state(client)["steps"]}
     assert by_id["ai_key"]["done"] is True
     assert by_id["repository_key"]["done"] is False
+
+
+def test_the_ai_step_says_what_it_checked_which_is_a_stored_key(client, monkeypatch):
+    """It checks for a stored key, so it says that, not whether a provider is selected."""
+    stored: set[str] = set()
+    monkeypatch.setattr(resmon_mod, "probe_credential",
+                        lambda name: "present" if name in stored else "absent")
+
+    def detail() -> str:
+        return {s["id"]: s for s in _state(client)["steps"]}["ai_key"]["detail"]
+
+    assert detail() == "No AI provider key is stored on this machine."
+    stored.add("openai_api_key")
+    assert detail() == "A key for OpenAI is stored on this machine."
+    stored.add("anthropic_api_key")
+    assert detail() == "Keys for Anthropic and OpenAI are stored on this machine."
+    stored.add("custom_llm_api_key")
+    assert detail() == "Keys for Anthropic, Custom endpoint, and OpenAI are stored on this machine."
+    assert "selected" not in detail()
+
+    stored.clear()
+    monkeypatch.setattr(resmon_mod, "keyring_is_responsive", lambda: False)
+    assert detail() == ("The keychain did not answer, so resmon cannot say whether "
+                        "an AI provider key is stored on this machine.")

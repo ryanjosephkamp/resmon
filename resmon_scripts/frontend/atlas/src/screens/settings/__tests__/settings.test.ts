@@ -57,12 +57,27 @@ test('every group has its own address, and Appearance is Settings itself', () =>
 
 test('an erasure is reported in the engine’s own counts, and nothing it did not count', async () => {
   const { removedWords } = await import('../DangerZone');
-  expect(removedWords({ success: true, documents_removed: 0 })).toBe('Removed 0 papers.');
-  expect(removedWords({ success: true, configs_removed: 2, executions_removed: 5 })).toBe('Removed 2 saved configurations, 5 runs.');
-  expect(removedWords({ success: true, ai_keys_removed: 3 })).toBe('Removed 3 AI keys.');
+  expect(removedWords({ success: true, documents_removed: 16065 })).toBe('Removed 16,065 papers.');
+  expect(removedWords({ success: true, configs_removed: 2, executions_removed: 5 })).toBe('Removed 2 saved configurations and 5 runs.');
+  expect(removedWords({ success: true, ai_keys_removed: 2 })).toBe('Removed 2 AI keys.');
+  expect(removedWords({ success: true, repo_keys_removed: 1 })).toBe('Removed 1 source key.');
   expect(removedWords({ success: true, reset: 'all' })).toBe('Done.');
   expect(removedWords({ widgets_removed: 1 })).toBe('Removed 1 widgets.');
   expect(removedWords(null)).toBe('Done.');
+});
+
+test('a count of none says there was nothing there, not that nothing happened', async () => {
+  const { removedWords } = await import('../DangerZone');
+  expect(removedWords({ success: true, ai_keys_removed: 0 })).toBe('No AI keys were stored, so none were removed.');
+  expect(removedWords({ success: true, repo_keys_removed: 0 })).toBe('No source keys were stored, so none were removed.');
+  expect(removedWords({ success: true, documents_removed: 0 })).toBe('There were no papers to remove.');
+  expect(removedWords({
+    success: true, configs_removed: 0, executions_removed: 14, documents_removed: 3, settings_cleared: 9,
+    ai_keys_removed: 0, repo_keys_removed: 0, smtp_credentials_removed: 0,
+  })).toBe('Removed 14 runs and 3 papers. There were no saved configurations to remove. '
+    + 'No AI keys, source keys, or email passwords were stored, so none were removed.');
+  expect(removedWords({ success: true, settings_cleared: 4, ai_keys_removed: 1, repo_keys_removed: 0, smtp_credentials_removed: 1 }))
+    .toBe('Removed 1 AI key and 1 email password. No source keys were stored, so none were removed.');
 });
 
 test('every Settings group has its own address, and the rail lists each once', async () => {

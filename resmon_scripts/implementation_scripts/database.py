@@ -726,6 +726,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_delivery(conn)
     _migrate_metadata_hash_index(conn)
     _repair_doaj_month_names(conn)
+    _repair_biorxiv_published_detail(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
     # connection, so schema left inside an open transaction on this one is
     # invisible to every other -- an in-memory database shared through
@@ -2144,6 +2145,39 @@ def _repair_doaj_month_names(conn: sqlite3.Connection) -> int:
             "%d hash(es) recomputed, %d kept because they could not be reproduced",
             repaired, hashes, repaired - hashes)
     return repaired
+
+
+# What a bioRxiv "published" finding says: bioRxiv's own record and nothing
+# more. The DOI and the date of the journal article are on the finding.
+BIORXIV_PUBLISHED_DETAIL = (
+    "bioRxiv records that this preprint has since appeared as a journal article."
+)
+
+# The sentence earlier builds recorded on those findings. It added advice
+# bioRxiv never gave, and a claim about review it does not record.
+_BIORXIV_PUBLISHED_DETAIL_BEFORE = (
+    "This preprint has since appeared as a journal article. Cite the published "
+    "version where you can — it is the one that was peer reviewed."
+)
+
+
+def _repair_biorxiv_published_detail(conn: sqlite3.Connection) -> int:
+    """Give stored bioRxiv "published" findings the sentence new ones get.
+
+    A finding is recorded once and kept, so the old sentence would otherwise
+    stay on every paper checked before the change. Only rows that hold exactly
+    the old sentence are touched. No schema change, so no ``SCHEMA_VERSION``
+    bump, and idempotent: a rewritten row no longer matches. Returns the
+    number of findings rewritten.
+    """
+    rewritten = conn.execute(
+        "UPDATE document_lifecycle SET detail = ? "
+        "WHERE kind = 'preprint_published' AND provider = 'biorxiv' AND detail = ?",
+        (BIORXIV_PUBLISHED_DETAIL, _BIORXIV_PUBLISHED_DETAIL_BEFORE),
+    ).rowcount
+    if rewritten:
+        logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
+    return rewritten
 
 
 def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:

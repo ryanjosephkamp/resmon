@@ -347,11 +347,17 @@ def test_an_empty_assistant_turn_is_not_replayed():
 # Availability, and what it does not claim
 # ---------------------------------------------------------------------------
 
-def test_a_missing_key_says_which_slot_and_does_not_name_a_value():
+def test_a_missing_key_names_the_provider_and_the_screen_and_never_a_value(monkeypatch):
+    """The provider and the screen to add it on; not the slot's name, and never a value."""
+    monkeypatch.setattr(ak, "get_credential", lambda name: None)
     runtime = ak.ApiKeyRuntime(provider="openai", model="gpt-4o-mini")
     status = runtime.status()
     assert status.available is False
-    assert "openai_api_key" in status.reason
+    assert status.reason == (
+        "No openai API key is stored. Add one in Settings › AI; resmon reads it "
+        "from your system keychain and never puts it in a conversation.")
+    assert "openai_api_key" not in status.reason
+    assert "sk-" not in status.reason
 
 
 def test_availability_never_claims_the_key_works():

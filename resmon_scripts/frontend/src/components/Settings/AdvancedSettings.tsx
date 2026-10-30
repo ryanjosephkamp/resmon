@@ -113,6 +113,52 @@ const DANGER_ACTIONS: DangerAction[] = [
   },
 ];
 
+// Each ``<thing>_removed`` count a Danger Zone route answers, by the names
+// this tab gives one of the thing and more than one.
+const ERASED_THINGS: Record<string, readonly [string, string]> = {
+  ai_keys: ['AI API key', 'AI API keys'],
+  repo_keys: ['repo API key', 'repo API keys'],
+  smtp_credentials: ['email password', 'email passwords'],
+  configs: ['saved configuration', 'saved configurations'],
+  executions: ['execution', 'executions'],
+  documents: ['paper', 'papers'],
+};
+
+// The counts of what the keyring held. The backend counts a key only when
+// one was stored and is now gone, so none means none was stored.
+const KEYRING_THINGS = new Set(['ai_keys', 'repo_keys', 'smtp_credentials']);
+
+function listed(items: readonly string[], conjunction: 'and' | 'or'): string {
+  if (items.length < 3) return items.join(` ${conjunction} `);
+  return `${items.slice(0, -1).join(', ')}, ${conjunction} ${items[items.length - 1]}`;
+}
+
+/**
+ * What a Danger Zone route said it removed, in words, from the counts it
+ * answered. A count of none says there was none, so an erase that found
+ * nothing never reads like one that failed. Empty when nothing was counted.
+ */
+export function erasedWords(body: unknown): string {
+  if (!body || typeof body !== 'object') return '';
+  const removed: string[] = [];
+  const noneThere: string[] = [];
+  const noneStored: string[] = [];
+  for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+    if (!key.endsWith('_removed') || typeof value !== 'number') continue;
+    const thing = key.replace(/_removed$/, '');
+    const plain = thing.replace(/_/g, ' ');
+    const [one, many] = ERASED_THINGS[thing] ?? [plain, plain];
+    if (value > 0) removed.push(`${value.toLocaleString('en-US')} ${value === 1 ? one : many}`);
+    else if (KEYRING_THINGS.has(thing)) noneStored.push(many);
+    else noneThere.push(many);
+  }
+  const said: string[] = [];
+  if (removed.length) said.push(`Removed ${listed(removed, 'and')}.`);
+  if (noneThere.length) said.push(`There were no ${listed(noneThere, 'or')} to remove.`);
+  if (noneStored.length) said.push(`No ${listed(noneStored, 'or')} were stored, so none were removed.`);
+  return said.join(' ');
+}
+
 interface ServiceStatus {
   installed: boolean;
   unit_path: string;
@@ -199,7 +245,7 @@ const AdvancedSettings: React.FC = () => {
     setDangerStatusKind('');
     try {
       const body = dangerAction.needsTyping ? { confirm: 'CONFIRM' } : {};
-      await apiClient.post(dangerAction.endpoint, body);
+      const answer = await apiClient.post<unknown>(dangerAction.endpoint, body);
       // Tell every other page to refetch. The configurations and routines
       // buses cover the saved-config badges and the routines list; the
       // synthetic ``resmon:execution-completed`` event is what the
@@ -216,7 +262,8 @@ const AdvancedSettings: React.FC = () => {
           );
         }
       } catch { /* ignore */ }
-      setDangerStatus(`${dangerAction.label}: done.`);
+      const counted = erasedWords(answer);
+      setDangerStatus(`${dangerAction.label}: done.${counted ? ` ${counted}` : ''}`);
       setDangerStatusKind('success');
       setDangerAction(null);
       setDangerInput('');

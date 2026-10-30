@@ -143,6 +143,8 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             what = f"resmon could not open a connection after {_attempts(detail)}"
         elif kind == "request_error":
             what = f"the request failed after {_attempts(detail)}"
+        elif kind == "refused":
+            what = f"it refused the request after {_attempts(detail)}"
         else:
             status = detail.get("status")
             what = (
@@ -309,6 +311,8 @@ def partial_sentence(
             ending = "a later connection could not be opened"
         elif kind == "request_error":
             ending = "a later request failed"
+        elif kind == "refused":
+            ending = "a later request was refused"
         else:
             ending = f"a later {status_text}request failed" if status else "a later request failed"
     else:

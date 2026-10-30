@@ -85,7 +85,7 @@ QUARANTINE_MAX_DAYS = 30
 QUARANTINE_DISPOSITIONS = ("excused", "unmatched", "recovered", "expired")
 # The categories ``api_base.SearchOutcome`` writes, and no other words.
 _FAILURE_TOKEN = re.compile(
-    r"(?:http_[1-5][0-9]{2}|rate_limited|timeout|connect|request_error|operation_deadline)"
+    r"(?:http_[1-5][0-9]{2}|rate_limited|timeout|connect|request_error|operation_deadline|refused)"
 )
 _SOURCE_SLUG = re.compile(r"[a-z][a-z0-9_]{0,63}")
 _QUARANTINE_ENTRY_KEYS = {

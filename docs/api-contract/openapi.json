@@ -180,7 +180,7 @@
       },
       "AiKeysErased": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.\n\n``ai_keys_removed`` is the number of AI provider key names cleared. A name\nthat held no key counts too, and the legacy ``ai_api_key`` slot is cleared\nwithout being counted. This route takes no ``confirm``.",
+        "description": "``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.\n\n``ai_keys_removed`` is the number of AI provider keys that were stored and\nare now gone, the legacy ``ai_api_key`` slot included. A name that held no\nkey is not counted, so with none stored it is 0. This route takes no\n``confirm``.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
@@ -320,7 +320,7 @@
       },
       "AppDataErased": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.\n\nSettings, the SMTP password and the Library's files are kept. The key\ncounts are of names cleared, not keys found.",
+        "description": "``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.\n\nSettings, the SMTP password and the Library's files are kept. The key\ncounts are of keys found and removed, as ``AiKeysErased`` and\n``RepositoryKeysErased`` count them.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
@@ -6210,7 +6210,7 @@
       },
       "FactoryReset": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes count them, so the key counts\nare of names cleared. It does not clear a Google Drive sign-in stored by\nthe removed upload or a delivery target's webhook secret, and it does not\ntouch the Library's files, report files on disk, or a restore's undo\ncopies.",
+        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes and ``SettingsReset`` count\nthem, so the key counts are of keys found and removed. It does not clear a\nGoogle Drive sign-in stored by the removed upload or a delivery target's\nwebhook secret, and it does not touch the Library's files, report files on\ndisk, or a restore's undo copies.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
@@ -6236,6 +6236,10 @@
             "title": "Settings Cleared",
             "type": "integer"
           },
+          "smtp_credentials_removed": {
+            "title": "Smtp Credentials Removed",
+            "type": "integer"
+          },
           "success": {
             "title": "Success",
             "type": "boolean"
@@ -6248,7 +6252,8 @@
           "documents_removed",
           "settings_cleared",
           "ai_keys_removed",
-          "repo_keys_removed"
+          "repo_keys_removed",
+          "smtp_credentials_removed"
         ],
         "title": "FactoryReset",
         "type": "object"
@@ -9329,7 +9334,7 @@
       },
       "RepositoryKeysErased": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.\n\n``repo_keys_removed`` is the number of catalog credential names cleared,\nwhether or not each held a key. This route takes no ``confirm``.",
+        "description": "``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.\n\n``repo_keys_removed`` is the number of repository keys that were stored\nand are now gone; a name that held no key is not counted. This route takes\nno ``confirm``.",
         "properties": {
           "repo_keys_removed": {
             "title": "Repo Keys Removed",
@@ -13885,7 +13890,7 @@
       },
       "SettingsReset": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.\n\n``settings_cleared`` counts the stored settings deleted; the schema\nversion marker is kept and not counted. The key counts are of names\ncleared, not keys found, and the SMTP password is cleared without being\ncounted. Configurations, runs and papers are kept.",
+        "description": "``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.\n\n``settings_cleared`` counts the stored settings deleted; the schema\nversion marker is kept and not counted. The key counts are of keys found\nand removed, and ``smtp_credentials_removed`` counts the SMTP password the\nsame way, apart from the AI and repository keys. Configurations, runs and\npapers are kept.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
@@ -13899,6 +13904,10 @@
             "title": "Settings Cleared",
             "type": "integer"
           },
+          "smtp_credentials_removed": {
+            "title": "Smtp Credentials Removed",
+            "type": "integer"
+          },
           "success": {
             "title": "Success",
             "type": "boolean"
@@ -13908,7 +13917,8 @@
           "success",
           "settings_cleared",
           "ai_keys_removed",
-          "repo_keys_removed"
+          "repo_keys_removed",
+          "smtp_credentials_removed"
         ],
         "title": "SettingsReset",
         "type": "object"
