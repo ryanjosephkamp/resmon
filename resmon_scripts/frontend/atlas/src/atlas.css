@@ -1862,3 +1862,7 @@ button.ai-link {
 /* A run saved as a search: the name field, under the run's headline. */
 .run-keep { margin-top: 12px; display: grid; gap: 8px; justify-items: start; }
 .run-head .settings-said { margin-top: 12px; }
+
+/* The reading queue, a page at a time. */
+.queue-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
+.queue-pager .index-cap { margin: 0 8px 0 0; }
