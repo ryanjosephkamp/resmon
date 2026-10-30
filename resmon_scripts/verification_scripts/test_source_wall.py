@@ -483,6 +483,21 @@ def test_a_source_deselected_after_it_broke_is_still_reported_as_broken(conn):
     assert verdict["headline"] == "DOAJ has stopped answering."
 
 
+def test_a_withdrawn_source_is_shown_by_the_name_it_had(conn):
+    """``ieee`` is a slug; the wall names IEEE Xplore, and still says it is not in the catalog."""
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
+    record(conn, run, "ieee", status="error", reason="retired",
+           detail={"detail": "IEEE Xplore was withdrawn on its terms."})
+
+    wall = source_wall.build(conn)
+    ieee = next(s for s in wall["sources"] if s["slug"] == "ieee")
+
+    assert ieee["name"] == "IEEE Xplore"
+    assert ieee["in_catalog"] is False
+    assert "IEEE Xplore" in wall["verdict"]["headline"]
+    assert "ieee " not in wall["verdict"]["headline"]
+
+
 def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=["ieee"])
     record(conn, run, "ieee", status="error", reason="retired",

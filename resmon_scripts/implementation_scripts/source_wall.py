@@ -61,6 +61,7 @@ import json
 import sqlite3
 
 from . import repo_catalog, source_coverage, zero_reason
+from .api_registry import RETIRED_NAMES
 
 # The wall's vocabulary, in severity order -- answered first, the states that
 # say nothing last. The renderer draws this order and holds no copy of it.
@@ -187,6 +188,16 @@ def _display_names() -> dict[str, str]:
     would be worse than one plain one.
     """
     return {entry.slug: entry.name for entry in repo_catalog.REPOSITORY_CATALOG}
+
+
+def _name_for(slug: str, catalog_names: dict[str, str]) -> str:
+    """The name a source is shown under, including one that has been withdrawn.
+
+    A withdrawn source is no longer in the catalog, but runs from before it was
+    withdrawn still carry it, and ``ieee`` on the wall reads as a key rather
+    than as IEEE Xplore. Only a slug resmon has no name for shows as itself.
+    """
+    return catalog_names.get(slug) or RETIRED_NAMES.get(slug) or slug
 
 
 def _run_label(row: dict, routine_names: dict[int, str]) -> str:
@@ -625,7 +636,7 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
     ]
 
     sources: list[dict] = []
-    for slug in sorted(slugs, key=lambda s: (names.get(s, s).lower(), s)):
+    for slug in sorted(slugs, key=lambda s: (_name_for(s, names).lower(), s)):
         cells: list[dict] = []
         for exec_id in exec_ids:
             selected = selections[exec_id]
@@ -637,7 +648,7 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
             )
         sources.append({
             "slug": slug,
-            "name": names.get(slug, slug),
+            "name": _name_for(slug, names),
             "in_catalog": slug in names,
             "cells": cells,
             "counts": {
