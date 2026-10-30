@@ -210,6 +210,15 @@ def discover_cli(
         )
         return CLIDiscovery(provider, None, "not-found", tuple(tried))
 
+    # A test instance names its commands. Searching the installers' locations
+    # and PATH from one finds the person's own signed-in CLI, and a test that
+    # forgot to set a path then runs it: that happened once, from a journey
+    # whose Ask turn went out with no command set. The e2e and journey harnesses
+    # set this, and a spec about discovery itself clears it.
+    if os.environ.get("RESMON_AI_CLI_DISCOVERY", "").strip().lower() == "configured-only":
+        tried.append("known locations and PATH not searched (RESMON_AI_CLI_DISCOVERY=configured-only)")
+        return CLIDiscovery(provider, None, "not-found", tuple(tried))
+
     # 2. Where the installers put it.
     for raw in known_locations(provider, platform):
         candidate = Path(raw).expanduser()

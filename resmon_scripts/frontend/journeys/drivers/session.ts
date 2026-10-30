@@ -318,6 +318,11 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string, ui: Interfac
   // accident, write beside the live daemon's own unit.
   env.RESMON_SERVICE_UNIT_DIR = path.join(stateDir, 'service-units');
   fs.mkdirSync(env.RESMON_SERVICE_UNIT_DIR, { recursive: true });
+  // An AI command only where a journey names it. Left to search the installers'
+  // locations and PATH, the engine finds the person's own signed-in `claude`,
+  // and a turn sent with no command set runs it: one journey under development
+  // did exactly that. The authored commands are always named by path.
+  env.RESMON_AI_CLI_DISCOVERY = 'configured-only';
   // A proxy would make the guard's "loopback only" untrue by routing loopback
   // requests off the machine.
   env.NO_PROXY = '127.0.0.1,localhost';

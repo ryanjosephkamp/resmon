@@ -72,6 +72,9 @@ async function launchWithCli(cli: 'claude' | 'codex' | null): Promise<Launched> 
 
   const env = launchEnv(stateDir, true);
   env.HOME = home;
+  // This spec is about discovery itself, so the engine must search; HOME and
+  // PATH, pinned here and below, are what keep it off the machine's own CLIs.
+  delete env.RESMON_AI_CLI_DISCOVERY;
 
   // The backend interpreter has to be resolved **before** PATH is replaced.
   // In a checkout `pythonPath()` returns the venv's absolute path and this is a

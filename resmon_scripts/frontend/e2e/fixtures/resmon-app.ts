@@ -283,6 +283,11 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     // resmon's service installed changed what Today and Watches said about
     // firing. A spec that needs its own directory still sets one after this.
     RESMON_SERVICE_UNIT_DIR: path.join(stateDir, 'service-units'),
+    // An AI command only where a spec names it. Left to search the installers'
+    // locations and PATH, the engine finds the person's own signed-in `claude`
+    // or `codex`, and a turn sent with no command set runs it. A spec about
+    // discovery itself deletes this and pins HOME and PATH instead.
+    RESMON_AI_CLI_DISCOVERY: 'configured-only',
   };
   if (e2e) {
     env.RESMON_E2E = '1';
