@@ -124,6 +124,37 @@ export function keptPages(view: Layout, top: number, height: number, kept: reado
   return [from, to];
 }
 
+/**
+ * How sharply each kept page is drawn, as canvas pixels per CSS pixel: the
+ * display's density, half of it, or 0 for not drawn. Every page in view is
+ * drawn at the display's density, whatever it costs. The rest, nearest first
+ * (the next page down before the one above at the same distance), are drawn
+ * at full density while the budget allows, then at half, and past that not
+ * at all, so it is the pages farthest from the view that go first. A page's
+ * cost is its canvas pixels, at most `ceiling`.
+ */
+export function allot(view: Layout, kept: readonly [number, number], visible: readonly [number, number], density: number,
+  ceiling: number, budget: number): Map<number, number> {
+  const out = new Map<number, number>();
+  const cost = (i: number, d: number) => Math.min(ceiling, view.widths[i]! * d * view.heights[i]! * d);
+  const last = Math.min(kept[1], view.tops.length - 1);
+  const order: number[] = [];
+  for (let i = Math.max(0, kept[0]); i <= last; i += 1) order.push(i);
+  const distance = (i: number) => (i < visible[0] ? visible[0] - i + 0.5 : i > visible[1] ? i - visible[1] : 0);
+  order.sort((a, b) => distance(a) - distance(b));
+  let spent = 0;
+  /** Never sharper than a nearer page: once a page is drawn at half, or not drawn, so is every page past it. */
+  let allowed = density;
+  for (const i of order) {
+    if (distance(i) === 0) { out.set(i, density); spent += cost(i, density); continue; }
+    const d = [density, density / 2].find((step) => step <= allowed && spent + cost(i, step) <= budget) ?? 0;
+    allowed = d;
+    out.set(i, d);
+    spent += d ? cost(i, d) : 0;
+  }
+  return out;
+}
+
 /** The scroll position that keeps the same part of the same page at the top of the view after the layout changes. */
 export interface Anchor { index: number; fraction: number }
 

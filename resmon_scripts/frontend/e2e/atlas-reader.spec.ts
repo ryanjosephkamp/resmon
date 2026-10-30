@@ -23,6 +23,7 @@
  * person at the machine; a selection is what a copy would carry, and the
  * selection is what is checked. No network.
  */
+import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -48,6 +49,71 @@ const LINKS = writePdf([
   { lines: [{ x: 72, y: 480, size: 14, text: 'Third page target.' }] },
   { lines: [{ x: 72, y: 720, size: 14, text: 'Fourth page text.' }] },
 ]);
+
+/**
+ * 600 frames, each moving the pages 200 CSS pixels down: a fast, steady flick.
+ * Each frame's time from the one before, and the most pages kept at once.
+ */
+async function fastScroll(el: Element) {
+  const node = el as HTMLElement;
+  const frames: number[] = [];
+  const kept: number[] = [];
+  let last = performance.now();
+  const startedAt = last;
+  for (let i = 0; i < 600; i += 1) {
+    node.scrollTop += 200;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const now = performance.now();
+    frames.push(now - last);
+    last = now;
+    kept.push(node.querySelectorAll('.ev-sheet').length);
+  }
+  const sorted = frames.slice().sort((a, b) => a - b);
+  const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
+  return {
+    seconds: (performance.now() - startedAt) / 1000, pixels: node.scrollTop,
+    median: sorted[Math.floor(sorted.length / 2)]!, p95: sorted[Math.floor(sorted.length * 0.95)]!, worst: sorted[sorted.length - 1]!,
+    over50: frames.filter((f) => f > 50).length, mostKept: Math.max(...kept),
+    heapMB: Math.round(heap / 1048576),
+  };
+}
+
+/** The pages in the scroll's view: whether each is drawn at the display's density, and its canvas against its box. */
+async function inView(el: Element) {
+  const node = el as HTMLElement;
+  const box = node.getBoundingClientRect();
+  return Array.from(node.querySelectorAll<HTMLElement>('.ev-sheet')).filter((sheet) => {
+    const at = sheet.getBoundingClientRect();
+    return at.bottom > box.top && at.top < box.bottom;
+  }).map((sheet) => {
+    const canvas = sheet.querySelector('canvas');
+    return {
+      page: Number(sheet.dataset.page), sharp: sheet.dataset.sharp === 'true',
+      css: sheet.offsetWidth, canvas: canvas?.width ?? 0, density: window.devicePixelRatio,
+    };
+  });
+}
+
+/**
+ * The renderer's and the GPU process's memory, in MB. On macOS this is
+ * `footprint`'s physical footprint, which counts a GPU-backed canvas's
+ * IOSurface where the working set does not; elsewhere, the working set.
+ */
+async function memory(app: ElectronApplication): Promise<{ renderer: number; gpu: number; how: string }> {
+  const all = await app.evaluate(({ app: electronApp }) => electronApp.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, kb: m.memory.workingSetSize })));
+  const of = (type: string) => all.filter((m) => m.type === type);
+  if (process.platform !== 'darwin') {
+    return { renderer: of('Tab').reduce((n, m) => n + m.kb, 0) / 1024, gpu: of('GPU').reduce((n, m) => n + m.kb, 0) / 1024, how: 'working set' };
+  }
+  const footprint = (pid: number) => new Promise<number>((resolve) => {
+    execFile('footprint', ['-p', String(pid)], (error, out) => {
+      const found = /Footprint: ([\d.]+) (KB|MB|GB)/.exec(String(out));
+      resolve(error || !found ? 0 : Number(found[1]) * ({ KB: 1 / 1024, MB: 1, GB: 1024 } as Record<string, number>)[found[2]!]!);
+    });
+  });
+  const sum = async (type: string) => (await Promise.all(of(type).map((m) => footprint(m.pid)))).reduce((n, v) => n + v, 0);
+  return { renderer: await sum('Tab'), gpu: await sum('GPU'), how: 'physical footprint' };
+}
 
 interface StoredNote { kind: string; page_number: number | null; start_codepoint: number | null; end_codepoint: number | null; quote: string | null }
 
@@ -353,28 +419,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     // The engine reads the text of PDFs up to 200 pages; it says so rather than show nothing.
     await expect(reader.getByText('Reading this page went past the engine’s bounds, so nothing was kept.')).toBeVisible({ timeout: 60_000 });
     await long.focus();
-    const run = await long.evaluate(async (el) => {
-      const frames: number[] = [];
-      const kept: number[] = [];
-      let last = performance.now();
-      const startedAt = last;
-      for (let i = 0; i < 600; i += 1) {
-        el.scrollTop += 200;
-        await new Promise((resolve) => requestAnimationFrame(resolve));
-        const now = performance.now();
-        frames.push(now - last);
-        last = now;
-        kept.push(el.querySelectorAll('.ev-sheet').length);
-      }
-      const sorted = frames.slice().sort((a, b) => a - b);
-      const heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0;
-      return {
-        seconds: (performance.now() - startedAt) / 1000, pixels: el.scrollTop,
-        median: sorted[Math.floor(sorted.length / 2)]!, p95: sorted[Math.floor(sorted.length * 0.95)]!, worst: sorted[sorted.length - 1]!,
-        over50: frames.filter((f) => f > 50).length, mostKept: Math.max(...kept),
-        heapMB: Math.round(heap / 1048576),
-      };
-    });
+    const run = await long.evaluate(fastScroll);
     const page = Number(await reader.getAttribute('data-page'));
     await expect(image.getByRole('status')).toHaveText(new RegExp(`^Page ${page} of 500 rendered`), { timeout: 30_000 });
     const sheets = await long.evaluate((el) => ({
@@ -407,6 +452,104 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     console.log(`[reader] working set: renderer ${Math.round(before.renderer / 1024)} MB before the 500-page PDF, ${Math.round(after.renderer / 1024)} MB after the scroll; `
       + `GPU process ${Math.round(before.gpu / 1024)} MB, then ${Math.round(after.gpu / 1024)} MB; gallery drew ${drawnThumbs} of 500 thumbnails`);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-500.png') });
+
+    // — the same PDF in focus mode at fit width, drawn at the display's own resolution ------
+    // As wide as this display allows up to 1728 CSS pixels, the width of a 14-inch MacBook Pro's default.
+    const focusWidth = await app.evaluate(({ screen }) => Math.min(1728, screen.getPrimaryDisplay().workAreaSize.width));
+    console.log(`[reader] focus mode: ${await widen(app, win, focusWidth, 'light')}`);
+    await pageInput.fill('1');
+    await pageInput.press('Enter');
+    await expect(long.locator('.ev-sheet[data-page="1"][data-sharp="true"]')).toHaveCount(1, { timeout: 30_000 });
+    const beside = await memory(app);
+    await reader.getByRole('button', { name: 'Focus' }).click();
+    await expect(reader).toHaveAttribute('data-focus', 'true');
+    await expect(reader.getByRole('button', { name: 'Notes' })).toHaveAttribute('aria-pressed', 'false');
+    await expect(zoom).toHaveValue('width');
+    await expect(long.locator('.ev-sheet[data-page="1"][data-sharp="true"]')).toHaveCount(1, { timeout: 30_000 });
+    const density = await win.evaluate(() => window.devicePixelRatio);
+    const first = (await long.evaluate(inView))[0]!;
+    const begun = await memory(app);
+    const focused = await long.evaluate(fastScroll);
+    const stopped = Date.now();
+    await expect.poll(async () => (await long.evaluate(inView)).every((p) => p.sharp), { timeout: 30_000, intervals: [50] }).toBe(true);
+    const settled = Date.now() - stopped;
+    const rest = await long.evaluate((el) => ({
+      pages: el.querySelectorAll('.ev-sheet').length,
+      drawn: el.querySelectorAll('.ev-sheet[data-drawn="true"]').length,
+      canvasPixels: Array.from(el.querySelectorAll('canvas')).reduce((n, c) => n + c.width * c.height, 0),
+    }));
+    const end = await memory(app);
+    // The peak, from a second pass sampled as it scrolls; apart from the timed one, because sampling can pause a process.
+    const peak = { renderer: Math.max(begun.renderer, end.renderer), gpu: Math.max(begun.gpu, end.gpu) };
+    let sampling = true;
+    const sampler = (async () => {
+      while (sampling) {
+        const now = await memory(app);
+        peak.renderer = Math.max(peak.renderer, now.renderer);
+        peak.gpu = Math.max(peak.gpu, now.gpu);
+      }
+    })();
+    await long.evaluate(fastScroll);
+    sampling = false;
+    await sampler;
+    const jumpedAt = Date.now();
+    await pageInput.fill('480');
+    await pageInput.press('Enter');
+    await expect(long.locator('.ev-sheet[data-page="480"][data-sharp="true"]')).toHaveCount(1, { timeout: 30_000 });
+    const sharpJump = Date.now() - jumpedAt;
+    // Every page in view is drawn at the display's density: its canvas is its box times the device pixel ratio.
+    const shown = await long.evaluate(inView);
+    for (const p of shown) {
+      expect(p.sharp, `page ${p.page} is drawn below the screen's resolution`).toBe(true);
+      expect(Math.abs(p.canvas - p.css * p.density), `page ${p.page}'s canvas is not its box at ${p.density}×`).toBeLessThanOrEqual(2);
+    }
+    expect(rest.canvasPixels, 'the kept pages are over the canvas budget').toBeLessThanOrEqual(2 ** 26);
+    // A crop of body text on page 480, at the display's own pixels.
+    const sheet = (await long.locator('.ev-sheet[data-page="480"]').boundingBox())!;
+    const crop = { x: Math.round(sheet.x + sheet.width * 0.11), y: Math.round(sheet.y + sheet.height * 0.09), width: 560, height: 200 };
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-sharp-crop.png'), clip: crop });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-focus-500.png') });
+    console.log(`[reader] focus mode at fit width, ${focusWidth} CSS pixels at ${density}×: page ${first.css} CSS pixels wide, canvas ${first.canvas} pixels wide; `
+      + `a sharp page 480 ${sharpJump} ms after the jump`);
+    console.log(`[reader] focus scroll: ${focused.pixels} px in ${focused.seconds.toFixed(1)} s; frame median ${focused.median.toFixed(1)} ms, `
+      + `p95 ${focused.p95.toFixed(1)} ms, worst ${focused.worst.toFixed(1)} ms, ${focused.over50} frames over 50 ms; at most ${focused.mostKept} pages kept; `
+      + `pages in view sharp ${settled} ms after the scroll stopped; at rest ${rest.pages} kept, ${rest.drawn} drawn, ${(rest.canvasPixels / 1e6).toFixed(1)} million canvas pixels`);
+    console.log(`[reader] focus memory (${begun.how}): in the reader beside the notes just before, renderer ${Math.round(beside.renderer)} MB, `
+      + `GPU process ${Math.round(beside.gpu)} MB`);
+    console.log(`[reader] focus memory (${begun.how}): renderer ${Math.round(begun.renderer)} MB at the start, peak ${Math.round(peak.renderer)} MB, `
+      + `${Math.round(end.renderer)} MB at rest; GPU process ${Math.round(begun.gpu)} MB, peak ${Math.round(peak.gpu)} MB, ${Math.round(end.gpu)} MB at rest`);
+    // At 300% a Letter page is 31 million canvas pixels, so three kept would pass the budget: the pages
+    // in view stay at the display's resolution, and whatever else is kept stays inside the budget.
+    // (`allot`'s unit test drives the budget past its limit; here it holds the window to it.)
+    await zoom.selectOption('300');
+    const budgeted = () => long.evaluate((el) => {
+      const box = el.getBoundingClientRect();
+      let inside = 0;
+      let beyond = 0;
+      let blurred = 0;
+      for (const sheet of Array.from(el.querySelectorAll<HTMLElement>('.ev-sheet'))) {
+        const canvas = sheet.querySelector('canvas');
+        const at = sheet.getBoundingClientRect();
+        const pixels = canvas ? canvas.width * canvas.height : 0;
+        if (at.bottom > box.top && at.top < box.bottom) {
+          inside += pixels;
+          if (sheet.dataset.sharp !== 'true') blurred += 1;
+        } else {
+          beyond += pixels;
+        }
+      }
+      return { inside, beyond, blurred, kept: el.querySelectorAll('.ev-sheet').length };
+    });
+    await expect.poll(async () => {
+      const now = await budgeted();
+      return now.inside > 0 && now.blurred === 0 && (now.beyond === 0 || now.inside + now.beyond <= 2 ** 26);
+    }, { timeout: 30_000, message: 'at 300% the pages in view are not sharp, or the rest are over the budget' }).toBe(true);
+    const tight = await budgeted();
+    console.log(`[reader] focus mode at 300%: ${tight.kept} pages kept; ${(tight.inside / 1e6).toFixed(1)} million canvas pixels in view, `
+      + `${(tight.beyond / 1e6).toFixed(1)} million for the rest; budget ${(2 ** 26 / 1e6).toFixed(1)} million`);
+    await zoom.selectOption('width');
+    await win.keyboard.press('Escape');
+    await expect(reader).not.toHaveAttribute('data-focus', 'true');
 
     expect(problems).toEqual([]);
     expect(refused).toEqual([]);

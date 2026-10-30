@@ -1,6 +1,6 @@
 import { Drawer } from '../pdfDocument';
 import {
-  CSS_UNITS, PAGE_GAP, PAGE_PAD, anchorAt, currentPage, explicitDest, findSelection, keptPages, layout, linkBox, linkTarget,
+  CSS_UNITS, PAGE_GAP, PAGE_PAD, allot, anchorAt, currentPage, explicitDest, findSelection, keptPages, layout, linkBox, linkTarget,
   stepZoom, topOf, webHref, zoomPercent, zoomScale,
 } from '../readerModel';
 
@@ -59,6 +59,31 @@ test('only the pages near the view are kept, and a kept page is let go only once
   const tiny = layout(Array.from({ length: 500 }, () => LETTER), 0.05);
   const many = keptPages(tiny, 0, 2000, null, 24);
   expect(many[1] - many[0] + 1).toBe(24);
+});
+
+test('pages in view are drawn at the display’s density; the farthest are drawn at half, then not at all, to stay in budget', () => {
+  // Focus mode at fit width on a 1728-point 2× display: Letter pages 1696 × 2194 CSS pixels, 14.9 million canvas pixels each.
+  const view = layout(Array.from({ length: 40 }, () => LETTER), 1696 / 612);
+  const full = view.widths[0]! * 2 * view.heights[0]! * 2;
+  const budget = 4 * full + 1;
+  const d = allot(view, [8, 15], [10, 11], 2, 2 ** 25, budget);
+  expect([d.get(10), d.get(11)]).toEqual([2, 2]);
+  // Two more fit at full: the next page down first, then the one above.
+  expect([d.get(12), d.get(9)]).toEqual([2, 2]);
+  // Then half, while it fits; then none. Never sharper than a nearer page.
+  const given = [13, 8, 14, 15].map((i) => d.get(i)!);
+  expect(given.every((x, n) => n === 0 || x <= given[n - 1]!)).toBe(true);
+  expect(given).toContain(0);
+  let spent = 0;
+  for (const [i, x] of d) spent += x ? view.widths[i]! * x * view.heights[i]! * x : 0;
+  expect(spent).toBeLessThanOrEqual(budget);
+  // Pages in view are drawn sharp even past the budget.
+  const tight = allot(view, [8, 15], [10, 11], 2, 2 ** 25, 1);
+  expect([tight.get(10), tight.get(11), tight.get(9), tight.get(12)]).toEqual([2, 2, 0, 0]);
+  // At the reader's size beside the notes, the budget never binds.
+  const small = layout(Array.from({ length: 40 }, () => LETTER), 0.69);
+  const all = allot(small, [0, 23], [3, 4], 2, 2 ** 25, 2 ** 26);
+  expect(Array.from(all.values()).every((x) => x === 2)).toBe(true);
 });
 
 test('a new layout keeps the same part of the same page at the top of the view', () => {

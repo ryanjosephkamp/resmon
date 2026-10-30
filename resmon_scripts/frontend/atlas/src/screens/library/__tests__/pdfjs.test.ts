@@ -1,25 +1,36 @@
 import fs from 'fs';
 import path from 'path';
-import { MAX_CANVAS_BYTES, MAX_DRAWN_PAGES, MAX_PIXELS, PDF_VERSION, RENDER_TIMEOUT, canvasScale, pdfAsset } from '../pdfjs';
+import { CANVAS_BUDGET, MAX_CANVAS_PIXELS, MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, canvasScale, pdfAsset } from '../pdfjs';
 
 const ATLAS = path.join(__dirname, '..', '..', '..', '..');
 
-test('the bounds are the classic reader’s: 4 million pixels, 16 MiB, 20 seconds, PDF.js 6.3.289', () => {
-  expect([MAX_PIXELS, MAX_CANVAS_BYTES, PDF_VERSION, RENDER_TIMEOUT]).toEqual([4_000_000, 16 * 1024 * 1024, '6.3.289', 20_000]);
+test('the bounds: 2^25 pixels a canvas, 2^26 for every drawn page together, 20 seconds a page, PDF.js 6.3.289', () => {
+  expect([MAX_CANVAS_PIXELS, CANVAS_BUDGET, PDF_VERSION, RENDER_TIMEOUT]).toEqual([33_554_432, 67_108_864, '6.3.289', 20_000]);
   // Pages are drawn near the view only, so the page count bounds the layout rather than memory.
   expect(MAX_DRAWN_PAGES).toBe(5_000);
 });
 
-test('a canvas stays inside both budgets whatever the page size or zoom, and says when it was reduced', () => {
-  for (const [w, h, z] of [[612, 792, 1], [612, 792, 6], [100_000, 100_000, 3], [10, 900_000, 2]] as const) {
+test('a page fitted to focus mode on a 1728-point 2× display is drawn at full resolution', () => {
+  // The page column is the window less 16 pixels a side; Letter, A4 and Legal.
+  for (const [w, h] of [[612, 792], [595.28, 841.89], [612, 1008]] as const) {
+    const fit = (1728 - 32) / w;
+    expect(canvasScale(w, h, fit * 2).reduced).toBe(false);
+  }
+  expect(canvasScale(595.28, 841.89, ((1920 - 32) / 595.28) * 2).reduced).toBe(false);
+});
+
+test('a canvas stays inside its ceiling and the longest side a canvas has, and says when it was reduced', () => {
+  for (const [w, h, z] of [[612, 792, 1], [612, 792, 12], [100_000, 100_000, 3], [10, 200_000, 2]] as const) {
     const size = canvasScale(w, h, z);
-    expect(size.width * size.height).toBeLessThanOrEqual(MAX_PIXELS);
-    expect(size.width * size.height * 4).toBeLessThanOrEqual(MAX_CANVAS_BYTES);
+    expect(size.width * size.height).toBeLessThanOrEqual(MAX_CANVAS_PIXELS);
+    expect(Math.max(size.width, size.height)).toBeLessThanOrEqual(32_767);
     expect(size.scale).toBeLessThanOrEqual(z);
   }
   expect(canvasScale(612, 792, 1).reduced).toBe(false);
-  expect(canvasScale(612, 792, 6).reduced).toBe(true);
-  for (const [w, h, z] of [[0, 5, 1], [5, Number.NaN, 1], [Number.POSITIVE_INFINITY, 5, 1], [5, 5, -1]]) {
+  expect(canvasScale(612, 792, 12).reduced).toBe(true);
+  expect(canvasScale(612, 792, 2, 1_000_000).reduced).toBe(true);
+  // Too thin to be a pixel wide once its length fits the longest side: not drawn, and said.
+  for (const [w, h, z] of [[0, 5, 1], [5, Number.NaN, 1], [Number.POSITIVE_INFINITY, 5, 1], [5, 5, -1], [10, 900_000, 2]]) {
     expect(() => canvasScale(w, h, z)).toThrow();
   }
 });

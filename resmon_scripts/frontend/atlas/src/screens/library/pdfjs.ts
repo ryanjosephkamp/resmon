@@ -1,9 +1,12 @@
 /**
  * The fixed PDF.js 6.3.289 the Evidence reader draws pages with: loaded from
  * this window's own origin, where the build copies it, and checked to be that
- * version before it is used. The same bounds as the classic reader's
- * `src/lib/pdfjs.ts`, which goes at the switch-over: at most 4 million canvas
- * pixels and 16 MiB of canvas memory, and 20 seconds to draw a page.
+ * version before it is used. 20 seconds to draw a page, as the classic
+ * reader's `src/lib/pdfjs.ts` allows. Its canvas bound is not kept: the classic
+ * reader draws one page, and capped it at 4 million pixels, which drew a page
+ * fitted to a wide window below the screen's resolution. Atlas draws each page
+ * at the screen's resolution up to `MAX_CANVAS_PIXELS`, and holds every drawn
+ * page together to `CANVAS_BUDGET` (`allot` in `readerModel.ts`).
  */
 
 /** Only the public PDF.js calls the reader makes: drawing, a page's text to select, and its links. */
@@ -51,8 +54,25 @@ export interface PdfModule {
 }
 
 export const PDF_VERSION = '6.3.289';
-export const MAX_PIXELS = 4_000_000;
-export const MAX_CANVAS_BYTES = 16 * 1024 * 1024;
+/**
+ * The largest canvas one page is drawn into: 2^25 pixels, the ceiling PDF.js's
+ * own viewer uses. Fitted to the width of focus mode in a 1728-point window on
+ * a 2× display, a US Letter page is 14.9 million canvas pixels, A4 16.3
+ * million and US Legal 18.9 million, so each is drawn at the screen's full
+ * resolution, with room for an A4 page across a 1920-point window (20.2
+ * million). A page past it is drawn below the screen's resolution, and the
+ * reader says so.
+ */
+export const MAX_CANVAS_PIXELS = 2 ** 25;
+/**
+ * Every kept page's canvas pixels together: 2^26, 256 MiB at four bytes a
+ * pixel. In that focus mode it holds four Letter pages at full resolution, the
+ * one or two in view and those beside them; at the reader's size beside the
+ * notes it never binds.
+ */
+export const CANVAS_BUDGET = 2 ** 26;
+/** Chromium's longest canvas side. */
+const MAX_CANVAS_SIDE = 32_767;
 export const RENDER_TIMEOUT = 20_000;
 /**
  * The most pages the reader lays out. Pages are drawn only near the view and
@@ -87,17 +107,18 @@ export function loadPdfJs(): Promise<PdfModule> {
 }
 
 /**
- * The canvas size for a page at a requested scale, reduced to stay inside the
- * pixel and memory budgets. `reduced` says the page is drawn at less than the
- * scale asked for, so the status sentence can say so.
+ * The canvas size for a page at a requested scale, reduced to stay inside one
+ * canvas's ceiling and the longest side a canvas can have. `reduced` says the
+ * page is drawn at less than the scale asked for, so the status sentence can
+ * say so.
  */
-export function canvasScale(width: number, height: number, requested: number): { scale: number; width: number; height: number; reduced: boolean } {
+export function canvasScale(width: number, height: number, requested: number, ceiling = MAX_CANVAS_PIXELS): { scale: number; width: number; height: number; reduced: boolean } {
   if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0 || !Number.isFinite(requested) || requested <= 0) {
     throw new Error('The page has dimensions that cannot be drawn.');
   }
-  const scale = Math.min(requested, Math.sqrt(MAX_PIXELS / (width * height)), Math.sqrt(MAX_CANVAS_BYTES / (width * height * 4)));
+  const scale = Math.min(requested, Math.sqrt(ceiling / (width * height)), MAX_CANVAS_SIDE / width, MAX_CANVAS_SIDE / height);
   const w = Math.floor(width * scale);
   const h = Math.floor(height * scale);
-  if (w < 1 || h < 1 || w * h > MAX_PIXELS || w * h * 4 > MAX_CANVAS_BYTES) throw new Error('The page cannot be drawn inside the canvas budget.');
+  if (w < 1 || h < 1 || w * h > ceiling || w > MAX_CANVAS_SIDE || h > MAX_CANVAS_SIDE) throw new Error('The page cannot be drawn inside the canvas budget.');
   return { scale, width: w, height: h, reduced: scale < requested };
 }

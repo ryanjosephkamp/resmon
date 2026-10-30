@@ -4,8 +4,9 @@ import {
 import { PdfGallery } from './PdfGallery';
 import { PdfPage, type PageSaid, type Place } from './PdfPage';
 import { useSizes, type PdfSession } from './pdfDocument';
+import { CANVAS_BUDGET, MAX_CANVAS_PIXELS } from './pdfjs';
 import {
-  PAGE_GAP, PAGE_PAD, anchorAt, currentPage, keptPages, layout, topOf, zoomScale, type Anchor, type Zoom,
+  PAGE_GAP, PAGE_PAD, allot, anchorAt, currentPage, keptPages, layout, pagesBetween, topOf, zoomScale, type Anchor, type Zoom,
 } from './readerModel';
 
 /** What the reader can ask of the pages: go to one, and put the keyboard in the scroll. */
@@ -42,6 +43,15 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
     [zoom, frame, sizes]);
   const view = useMemo(() => layout(sizes, scale), [sizes, scale]);
   const [kept, setKept] = useState<[number, number]>([0, -1]);
+  const [visible, setVisible] = useState<[number, number]>([0, -1]);
+  /** The display's pixels per CSS pixel, followed when the window moves to another display. */
+  const [density, setDensity] = useState(() => window.devicePixelRatio || 1);
+  useEffect(() => {
+    const query = window.matchMedia(`(resolution: ${density}dppx)`);
+    const moved = () => setDensity(window.devicePixelRatio || 1);
+    query.addEventListener('change', moved);
+    return () => query.removeEventListener('change', moved);
+  }, [density]);
   const [current, setCurrent] = useState(start);
   const [said, setSaid] = useState<Record<number, PageSaid>>({});
   const [selected, setSelected] = useState<Selected | null>(null);
@@ -85,6 +95,10 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
     anchor.current = anchorAt(now, top);
     setKept((was) => {
       const next = keptPages(now, top, height, was[1] >= was[0] ? was : null);
+      return next[0] === was[0] && next[1] === was[1] ? was : next;
+    });
+    setVisible((was) => {
+      const next = pagesBetween(now, top, top + height);
       return next[0] === was[0] && next[1] === was[1] ? was : next;
     });
     let page = currentPage(now, top, height);
@@ -205,6 +219,11 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
     return () => document.removeEventListener('pointerup', done);
   }, []);
 
+  // Every page in view at the display's density; the rest inside the canvas budget, the farthest let go first.
+  const densities = useMemo(
+    () => allot(view, kept, visible, density, MAX_CANVAS_PIXELS, CANVAS_BUDGET),
+    [view, kept, visible, density]);
+
   const status = said[current - 1];
   const pages = [];
   if (frame) {
@@ -214,7 +233,8 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
         top: view.tops[i]!, width, height: view.heights[i]!,
         left: Math.max(PAGE_PAD, Math.floor((Math.max(view.width, frame.width) - width) / 2)),
       };
-      pages.push(<PdfPage key={i} session={session} index={i} scale={scale} box={box} rank={rank} onSaid={onSaid} onGo={onGo} />);
+      pages.push(<PdfPage key={i} session={session} index={i} scale={scale} density={densities.get(i) ?? 0} box={box}
+        rank={rank} onSaid={onSaid} onGo={onGo} />);
     }
   }
 

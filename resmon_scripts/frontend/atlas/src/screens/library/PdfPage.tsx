@@ -34,10 +34,14 @@ async function placeOf(session: PdfSession, dest: string | unknown[]): Promise<P
  * a link: a web address (http or https) opens through the window's link
  * handling, and a destination in this document or a page-turning action goes
  * to its page. Forms, scripts, attachments and other links are never made.
- * Unmounting lets the canvas, the text and the page's parsed content go.
+ * The drawing is as sharp as the density the view gives it; a page given none
+ * keeps its place, its text and its links without one. Unmounting lets the
+ * canvas, the text and the page's parsed content go.
  */
-export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank, onSaid, onGo }: {
+export const PdfPage = memo(function PdfPage({ session, index, scale, density, box, rank, onSaid, onGo }: {
   session: PdfSession; index: number; scale: number;
+  /** Canvas pixels per CSS pixel: the display's density in view, less or none farther away (`allot`). */
+  density: number;
   box: { top: number; left: number; width: number; height: number };
   /** How far this page is from the one on screen, asked when the drawer picks its next job. */
   rank: (index: number) => number;
@@ -52,11 +56,20 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank,
   const [spots, setSpots] = useState<Spot[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
   const [drawn, setDrawn] = useState(false);
+  const [sharp, setSharp] = useState(false);
   const [unit, setUnit] = useState(1);
 
   useEffect(() => {
     let rendering: PdfRenderTask | undefined;
     let layer: PdfTextLayer | undefined;
+    if (density <= 0) {
+      // Outside the canvas budget: the drawing goes, the text and links stay.
+      const drawing = paint.current;
+      for (const canvas of Array.from(drawing?.querySelectorAll('canvas') ?? [])) { canvas.width = 0; canvas.height = 0; }
+      drawing?.replaceChildren();
+      const release = window.setTimeout(() => { setDrawn(false); setSharp(false); }, 0);
+      return () => window.clearTimeout(release);
+    }
     const cancel = session.drawer.schedule(async (signal) => {
       const timeout = window.setTimeout(
         () => session.fail(`Drawing page ${number} took longer than ${RENDER_TIMEOUT / 1000} seconds, so its worker was stopped.`), RENDER_TIMEOUT);
@@ -66,11 +79,12 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank,
         if (signal.aborted) return;
         setUnit(proxy.userUnit || 1);
         const original = proxy.getViewport({ scale: 1 });
-        // On screen at the zoom's size; drawn at the display's pixel density,
-        // so text is sharp on a high-density screen, inside the canvas budget.
-        const size = canvasScale(original.width, original.height, scale * (window.devicePixelRatio || 1));
+        // On screen at the zoom's size; drawn at the density this page is
+        // given, the display's own when it is in view, so text is sharp on a
+        // high-density screen, inside one canvas's ceiling.
+        const size = canvasScale(original.width, original.height, scale * density);
         const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
+        const context = canvas.getContext('2d', { alpha: false });
         if (!context) throw new Error('no canvas to draw on');
         canvas.width = size.width;
         canvas.height = size.height;
@@ -84,11 +98,14 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank,
         if (signal.aborted || !paint.current) { canvas.width = 0; canvas.height = 0; return; }
         for (const old of Array.from(paint.current.querySelectorAll('canvas'))) { old.width = 0; old.height = 0; }
         paint.current.replaceChildren(canvas);
+        // Below the screen's own resolution, whether for the ceiling or the budget, the sentence says so.
+        const full = size.scale >= scale * (window.devicePixelRatio || 1) * 0.999;
         setDrawn(true);
+        setSharp(full);
         setFailed(null);
         onSaid(index, {
           drawn: `Page ${number} of ${session.pages} rendered · PDF.js ${PDF_VERSION} · ${size.width} × ${size.height} pixels`
-            + `${size.reduced ? ' · drawn at reduced resolution to stay inside the canvas budget' : ''}.`,
+            + `${full ? '' : ' · drawn at reduced resolution to stay inside the canvas budget'}.`,
         });
         if (built.current) return;
         // The text to select, and the links: once a page, in proportions of it.
@@ -140,7 +157,7 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank,
       }
     }, () => rank(index));
     return () => { cancel(); rendering?.cancel(); layer?.cancel(); };
-  }, [session, index, number, scale, rank, onSaid]);
+  }, [session, index, number, scale, density, rank, onSaid]);
 
   // Let the drawing, the text and the parsed page go when the page leaves the kept range.
   useEffect(() => {
@@ -161,7 +178,8 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, box, rank,
     '--total-scale-factor': String(scale * unit),
   } as CSSProperties;
   return (
-    <div className="ev-sheet" role="group" aria-label={`Page ${number}`} data-page={number} data-drawn={drawn ? 'true' : 'false'} style={style}>
+    <div className="ev-sheet" role="group" aria-label={`Page ${number}`} data-page={number} data-drawn={drawn ? 'true' : 'false'}
+      data-sharp={sharp ? 'true' : 'false'} style={style}>
       <div className="ev-sheet-paint" ref={paint} />
       {!drawn && !failed && <span className="ev-sheet-number" aria-hidden="true">{number}</span>}
       <div className="ev-sheet-text" ref={text} />
