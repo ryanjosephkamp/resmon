@@ -223,7 +223,7 @@ lifecycle._ARXIV_URL = ${JSON.stringify(`${base}/arxiv/api/query`)}
     await expect(lastRun.locator('.life-run-head')).toHaveText(/^The check .+ could not check a single paper\.$/);
     for (const service of down) {
       await expect(lastRun.locator(`[data-line="unanswered:${service.service}"]`)).toHaveText(
-        `${service.name} did not answer for ${service.papers} ${service.papers === 1 ? 'paper' : 'papers'} (${service.reason}). `
+        `${service.name} did not answer for ${service.papers} ${service.papers === 1 ? 'paper' : 'papers'} (${String(service.reason).replace(/[.!?]+$/, '')}). `
         + `${service.papers === 1 ? 'It stays' : 'They stay'} unchecked, not cleared, and ${service.papers === 1 ? 'is' : 'are'} `
         + 'asked about again on the next check.');
     }

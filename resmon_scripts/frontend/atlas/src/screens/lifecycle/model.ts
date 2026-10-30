@@ -20,6 +20,11 @@ import type { components } from '../../api/schema';
 import { instantOf } from '../health/model';
 import { count, number, when } from '../today/format';
 
+/** A service's own words, in parentheses inside a sentence: its closing period would end the sentence twice. */
+function clause(said: string): string {
+  return said.trim().replace(/[.!?]+$/, '');
+}
+
 export type LifecycleEvent = components['schemas']['LifecycleEvent'];
 export type LifecycleFinding = components['schemas']['LifecycleFinding'];
 export type LifecycleReport = components['schemas']['LifecycleReport'];
@@ -176,7 +181,7 @@ export function lastRunLines(last: LifecycleRunResult, coverage: LifecycleCovera
     lines.push({
       key: `unanswered:${service.service}`,
       text: `${service.name} did not answer for ${count(service.papers, 'paper')}`
-        + `${service.reason ? ` (${service.reason})` : ''}. `
+        + `${service.reason ? ` (${clause(service.reason)})` : ''}. `
         + `${it(service.papers, 'It stays', 'They stay')} unchecked, not cleared, and `
         + `${it(service.papers, 'is', 'are')} asked about again on the next check.`,
     });
@@ -186,7 +191,7 @@ export function lastRunLines(last: LifecycleRunResult, coverage: LifecycleCovera
       key: 'errors',
       text: `${count(last.errors.length, 'paper')} could not be checked because a service failed on `
         + `${it(last.errors.length, 'it', 'them')} part-way: `
-        + last.errors.map((e) => `${e.title ? `“${e.title}”` : `paper ${e.document_id}`} (${e.error ?? 'no reason given'})`).join('; ')
+        + last.errors.map((e) => `${e.title ? `“${e.title}”` : `paper ${e.document_id}`} (${clause(e.error ?? 'no reason given')})`).join('; ')
         + '.',
     });
   }
