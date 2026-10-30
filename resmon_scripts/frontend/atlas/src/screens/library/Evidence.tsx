@@ -218,7 +218,7 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
             {memberList.map((m) => (
               <li key={m.file_id}>
                 <button type="button" className="library-file" aria-pressed={m.file_id === current?.file_id} data-file={m.file_id}
-                  onClick={() => read(m.file_id)}>
+                  onClick={() => read(m.file_id)} title={m.file.original_name}>
                   <span className="lib-name">{m.file.original_name}</span>
                   <span className="meta"><span>{kindOf(m.file.media_type)}</span><span className="sep" /><span>{sizeWords(m.file.byte_size)}</span></span>
                 </button>
@@ -359,8 +359,8 @@ function NotesPanel({ project, file, member, anchor, editing, onEdit, notes, tot
         {notes.map((n) => (
           <li key={n.note_id} data-note={n.note_id} data-kind={n.kind} data-version={n.version_id}>
             <p className="ev-saved-head">
-              <b className="ev-saved-file">{n.file.original_name}</b>
-              <span className="record-cap"> · {n.kind}{n.page_number ? ` · page ${n.page_number}` : ''}{n.membership_state === 'removed' ? ' · file removed from the project' : ''}</span>
+              <b className="ev-saved-file" title={n.file.original_name}>{n.file.original_name}</b>
+              <span className="record-cap">{n.kind}{n.page_number ? ` · page ${n.page_number}` : ''}{n.membership_state === 'removed' ? ' · file removed from the project' : ''}</span>
             </p>
             {n.quote !== null && <blockquote className="ev-quote">{n.quote}</blockquote>}
             {n.body && <p className="ev-body-text">{n.body}</p>}

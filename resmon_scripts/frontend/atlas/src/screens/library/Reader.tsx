@@ -80,7 +80,7 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
   return (
     <section className="ev-reader" aria-label="Evidence reader" data-file={file.file_id} data-media={file.media_type} data-page={page}>
       <div className="ev-reader-head">
-        <h2 className="lib-detail-name">{file.original_name}</h2>
+        <h2 className="lib-detail-name ev-reader-name" title={file.original_name}>{file.original_name}</h2>
         {onRemove && (
           <button type="button" className="btn sm quiet" disabled={removing}
             onClick={() => { if (window.confirm(`Take ${file.original_name} out of this project? Its saved records stay.`)) onRemove(); }}>
@@ -88,7 +88,10 @@ export function Reader({ project, file, member, pin, onAnchor, onRemove, removin
           </button>
         )}
       </div>
-      <p className="record-cap ev-identity">Version <code className="path">{file.version_id}</code> · SHA-256 <code className="path">{file.sha256}</code></p>
+      <dl className="ev-identity">
+        <div><dt>Version</dt><dd><code className="path" title={file.version_id}>{file.version_id}</code></dd></div>
+        <div><dt>SHA-256</dt><dd><code className="path" title={file.sha256}>{file.sha256}</code></dd></div>
+      </dl>
       {!member && !readOnly && <p className="record-cap" data-evidence="removed">This file is no longer in the project. Its saved records are kept.</p>}
       {resolution && <p className="ev-verdict" role="status" data-evidence="resolution" data-match={match}>{resolution}</p>}
       {isPdf && (
