@@ -32,9 +32,23 @@ describe('whether a run summarized, with what, and how it went', () => {
     expect(runSummaries({ status: 'completed', ai_lanes: [] }, [choice({ enabled: false, lanes: [] })]))
       .toEqual({ on: false, head: 'Off for this run.', lanes: [], note: null });
     expect(runSummaries({ status: 'completed', ai_lanes: [] }, []))
-      .toEqual({ on: null, head: 'Not recorded with this run.', lanes: [], note: null });
+      .toEqual({ on: null, head: 'This run recorded no attempt to summarize, and not whether it was set to.', lanes: [], note: null });
     // A run from before the choice was recorded still says what its lanes did.
     expect(runSummaries({ status: 'completed', ai_lanes: [lane({})] }, []).on).toBe(true);
+  });
+
+  test('an interrupted run with no lane says no attempt was made before it stopped, as Restart does', () => {
+    const interrupted = { status: 'interrupted', routine_id: null, ai_lanes: [] };
+    const said = runSummaries(interrupted, []);
+    expect(said).toEqual({
+      on: null, head: 'This run recorded no attempt to summarize before it stopped, and not whether it was set to.', lanes: [], note: null,
+    });
+    // Beside it, Restart's line says the same thing, not its opposite.
+    expect(restartFacts({ parameters: '{}', execution_type: 'automated_sweep', ...interrupted }).ai)
+      .toBe('This run recorded no attempt to summarize, so Restart does not summarize.');
+    // Still running, or with no lane record at all, nothing is inferred.
+    expect(runSummaries({ status: 'running', ai_lanes: [] }, []).head).toBe('Not recorded with this run.');
+    expect(runSummaries({ status: 'interrupted' }, []).head).toBe('Not recorded with this run.');
   });
 
   test('on, and nothing summarized, says why rather than looking like a quiet success', () => {

@@ -208,6 +208,15 @@ describe('what Restart does, said before it is pressed', () => {
     expect(facts.watchId).toBe(7);
   });
 
+  test('a watch\'s run whose watch was deleted is not called a search asked by hand', () => {
+    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null, ai_lanes: [] });
+    expect(facts.delivery).toBe('None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.');
+    expect(facts.delivery).not.toContain('by hand');
+    expect(facts.watchId).toBeNull();
+    expect(restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null }).delivery)
+      .toMatch(/^None\. The watch this run belonged to no longer exists/);
+  });
+
   test('a setting the parameters do record is read from them', () => {
     const facts = restartFacts({ parameters: JSON.stringify({ ai_enabled: true }), execution_type: 'deep_dive', routine_id: null });
     expect(facts.ai).toMatch(/^On when this run started, as its parameters record\./);
