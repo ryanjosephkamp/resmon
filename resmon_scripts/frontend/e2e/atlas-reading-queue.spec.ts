@@ -88,6 +88,11 @@ test('the reading queue past its first page: paging, ticks, export, and a page t
 
     // — the first page, and the rest a click away --------------------------------
     await settled();
+    // To read / Read / All is the list's own control: at the content's left edge, under the heading, at any width.
+    const heading = await win.getByRole('heading', { name: 'Reading queue', level: 1 }).boundingBox();
+    const control = await show.boundingBox();
+    expect(Math.abs((control?.x ?? 0) - (heading?.x ?? -10))).toBeLessThan(2);
+    expect(control?.y ?? 0).toBeGreaterThan(heading?.y ?? 0);
     await expect(range).toHaveText('Papers 1–200 of 203');
     await expect(rows).toHaveCount(200);
     await expect(show.getByRole('button', { name: /^To read/ })).toContainText('203');

@@ -697,6 +697,7 @@ kbd {
 
 .library { max-width: 1060px; }
 .library-head { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.queue-show { margin-top: 18px; }
 .seg-n { margin-left: 6px; color: var(--ink-3); }
 .seg button[aria-pressed="true"] .seg-n { color: var(--ink-2); }
 .queue-export { margin-top: 20px; border: 1px solid var(--rule); border-radius: 8px; }
