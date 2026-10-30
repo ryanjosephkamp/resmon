@@ -8,6 +8,7 @@ import { useOpening } from './today/opening';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
+import { useLifecycleFor } from './lifecycle/LifecycleMarks';
 import { buildSky, density, emptiestCorner, epochDay, gridCell, watchShape } from './today/model';
 
 type CollectionMap = components['schemas']['CollectionMap'];
@@ -111,6 +112,9 @@ export function Today() {
     return out;
   }, [papers, sky]);
   const listed = useMemo(() => new Map(papers.map((p) => [p.id, p])), [papers]);
+  // A paper collected last week can have been retracted since; its entry says so.
+  const listedIds = useMemo(() => papers.map((p) => p.id), [papers]);
+  const lifecycle = useLifecycleFor(listedIds);
 
   // The opening: the plate settles, then the new papers light one by one in
   // the order they arrived, their numbers in the index lighting with them.
@@ -237,6 +241,7 @@ export function Today() {
           selected={selectedId}
           now={now}
           saved={saved}
+          lifecycle={lifecycle.data?.events}
           marking={looked.isPending}
           busy={today.isFetching}
           onSelect={(id) => { setSelectedId(id); zoomTo({ paperId: id }); }}

@@ -18,6 +18,7 @@ out of the default run.
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import sys
 import threading
@@ -574,6 +575,35 @@ def test_run_until_done_stops_rather_than_spinning_on_papers_it_cannot_advance(c
 def test_the_default_limit_is_workable_on_a_real_corpus(conn):
     """15,645 papers at the old default of 200 was 79 presses."""
     assert lifecycle.DEFAULT_LIMIT >= 1000
+
+
+def test_the_watchdog_says_the_bounds_the_engine_uses():
+    """Atlas's Watchdog states, in numbers, what one check asks and how fast.
+
+    Those numbers are this module's constants, copied into the renderer's
+    ``CHECK_FACTS`` so the screen can say them; this reads that object and
+    fails the moment one copy moves without the other, because a screen
+    describing a check the engine no longer runs is the app stating something
+    it does not know.
+    """
+    model = (PROJECT_ROOT / "resmon_scripts" / "frontend" / "atlas" / "src" / "screens"
+             / "lifecycle" / "model.ts")
+    assert model.is_file(), "the lifecycle model moved; this guard must move with it"
+    block = re.search(r"CHECK_FACTS = \{(.*?)\}", model.read_text(encoding="utf-8"), re.S)
+    assert block, "CHECK_FACTS is no longer an object literal this guard can read"
+    stated = {key: float(value) for key, value in re.findall(r"(\w+): ([\d.]+)", block.group(1))}
+
+    def per_second(limiter) -> float:
+        return round(1.0 / limiter._interval, 6)
+
+    assert stated == {
+        "perCheck": lifecycle.DEFAULT_LIMIT,
+        "crossrefBatch": lifecycle.CROSSREF_BATCH,
+        "crossrefPerSecond": per_second(lifecycle._CROSSREF_LIMITER),
+        "arxivBatch": lifecycle.ARXIV_BATCH,
+        "biorxivPerSecond": per_second(lifecycle._BIORXIV_LIMITER),
+        "recheckDays": lifecycle.RECHECK_AFTER_DAYS,
+    }
 
 
 # ---------------------------------------------------------------------------

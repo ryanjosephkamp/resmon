@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { Icon } from '../../shell/Icon';
 import { authors, duration, number, troubleParts, when } from './format';
+import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
+import type { LifecycleEvent } from '../lifecycle/model';
 
 type TodayPaper = components['schemas']['TodayPaper'];
 type TodayWatch = components['schemas']['TodayWatch'];
@@ -44,6 +46,8 @@ interface Props {
   selected: number | null;
   now: Date;
   saved: ReadonlyMap<number, boolean>;
+  /** Notices recorded against the listed papers, by id; absent while they are being read. */
+  lifecycle?: Readonly<Record<string, LifecycleEvent[]>>;
   marking: boolean;
   /** Re-reading the engine: the list says so, to a screen reader and to a test. */
   busy: boolean;
@@ -57,8 +61,8 @@ interface Props {
 
 export function TodayIndex(props: Props) {
   const {
-    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, lit, selected, now, saved, marking, busy,
-    onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer,
+    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, lit, selected, now, saved, lifecycle,
+    marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer,
   } = props;
   const [by, setBy] = useState<'watch' | 'region'>('watch');
   const scroller = useRef<HTMLDivElement>(null);
@@ -155,6 +159,7 @@ export function TodayIndex(props: Props) {
                 lit={paper.n <= lit}
                 selected={paper.id === selected}
                 saved={saved.get(paper.id) ?? paper.queue_status !== null}
+                events={lifecycle?.[String(paper.id)]}
                 sourceName={sourceName}
                 onSelect={onSelect}
                 onPoint={onPoint}
@@ -249,13 +254,14 @@ function SourceTrouble({ run }: { run: TodayRun }) {
 
 function Entry(props: {
   paper: IndexPaper; lit: boolean; selected: boolean; saved: boolean;
+  events?: LifecycleEvent[];
   sourceName: (slug: string) => string;
   onSelect: (id: number) => void;
   onPoint: (id: number | null) => void;
   onZoomTo: (target: { paperId: number }) => void;
   onToggleSave: (paper: IndexPaper) => void;
 }) {
-  const { paper, lit, selected, saved, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
+  const { paper, lit, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
   const link = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
   return (
     <article
@@ -271,6 +277,7 @@ function Entry(props: {
             {paper.title}
           </button>
         </h4>
+        <LifecycleMarks events={events} />
         <div className="meta">
           <span className="who">{authors(paper.authors)}</span>
           <span className="sep" aria-hidden="true" />
