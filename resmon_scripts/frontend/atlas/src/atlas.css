@@ -1866,3 +1866,22 @@ button.ai-link {
 /* The reading queue, a page at a time. */
 .queue-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 16px; }
 .queue-pager .index-cap { margin: 0 8px 0 0; }
+
+/* Settings › About resmon. */
+.about-part { margin-top: 26px; max-width: 820px; }
+.about-part > .field-title + * { margin-top: 10px; }
+.about-part .facts { margin-top: 10px; }
+.about-part > .form-hint { margin-top: 10px; }
+.about-part > .form-hint a, .about-list a, .about-text a { color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.about-text { margin: 10px 0 0; font: 400 13.5px/1.55 var(--sans); color: var(--ink); max-width: 76ch; }
+.about-list { margin: 10px 0 0; padding-left: 18px; display: grid; gap: 8px; font: 400 13.5px/1.55 var(--sans); color: var(--ink); max-width: 80ch; }
+.about-list + .field-title { margin-top: 22px; }
+.about-list b { font-weight: 600; }
+.about-license { margin-top: 10px; }
+.about-license summary { cursor: pointer; font: 500 13px/1.4 var(--sans); color: var(--ink-2); }
+.about-license summary:hover { color: var(--ink); }
+.about-license pre {
+  margin: 10px 0 0; padding: 12px 14px; width: fit-content; max-width: 100%; border-radius: var(--r); background: var(--plate);
+  font: 400 12.5px/1.5 var(--mono); color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.about-actions { margin: 14px 0 0; }
