@@ -5,6 +5,7 @@ import { answer, engine, EngineError } from '../../api/client';
 import { saveZip } from '../runs/downloads';
 import { count } from '../today/format';
 import { instant, scheduleText } from '../watches/model';
+import { SavedEditor } from './SavedEditor';
 import { SearchTabs } from './SearchTabs';
 import { SAVED_KEY, savedAsks, savedKind, type SavedConfiguration } from './savedSearches';
 
@@ -40,6 +41,10 @@ export function Saved() {
   const navigate = useNavigate();
   const chooser = useRef<HTMLInputElement>(null);
   const [chosen, setChosen] = useState<number[]>([]);
+  /** The saved search open in the editor, by id; one at a time. */
+  const [editing, setEditing] = useState<number | null>(null);
+  /** What the last change stored said, beside the row it changed. */
+  const [changed, setChanged] = useState<{ id: number; said: string } | null>(null);
   const saved = useQuery({ queryKey: SAVED_KEY, queryFn: () => answer(engine().GET('/api/configurations')) });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -105,8 +110,9 @@ export function Saved() {
     const asks = savedAsks(config);
     const sources = asks.sources.map((s) => names.get(s) ?? s);
     const made = instant(config.created_at);
+    const open = editing === config.id;
     return (
-      <li key={config.id} className="saved" data-config={config.id} data-kind={config.config_type}>
+      <li key={config.id} className={open ? 'saved editing' : 'saved'} data-config={config.id} data-kind={config.config_type}>
         <label className="saved-pick">
           <input type="checkbox" checked={chosen.includes(config.id)} onChange={() => pick(config.id)} />
           <span className="sr-only">Choose {config.name}</span>
@@ -122,12 +128,25 @@ export function Saved() {
             {asks.cap !== null && (<><span className="sep" /><span>up to {asks.cap} per source</span></>)}
           </p>
           {made && <p className="record-cap">Saved {DAY.format(made)}</p>}
+          {changed?.id === config.id && !open && (
+            <p className="settings-said" role="status" data-saved="changed">{changed.said}</p>
+          )}
         </div>
         <div className="saved-actions">
+          {/* A watch's copy follows the watch (the engine rewrites it on every change to the watch), so it is changed in the watch's editor. */}
           {config.config_type === 'routine'
-            ? asks.watchId !== null && <Link className="btn sm" to={`/watches/${asks.watchId}`}>Open the watch</Link>
-            : (
+            ? asks.watchId !== null && (
               <>
+                <Link className="btn sm" to={`/watches/${asks.watchId}`}>Open the watch</Link>
+                <Link className="btn sm quiet" data-saved="change-watch" to={`/watches/${asks.watchId}/edit`}>Change the watch</Link>
+              </>
+            )
+            : !open && (
+              <>
+                <button type="button" className="btn sm" data-saved="change"
+                  onClick={() => { setChanged(null); setEditing(config.id); }}>
+                  Change
+                </button>
                 <button type="button" className="btn sm" onClick={() => navigate('/search/ask', { state: { saved: config } })}>
                   Ask again
                 </button>
@@ -143,6 +162,16 @@ export function Saved() {
               </>
             )}
         </div>
+        {open && (
+          <SavedEditor
+            key={config.id}
+            config={config}
+            onDone={(said) => {
+              setEditing(null);
+              if (said) setChanged({ id: config.id, said });
+            }}
+          />
+        )}
       </li>
     );
   };
@@ -154,6 +183,7 @@ export function Saved() {
       <p className="page-lede">
         Searches saved from Ask the sources, and the copy resmon keeps of every watch. Export any of them to a file, and
         import that file here or on another computer. A watch imported from a file arrives paused, whatever the file says.
+        A watch’s copy follows the watch: change the watch in its own editor, and the copy changes with it.
       </p>
 
       <div className="saved-bar">

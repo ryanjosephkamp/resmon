@@ -1847,3 +1847,18 @@ button.ai-link {
 .run-ai p { margin: 0; }
 .run-ai-lanes { margin: 0; padding: 0 0 0 18px; display: grid; gap: 2px; }
 .run-ai-note { color: var(--ink-3); }
+
+/* A saved search changed in place: the editor opens under its row, across the row's full width. */
+.saved.editing { padding-bottom: 20px; }
+.saved .settings-said { margin: 4px 0 0; font-size: 13px; }
+.saved-editor { grid-column: 1 / -1; min-width: 0; padding: 18px 20px 20px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); }
+.saved-editor-name { max-width: 520px; }
+.saved-editor .catalog { margin-top: 22px; }
+.saved-editor .ask-window { margin-top: 20px; }
+.saved-editor-hint { margin-top: 8px; }
+.saved-editor-facts p { margin: 8px 0 0; font: 400 13px/1.5 var(--sans); color: var(--ink-2); max-width: 72ch; }
+.saved-editor .form-actions { margin-top: 18px; }
+
+/* A run saved as a search: the name field, under the run's headline. */
+.run-keep { margin-top: 12px; display: grid; gap: 8px; justify-items: start; }
+.run-head .settings-said { margin-top: 12px; }
