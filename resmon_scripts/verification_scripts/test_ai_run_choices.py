@@ -291,8 +291,13 @@ def test_a_watch_set_to_its_own_lane_runs_with_it(client, provider, tmp_path):
 # Testing a key
 # ---------------------------------------------------------------------------
 
+def _save_endpoint(client, url: str) -> None:
+    assert client.put("/api/settings/ai", json={"settings": {"ai_custom_base_url": url}}).status_code == 200
+
+
 def test_the_stored_key_is_tested_without_being_sent_from_the_screen(client, provider):
     assert client.put("/api/credentials/custom_llm_api_key", json={"value": "test-key-loopback"}).status_code == 200
+    _save_endpoint(client, provider.url)
     resp = client.post("/api/credentials/validate", json={"provider": "custom", "base_url": provider.url})
     assert resp.status_code == 200
     body = resp.json()
@@ -307,14 +312,31 @@ def test_a_refused_key_and_an_unreachable_provider_read_differently(client):
     refusing = _Provider(status=401)
     try:
         assert client.put("/api/credentials/custom_llm_api_key", json={"value": "test-key-loopback"}).status_code == 200
+        _save_endpoint(client, refusing.url)
         refused = client.post("/api/credentials/validate", json={"provider": "custom", "base_url": refusing.url}).json()
     finally:
         refusing.close()
     assert (refused["valid"], refused["outcome"], refused["http_status"]) == (False, "refused", 401)
 
+    _save_endpoint(client, "http://127.0.0.1:9/v1")
     unreachable = client.post("/api/credentials/validate", json={"provider": "custom", "base_url": "http://127.0.0.1:9/v1"}).json()
     assert (unreachable["valid"], unreachable["outcome"]) == (False, "unreachable")
     assert "could not reach" in unreachable["detail"]
+
+
+def test_a_stored_key_is_never_sent_to_an_endpoint_nobody_saved(client, provider):
+    assert client.put("/api/credentials/custom_llm_api_key", json={"value": "test-key-loopback"}).status_code == 200
+    _save_endpoint(client, "http://127.0.0.1:9/v1")
+    before = len(provider.calls)
+    resp = client.post("/api/credentials/validate", json={"provider": "custom", "base_url": provider.url})
+    assert resp.status_code == 400
+    assert "Save the endpoint first" in resp.json()["detail"]
+    assert len(provider.calls) == before
+    # Typed here, a key is the caller's own, and goes where the caller says.
+    typed = client.post("/api/credentials/validate",
+                        json={"provider": "custom", "key": "typed-key", "base_url": provider.url}).json()
+    assert typed["outcome"] == "accepted"
+    assert provider.calls[-1]["authorization"] == "Bearer typed-key"
 
 
 def test_with_no_key_stored_there_is_nothing_to_test(client):

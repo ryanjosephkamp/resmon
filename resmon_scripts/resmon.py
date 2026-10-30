@@ -6432,6 +6432,7 @@ def validate_credential(body: CredentialValidate):
     """
     provider = (body.provider or "").strip().lower()
     key: Optional[str] = (body.key or "").strip() or None
+    base_url = body.base_url
     if key is None:
         cred_name = "custom_llm_api_key" if provider == "custom" else f"{provider}_api_key"
         if cred_name not in AI_CREDENTIAL_NAMES:
@@ -6439,7 +6440,23 @@ def validate_credential(body: CredentialValidate):
         key = get_credential(cred_name)
         if not key:
             raise HTTPException(400, "No key is stored for this provider, so there is nothing to test.")
-    probe = probe_api_key(provider, key, base_url=body.base_url)
+        if provider == "custom":
+            # A stored key goes only where it was saved to go. The endpoint
+            # comes from the settings stored beside it, never from the request,
+            # so no caller can have the stored key sent to an address nobody
+            # saved.
+            conn = _get_db()
+            try:
+                saved_url = (get_setting(conn, "ai_custom_base_url") or "").strip()
+            finally:
+                _close_db(conn)
+            asked = (body.base_url or "").strip()
+            if asked and asked.rstrip("/") != saved_url.rstrip("/"):
+                raise HTTPException(400, (
+                    "Save the endpoint first: a stored key is tested only against "
+                    "the endpoint saved with it."))
+            base_url = saved_url or None
+    probe = probe_api_key(provider, key, base_url=base_url)
     return {"valid": probe["outcome"] == "accepted", **probe}
 
 
