@@ -34,6 +34,8 @@ export interface Stubbed {
   getDownloads: number;
   revealDownload: number;
   relaunch: number;
+  swipeNavigation: number;
+  swipeHistory: number;
 }
 
 /**
@@ -50,6 +52,8 @@ export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
   getDownloads: 'resmon:downloads',
   revealDownload: 'resmon:reveal-download',
   relaunch: 'resmon:relaunch',
+  swipeNavigation: 'resmon:swipe-navigation',
+  swipeHistory: 'resmon:swipe-history',
 };
 
 export interface GuardCounts {
@@ -74,7 +78,7 @@ export const NOTHING_ESCAPED: Escaped = {
 export async function installIpcGuards(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain, dialog, shell }) => {
     const counts = {
-      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0 },
+      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0, swipeNavigation: 0, swipeHistory: 0 },
       escaped: {
         showOpenDialog: 0,
         showMessageBox: 0,
@@ -160,6 +164,20 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
     ipcMain.removeHandler('resmon:relaunch');
     ipcMain.handle('resmon:relaunch', async () => {
       counts.stubbed.relaunch += 1;
+      return false;
+    });
+
+    // The two-finger swipe reads a system setting and moves the history: off
+    // here, and counted, so a stray wheel event cannot navigate a guarded run.
+    ipcMain.removeHandler('resmon:swipe-navigation');
+    ipcMain.handle('resmon:swipe-navigation', async () => {
+      counts.stubbed.swipeNavigation += 1;
+      return false;
+    });
+    ipcMain.removeHandler('resmon:swipe-history');
+    ipcMain.handle('resmon:swipe-history', async (_e, direction: unknown) => {
+      counts.stubbed.swipeHistory += 1;
+      counts.lastArgs.swipeHistory = direction;
       return false;
     });
   });

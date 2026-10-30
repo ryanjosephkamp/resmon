@@ -53,7 +53,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
 }) => {
   await installIpcGuards(app);
   await goto('/');
-  // Initial renderer download-history reads are separate from the six calls below.
+  // Initial renderer download-history reads are separate from the calls below.
   const before = await readGuards(app);
 
   // Call each channel the way the renderer does — through the preload bridge,
@@ -68,6 +68,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
         getDownloads(): Promise<unknown[]>;
         revealDownload(id: string): Promise<boolean>;
         relaunch(): Promise<boolean>;
+        swipeNavigation(): Promise<boolean>;
+        swipeHistory(direction: 'back' | 'forward'): Promise<boolean>;
       };
     }).resmonAPI;
     return {
@@ -78,6 +80,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
       downloads: await api.getDownloads(),
       downloadRevealed: await api.revealDownload('synthetic-download-id'),
       relaunched: await api.relaunch(),
+      swipes: await api.swipeNavigation(),
+      swiped: await api.swipeHistory('back'),
     };
   });
 
@@ -89,6 +93,8 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(results.downloads).toEqual([]);
   expect(results.downloadRevealed).toBe(true);
   expect(results.relaunched).toBe(false);
+  expect(results.swipes).toBe(false);
+  expect(results.swiped).toBe(false);
 
   const guards = await readGuards(app);
   console.log('Q5 GUARD COUNTS', JSON.stringify(guards));
@@ -97,6 +103,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(Object.fromEntries(Object.entries(guards.stubbed).map(([key, value]) =>
     [key, value - before.stubbed[key as keyof typeof before.stubbed]]))).toEqual({
     chooseDirectory: 1, chooseFile: 1, openPath: 1, revealPath: 1, getDownloads: 1, revealDownload: 1, relaunch: 1,
+    swipeNavigation: 1, swipeHistory: 1,
   });
   // … and nothing underneath them was.
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
@@ -114,6 +121,7 @@ test('P4: a full pass over every route opens no dialog and makes no shell call',
   console.log('P4 GUARD COUNTS AFTER FULL PASS', JSON.stringify(guards));
   expect(guards.stubbed).toEqual({
     chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0,
+    swipeNavigation: 0, swipeHistory: 0,
   });
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 });

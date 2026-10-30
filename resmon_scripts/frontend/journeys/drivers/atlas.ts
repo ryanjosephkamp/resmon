@@ -37,10 +37,10 @@ import type { Session } from './session';
 const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Today: '/today',
   'Appearance settings': '/settings',
-  // Routines and the calendar are one place in Atlas: each watch, and the
-  // month ahead's fires beneath them.
+  // Routines and the calendar are both Watches in Atlas: each watch on its
+  // Searches tab, and the month ahead's fires on its Calendar tab.
   Routines: '/watches',
-  Calendar: '/watches',
+  Calendar: '/watches/calendar',
   'Watch Profiles': '/watches/people',
   // Atlas lists every source with its limits, and whether it can be asked
   // about a person, where a person chooses sources: Ask the sources.
@@ -227,6 +227,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/watches') {
       await expect(win().getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('section.watch-index')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/watches/calendar') {
+      await expect(win().getByRole('heading', { name: 'Calendar', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('.page.watch-calendar')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else if (hash === '/watches/people') {
       await expect(win().getByRole('heading', { name: 'People', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.people')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });

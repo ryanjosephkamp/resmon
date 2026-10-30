@@ -120,7 +120,7 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
         await expect(win.locator('.theme-card[data-selected]')).toHaveText(/The printed atlas/);
         await expect(win.getByText('Drawn deeper here, so it stays readable.')).toHaveCount(1);
         await shoot(win, 'atlas-settings-light.png');
-        await win.getByRole('link', { name: 'Today' }).click();
+        await win.getByRole('link', { name: 'Today', exact: true }).click();
         await expect(win.locator('.plate-waiting > [role="status"]')).toHaveText(/Your collection is empty/);
         await shoot(win, 'atlas-today-light.png');
 

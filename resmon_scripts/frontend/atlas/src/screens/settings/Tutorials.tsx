@@ -10,7 +10,7 @@
  * earlier interface and is said in the past tense of that interface, and
  * where that part of resmon is now, which must be true of the screens here.
  * Where the two differ (the earlier calendar had day and week views and drew
- * past runs; the month ahead draws only what is due), the second says so.
+ * past runs; Watches › Calendar draws only what is due), the second says so.
  */
 const WALKTHROUGHS: readonly { id: string; title: string; shows: string; now: string }[] = [
   {
@@ -42,7 +42,7 @@ const WALKTHROUGHS: readonly { id: string; title: string; shows: string; now: st
   {
     id: 'AcTF9d39BNA', title: 'The calendar',
     shows: 'Past runs and scheduled ones, by day, week, and month.',
-    now: 'Watches › The month ahead draws only what is due, five weeks from the start of this one, with no day or week '
+    now: 'Watches › Calendar draws only what is due, five weeks from the start of this one, with no day or week '
       + 'view. Past runs are on each watch’s own page, and every run is listed beside Search › Ask the sources.',
   },
 ];

@@ -1,17 +1,19 @@
 /**
  * Atlas: Settings › About resmon, in the real app.
  *
- * Reached from the Settings rail. The version and the build are the engine's
- * own (`/api/health`), the license is the repository's `LICENSE` word for
- * word, and the keychain is named for this platform. The report link is
- * clicked: it opens GitHub's issues page in a link window of its own, and
- * the request for that page is cancelled before it leaves this machine, as
- * `main-window.spec.ts` cancels its attribution link.
+ * Reached from the Settings rail. Who made it comes first: the credit row
+ * his sites end with, its marks drawn in the page. The version and the build
+ * are the engine's own (`/api/health`), the license is the repository's
+ * `LICENSE` word for word, and the keychain is named for this platform. The
+ * report link and one of the maker's links are clicked: each opens its page
+ * in a link window of its own, and the request for that page is cancelled
+ * before it leaves this machine, as `main-window.spec.ts` cancels its
+ * attribution link. The page's Keyboard shortcuts button opens the sheet.
  *
  * Every request the window makes beyond the engine on loopback is recorded
  * and refused while this spec runs, so "drawing the page asks nothing of any
- * server" is measured: the one outside request is the click's, and the
- * engine receives no write from the page at all.
+ * server" is measured: the outside requests are the clicks', and the engine
+ * receives no write from the page at all.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -20,6 +22,7 @@ import { test, expect, _electron as electron, type Page } from '@playwright/test
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 
 const ISSUES = 'https://github.com/ryanjosephkamp/resmon/issues';
+const GITHUB = 'https://github.com/ryanjosephkamp/';
 
 async function health(win: Page): Promise<{ version: string; identity: { build_id: string | null; schema_version: number | null } }> {
   return win.evaluate(async () => {
@@ -91,6 +94,33 @@ test('About resmon: the engine\'s version, the license as written, the keychain 
       await about.locator('[data-about="report"]').scrollIntoViewIfNeeded();
       await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-about-privacy.png') });
 
+      // — who made it: the maker's credit row, near the top, drawn in the page ----------------
+      const credit = about.locator('[data-about="credit"]');
+      await expect(credit.getByRole('heading', { name: 'Who made it', level: 3 })).toBeVisible();
+      expect(await about.locator('.about-part').first().getAttribute('data-about')).toBe('credit');
+      await expect(credit.locator('.credit-made')).toHaveText('Made by Ryan Kamp');
+      await expect(credit.getByRole('link', { name: 'Ryan Kamp', exact: true })).toHaveAttribute('href', 'https://ryanjosephkamp.github.io/');
+      const online = credit.getByRole('list', { name: 'Ryan Kamp online' }).getByRole('link');
+      expect(await online.evaluateAll((links) => links.map((a) => [a.getAttribute('aria-label'), a.getAttribute('href'), a.getAttribute('target')])))
+        .toEqual([
+          ['Ryan Kamp’s website', 'https://ryanjosephkamp.github.io/', '_blank'],
+          ['Ryan Kamp on GitHub', GITHUB, '_blank'],
+          ['Ryan Kamp on LinkedIn', 'https://www.linkedin.com/in/rjk1999', '_blank'],
+          ['Ryan Kamp on X', 'https://x.com/ryanjosephkamp', '_blank'],
+          ['Ryan Kamp on YouTube', 'https://m.youtube.com/@RyanJosephKamp', '_blank'],
+        ]);
+      await expect(credit.getByRole('link', { name: 'Sponsor on GitHub' })).toHaveAttribute('href', 'https://github.com/sponsors/ryanjosephkamp');
+      // Each mark is an inline drawing, not an image or a reference to one.
+      expect(await credit.locator('svg').count()).toBe(6);
+      expect(await credit.locator('img, use, image, link').count()).toBe(0);
+      await credit.scrollIntoViewIfNeeded();
+      for (const scheme of ['light', 'dark'] as const) {
+        await win.emulateMedia({ colorScheme: scheme });
+        await win.waitForTimeout(200);
+        await credit.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-about-credit-${scheme}.png`) });
+      }
+      await win.emulateMedia({ colorScheme: null });
+
       // Drawing the page asked nothing of any server but the engine.
       expect(await outside.evaluate((facts) => facts.refused)).toEqual([]);
 
@@ -105,6 +135,19 @@ test('About resmon: the engine\'s version, the license as written, the keychain 
       const opened = await app.evaluate(({ BrowserWindow }, id) => BrowserWindow.getAllWindows()
         .filter((w) => w.id !== id).map((w) => w.getTitle()), mainId);
       expect(opened).toEqual([ISSUES]);
+
+      // — a credit link opens its site the same way, and only on a click ------------------
+      await credit.getByRole('link', { name: 'Ryan Kamp on GitHub' }).click();
+      await expect.poll(() => outside.evaluate((facts) => facts.refused), { timeout: 20_000 }).toEqual([ISSUES, GITHUB]);
+      await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(before + 2);
+
+      // — the keyboard's shortcuts, one button away -----------------------------------
+      await win.bringToFront();
+      await about.locator('[data-about="show-shortcuts"]').click();
+      const sheet = win.getByRole('dialog', { name: 'Keyboard shortcuts' });
+      await expect(sheet).toBeVisible();
+      await win.keyboard.press('Escape');
+      await expect(sheet).toBeHidden();
       expect(writes, 'About resmon wrote to the engine').toEqual([]);
     } finally {
       await app.evaluate(({ session, BrowserWindow }, id) => {
