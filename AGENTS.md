@@ -562,6 +562,12 @@ claims, and a saved conversation says its completion is unknown. ⌘/ (Ctrl+/) o
 caret in the composer. Settings › AI (`settings/Ai.tsx`) holds the summary lane and Ask's defaults,
 and Search's *Summarize each paper* sends `ai_enabled`. The routes' bodies are the "assistant" slice
 of `test_response_models.py`; real-app journey `e2e/atlas-ask.spec.ts`, on `fake_claude.py`.
+Summaries (`settings/SummaryForm.tsx`, `summaryLanes.ts`): Settings › AI writes the summary chain
+the engine resolves (`ai_lanes.resolve_chain`), and a run or a watch can set its own lane and wording
+(`SummaryChoiceField.tsx`, `summaryChoice.ts`) as `ai_settings`; an override naming a provider runs
+that lane alone (`resmon._merge_ai_override`). Every run emits an `ai_choice` event, and
+`GET /api/executions/{id}` carries the lanes it tried as `ai_lanes`, which the run page states
+(`runs/summaries.ts`). Real-app journey `e2e/atlas-ai-summaries.spec.ts`, on a loopback provider.
 Atlas Settings' last groups and Today's first-run card (`settings/Sources.tsx`, `Storage.tsx`,
 `Cloud.tsx`, `Tutorials.tsx`, `DangerZone.tsx`, `today/FirstRun.tsx`): Sources draws a stored key
 as a fixed 12-character mask and every required credit unconditionally; Backup writes to the chosen

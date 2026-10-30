@@ -1742,9 +1742,35 @@ class RunRow(RunColumns):
     source_outcomes: Optional[RunSourceOutcomes]
 
 
+class RunAiLane(LosslessModel):
+    """One summary lane a run tried, as ``execution_ai`` records it.
+
+    ``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,
+    ``skipped`` (an earlier lane covered everything) or ``running`` (the process
+    stopped while the lane held the work). ``credential_alias`` names a keyring
+    slot, never a key.
+    """
+
+    lane_index: int
+    lane_label: str
+    lane_kind: Literal["subscription", "api_key", "local"]
+    provider: str
+    model: Optional[str]
+    credential_alias: Optional[str]
+    outcome: Literal["running", "ok", "partial", "failed", "skipped"]
+    error_kind: Optional[str]
+    http_status: Optional[int]
+    safe_message: Optional[str]
+    docs_attempted: int
+    docs_succeeded: int
+    started_at: str
+    ended_at: Optional[str]
+
+
 class Run(RunColumns):
-    """``GET /api/executions/{exec_id}``: the row, which backend answered, and the
-    runs restarted from it (the reverse of ``restarted_from``)."""
+    """``GET /api/executions/{exec_id}``: the row, which backend answered, the
+    runs restarted from it (the reverse of ``restarted_from``), and the summary
+    lanes it tried."""
 
     identity: RuntimeIdentity
     coverage: RunCoverage
@@ -1755,6 +1781,7 @@ class Run(RunColumns):
     new_results: Optional[int]
     source_outcomes: Optional[RunSourceOutcomes]
     restarted_into: list[int]
+    ai_lanes: list[RunAiLane]
 
 
 class ActiveRuns(LosslessModel):

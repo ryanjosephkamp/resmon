@@ -16,6 +16,7 @@ import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
+import { runSummaries } from './runs/summaries';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
@@ -42,6 +43,21 @@ function OutcomeMark({ category }: { category: string }) {
  * its one-sentence summary; the live panel stays in the Progress tab, so the
  * two accounts can be compared rather than one drawn from the other.
  */
+/** Whether the run summarized its papers, with what, and what each connection it tried did. */
+function RunSummaryNote({ run, events }: { run: RunData; events: ProgressEvent[] | null }) {
+  if (!events) return null;
+  const said = runSummaries(run, events);
+  return (
+    <div className="run-ai" data-run="summaries" data-on={said.on === null ? 'unknown' : String(said.on)}>
+      <p><span className="run-ai-label">Summaries</span> {said.head}</p>
+      {said.lanes.length > 0 && (
+        <ul className="run-ai-lanes">{said.lanes.map((line, i) => <li key={i} data-outcome={run.ai_lanes[i]?.outcome}>{line}</li>)}</ul>
+      )}
+      {said.note && <p className="run-ai-note">{said.note}</p>}
+    </div>
+  );
+}
+
 export function Run() {
   const { id: raw } = useParams();
   const id = Number(raw);
@@ -219,6 +235,7 @@ export function Run() {
             <span key={next}><span className="sep" /> <Link to={`/runs/${next}`}>restarted as run {next}</Link></span>
           ))}
         </div>
+        <RunSummaryNote run={data} events={events.data ?? null} />
         {stopping && (
           <p className="run-note" role="status" data-run="stopping">
             Stopping. resmon has asked this run to stop, and it stops at its next checkpoint; until then it is still running.
