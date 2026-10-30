@@ -38,9 +38,9 @@ export function NewSearch({ mac, onStart }: { mac: boolean; onStart: (kind: Sear
 
   return (
     <>
-      <button type="button" className="newsearch" popoverTarget={MENU_ID} aria-haspopup="menu">
+      <button type="button" className="newsearch" popoverTarget={MENU_ID} aria-haspopup="menu" title="New search">
         <Icon name="plus" size={14} />
-        <span>New search</span>
+        <span className="newsearch-label">New search</span>
         <Icon name="chevron" size={14} />
       </button>
       <div id={MENU_ID} ref={menu} popover="auto" role="menu" aria-label="New search" className="newsearch-menu"

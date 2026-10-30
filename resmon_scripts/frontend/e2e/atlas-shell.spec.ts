@@ -254,6 +254,62 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
   }
 });
 
+/** Every top-level screen and the places within them a person reaches from the bar. */
+const SCREENS = ['/today', '/watches', '/watches/calendar', '/watches/people', '/search', '/search/ask', '/search/saved',
+  '/search/wording', '/library', '/library/files', '/library/evidence', '/ask', '/health', '/health/watchdog',
+  '/health/analytics', '/health/engine', '/settings', '/settings/about', '/settings/ai'];
+
+test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and the bar gives way rather than spills', async () => {
+  test.setTimeout(240_000);
+  const { app, win, problems, done } = await launchAtlas('narrow', 960);
+  try {
+    const minimum = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getMinimumSize());
+    expect(minimum?.[0]).toBe(960);
+    const trigger = win.getByRole('button', { name: 'New search' });
+    const search = win.getByRole('button', { name: 'Search commands' });
+    // A real window of each size, as far as the display allows: a runner's screen can be smaller than 1280.
+    for (const width of [960, 1024, 1280]) {
+      await app.evaluate(({ BrowserWindow }, w) => { BrowserWindow.getAllWindows()[0]?.setSize(w, 768); }, width);
+      await expect.poll(() => win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(width);
+      const inner = await win.evaluate(() => window.innerWidth);
+      for (const screen of SCREENS) {
+        await win.evaluate((s) => { window.location.hash = `#${s}`; }, screen);
+        await expect(win.locator('main.stage > *').first()).toBeVisible({ timeout: 30_000 });
+        await win.waitForTimeout(250);
+        const wide = await win.evaluate(() => document.documentElement.scrollWidth);
+        expect(wide, `${screen} at ${inner} pixels scrolls sideways`).toBeLessThanOrEqual(inner);
+      }
+      // The bar's controls side by side, none over another, all inside the window.
+      const boxes = await win.locator('header.bar').evaluate((bar) => [...bar.querySelectorAll('.lockup, .tabs li, .newsearch, .cmdk, .iconbtn')]
+        .map((node) => node.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right })));
+      for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.left).toBeGreaterThanOrEqual(boxes[i - 1]!.right);
+      expect(boxes[boxes.length - 1]!.right).toBeLessThanOrEqual(inner);
+      // Narrow, New search is its icon and the command search its icon and keys; both keep their names.
+      await expect(trigger).toBeVisible();
+      await expect(search).toBeVisible();
+      expect(await trigger.locator('.newsearch-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1200);
+      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1000);
+      if (inner < 1200) {
+        fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+        await win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-shell-bar-${inner}.png`) });
+      }
+    }
+    // The menu still opens from the icon, inside the window.
+    await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.setSize(960, 768); });
+    await expect.poll(() => win.evaluate(() => window.innerWidth)).toBe(960);
+    await trigger.click();
+    const menu = win.getByRole('menu', { name: 'New search' });
+    await expect(menu).toBeVisible();
+    const box = (await menu.boundingBox())!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(960);
+    await win.keyboard.press('Escape');
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
 test('New search: a Deep Dive or a Deep Sweep from any screen, and a search not yet started is kept', async () => {
   test.setTimeout(240_000);
   const { win, problems, done } = await launchAtlas('new-search', 1280);

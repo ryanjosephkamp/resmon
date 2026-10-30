@@ -167,9 +167,10 @@ export function Shell() {
           onClick={() => setPaletteOpen(true)}
           aria-haspopup="dialog"
           aria-keyshortcuts={keys('palette')}
+          title="Search commands"
         >
           <Icon name="search" />
-          <span>Search commands</span>
+          <span className="cmdk-label">Search commands</span>
           <kbd aria-hidden="true">{keysText(shortcut('palette').chord, mac)}</kbd>
         </button>
         <NavLink to={SETTINGS.path} className="iconbtn" aria-label={SETTINGS.label} title={SETTINGS.label}

@@ -34,7 +34,8 @@ kbd {
 
 /* ---------------------------------------------------------------- frame */
 
-.frame { display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr); height: 100%; }
+/* One column the window's width: nothing in the frame can make a screen wider than the window. */
+.frame { display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); height: 100%; }
 
 .bar {
   display: flex; align-items: center; gap: 18px;
@@ -101,8 +102,29 @@ kbd {
 .newsearch-item:focus-visible { outline-offset: -2px; }
 .newsearch-name { font: 560 13.5px/1.2 var(--sans); color: var(--ink); }
 .newsearch-says { grid-column: 1 / -1; font: 400 12.5px/1.35 var(--sans); color: var(--ink-3); }
-/* The bar at its narrowest still holds every section, New search, and the command search. */
+/*
+ * Narrower windows keep every section in the bar, and the controls beside them
+ * give way, down to the window's 960-pixel minimum: New search becomes its icon
+ * below 1200 pixels, and the command search its icon and keys below 1000. Each
+ * keeps its name for a screen reader, and as a tooltip.
+ */
 @media (max-width: 1360px) { .cmdk { width: 220px; } }
+@media (max-width: 1199px) {
+  .bar { gap: 14px; }
+  .newsearch { padding: 0 6px 0 8px; }
+  .newsearch-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+  .cmdk { width: 200px; }
+}
+@media (max-width: 999px) {
+  .cmdk { width: auto; }
+  .cmdk-label {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+  }
+}
 
 .iconbtn {
   display: inline-grid; place-items: center; width: 32px; height: 32px;
