@@ -1,33 +1,66 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
-import { platform } from '../../bridge';
-import { buildWords, COPYRIGHT, ISSUES_URL, LICENSE_TEXT, UPDATE_CHECK, versionWords } from './aboutFacts';
+import { isMac, platform } from '../../bridge';
+import { keysText, shortcut } from '../../shell/shortcuts';
+import { useShowShortcuts } from '../../shell/shortcutsSheetContext';
+import {
+  buildWords, COPYRIGHT, CREDIT_LINKS, ISSUES_URL, LICENSE_TEXT, MAKER, SPONSOR_URL, UPDATE_CHECK, versionWords,
+} from './aboutFacts';
+import { CreditMark, Heart } from './CreditIcons';
 import { keychainName } from './model';
 
 /**
- * Settings › About resmon: which resmon this is, the license it is shared
- * under, what it keeps on this computer and what it sends elsewhere, and
- * where to report a problem.
+ * Settings › About resmon: who made it, which resmon this is, the license it
+ * is shared under, what it keeps on this computer and what it sends
+ * elsewhere, where to report a problem, and the keyboard's shortcuts.
  *
  * Every sentence here is a statement about this build, checked against the
  * code that does it: the engine's routes and clients for what is stored and
  * sent, `credential_manager` for the keychain, `backup` for what a backup
  * leaves out, and `electron/main.ts` for the update check. Nothing on this
  * page sends anything, and drawing it asks nothing of any server but the
- * engine on this computer: the report link opens GitHub only when clicked.
+ * engine on this computer: its marks are drawn here, not fetched, and each
+ * link (the maker's, and the report link) opens its site only when clicked,
+ * in a window of its own.
  */
 export function About() {
   const health = useQuery({ queryKey: ['health'], queryFn: () => answer(engine().GET('/api/health')) });
   const build = buildWords(health.data);
   const keychain = keychainName(platform());
+  const showShortcuts = useShowShortcuts();
   return (
     <section className="settings-group about" aria-labelledby="about-title" aria-busy={health.isPending}>
       <h2 id="about-title" className="group-title">About resmon</h2>
       <p className="group-lede">
-        Which resmon this is, the license it is shared under, what it keeps on this computer and what it sends
-        elsewhere, and where to report a problem.
+        Who made resmon, which copy this is, the license it is shared under, what it keeps on this computer and what it
+        sends elsewhere, and where to report a problem.
       </p>
+
+      <div className="about-part" data-about="credit">
+        <h3 className="field-title">Who made it</h3>
+        <div className="credit-row">
+          <p className="credit-made">
+            Made by <a href={MAKER.website} target="_blank" rel="noreferrer noopener" data-about="maker">{MAKER.name}</a>
+          </p>
+          <ul className="credit-links" aria-label={`${MAKER.name} online`}>
+            {CREDIT_LINKS.map((link) => (
+              <li key={link.icon}>
+                <a href={link.href} target="_blank" rel="noreferrer noopener" aria-label={link.label} title={link.title}
+                  data-credit={link.icon}>
+                  <CreditMark icon={link.icon} />
+                </a>
+              </li>
+            ))}
+          </ul>
+          <a className="credit-sponsor" href={SPONSOR_URL} target="_blank" rel="noreferrer noopener" data-about="sponsor">
+            <Heart />Sponsor on GitHub
+          </a>
+        </div>
+        <p className="form-hint">
+          Each opens its site in a window of its own when clicked; nothing is asked of those sites to draw them here.
+        </p>
+      </div>
 
       <div className="about-part" data-about="version">
         <h3 className="field-title">This copy</h3>
@@ -139,6 +172,22 @@ export function About() {
           </a>
         </p>
       </div>
+
+      {showShortcuts && (
+        <div className="about-part" data-about="shortcuts">
+          <h3 className="field-title">Keyboard shortcuts</h3>
+          <p className="about-text">
+            New Deep Dive is {keysText(shortcut('new-dive').chord, isMac())}, a new conversation in Ask
+            is {keysText(shortcut('new-conversation').chord, isMac())}, and each section has its own. The full list is
+            one key away from anywhere: press ?, outside a text field.
+          </p>
+          <p className="about-actions">
+            <button type="button" className="btn" data-about="show-shortcuts" onClick={showShortcuts}>
+              Keyboard shortcuts
+            </button>
+          </p>
+        </div>
+      )}
     </section>
   );
 }

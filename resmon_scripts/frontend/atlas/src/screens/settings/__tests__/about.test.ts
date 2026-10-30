@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { buildWords, COPYRIGHT, ISSUES_URL, LICENSE_TEXT, UPDATE_CHECK, versionWords } from '../aboutFacts';
+import {
+  buildWords, COPYRIGHT, CREDIT_LINKS, ISSUES_URL, LICENSE_TEXT, MAKER, SPONSOR_URL, UPDATE_CHECK, versionWords,
+} from '../aboutFacts';
 
 const REPO = path.resolve(__dirname, '../../../../../../..');
 const FRONTEND = path.join(REPO, 'resmon_scripts', 'frontend');
@@ -45,5 +47,31 @@ describe('the version and the build, as the engine reports them', () => {
     expect(buildWords(undefined)).toBeNull();
     expect(buildWords({ identity })).toBe('Not identified. The engine reports no build id, so none is named here.');
     expect(buildWords({ identity: { ...identity, build_id: 'abc123' } })).toBe('abc123');
+  });
+});
+
+describe('who made it: the credit row the maker\'s sites end with', () => {
+  test('made by Ryan Kamp, linking to his website', () => {
+    expect(MAKER).toEqual({ name: 'Ryan Kamp', website: 'https://ryanjosephkamp.github.io/' });
+  });
+
+  test('his website, GitHub, LinkedIn, X, and YouTube, in that order, each with its accessible name', () => {
+    expect(CREDIT_LINKS.map((link) => [link.href, link.label, link.title])).toEqual([
+      ['https://ryanjosephkamp.github.io/', 'Ryan Kamp’s website', 'Website'],
+      ['https://github.com/ryanjosephkamp/', 'Ryan Kamp on GitHub', 'GitHub'],
+      ['https://www.linkedin.com/in/rjk1999', 'Ryan Kamp on LinkedIn', 'LinkedIn'],
+      ['https://x.com/ryanjosephkamp', 'Ryan Kamp on X', 'X'],
+      ['https://m.youtube.com/@RyanJosephKamp', 'Ryan Kamp on YouTube', 'YouTube'],
+    ]);
+    expect(SPONSOR_URL).toBe('https://github.com/sponsors/ryanjosephkamp');
+  });
+
+  test('every link is https, so the app\'s link window opens it, and the marks are drawn in the page, not fetched', () => {
+    for (const href of [MAKER.website, ...CREDIT_LINKS.map((l) => l.href), SPONSOR_URL]) expect(href).toMatch(/^https:\/\//);
+    const icons = fs.readFileSync(path.join(FRONTEND, 'atlas', 'src', 'screens', 'settings', 'CreditIcons.tsx'), 'utf8');
+    expect(icons).not.toMatch(/https?:\/\/|<img|<use|url\(/);
+    const about = fs.readFileSync(path.join(FRONTEND, 'atlas', 'src', 'screens', 'settings', 'About.tsx'), 'utf8');
+    // Each link opens through the window-open handler (a link window), never in the app's own window.
+    expect(about.match(/target="_blank" rel="noreferrer noopener"/g)?.length).toBe(4);
   });
 });
