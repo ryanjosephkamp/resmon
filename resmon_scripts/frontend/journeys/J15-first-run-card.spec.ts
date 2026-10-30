@@ -31,9 +31,10 @@ journey.describe('J15 First-run card', () => {
       'the card no longer says that found and configured are not the same as working',
     ).toMatch(/not the same as working/i);
     // Every mark carries a meaning a screen reader can read, and none of them
-    // is a claim of readiness: "done" here means found, and the foot says so.
+    // is a claim of readiness: a command is found, a key is stored, and the
+    // foot says neither means working.
     for (const step of card.steps) {
-      expect(['done', 'not done', 'could not check'],
+      expect(['done', 'found', 'not done', 'could not check'],
         `${step.id} is marked "${step.mark}"`).toContain(step.mark);
     }
     expect(card.text, 'the card claims a lane is ready').not.toMatch(/\bready\b/i);

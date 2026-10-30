@@ -86,7 +86,7 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     await expect(card).toContainText('not the same as working');
     await expect(card).not.toContainText(/\bready\b/i);
     for (const mark of await card.locator('.first-run-mark').all()) {
-      expect(['done', 'not done', 'could not check']).toContain(await mark.getAttribute('aria-label'));
+      expect(['done', 'found', 'not done', 'could not check']).toContain(await mark.getAttribute('aria-label'));
     }
     const dismissed = win.waitForResponse((r) => r.url().includes('/api/onboarding/dismiss'));
     await card.getByRole('button', { name: 'Skip', exact: true }).click();
