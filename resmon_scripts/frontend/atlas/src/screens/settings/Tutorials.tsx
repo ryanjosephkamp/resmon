@@ -25,8 +25,8 @@ import watchesStill from './tutorials/watches.png';
  *
  * They come with the app: each GIF and its still is imported, so the build
  * bundles and fingerprints them, and opening this place asks nothing of any
- * server. The README shows the same files. `frontend/demos/` records them
- * again after a change to the screens they show.
+ * server. `frontend/demos/` records them again after a change to the screens
+ * they show.
  *
  * A GIF cannot be paused, so playing is a choice of picture: the GIF while it
  * plays, and otherwise its still, which is its last frame. A recording plays
