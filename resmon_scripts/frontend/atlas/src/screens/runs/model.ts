@@ -249,6 +249,32 @@ export function dayAndTime(at: Date): string {
   return `${DAY.format(at)} at ${MINUTES.format(at)}`;
 }
 
+/**
+ * An ISO date and time, as the engine writes an instant: `2026-10-30T15:38:27Z`,
+ * or SQLite's `2026-10-30 15:38:27`. A plain date (`2026-10-23`) is a day, not
+ * an instant, and is never matched.
+ */
+const STAMP = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?$/i;
+
+/** A stored instant written as text, as a day and a time in the reader's zone; null for anything else. */
+export function localStamp(text: string): string | null {
+  if (!STAMP.test(text)) return null;
+  const at = storedInstant(text.replace(' ', 'T'));
+  return at ? dayAndTime(at) : null;
+}
+
+/**
+ * A run's report as the screen shows it: the time it was generated in the
+ * reader's own time, as every other time here is. The file keeps it in UTC,
+ * and only that line is changed; a date a source wrote stays as it wrote it.
+ */
+export function reportInLocalTime(text: string): string {
+  return text.replace(/^(\*\*Generated:\*\*[ \t]+)(\S+)/gm, (line, head: string, stamp: string) => {
+    const local = localStamp(stamp);
+    return local ? `${head}${local}` : line;
+  });
+}
+
 /** "4:34:12 PM": a progress event's time, in the reader's own time zone like every other time here. */
 export function eventTime(iso: string | null | undefined): string {
   const at = storedInstant(iso);

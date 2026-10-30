@@ -9,10 +9,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { render } from '@testing-library/react';
+import { duration, when } from '../../today/format';
 import { Markdown } from '../markdown';
 import {
-  absentRecordWords, deletedSentence, deleteQuestion, eventTime, interruptedSentence, liveLabel, liveSources, outcomeOf,
-  restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS, type ProgressEvent,
+  absentRecordWords, deletedSentence, deleteQuestion, eventTime, interruptedSentence, liveLabel, liveSources, localStamp,
+  outcomeOf, reportInLocalTime, restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS, type ProgressEvent,
 } from '../model';
 
 describe("a source's outcome from its count and reason", () => {
@@ -123,6 +124,31 @@ describe('times, in the reader\'s own time zone', () => {
     // The engine stores UTC; a stamp written without its offset is still UTC.
     expect(eventTime('2026-10-29T20:34:12')).toBe('4:34:12 PM');
     expect(eventTime(undefined)).toBe('');
+  });
+
+  test('a stored instant in the record reads as a local day and time; a plain date stays a date', () => {
+    expect(localStamp('2026-10-30T15:38:27Z')).toBe('October 30, 2026 at 11:38 AM');
+    expect(localStamp('2026-10-30 15:38:27')).toBe('October 30, 2026 at 11:38 AM');
+    expect(localStamp('2026-10-31T00:47:00+00:00')).toBe('October 30, 2026 at 8:47 PM');
+    expect(localStamp('2026-10-23')).toBeNull();
+    expect(localStamp('graph neural networks')).toBeNull();
+    expect(localStamp('2026-10-30T25:99:00Z')).toBeNull();
+  });
+
+  test('the report’s Generated line is local on screen; the rest of the report is as written', () => {
+    const report = '# resmon Literature Report\n**Generated:** 2026-10-30T15:38:27Z  \n**Date Range:** 2026-10-23 to 2026-10-30  \n'
+      + '## Paper\n- **Published:** 2026-10-29T00:00:00Z';
+    expect(reportInLocalTime(report)).toBe('# resmon Literature Report\n**Generated:** October 30, 2026 at 11:38 AM  \n'
+      + '**Date Range:** 2026-10-23 to 2026-10-30  \n## Paper\n- **Published:** 2026-10-29T00:00:00Z');
+    expect(reportInLocalTime('**Generated:** not a time')).toBe('**Generated:** not a time');
+  });
+
+  test('a SQLite stamp with no zone is UTC wherever a time is worded, never the local clock', () => {
+    const now = new Date('2026-10-30T18:00:00Z');
+    expect(when('2026-10-30 15:38:27', now)).toBe('today at 11:38 AM');
+    expect(when('2026-10-30T15:38:27Z', now)).toBe('today at 11:38 AM');
+    expect(when('2026-10-30T08:00:00-04:00', now)).toBe('today at 8:00 AM');
+    expect(duration('2026-10-30 15:38:27', '2026-10-30T15:39:08Z')).toBe('41 s');
   });
 });
 
