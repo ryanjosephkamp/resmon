@@ -439,6 +439,9 @@ def _run_detail(engine: Engine, row: Mapping[str, Any], out: Out) -> None:
         if params.get("date_from") or params.get("date_to"):
             asked.append(f"published {params.get('date_from') or 'any time'} to {params.get('date_to') or 'now'}")
     fields.append(("Asked for", " · ".join(asked)))
+    computed = params.get("date_window_computed") if isinstance(params, dict) else None
+    if isinstance(computed, dict) and computed.get("sentence"):
+        fields.append(("Dates", str(computed["sentence"])))
     fields.append(("Results", f"{count(row.get('result_count'))}, of which "
                    f"{count(row.get('new_result_count'))} were new to the collection"))
     if row.get("error_message"):
@@ -687,6 +690,7 @@ def _watch_line(routine: Mapping[str, Any], names: Mapping[str, str]) -> str:
     elif isinstance(params.get("entity"), dict):
         parts.append(f"follows watch profile #{params['entity'].get('profile_id')}")
     parts.append(f"schedule {routine.get('schedule_cron')}")
+    parts.append(_window_words(params))
     if params.get("max_results"):
         parts.append(f"up to {count(params['max_results'])} per source")
     return " · ".join(parts)
@@ -731,6 +735,32 @@ def watch_list(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     return 0
 
 
+def _window_parameters(args: argparse.Namespace) -> dict[str, Any]:
+    """The dates a new watch asks for: since the previous run unless told otherwise."""
+    if getattr(args, "no_date_limit", False):
+        return {}
+    if getattr(args, "last_days", None):
+        return {"date_window": {"last_days": args.last_days}}
+    return {"date_window": {"since": "previous_run"}}
+
+
+def _window_words(params: Mapping[str, Any]) -> str:
+    """A watch's dates in words, as it stores them."""
+    window = params.get("date_window")
+    if isinstance(window, dict) and window.get("since") == "previous_run":
+        return "papers since the previous run"
+    if isinstance(window, dict) and isinstance(window.get("last_days"), int):
+        return f"papers from the last {count(window['last_days'])} {plural(window['last_days'], 'day')}"
+    start, end = params.get("date_from"), params.get("date_to")
+    if start and end:
+        return f"published {start} to {end}, the same dates every run"
+    if start:
+        return f"published from {start} on, the same start every run"
+    if end:
+        return f"published up to {end}, the same end every run"
+    return "no date limit"
+
+
 def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     fields = args.schedule.split()
     if len(fields) != 5 or not all(_CRON_FIELD.fullmatch(f) for f in fields):
@@ -747,11 +777,11 @@ def watch_add(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     body: dict[str, Any] = {
         "name": args.name.strip(),
         "schedule_cron": " ".join(fields),
-        # The keys the app's routine editor sends (``RoutineEditModal``):
-        # ``keywords`` is what a run reads first, ``query`` the joined form
-        # older rows carry. No date window: the editor's is optional too.
+        # The keys the app's watch editor sends: ``keywords`` is what a run
+        # reads first, ``query`` the joined form older rows carry, and the
+        # window the editor offers first, papers since the previous run.
         "parameters": {"repositories": slugs, "keywords": keywords, "query": " ".join(keywords),
-                       "max_results": args.max_results},
+                       "max_results": args.max_results, **_window_parameters(args)},
         "is_active": not args.inactive,
     }
     if args.intent and args.intent.strip():

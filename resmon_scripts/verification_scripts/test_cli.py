@@ -468,11 +468,23 @@ def test_watch_add_is_scheduled_by_the_service(service):
     params = json.loads(routine["parameters"])
     assert params["repositories"] == ["arxiv", "dblp"]
     assert params["keywords"] == ["graph neural networks"]
+    # The window the app's editor offers first.
+    assert params["date_window"] == {"since": "previous_run"}
     assert body["firing"] == {"id": routine["id"], "will_fire": True, "reason": "scheduled"}
     assert len(backend.get("/api/routines")) == before + 1
 
     status, out, _ = cli(cli_env(backend.state), "watch", "list")
     assert f"#{routine['id']} cli watch · active · will run: this resmon holds its schedule" in out
+    assert "papers since the previous run" in out
+
+    status, out, _ = cli(cli_env(backend.state), "watch", "add", "cli month", "--keyword", "graphs",
+                         "--source", "arxiv", "--last-days", "30", "--inactive", "--json")
+    assert status == 0, out
+    assert json.loads(json.loads(out)["routine"]["parameters"])["date_window"] == {"last_days": 30}
+    status, out, _ = cli(cli_env(backend.state), "watch", "add", "cli undated", "--keyword", "graphs",
+                         "--source", "arxiv", "--no-date-limit", "--inactive", "--json")
+    assert status == 0, out
+    assert "date_window" not in json.loads(json.loads(out)["routine"]["parameters"])
 
 
 def test_watch_add_refuses_before_it_saves(service):

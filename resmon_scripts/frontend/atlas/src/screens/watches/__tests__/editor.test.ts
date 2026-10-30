@@ -1,7 +1,8 @@
 import { NO_CHOICE, choiceOf } from '../../settings/summaryChoice';
 import type { AiSettings } from '../../settings/summaryLanes';
 import {
-  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, scheduleWords, seededForm, summaryBody, watchBody, whatIsMissing,
+  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, summaryBody,
+  watchBody, whatIsMissing,
   type ScheduleChoice,
 } from '../editor';
 import { scheduleText, type Routine } from '../model';
@@ -124,6 +125,82 @@ describe('a stored watch, read into the form and saved back', () => {
 
   test('the attachment goes with the email, and not without it', () => {
     expect(watchBody({ ...formFrom(ROUTINE), email: false }, ROUTINE).email_ai_summary_enabled).toBe(false);
+  });
+});
+
+describe('which papers each run asks for', () => {
+  const stored = (parameters: Record<string, unknown>) =>
+    ({ ...ROUTINE, parameters: JSON.stringify({ ...JSON.parse(ROUTINE.parameters), ...parameters }) }) as Routine;
+
+  test('a new watch asks since its previous run, and stores that as a window with no dates', () => {
+    const form = { ...blankForm(), name: 'x', keywords: ['y'], sources: ['arxiv'] };
+    expect(form.window).toBe('previous_run');
+    expect(watchBody(form, null).parameters).toMatchObject({
+      date_window: { since: 'previous_run' }, date_from: '', date_to: '',
+    });
+  });
+
+  test('in the last N days', () => {
+    const body = watchBody({ ...blankForm(), name: 'x', keywords: ['y'], window: 'last_days', lastDays: 14 }, null);
+    expect(body.parameters).toMatchObject({ date_window: { last_days: 14 }, date_from: '', date_to: '' });
+    expect(formFrom(stored({ date_window: { last_days: 14 } }))).toMatchObject({ window: 'last_days', lastDays: 14 });
+  });
+
+  test('between two dates stores the dates and no window; no date limit stores neither', () => {
+    const between = watchBody({ ...formFrom(ROUTINE), window: 'between', dateFrom: '2026-01-01', dateTo: '2026-06-30' }, ROUTINE);
+    expect(between.parameters).toMatchObject({ date_from: '2026-01-01', date_to: '2026-06-30' });
+    expect(between.parameters).not.toHaveProperty('date_window');
+    const none = watchBody({ ...formFrom(stored({ date_window: { since: 'previous_run' } })), window: 'none' }, ROUTINE);
+    expect(none.parameters).toMatchObject({ date_from: '', date_to: '' });
+    expect(none.parameters).not.toHaveProperty('date_window');
+  });
+
+  test('a choice changed to a window clears the fixed dates, which the engine would refuse beside it', () => {
+    const dated = stored({ date_from: '2026-05-03', date_to: '2026-05-04' });
+    const body = watchBody({ ...formFrom(dated), window: 'previous_run' }, dated);
+    expect(body.parameters).toMatchObject({ date_window: { since: 'previous_run' }, date_from: '', date_to: '' });
+  });
+
+  test('an existing watch opens as what it asks: dates as dates, none as none, and saving changes neither', () => {
+    const dated = stored({ date_from: '2026-05-03', date_to: '2026-05-04' });
+    expect(formFrom(dated)).toMatchObject({ window: 'between', dateFrom: '2026-05-03', dateTo: '2026-05-04' });
+    expect(watchBody(formFrom(dated), dated).parameters).toEqual(JSON.parse(dated.parameters));
+    expect(formFrom(ROUTINE).window).toBe('none');
+    expect(watchBody(formFrom(ROUTINE), ROUTINE).parameters).not.toHaveProperty('date_window');
+    const moving = stored({ date_window: { since: 'previous_run' } });
+    expect(formFrom(moving).window).toBe('previous_run');
+    expect(watchBody(formFrom(moving), moving).parameters).toEqual(JSON.parse(moving.parameters));
+  });
+
+  test('a watch on retractions says what each run sends, and to whom', () => {
+    // The lifecycle check it runs sends DOIs to Crossref and arXiv and bioRxiv ids
+    // to those two; "it asks no source" was false.
+    expect(retractionsAsks('Ada Fixture')).toBe(
+      'Each run sends the DOIs of the papers already matched to Ada Fixture to Crossref, and the ids of those from arXiv '
+      + 'and bioRxiv to arXiv and bioRxiv, for retraction, correction, and newer-version notices. It searches no source '
+      + 'for new papers.');
+    expect(retractionsAsks('Ada Fixture')).not.toMatch(/asks no source/);
+  });
+
+  test('a watch on retractions searches no source for papers, so it stores no dates and no window', () => {
+    const body = watchBody({ ...blankForm(), name: 'x', follows: 'retractions', profileId: 2 }, null);
+    expect(body.parameters).not.toHaveProperty('date_window');
+    expect(body.parameters).toMatchObject({ date_from: '', date_to: '' });
+  });
+
+  test('handed dates from a search, a new watch asks between them', () => {
+    expect(seededForm({ dateFrom: '2026-09-01', dateTo: '2026-10-01' })).toMatchObject({ window: 'between' });
+    expect(seededForm({ name: 'x' }).window).toBe('previous_run');
+  });
+
+  test('what stops a window saving', () => {
+    const ready = { ...blankForm(), name: 'x', keywords: ['y'] };
+    expect(whatIsMissing({ ...ready, window: 'between' }, 1)).toEqual(['Set a start date, an end date, or both.']);
+    expect(whatIsMissing({ ...ready, window: 'between', dateFrom: '2026-02-01', dateTo: '2026-01-01' }, 1))
+      .toEqual(['The start date is after the end date.']);
+    expect(whatIsMissing({ ...ready, window: 'between', dateTo: '2026-01-01' }, 1)).toEqual([]);
+    expect(whatIsMissing({ ...ready, window: 'last_days', lastDays: 0 }, 1)).toEqual(['Choose a number of days from 1 to 3,650.']);
+    expect(whatIsMissing({ ...ready, window: 'none' }, 1)).toEqual([]);
   });
 });
 

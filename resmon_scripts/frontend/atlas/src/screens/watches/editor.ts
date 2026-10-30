@@ -13,6 +13,7 @@
 import { overrideOf, type SummaryChoice } from '../settings/summaryChoice';
 import type { AiSettings } from '../settings/summaryLanes';
 import { scheduleText, type Routine } from './model';
+import { DEFAULT_LAST_DAYS, MAX_DAYS, windowOf, type WindowChoice } from './window';
 
 export type Cadence = 'hours' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'kept';
 
@@ -129,6 +130,9 @@ export interface WatchForm {
   keywords: string[];
   sources: string[];
   schedule: ScheduleChoice;
+  /** Which dates each run asks for; `dateFrom` and `dateTo` are read only for `between`. */
+  window: WindowChoice;
+  lastDays: number;
   dateFrom: string;
   dateTo: string;
   cap: number;
@@ -154,7 +158,8 @@ const list = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 export function blankForm(): WatchForm {
   return {
     name: '', follows: 'words', profileId: null, keywords: [], sources: [],
-    schedule: { ...DEFAULT_SCHEDULE }, dateFrom: '', dateTo: '', cap: 100, intent: '',
+    schedule: { ...DEFAULT_SCHEDULE }, window: 'previous_run', lastDays: DEFAULT_LAST_DAYS, dateFrom: '', dateTo: '',
+    cap: 100, intent: '',
     notify: false, email: false, attach: false, start: true,
   };
 }
@@ -180,6 +185,8 @@ export function seededForm(seed: WatchSeed | null | undefined): WatchForm {
     sources: [...(seed.sources ?? [])],
     keywords: [...(seed.keywords ?? [])],
     cap: seed.cap ?? form.cap,
+    // Dates handed over are fixed dates; without any, the watch asks since its previous run.
+    window: seed.dateFrom || seed.dateTo ? 'between' : form.window,
     dateFrom: seed.dateFrom ?? '',
     dateTo: seed.dateTo ?? '',
     ...(seed.profileId ? { follows: 'new_papers' as const, profileId: seed.profileId } : {}),
@@ -194,6 +201,7 @@ export function formFrom(routine: Routine): WatchForm {
   const sources = list(p.repositories);
   if (!sources.length && typeof p.repository === 'string') sources.push(p.repository);
   const cap = Number(p.max_results);
+  const window = windowOf(p);
   return {
     name: routine.name,
     follows: mode === 'new_papers' || mode === 'retractions' ? mode : 'words',
@@ -201,8 +209,10 @@ export function formFrom(routine: Routine): WatchForm {
     keywords: list(p.keywords),
     sources,
     schedule: choiceFrom(routine.schedule_cron, p),
-    dateFrom: typeof p.date_from === 'string' ? p.date_from : '',
-    dateTo: typeof p.date_to === 'string' ? p.date_to : '',
+    window: window.window,
+    lastDays: window.lastDays,
+    dateFrom: window.dateFrom,
+    dateTo: window.dateTo,
     cap: Number.isFinite(cap) && cap > 0 ? cap : 100,
     intent: routine.intent ?? '',
     notify: !!routine.notify_on_complete,
@@ -237,14 +247,22 @@ export interface WatchBody {
 export function watchBody(form: WatchForm, existing: Routine | null): WatchBody {
   const parameters = existing ? parametersOf(existing.parameters) : {};
   const person = form.follows !== 'words';
+  const retractions = form.follows === 'retractions';
   parameters.repositories = [...form.sources];
   // A watch on a person follows the person, and narrowing that by topic would
   // silently hide the rest of their work, so its keywords are cleared rather
   // than sent and ignored: what is stored is what runs.
   parameters.keywords = person ? [] : [...form.keywords];
   parameters.query = person ? '' : form.keywords.join(' ');
-  parameters.date_from = form.dateFrom;
-  parameters.date_to = form.dateTo;
+  // The window chosen, and only it: a window that moves goes with blank dates,
+  // fixed dates with no window, and a watch on retractions searches no source
+  // for papers (it checks the ones already matched), so it has neither. The engine refuses a window and dates together.
+  const between = !retractions && form.window === 'between';
+  parameters.date_from = between ? form.dateFrom : '';
+  parameters.date_to = between ? form.dateTo : '';
+  if (!retractions && form.window === 'previous_run') parameters.date_window = { since: 'previous_run' };
+  else if (!retractions && form.window === 'last_days') parameters.date_window = { last_days: form.lastDays };
+  else delete parameters.date_window;
   parameters.max_results = form.cap;
   if (person) parameters.entity = { profile_id: form.profileId, mode: form.follows };
   else delete parameters.entity;
@@ -288,6 +306,19 @@ export function summaryBody(
   return body;
 }
 
+/**
+ * What a watch on retractions sends, and to whom. It searches no source for
+ * papers, but each run puts the person's matched papers through the lifecycle
+ * check (`sweep_engine._run_retractions`, `lifecycle.check_documents`), which
+ * sends a paper's DOI to Crossref and an arXiv or bioRxiv paper's id to arXiv
+ * or bioRxiv.
+ */
+export function retractionsAsks(who: string): string {
+  return `Each run sends the DOIs of the papers already matched to ${who} to Crossref, and the ids of those from arXiv `
+    + 'and bioRxiv to arXiv and bioRxiv, for retraction, correction, and newer-version notices. It searches no source '
+    + 'for new papers.';
+}
+
 /** What stops a form saving, in the order the form asks it. Empty when it can be saved. */
 export function whatIsMissing(form: WatchForm, knownSources: number): string[] {
   const missing: string[] = [];
@@ -295,6 +326,14 @@ export function whatIsMissing(form: WatchForm, knownSources: number): string[] {
   if (form.follows !== 'words' && form.profileId === null) missing.push('Choose the person it watches for.');
   if (form.follows === 'words' && !form.keywords.length) missing.push('Add at least one term.');
   if (form.follows !== 'retractions' && knownSources === 0) missing.push('Choose at least one source.');
+  if (form.follows !== 'retractions' && form.window === 'between') {
+    if (!form.dateFrom && !form.dateTo) missing.push('Set a start date, an end date, or both.');
+    else if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo) missing.push('The start date is after the end date.');
+  }
+  if (form.follows !== 'retractions' && form.window === 'last_days'
+    && !(Number.isInteger(form.lastDays) && form.lastDays >= 1 && form.lastDays <= MAX_DAYS)) {
+    missing.push(`Choose a number of days from 1 to ${MAX_DAYS.toLocaleString('en-US')}.`);
+  }
   return missing;
 }
 

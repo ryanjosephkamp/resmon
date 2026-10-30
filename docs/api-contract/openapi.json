@@ -3544,6 +3544,122 @@
         "title": "DaemonStatus",
         "type": "object"
       },
+      "DateWindowComputed": {
+        "additionalProperties": true,
+        "description": "The dates a moving window asked for, or would ask for now, and how.\n\n``mode`` is the watch's choice (``date_window`` in its parameters):\n``since_previous_run`` or ``last_days``. ``basis`` is how the start was\nreached: ``previous_run`` (that run's start, less ``overlap_days``),\n``no_previous_run`` (no earlier run in which a source answered, so the last\n``default_days``) or ``last_days`` (``days`` before the run). ``date_to`` is\nalways ``None``: the window has no end. ``sentence`` says all of it, dates\nincluded, in the words a run's record and a watch's page show.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "previous_run",
+              "no_previous_run",
+              "last_days"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "computed_at": {
+            "title": "Computed At",
+            "type": "string"
+          },
+          "date_from": {
+            "title": "Date From",
+            "type": "string"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "default_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Days"
+          },
+          "mode": {
+            "enum": [
+              "since_previous_run",
+              "last_days"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "overlap_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overlap Days"
+          },
+          "previous_execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Execution Id"
+          },
+          "previous_start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Start Time"
+          },
+          "sentence": {
+            "title": "Sentence",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode",
+          "basis",
+          "date_from",
+          "date_to",
+          "days",
+          "previous_execution_id",
+          "previous_start_time",
+          "overlap_days",
+          "default_days",
+          "computed_at",
+          "sentence"
+        ],
+        "title": "DateWindowComputed",
+        "type": "object"
+      },
       "Delivery": {
         "additionalProperties": true,
         "description": "One report's journey to one destination, as recorded.\n\n``state`` is the drain's own word: ``queued``, ``awaiting_review``,\n``delivering``, ``delivered``, ``failed`` or ``skipped``. ``target_snapshot``\nis where it was sent at the time, which survives the destination being\nremoved. Each field is stored, none inferred: \"delivered\" is never read\noff the absence of an error.",
@@ -9176,6 +9292,19 @@
             ],
             "title": "Registration Url"
           },
+          "result_order": {
+            "enum": [
+              "newest_first",
+              "relevance",
+              "unstated"
+            ],
+            "title": "Result Order",
+            "type": "string"
+          },
+          "result_order_established": {
+            "title": "Result Order Established",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -9216,6 +9345,8 @@
           "attribution_requirement",
           "attribution_source",
           "date_granularity",
+          "result_order",
+          "result_order_established",
           "entity_search",
           "constraints"
         ],
@@ -9816,7 +9947,7 @@
       },
       "Routine": {
         "additionalProperties": true,
-        "description": "``GET /api/routines/{routine_id}``: one routine, its switches as\nbooleans, and every fire it missed, oldest first.",
+        "description": "``GET /api/routines/{routine_id}``: one routine, its switches as\nbooleans, and every fire it missed, oldest first. ``date_window_next`` is\npresent only for a watch whose window moves (``date_window`` in its\nparameters): the dates a run starting now would ask for.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -9836,6 +9967,16 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "date_window_next": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DateWindowComputed"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "email_ai_summary_enabled": {
             "title": "Email Ai Summary Enabled",
@@ -9973,7 +10114,7 @@
       },
       "RoutineCoverage": {
         "additionalProperties": true,
-        "description": "``GET /api/routines/{routine_id}/coverage``: is this routine finding what\nwas meant, and what is it missing?\n\n``intent_source`` is ``stated`` for a written intent and ``keywords`` where\nnone was written and the routine's keywords stand in, which measures the\nquery against what the query produced. ``cannot_see`` is the sentence that\nbounds both lists: resmon compares only against papers it already holds.\n``reason`` says why there is nothing to measure, or is ``None``.\n``summary`` is present whenever the audit itself ran, including to say why\nit measured nothing; ``missed_reference_distance`` (the median of this\nroutine's own distances, which a missed paper must be inside) only when it\nmeasured.",
+        "description": "``GET /api/routines/{routine_id}/coverage``: is this routine finding what\nwas meant, and what is it missing?\n\n``intent_source`` is ``stated`` for a written intent and ``keywords`` where\nnone was written and the routine's keywords stand in, which measures the\nquery against what the query produced. ``cannot_see`` is the sentence that\nbounds both lists: resmon compares only against papers it already holds.\n``reason`` says why there is nothing to measure, or is ``None``.\n``summary`` is present whenever the audit itself ran, including to say why\nit measured nothing; ``missed_reference_distance`` (the median of this\nroutine's own distances, which a missed paper must be inside) only when it\nmeasured. ``window_note`` is present for a watch whose window moves and\nhas run with it: the earliest date its runs asked from, and that an older\npaper was never asked for.",
         "properties": {
           "cannot_see": {
             "title": "Cannot See",
@@ -10089,6 +10230,17 @@
               }
             ],
             "title": "Summary"
+          },
+          "window_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Note"
           }
         },
         "required": [

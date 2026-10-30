@@ -30,6 +30,15 @@ describe('a saved search, read back', () => {
     expect(asks).toMatchObject({ sources: ['arxiv'], keywords: ['perovskite'], cap: 50, cron: '0 9 * * *', watchId: 7 });
   });
 
+  test('a watch\'s window that moves is said as the window, since it stores no dates', () => {
+    const copy = (window: unknown) => savedAsks({
+      config_type: 'routine',
+      parameters: { linked_routine_id: 7, parameters: { repositories: ['arxiv'], date_from: '', date_to: '', date_window: window } },
+    }).window;
+    expect(copy({ since: 'previous_run' })).toBe('published since the previous run');
+    expect(copy({ last_days: 30 })).toBe('the last 30 days before each run');
+  });
+
   test('kinds in Atlas\'s words; an unknown one as stored', () => {
     expect([savedKind('manual_dive'), savedKind('manual_sweep'), savedKind('routine'), savedKind('other')])
       .toEqual(['Deep Dive', 'Deep Sweep', 'Watch', 'other']);

@@ -18,6 +18,7 @@ import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
 import { aiChoiceOf, runSummaries } from './runs/summaries';
+import { runWindowSentence } from './watches/window';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
@@ -196,6 +197,9 @@ export function Run() {
   const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null) ?? (keep.variables?.runId === id ? keep.error : null);
   const title = runTitle(data, watch);
+  // The dates this run asked for, as its own parameters record them: for a
+  // watch whose window moves, the dates the engine computed when it fired.
+  const dates = runWindowSentence(data.parameters);
   // A watch's run is not offered: its search is the watch's, and Saved already keeps a copy of it.
   // Whether it summarized is read from the run's `ai_choice` event, so a save waits for the events.
   const choice = aiChoiceOf(events.data ?? []);
@@ -273,6 +277,11 @@ export function Run() {
             <><span className="sep" /><Link to="/search/saved" data-run="saved-search">linked to the saved search “{data.saved_configuration_name}”</Link></>
           )}
         </div>
+        {dates && (
+          <p className="run-dates" data-run="window">
+            <span className="run-dates-label">Dates</span> {dates}
+          </p>
+        )}
         <RunSummaryNote run={data} events={events.data ?? null} />
         {search && naming !== null && (
           <div className="run-keep">

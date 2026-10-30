@@ -114,7 +114,7 @@ from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, collection_map,
-    coverage_audit, embedding_job, today,
+    coverage_audit, date_window, embedding_job, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, response_models, search_record, source_coverage,
     source_wall, vector_index, watch_profiles,
@@ -1722,9 +1722,33 @@ def get_routine(routine_id: int):
         # The detail the summary counts, oldest first, for a screen that wants
         # to list them rather than count them.
         routine["missed_fire_details"] = get_missed_fires(conn, routine_id)
+        # A window that moves: the dates a run starting now would ask for,
+        # computed by the function a fire uses, so the watch's page states the
+        # same dates the run will. Absent for fixed dates or none.
+        upcoming = _upcoming_date_window(conn, routine_id, routine.get("parameters"))
+        if upcoming is not None:
+            routine["date_window_next"] = upcoming
         return routine
     finally:
         _close_db(conn)
+
+
+def _upcoming_date_window(conn, routine_id: int, raw_parameters: object) -> Optional[dict]:
+    """The dates a run of this watch starting now would ask for, or None."""
+    try:
+        params = json.loads(raw_parameters) if isinstance(raw_parameters, str) else raw_parameters
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(params, dict) or params.get("date_window") is None:
+        return None
+    entity = params.get("entity")
+    if isinstance(entity, dict) and entity.get("mode") == "retractions":
+        return None
+    try:
+        window = date_window.normalized(params.get("date_window"))
+    except date_window.WindowError:
+        return None
+    return date_window.resolve(conn, routine_id, window, upcoming=True)
 
 
 def _validated_entity(conn, parameters: dict) -> Optional[dict]:
@@ -1741,6 +1765,18 @@ def _validated_entity(conn, parameters: dict) -> Optional[dict]:
     try:
         return watch_profiles.validate_entity_parameters(conn, parameters["entity"])
     except watch_profiles.ProfileError as exc:
+        raise HTTPException(400, str(exc)) from None
+
+
+def _validated_date_window(parameters: dict) -> Optional[dict]:
+    """`parameters.date_window`, checked as it will be stored, or None.
+
+    At the seam for the reason `_validated_entity` is: a window the engine
+    cannot read would be stored, scheduled, and found only when it fired.
+    """
+    try:
+        return date_window.validate_parameters(parameters)
+    except date_window.WindowError as exc:
         raise HTTPException(400, str(exc)) from None
 
 
@@ -1800,6 +1836,7 @@ def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
         entity = _validated_entity(conn, body.parameters)
+        _validated_date_window(body.parameters)
         _readable_schedule(body.schedule_cron, body.parameters)
         routine_dict = {
             "name": body.name,
@@ -1848,6 +1885,7 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["schedule_cron"] = body.schedule_cron
         if body.parameters is not None:
             _validated_entity(conn, body.parameters)
+            _validated_date_window(body.parameters)
             updates["parameters"] = json.dumps(body.parameters)
         if body.schedule_cron is not None or body.parameters is not None:
             # Either can change which schedule runs, so the pair as it will be
@@ -2181,6 +2219,17 @@ def run_routine_now(routine_id: int):
             raise HTTPException(404, "Routine not found")
 
         was_inactive = not bool(existing.get("is_active"))
+        # A window the engine cannot read is said here, with its sentence,
+        # rather than as the capacity refusal below that the fire would become.
+        try:
+            stored_params = json.loads(existing.get("parameters") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored_params = None
+        if isinstance(stored_params, dict):
+            try:
+                date_window.normalized(stored_params.get("date_window"))
+            except date_window.WindowError as exc:
+                raise HTTPException(400, str(exc)) from None
         try:
             exec_id = _dispatch_routine_fire(
                 routine_id, existing.get("parameters") or "{}",
@@ -4197,7 +4246,22 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
     routine = get_routine_by_id(conn, routine_id)
     if routine is None:
         raise HTTPException(404, f"No routine with id {routine_id}.")
+    audit = _coverage_payload(conn, routine_id, routine)
+    # A watch whose window moves never asked for an older paper, so the
+    # "never returned" list can hold papers it missed by date, not by terms.
+    raw = routine.get("parameters")
+    try:
+        params = json.loads(raw) if isinstance(raw, str) else raw
+    except (json.JSONDecodeError, TypeError):
+        params = None
+    note = date_window.coverage_note(conn, routine_id, params)
+    if note:
+        audit["window_note"] = note
+    return audit
 
+
+def _coverage_payload(conn, routine_id: int, routine: dict) -> dict:
+    """The audit itself, or the sentence saying why there is nothing to audit."""
     intent_text, intent_source = coverage_audit.intent_for(routine)
     if not intent_text:
         return {
@@ -5935,12 +5999,29 @@ def _dispatch_routine_fire(
                 params["entity_mode"] = str(entity.get("mode") or "")
                 params["entity_profile_id"] = entity.get("profile_id")
                 params["entity_profile"] = profile
-                # `retractions` reads the corpus and queries no source. Leaving the
-                # routine's repository list in place would make the Monitor announce
-                # sources it never touches.
+                # `retractions` searches none of the routine's sources: it puts the
+                # papers already matched through the lifecycle check (Crossref,
+                # arXiv, bioRxiv). Leaving the routine's repository list in place
+                # would make the Monitor announce sources it never touches.
                 if params["entity_mode"] == "retractions":
                     repositories = []
                     params["repositories"] = []
+
+            # A window that moves becomes real dates here, at the fire, for the
+            # reason the profile is resolved here: the run's parameters are
+            # what it runs from and what every account of it reads. A watch
+            # with fixed dates or none is left exactly as stored. `retractions`
+            # searches no source for papers (it checks the ones already
+            # matched), so it has no dates to ask.
+            if params.get("entity_mode") != "retractions":
+                try:
+                    date_window.apply(conn, routine_id, params)
+                except date_window.WindowError:
+                    dispatch_logger.exception(
+                        "Routine fire refused: routine_id=%s has a date_window "
+                        "resmon cannot read", routine_id,
+                    )
+                    return None
 
             if not admission.try_admit(
                 kind="routine", routine_id=routine_id, params_json=parameters,

@@ -4,6 +4,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
+import type { CatalogEntry } from '../runs/model';
 import { count, number, when } from '../today/format';
 import {
   BACKGROUND_PATH, BACKGROUND_WORDS, SCHEDULER_KEY, firingNotice, firingOf, firingState, nextWords, type Firing, type FiringNotice,
@@ -52,6 +53,10 @@ export function Watches() {
   const routines = useQuery({ queryKey: WATCHES_KEY, queryFn: () => answer(engine().GET('/api/routines')) });
   const calendar = useCalendar(now);
   const status = useSchedulerStatus();
+  const catalog = useQuery({
+    queryKey: ['catalog'], staleTime: Infinity,
+    queryFn: () => answer(engine().GET('/api/repositories/catalog')),
+  });
   const list = useMemo(
     () => [...(routines.data ?? [])].sort((a, b) => Number(b.is_active) - Number(a.is_active) || a.name.localeCompare(b.name)),
     [routines.data],
@@ -115,6 +120,7 @@ export function Watches() {
                 firing={routine.is_active ? firingOf(status.data, routine.id) : undefined}
                 lit={routine.id === shown}
                 onLight={() => setLit(routine.id)}
+                catalog={catalog.data ?? []}
               />
             ))}
           </ol>
@@ -156,15 +162,16 @@ export function WatchWarnings({ id, warnings }: { id: number; warnings: readonly
   );
 }
 
-function WatchRow({ routine, now, next, firing, lit, onLight }: {
+function WatchRow({ routine, now, next, firing, lit, onLight, catalog }: {
   routine: RoutineRow; now: Date; next: string | null; firing: Firing; lit: boolean; onLight: () => void;
+  catalog: readonly CatalogEntry[];
 }) {
   const asks = watchAsks(routine.parameters);
   const words = scheduleText(routine.schedule_cron, routine.parameters);
   const last = instant(routine.last_execution);
   const missed = routine.missed_fires.count - routine.missed_fires.overlap_skipped;
   const due = routine.is_active ? nextWords(firing, next ? when(next, now) : null) : null;
-  const warnings = watchWarnings(routine.parameters, now);
+  const warnings = watchWarnings(routine.parameters, now, catalog);
   return (
     <li
       className="watch"

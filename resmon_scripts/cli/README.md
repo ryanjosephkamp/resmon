@@ -28,7 +28,7 @@ It needs Python 3.10 or later and nothing else: it uses only the standard librar
 | `resmon export` | References as BibTeX, RIS, CSV or JSON for `--run ID`, `--today`, `--ids`, or `--search WORDS`. They go to standard output unless `-o FILE` names a file. |
 | `resmon service status` | Which resmon the command reached, and whether anything will run your active watches. |
 | `resmon watch list` | Every saved watch, and whether anything will run it. |
-| `resmon watch add NAME` | A new watch: `--keyword` (repeatable), `--source` (repeatable), `--schedule` as five-field cron (default `0 8 * * *`), `--max-results`, `--intent`. It is saved active, as the app's editor saves one, unless `--inactive`. |
+| `resmon watch add NAME` | A new watch: `--keyword` (repeatable), `--source` (repeatable), `--schedule` as five-field cron (default `0 8 * * *`), `--max-results`, `--intent`. Each run asks for papers published since the previous run, unless `--last-days N` (the N days before each run) or `--no-date-limit` (each source's own order). It is saved active, as the app's editor saves one, unless `--inactive`. |
 
 Every command takes `--json`. On the commands that read one thing, that prints resmon's own answer
 unchanged; `service status`, `watch add` and `export` print an object whose keys say what each part

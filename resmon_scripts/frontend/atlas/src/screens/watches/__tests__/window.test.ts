@@ -1,0 +1,114 @@
+import type { CatalogEntry } from '../../runs/model';
+import {
+  WINDOWS, coarseMovingSentences, listed, noLimitWords, relevanceSentence, runWindowSentence, watchWindowSentence,
+  windowHint, windowOf, type DateWindowComputed,
+} from '../window';
+
+type Order = CatalogEntry['result_order'];
+
+function entry(slug: string, name: string, order: Order, more: Partial<{ granularity: string; rounding: string }> = {}): CatalogEntry {
+  return {
+    slug, name, result_order: order, date_granularity: more.granularity ?? 'day',
+    constraints: { window_rounding: more.rounding ?? 'none' },
+  } as unknown as CatalogEntry;
+}
+
+const CATALOG = [
+  entry('arxiv', 'arXiv', 'newest_first'),
+  entry('crossref', 'Crossref', 'relevance'),
+  entry('datacite', 'DataCite', 'relevance', { granularity: 'year', rounding: 'outward' }),
+  entry('dblp', 'DBLP', 'unstated', { granularity: 'year', rounding: 'inward' }),
+  entry('eric', 'ERIC', 'unstated', { granularity: 'year', rounding: 'inward' }),
+  entry('nasa_ads', 'NASA ADS', 'newest_first', { granularity: 'month', rounding: 'outward' }),
+  entry('pubmed', 'PubMed', 'newest_first'),
+];
+
+const NEXT = {
+  mode: 'since_previous_run', basis: 'previous_run', date_from: '2026-10-26', date_to: null, days: null,
+  previous_execution_id: 12, previous_start_time: '2026-10-29T08:00:00Z', overlap_days: 3, default_days: null,
+  computed_at: '2026-10-30T14:00:00Z',
+  sentence: 'The next run asks for papers published from October 26, 2026, with no end date: run 12, …',
+} as DateWindowComputed;
+
+describe('the four choices, in the order the editor offers them', () => {
+  test('since the previous run first, no date limit last', () => {
+    expect(WINDOWS.map((w) => w.label)).toEqual([
+      'Papers published since the previous run', 'In the last N days', 'Between two dates', 'No date limit',
+    ]);
+  });
+
+  test('a stored watch reads as the choice it is', () => {
+    expect(windowOf({ date_window: { since: 'previous_run' }, date_from: '', date_to: '' }).window).toBe('previous_run');
+    expect(windowOf({ date_window: { last_days: 45 } })).toMatchObject({ window: 'last_days', lastDays: 45 });
+    expect(windowOf({ date_from: '2026-05-03' })).toMatchObject({ window: 'between', dateFrom: '2026-05-03', dateTo: '' });
+    expect(windowOf({ date_from: '', date_to: '' }).window).toBe('none');
+    expect(windowOf({}).window).toBe('none');
+  });
+});
+
+describe('what each choice says it means', () => {
+  test('since the previous run: the overlap and the first run, with the engine’s numbers', () => {
+    expect(windowHint('previous_run', 30, CATALOG)).toBe(
+      'Each run asks for papers published since the watch’s previous run, from 3 days before it started, because a '
+      + 'source often lists a paper after the date it carries. A run with no earlier run behind it asks for the last 7 days. '
+      + 'A paper already in your collection is not counted as new again.');
+    expect(windowHint('last_days', 14, CATALOG)).toBe('Each run asks for papers published in the 14 days before it starts.');
+  });
+
+  test('no date limit says plainly what each source then answers with, naming them from the catalog', () => {
+    expect(noLimitWords(CATALOG)).toBe(
+      'Each run asks each source with no dates, and each answers in its own order: newest first from arXiv, NASA ADS, '
+      + 'and PubMed; the most relevant of all years from Crossref and DataCite, mostly the same papers every run; and from '
+      + 'the other 2, an order resmon has not established.');
+    expect(windowHint('none', 30, CATALOG)).toBe(noLimitWords(CATALOG));
+  });
+
+  test('a relevance-ranked source with no date limit is a warning, by name', () => {
+    expect(relevanceSentence([CATALOG[0] as CatalogEntry])).toBeNull();
+    expect(relevanceSentence(CATALOG.slice(0, 2))).toBe(
+      'Crossref ranks by relevance, so with no date limit every run gets the most relevant papers of all years from it, '
+      + 'mostly the same ones each time, and finds little that is new there.');
+  });
+
+  test('a window that moves, at a source that dates papers by year or month', () => {
+    expect(coarseMovingSentences(CATALOG)).toEqual([
+      'DBLP and ERIC date papers only by year and are asked only for whole years inside a window, so a window that starts '
+        + 'after January 1 asks them only for papers dated in a later year.',
+      'DataCite and NASA ADS date papers only by year or month, so each run asks them from the start of the year or month '
+        + 'its window starts in.',
+    ]);
+    expect(coarseMovingSentences([CATALOG[0] as CatalogEntry])).toEqual([]);
+  });
+
+  test('a list of three takes the serial comma', () => {
+    expect(listed(['A'])).toBe('A');
+    expect(listed(['A', 'B'])).toBe('A and B');
+    expect(listed(['A', 'B', 'C'])).toBe('A, B, and C');
+  });
+});
+
+describe('a watch’s page and a run’s page state the dates', () => {
+  test('a window that moves is the engine’s sentence, with its dates', () => {
+    expect(watchWindowSentence({ date_window: { since: 'previous_run' } }, NEXT))
+      .toEqual({ window: 'previous_run', text: NEXT.sentence });
+    // Before the engine has said, the choice alone, and no invented dates.
+    expect(watchWindowSentence({ date_window: { last_days: 30 } }, null)?.text)
+      .toBe('Each run asks for papers published in the 30 days before it starts.');
+  });
+
+  test('fixed dates and no dates are said as stored; a watch on retractions has no dates to state', () => {
+    expect(watchWindowSentence({ date_from: '2026-05-03', date_to: '2026-05-04' }, null)?.text)
+      .toBe('Every run asks for papers published from May 3, 2026 to May 4, 2026, the same dates each time.');
+    expect(watchWindowSentence({}, null)?.text).toBe('Every run asks each source with no date limit, in the source’s own order.');
+    expect(watchWindowSentence({ entity: { profile_id: 1, mode: 'retractions' } }, null)).toBeNull();
+  });
+
+  test('a run states the dates it asked, never the mode without them', () => {
+    const fired = JSON.stringify({ date_from: '2026-10-26', date_to: null, date_window: { since: 'previous_run' },
+      date_window_computed: { sentence: 'Papers published since the previous run: from October 26, 2026, with no end date.' } });
+    expect(runWindowSentence(fired)).toBe('Papers published since the previous run: from October 26, 2026, with no end date.');
+    expect(runWindowSentence(JSON.stringify({ date_from: '2026-10-01', date_to: '' }))).toBe('Papers published from October 1, 2026 on.');
+    expect(runWindowSentence(JSON.stringify({ date_from: '', date_to: '' }))).toBe('No date limit: each source was asked with no dates.');
+    expect(runWindowSentence('not json')).toBeNull();
+  });
+});

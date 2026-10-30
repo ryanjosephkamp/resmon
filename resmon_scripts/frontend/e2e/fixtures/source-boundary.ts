@@ -257,7 +257,10 @@ export async function sourceApi(win: Page, route: string): Promise<Record<string
   }, route);
 }
 
-export async function launchSourceApp(mode: Mode) {
+/** Which renderer the launch serves: the classic one unless a spec asks for Atlas. */
+export interface SourceLaunch { ui?: 'classic' | 'atlas' }
+
+export async function launchSourceApp(mode: Mode, launch: SourceLaunch = {}) {
   const authored = mode.startsWith('authored');
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-source-boundary-'));
   const requests: SourceRequest[] = [];
@@ -315,6 +318,7 @@ export async function launchSourceApp(mode: Mode) {
   // transport cases keep the gate they were written for.
   if (authored) release();
   const env = launchEnv(stateDir, true);
+  if (launch.ui === 'atlas') env.RESMON_UI = 'atlas';
   const hookDir = path.join(stateDir, 'python-source-boundary');
   fs.mkdirSync(hookDir);
   // Startup hook is private to this child's PYTHONPATH; no production file or
@@ -430,7 +434,9 @@ print(json.dumps(refusals))
       cwd: FRONTEND_ROOT, env, timeout: 180_000 });
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    // Atlas has no `.app-main`; its specs wait for the sections, as every one does.
+    await (launch.ui === 'atlas' ? win.getByRole('navigation', { name: 'Sections' }) : win.locator('.app-main'))
+      .waitFor({ state: 'visible', timeout: 60_000 });
     const hook = JSON.parse(fs.readFileSync(path.join(stateDir, 'source-hook.json'), 'utf8'));
     expect(hook.parent_pid).toBe(app.process().pid);
     expect(hook.endpoint).toBe(endpoint);

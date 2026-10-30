@@ -1848,6 +1848,11 @@ button.ai-link {
 .run-ai-lanes { margin: 0; padding: 0 0 0 18px; display: grid; gap: 2px; }
 .run-ai-note { color: var(--ink-3); }
 
+/* Which papers a watch's runs ask for: said on the watch and on each run, beside Summaries. */
+.watch-dates, .run-dates { margin: 12px 0 0; max-width: 84ch; font: 400 13px/1.5 var(--sans); color: var(--ink-2); }
+.watch-dates-label, .run-dates-label { margin-right: 4px; font-weight: 600; color: var(--ink); }
+.watch-dates a { color: var(--ink); text-underline-offset: 3px; }
+
 /* A saved search changed in place: the editor opens under its row, across the row's full width. */
 .saved.editing { padding-bottom: 20px; }
 .saved .settings-said { margin: 4px 0 0; font-size: 13px; }
