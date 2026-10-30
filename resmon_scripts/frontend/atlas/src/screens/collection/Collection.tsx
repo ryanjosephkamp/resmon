@@ -18,6 +18,7 @@ import { foldedAway, standingInFor } from './fold';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
+import { LifecycleMarks, LifecycleUnread, useLifecycleFor } from '../lifecycle/LifecycleMarks';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 type Sort = 'newest' | 'similarity';
@@ -121,6 +122,7 @@ export function Collection() {
     enabled: ids.length > 0,
     queryFn: () => answer(engine().POST('/api/profiles/matches/for-documents', { body: { document_ids: ids } })),
   });
+  const lifecycle = useLifecycleFor(ids);
   const folded = useQuery({
     queryKey: ['fold', ids],
     enabled: fold && anyLinks,
@@ -260,6 +262,7 @@ export function Collection() {
             </p>
           )}
           {first?.similarity_unavailable && <p className="rank-note">{first.similarity_unavailable}</p>}
+          <LifecycleUnread error={lifecycle.error} />
           {fold && folded.data && rows.length > visible.length && (
             <p className="collapse-note">
               {count(rows.length - visible.length, 'row')} folded into another that looks like the same work.{' '}
@@ -283,6 +286,7 @@ export function Collection() {
               return (
                 <li key={paper.id} className="result" data-document={paper.id}>
                   <Link to={`/papers/${paper.id}`} className="result-title">{paper.title}</Link>
+                  <LifecycleMarks events={lifecycle.data?.events[String(paper.id)]} />
                   <div className="meta">
                     <span className="who">{authors(paper.authors)}</span>
                     <span className="sep" />

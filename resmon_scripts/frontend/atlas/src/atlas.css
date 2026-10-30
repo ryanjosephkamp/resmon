@@ -1774,6 +1774,49 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .cloud-auto .form-hint { max-width: 76ch; }
 .cloud-auto-state { margin: 0; font: 500 13.5px/1.5 var(--sans); color: var(--ink); max-width: 76ch; }
 
+/* Retractions and updates: each notice's severity in words, its own label as the link, its date, and who registered it. */
+.life-marks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.life-mark { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font: 400 12.5px/1.4 var(--sans); color: var(--ink-3); }
+.life-severity {
+  display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 999px;
+  font: 600 11.5px/1 var(--sans); background: var(--panel-2); color: var(--ink-2); white-space: nowrap;
+}
+.life-mark[data-severity="critical"] .life-severity { background: color-mix(in srgb, var(--fault) 16%, transparent); color: var(--fault); }
+.life-mark[data-severity="caution"] .life-severity { background: var(--accent-wash); color: var(--accent-ink); }
+.life-notice { color: var(--ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
+.life-mark[data-severity="critical"] .life-notice { font-weight: 600; }
+.life-marks.full .life-mark { font-size: 13.5px; }
+.life-detail { flex-basis: 100%; margin: 2px 0 0; font: 400 13px/1.5 var(--sans); color: var(--ink-2); max-width: 72ch; }
+.life-quiet { margin: 0; font: 400 13.5px/1.55 var(--sans); color: var(--ink-2); max-width: 72ch; }
+.life-quiet a { color: var(--accent-ink); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+
+/* The check, on the Watchdog: a run that a service did not answer is ruled in the fault color, never drawn as a quiet one. */
+.lifecycle .place-help { margin-top: 14px; }
+.life-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; margin-top: 16px; }
+.life-state { margin: 0; font: 400 13.5px/1.45 var(--sans); color: var(--ink-2); }
+.life-run { margin-top: 16px; padding: 12px 16px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); }
+.life-run:not([data-unanswered="0"]) { border-color: var(--fault); }
+.life-run-head { font: 600 14px/1.45 var(--sans); color: var(--ink); }
+.life-run ul { margin: 6px 0 0; padding-left: 18px; display: grid; gap: 4px; font: 400 13.5px/1.5 var(--sans); color: var(--ink-2); }
+.life-coverage { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 2px; font: 400 13.5px/1.5 var(--sans); color: var(--ink-2); }
+.lifecycle .life-quiet, .lifecycle .count-sentence { margin-top: 14px; }
+.life-papers, .life-findings { list-style: none; margin: 10px 0 0; padding: 0; }
+.life-papers > li, .life-finding { padding: 12px 0; border-top: 1px solid var(--rule); }
+
+/* A person's retractions and updates, above the papers matched to them. */
+.person-column { min-width: 0; }
+.person-lifecycle { margin-bottom: 34px; }
+.person-lifecycle .life-quiet { margin-bottom: 8px; }
+
+/* People: the starter set, and the actions that bring people in. */
+.people-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.starter-set { margin: 20px 0 8px; padding: 18px 20px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); max-width: 980px; }
+.starter-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.starter-person { display: grid; grid-template-columns: minmax(0, auto) auto 1fr; align-items: baseline; column-gap: 12px; padding: 12px 0 10px; border-top: 1px solid var(--rule); }
+.starter-person .meta, .starter-person .match-evidence { grid-column: 1 / -1; }
+.starter-person .btn { justify-self: end; }
+.starter-name { font: italic 400 19px/1.2 var(--serif); color: var(--ink); letter-spacing: .005em; }
+
 /* Summaries: the fields Settings → AI adds, a run's or a watch's own choice, and what a run did */
 button.ai-link {
   border: 0; padding: 0; background: none; font: inherit; color: var(--accent-ink); cursor: pointer;

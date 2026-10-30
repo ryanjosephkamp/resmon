@@ -5,6 +5,7 @@ import { answer, engine, EngineError } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { when } from '../today/format';
 import { HealthTabs } from './HealthTabs';
+import { LifecycleCheck } from './LifecycleCheck';
 import {
   SEVERITY_MEANING, SEVERITY_WORDS, WATCHDOG_KEY, instantOf, scopeWords, thresholdWords, watchdogVerdict,
   type WatchdogFinding, type WatchdogUnjudged,
@@ -57,6 +58,9 @@ function evidenceWords(value: unknown, now: Date): string {
  * screen says there is nothing to check yet rather than that all is well. A
  * muted finding stays on the screen, in its own section, and goes when its
  * reason goes, so a recurrence is reported afresh.
+ *
+ * Below it is the check for retractions and updates (`LifecycleCheck`):
+ * whether the papers already found still stand.
  */
 export function Watchdog() {
   const client = useQueryClient();
@@ -141,6 +145,8 @@ export function Watchdog() {
           </section>
         </>
       )}
+      {/* The corpus half: whether the papers already found still stand. Read on its own, so it stays when the watchdog cannot be read. */}
+      <LifecycleCheck />
     </div>
   );
 }

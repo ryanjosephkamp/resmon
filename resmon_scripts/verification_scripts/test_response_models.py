@@ -316,6 +316,12 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/admin/reset-settings"),
         ("POST", "/api/admin/factory-reset"),
     ),
+    "corpus lifecycle": (
+        ("GET", "/api/lifecycle"),
+        ("POST", "/api/lifecycle/check"),
+        ("POST", "/api/lifecycle/stop"),
+        ("POST", "/api/lifecycle/for-documents"),
+    ),
     "analytics": (
         ("GET", "/api/analytics/overview"),
         ("GET", "/api/analytics/summary"),
@@ -611,6 +617,7 @@ def driven() -> Drive:
         drive("DELETE", f"/api/profiles/{watched_by_routine['id']}")
 
         _drive_reading_queue(drive, doc_ids[0])
+        _drive_lifecycle(drive, doc_ids)
         _drive_watchdog_and_first_run(drive)
         _drive_configurations(drive)
         _drive_scheduler(drive)
@@ -1801,6 +1808,85 @@ def _drive_reading_queue(drive: Drive, document_id: int) -> None:
     assert filtered["status"] == "to_read"
     drive("PUT", f"/api/reading-queue/{document_id}", json={"status": "read"})
     drive("DELETE", f"/api/reading-queue/{document_id}")
+
+
+class _ServiceDown:
+    """A loopback server answering every request with a 503, for the check.
+
+    Real rather than a patched provider, so the run's account of a service
+    that did not answer comes from ``safe_request`` and the shipped status
+    check, as it would against Crossref.
+    """
+
+    def __enter__(self) -> "_ServiceDown":
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+                body = b"Service Unavailable"
+                self.send_response(503)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *_args: Any) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+
+def _drive_lifecycle(drive: Drive, doc_ids: list[int]) -> None:
+    """A check that Crossref did not answer, the report after it, a stop with
+    nothing running, and the per-paper map.
+
+    The profile slice left a retraction and an ``ok`` check on the first paper,
+    so the report has a finding and the map has both halves. One more paper
+    with a DOI is due, and the service it is asked of answers 503, so the run's
+    ``last`` carries an ``unanswered`` row rather than an empty list; the
+    second profile paper has no identifier and is recorded as such without a
+    request.
+    """
+    from implementation_scripts import config as config_module  # noqa: PLC0415
+    from implementation_scripts import lifecycle  # noqa: PLC0415
+
+    conn = resmon_mod._get_db()
+    try:
+        conn.execute(
+            "INSERT INTO documents (source_repository, external_id, title, doi, "
+            "metadata_hash) VALUES ('crossref', 'L1', 'Due for a check', "
+            "'10.1000/lifecycle', 'h-lifecycle')")
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    with _ServiceDown() as down, \
+            mock.patch.object(config_module, "DEFAULT_MAX_RETRIES", 0), \
+            mock.patch.object(lifecycle, "_CROSSREF_URL", f"{down.base}/works"), \
+            mock.patch.object(lifecycle, "_BIORXIV_URL", f"{down.base}/details"), \
+            mock.patch.object(lifecycle, "_ARXIV_URL", f"{down.base}/api/query"):
+        started = drive("POST", "/api/lifecycle/check", json={"limit": 10})
+        assert started["status"] == "started"
+        deadline = time.monotonic() + 15
+        while drive.client.get("/api/lifecycle").json()["run"]["running"]:
+            assert time.monotonic() < deadline, "the lifecycle check did not finish"
+            time.sleep(0.05)
+
+    report = drive("GET", "/api/lifecycle")
+    assert report["findings"], "the report must carry the seeded retraction"
+    assert report["run"]["last"]["unanswered"] == [{
+        "service": "crossref", "name": "Crossref", "papers": 1,
+        "reason": "Crossref answered HTTP 503"}]
+    assert drive("POST", "/api/lifecycle/stop") == {"status": "idle"}
+    page = drive("POST", "/api/lifecycle/for-documents",
+                 json={"document_ids": doc_ids})
+    assert page["events"] and page["checked"]
 
 
 def _drive_watchdog_and_first_run(drive: Drive) -> None:

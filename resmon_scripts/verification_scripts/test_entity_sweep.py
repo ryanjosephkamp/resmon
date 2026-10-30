@@ -365,13 +365,41 @@ def test_nothing_checked_is_reported_separately_from_nothing_found(conn):
     assert result["findings"] == []
     assert result["matched_documents"] == 1
     assert result["checked_documents"] == 0
-    assert "have not been looked at" in result["coverage_note"]
+    assert "has not been looked at" in result["coverage_note"]
 
     conn.execute(
         "INSERT INTO document_lifecycle_checks (document_id, checked_at, status) "
         "VALUES (?, datetime('now'), 'ok')", (doc,))
     conn.commit()
     assert wp.profile_lifecycle_findings(conn, profile["id"])["checked_documents"] == 1
+
+
+def test_a_paper_nothing_could_be_asked_about_is_not_counted_as_checked(conn):
+    """A check that found no identifier, and one a service failed on, looked at
+    nothing. Counting them as checked made a person whose papers carry no DOI
+    read as checked and clear."""
+    profile = _profile(conn)
+    docs = [_seed_paper(conn, f"p{n}", f"Paper {n}") for n in range(4)]
+    for doc in docs:
+        conn.execute(
+            "INSERT INTO watch_profile_matches (document_id, profile_id, basis, "
+            "matched_author) VALUES (?, ?, 'identifier', 'Jane Doe')",
+            (doc, profile["id"]))
+    for doc, status in zip(docs, ("ok", "no_identifier", "error")):
+        conn.execute(
+            "INSERT INTO document_lifecycle_checks (document_id, checked_at, status) "
+            "VALUES (?, datetime('now'), ?)", (doc, status))
+    conn.commit()
+
+    result = wp.profile_lifecycle_findings(conn, profile["id"])
+    assert (result["matched_documents"], result["checked_documents"],
+            result["no_identifier_documents"], result["errored_documents"]) == (4, 1, 1, 1)
+    assert result["coverage_note"] == (
+        "1 of 4 matched papers have been checked for retractions and updates. "
+        "1 carries no DOI or other identifier that could be asked about, so it "
+        "was never looked at. 1 could not be checked: a service failed on it. "
+        "1 has not been looked at yet, which is not the same as having nothing "
+        "to report.")
 
 
 def test_the_join_invents_no_finding_of_its_own(conn):

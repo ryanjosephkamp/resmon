@@ -2234,10 +2234,11 @@ export interface paths {
         put?: never;
         /**
          * Lifecycle Stop
-         * @description Ask a running check to stop after its current slice.
+         * @description Ask a running check to stop before its next request.
          *
-         *     Cooperative rather than abrupt: the papers already checked keep their
-         *     results, and the rest stay unchecked rather than being recorded as clean.
+         *     Cooperative rather than abrupt: a request already in flight is answered,
+         *     the papers whose answers are in keep their results, and the rest stay
+         *     unchecked rather than being recorded as clean.
          */
         post: operations["lifecycle_stop_api_lifecycle_stop_post"];
         delete?: never;
@@ -6863,6 +6864,20 @@ export interface components {
             /** Parent Directory */
             parent_directory: string;
         };
+        /**
+         * LifecycleCheckError
+         * @description A paper a service failed on part-way, recorded as errored.
+         */
+        LifecycleCheckError: {
+            /** Document Id */
+            document_id: number;
+            /** Error */
+            error: string | null;
+            /** Title */
+            title: string | null;
+        } & {
+            [key: string]: unknown;
+        };
         /** LifecycleCheckRequest */
         LifecycleCheckRequest: {
             /**
@@ -6876,10 +6891,300 @@ export interface components {
              */
             run_until_done: boolean;
         };
+        /**
+         * LifecycleCheckStarted
+         * @description ``POST /api/lifecycle/check``: the check was started in the background.
+         */
+        LifecycleCheckStarted: {
+            /** Limit */
+            limit: number;
+            /** Run Until Done */
+            run_until_done: boolean;
+            /**
+             * Status
+             * @constant
+             */
+            status: "started";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleCheckState
+         * @description When a paper was last checked, and how that check ended.
+         */
+        LifecycleCheckState: {
+            /** Checked At */
+            checked_at: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "no_identifier" | "error";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleCounts
+         * @description Recorded events by severity, over the whole corpus.
+         */
+        LifecycleCounts: {
+            /** Caution */
+            caution: number;
+            /** Critical */
+            critical: number;
+            /** Informational */
+            informational: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleCoverage
+         * @description How much of the corpus the recorded events cover.
+         *
+         *     The four counts partition ``corpus``. ``no_identifier`` papers were never
+         *     looked at, because nothing could be asked about them; ``errored`` papers
+         *     were asked about and a service failed on them; ``unchecked`` papers have
+         *     not been asked about yet.
+         */
+        LifecycleCoverage: {
+            /** Checked */
+            checked: number;
+            /** Corpus */
+            corpus: number;
+            /** Errored */
+            errored: number;
+            /** Last Checked At */
+            last_checked_at: string | null;
+            /** No Identifier */
+            no_identifier: number;
+            /** Recheck After Days */
+            recheck_after_days: number;
+            /** Unchecked */
+            unchecked: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleEvent
+         * @description One recorded event on a paper: a row of ``document_lifecycle``.
+         *
+         *     ``label`` is the upstream's own wording, verbatim; ``provider_source`` is
+         *     who registered the notice where Crossref says (``retraction-watch`` or
+         *     ``publisher``).
+         */
+        LifecycleEvent: {
+            /** Detail */
+            detail: string | null;
+            /** Document Id */
+            document_id: number;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string | null;
+            /** Notice Date */
+            notice_date: string | null;
+            /** Notice Doi */
+            notice_doi: string | null;
+            /** Notice Key */
+            notice_key: string;
+            /** Notice Url */
+            notice_url: string;
+            /** Provider */
+            provider: string;
+            /** Provider Source */
+            provider_source: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "caution" | "informational";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleFinding
+         * @description An event in the corpus report, with the paper it is on.
+         */
+        LifecycleFinding: {
+            /** Detail */
+            detail: string | null;
+            /** Document Doi */
+            document_doi: string | null;
+            /** Document Id */
+            document_id: number;
+            /** Document Url */
+            document_url: string | null;
+            /** First Seen At */
+            first_seen_at: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string | null;
+            /** Notice Date */
+            notice_date: string | null;
+            /** Notice Doi */
+            notice_doi: string | null;
+            /** Notice Key */
+            notice_key: string;
+            /** Notice Url */
+            notice_url: string;
+            /** Provider */
+            provider: string;
+            /** Provider Source */
+            provider_source: string | null;
+            /** Publication Date */
+            publication_date: string | null;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "critical" | "caution" | "informational";
+            /** Source Repository */
+            source_repository: string;
+            /** Title */
+            title: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleForDocuments
+         * @description ``POST /api/lifecycle/for-documents``: events and check state for a page.
+         *
+         *     Both maps are keyed by the paper's id as a string. A paper absent from
+         *     ``events`` has nothing recorded against it; absent from ``checked`` as
+         *     well, it has never been checked, which is the different fact.
+         */
+        LifecycleForDocuments: {
+            /** Checked */
+            checked: {
+                [key: string]: components["schemas"]["LifecycleCheckState"];
+            };
+            /** Events */
+            events: {
+                [key: string]: components["schemas"]["LifecycleEvent"][];
+            };
+        } & {
+            [key: string]: unknown;
+        };
         /** LifecycleForDocumentsRequest */
         LifecycleForDocumentsRequest: {
             /** Document Ids */
             document_ids?: number[];
+        };
+        /**
+         * LifecycleReport
+         * @description ``GET /api/lifecycle``: every recorded event, the coverage, and the run.
+         *
+         *     ``sufficient`` is false until at least one paper has been checked: an empty
+         *     ``findings`` on an unchecked corpus is not "nothing has been retracted".
+         */
+        LifecycleReport: {
+            counts: components["schemas"]["LifecycleCounts"];
+            coverage: components["schemas"]["LifecycleCoverage"];
+            /** Findings */
+            findings: components["schemas"]["LifecycleFinding"][];
+            run: components["schemas"]["LifecycleRunState"];
+            /** Sufficient */
+            sufficient: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleRunOutcomes
+         * @description How each check a run recorded ended, by ``document_lifecycle_checks.status``.
+         */
+        LifecycleRunOutcomes: {
+            /** Error */
+            error: number;
+            /** No Identifier */
+            no_identifier: number;
+            /** Ok */
+            ok: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleRunResult
+         * @description The account of the most recent run to finish, in this engine.
+         *
+         *     ``checked_now`` counts every paper the run recorded, and ``outcomes``
+         *     divides it: only ``ok`` papers were looked at. ``stopped`` is true when the
+         *     run was stopped before it had asked about everything it selected, and
+         *     ``not_asked`` is how many papers it never asked about as a result.
+         */
+        LifecycleRunResult: {
+            /** Checked At */
+            checked_at: string;
+            /** Checked Now */
+            checked_now: number;
+            /** Errors */
+            errors: components["schemas"]["LifecycleCheckError"][];
+            /** Not Asked */
+            not_asked: number;
+            outcomes: components["schemas"]["LifecycleRunOutcomes"];
+            /** Remaining */
+            remaining: number;
+            /** Stopped */
+            stopped: boolean;
+            /** Unanswered */
+            unanswered: components["schemas"]["LifecycleUnanswered"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleRunState
+         * @description Whether a check is running in this engine, and how the last one ended.
+         *
+         *     Held in the engine's memory: an engine started since the last check has
+         *     ``last`` null, and the recorded coverage is then the whole account.
+         *     ``error`` is a run that failed outright, with nothing to report.
+         */
+        LifecycleRunState: {
+            /** Error */
+            error: string | null;
+            last: components["schemas"]["LifecycleRunResult"] | null;
+            /** Running */
+            running: boolean;
+            /** Started At */
+            started_at: string | null;
+            /** Stop Requested */
+            stop_requested: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleStopAnswer
+         * @description ``POST /api/lifecycle/stop``: asked to stop, or nothing was running.
+         */
+        LifecycleStopAnswer: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "idle" | "stopping";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LifecycleUnanswered
+         * @description A service that did not answer, and the papers that left unchecked.
+         *
+         *     Those papers are not recorded at all and are asked about again on the next
+         *     run, so they count among ``coverage.unchecked``, never among the clear.
+         */
+        LifecycleUnanswered: {
+            /** Name */
+            name: string;
+            /** Papers */
+            papers: number;
+            /** Reason */
+            reason: string | null;
+            /** Service */
+            service: string;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * MapPoints
@@ -10111,16 +10416,25 @@ export interface components {
          *     none. ``coverage_note`` says that in a sentence rather than leaving it to
          *     be inferred from two numbers, and a model that dropped it would have turned
          *     the one into the other.
+         *
+         *     ``checked_documents`` counts only the papers a check looked at. Those it
+         *     found nothing to ask about (``no_identifier_documents``) and those a
+         *     service failed on (``errored_documents``) are counted apart, because
+         *     neither was cleared.
          */
         WatchProfileLifecycle: {
             /** Checked Documents */
             checked_documents: number;
             /** Coverage Note */
             coverage_note: string;
+            /** Errored Documents */
+            errored_documents: number;
             /** Findings */
             findings: components["schemas"]["WatchProfileLifecycleFinding"][];
             /** Matched Documents */
             matched_documents: number;
+            /** No Identifier Documents */
+            no_identifier_documents: number;
         } & {
             [key: string]: unknown;
         };
@@ -14002,7 +14316,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LifecycleReport"];
                 };
             };
         };
@@ -14026,7 +14340,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LifecycleCheckStarted"];
                 };
             };
             /** @description Validation Error */
@@ -14059,7 +14373,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LifecycleForDocuments"];
                 };
             };
             /** @description Validation Error */
@@ -14088,7 +14402,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LifecycleStopAnswer"];
                 };
             };
         };

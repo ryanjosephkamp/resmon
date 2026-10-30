@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { MAP_KEY } from '../Today';
+import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors } from '../today/format';
 
@@ -18,9 +19,9 @@ export function queueWords(status: string | null | undefined): string | null {
 }
 
 /**
- * One paper: the record as resmon holds it, why it is in the collection, the
- * other records of the same work, and where it sits on the map among its
- * nearest neighbors there.
+ * One paper: the record as resmon holds it, any retraction or update recorded
+ * against it since, why it is in the collection, the other records of the
+ * same work, and where it sits on the map among its nearest neighbors there.
  *
  * Everything here is what was collected or what resmon measured. The abstract
  * is the source's, labeled as such; the "why" is the engine's account, with
@@ -144,6 +145,9 @@ export function Paper() {
             <p className="field-error" role="alert">{(save.error ?? mark.error ?? remove.error)?.message}</p>
           )}
         </div>
+
+        {/* Above the abstract: a retraction is read before the paper is. */}
+        <PaperLifecycle id={data.id} />
 
         {data.abstract && (
           <section className="paper-section" aria-label="Abstract">

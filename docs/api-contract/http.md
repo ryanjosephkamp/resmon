@@ -12,7 +12,7 @@
 
 **Purpose.** The first line of the endpoint's docstring, for the 99 of 197 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 157 of 197 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 40 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 161 of 197 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -79,10 +79,10 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
-| `GET` | `/api/lifecycle` | token | — | — | Recorded lifecycle events, and how much of the corpus they cover. |
-| `POST` | `/api/lifecycle/check` | token | — | — | Start a bounded lifecycle check over the least recently checked papers. |
-| `POST` | `/api/lifecycle/for-documents` | token | — | — | Lifecycle events for a page of results, in one round trip. |
-| `POST` | `/api/lifecycle/stop` | token | — | — | Ask a running check to stop after its current slice. |
+| `GET` | `/api/lifecycle` | token | — | `LifecycleReport` | Recorded lifecycle events, and how much of the corpus they cover. |
+| `POST` | `/api/lifecycle/check` | token | — | `LifecycleCheckStarted` | Start a bounded lifecycle check over the least recently checked papers. |
+| `POST` | `/api/lifecycle/for-documents` | token | — | `LifecycleForDocuments` | Lifecycle events for a page of results, in one round trip. |
+| `POST` | `/api/lifecycle/stop` | token | — | `LifecycleStopAnswer` | Ask a running check to stop before its next request. |
 | `GET` | `/api/profiles/{profile_id}/lifecycle` | token | — | `WatchProfileLifecycle` | Retractions and other lifecycle findings on this profile's papers. |
 | `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
 | `POST` | `/api/watchdog/mute` | token | — | `WatchdogMuteAck` | Acknowledge one finding so it stops counting toward the alarm total. |

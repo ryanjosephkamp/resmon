@@ -7091,6 +7091,45 @@
         "title": "LibraryVaultBody",
         "type": "object"
       },
+      "LifecycleCheckError": {
+        "additionalProperties": true,
+        "description": "A paper a service failed on part-way, recorded as errored.",
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "document_id",
+          "title",
+          "error"
+        ],
+        "title": "LifecycleCheckError",
+        "type": "object"
+      },
       "LifecycleCheckRequest": {
         "properties": {
           "limit": {
@@ -7109,6 +7148,429 @@
         "title": "LifecycleCheckRequest",
         "type": "object"
       },
+      "LifecycleCheckStarted": {
+        "additionalProperties": true,
+        "description": "``POST /api/lifecycle/check``: the check was started in the background.",
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "run_until_done": {
+            "title": "Run Until Done",
+            "type": "boolean"
+          },
+          "status": {
+            "const": "started",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "limit",
+          "run_until_done"
+        ],
+        "title": "LifecycleCheckStarted",
+        "type": "object"
+      },
+      "LifecycleCheckState": {
+        "additionalProperties": true,
+        "description": "When a paper was last checked, and how that check ended.",
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "no_identifier",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checked_at",
+          "status"
+        ],
+        "title": "LifecycleCheckState",
+        "type": "object"
+      },
+      "LifecycleCounts": {
+        "additionalProperties": true,
+        "description": "Recorded events by severity, over the whole corpus.",
+        "properties": {
+          "caution": {
+            "title": "Caution",
+            "type": "integer"
+          },
+          "critical": {
+            "title": "Critical",
+            "type": "integer"
+          },
+          "informational": {
+            "title": "Informational",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "critical",
+          "caution",
+          "informational"
+        ],
+        "title": "LifecycleCounts",
+        "type": "object"
+      },
+      "LifecycleCoverage": {
+        "additionalProperties": true,
+        "description": "How much of the corpus the recorded events cover.\n\nThe four counts partition ``corpus``. ``no_identifier`` papers were never\nlooked at, because nothing could be asked about them; ``errored`` papers\nwere asked about and a service failed on them; ``unchecked`` papers have\nnot been asked about yet.",
+        "properties": {
+          "checked": {
+            "title": "Checked",
+            "type": "integer"
+          },
+          "corpus": {
+            "title": "Corpus",
+            "type": "integer"
+          },
+          "errored": {
+            "title": "Errored",
+            "type": "integer"
+          },
+          "last_checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Checked At"
+          },
+          "no_identifier": {
+            "title": "No Identifier",
+            "type": "integer"
+          },
+          "recheck_after_days": {
+            "title": "Recheck After Days",
+            "type": "integer"
+          },
+          "unchecked": {
+            "title": "Unchecked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "corpus",
+          "checked",
+          "no_identifier",
+          "errored",
+          "unchecked",
+          "last_checked_at",
+          "recheck_after_days"
+        ],
+        "title": "LifecycleCoverage",
+        "type": "object"
+      },
+      "LifecycleEvent": {
+        "additionalProperties": true,
+        "description": "One recorded event on a paper: a row of ``document_lifecycle``.\n\n``label`` is the upstream's own wording, verbatim; ``provider_source`` is\nwho registered the notice where Crossref says (``retraction-watch`` or\n``publisher``).",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "notice_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Date"
+          },
+          "notice_doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Doi"
+          },
+          "notice_key": {
+            "title": "Notice Key",
+            "type": "string"
+          },
+          "notice_url": {
+            "title": "Notice Url",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Source"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "caution",
+              "informational"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "kind",
+          "severity",
+          "notice_key",
+          "label",
+          "notice_doi",
+          "notice_url",
+          "notice_date",
+          "detail",
+          "provider",
+          "provider_source",
+          "first_seen_at"
+        ],
+        "title": "LifecycleEvent",
+        "type": "object"
+      },
+      "LifecycleFinding": {
+        "additionalProperties": true,
+        "description": "An event in the corpus report, with the paper it is on.",
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "document_doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Doi"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "document_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Url"
+          },
+          "first_seen_at": {
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "notice_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Date"
+          },
+          "notice_doi": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice Doi"
+          },
+          "notice_key": {
+            "title": "Notice Key",
+            "type": "string"
+          },
+          "notice_url": {
+            "title": "Notice Url",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Source"
+          },
+          "publication_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Date"
+          },
+          "severity": {
+            "enum": [
+              "critical",
+              "caution",
+              "informational"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "source_repository": {
+            "title": "Source Repository",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_id",
+          "kind",
+          "severity",
+          "notice_key",
+          "label",
+          "notice_doi",
+          "notice_url",
+          "notice_date",
+          "detail",
+          "provider",
+          "provider_source",
+          "first_seen_at",
+          "title",
+          "document_doi",
+          "source_repository",
+          "document_url",
+          "publication_date"
+        ],
+        "title": "LifecycleFinding",
+        "type": "object"
+      },
+      "LifecycleForDocuments": {
+        "additionalProperties": true,
+        "description": "``POST /api/lifecycle/for-documents``: events and check state for a page.\n\nBoth maps are keyed by the paper's id as a string. A paper absent from\n``events`` has nothing recorded against it; absent from ``checked`` as\nwell, it has never been checked, which is the different fact.",
+        "properties": {
+          "checked": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LifecycleCheckState"
+            },
+            "title": "Checked",
+            "type": "object"
+          },
+          "events": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/LifecycleEvent"
+              },
+              "type": "array"
+            },
+            "title": "Events",
+            "type": "object"
+          }
+        },
+        "required": [
+          "events",
+          "checked"
+        ],
+        "title": "LifecycleForDocuments",
+        "type": "object"
+      },
       "LifecycleForDocumentsRequest": {
         "properties": {
           "document_ids": {
@@ -7121,6 +7583,232 @@
           }
         },
         "title": "LifecycleForDocumentsRequest",
+        "type": "object"
+      },
+      "LifecycleReport": {
+        "additionalProperties": true,
+        "description": "``GET /api/lifecycle``: every recorded event, the coverage, and the run.\n\n``sufficient`` is false until at least one paper has been checked: an empty\n``findings`` on an unchecked corpus is not \"nothing has been retracted\".",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/LifecycleCounts"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/LifecycleCoverage"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleFinding"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/LifecycleRunState"
+          },
+          "sufficient": {
+            "title": "Sufficient",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "findings",
+          "counts",
+          "coverage",
+          "sufficient",
+          "run"
+        ],
+        "title": "LifecycleReport",
+        "type": "object"
+      },
+      "LifecycleRunOutcomes": {
+        "additionalProperties": true,
+        "description": "How each check a run recorded ended, by ``document_lifecycle_checks.status``.",
+        "properties": {
+          "error": {
+            "title": "Error",
+            "type": "integer"
+          },
+          "no_identifier": {
+            "title": "No Identifier",
+            "type": "integer"
+          },
+          "ok": {
+            "title": "Ok",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ok",
+          "no_identifier",
+          "error"
+        ],
+        "title": "LifecycleRunOutcomes",
+        "type": "object"
+      },
+      "LifecycleRunResult": {
+        "additionalProperties": true,
+        "description": "The account of the most recent run to finish, in this engine.\n\n``checked_now`` counts every paper the run recorded, and ``outcomes``\ndivides it: only ``ok`` papers were looked at. ``stopped`` is true when the\nrun was stopped before it had asked about everything it selected, and\n``not_asked`` is how many papers it never asked about as a result.",
+        "properties": {
+          "checked_at": {
+            "title": "Checked At",
+            "type": "string"
+          },
+          "checked_now": {
+            "title": "Checked Now",
+            "type": "integer"
+          },
+          "errors": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleCheckError"
+            },
+            "title": "Errors",
+            "type": "array"
+          },
+          "not_asked": {
+            "title": "Not Asked",
+            "type": "integer"
+          },
+          "outcomes": {
+            "$ref": "#/components/schemas/LifecycleRunOutcomes"
+          },
+          "remaining": {
+            "title": "Remaining",
+            "type": "integer"
+          },
+          "stopped": {
+            "title": "Stopped",
+            "type": "boolean"
+          },
+          "unanswered": {
+            "items": {
+              "$ref": "#/components/schemas/LifecycleUnanswered"
+            },
+            "title": "Unanswered",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checked_now",
+          "outcomes",
+          "remaining",
+          "errors",
+          "unanswered",
+          "stopped",
+          "not_asked",
+          "checked_at"
+        ],
+        "title": "LifecycleRunResult",
+        "type": "object"
+      },
+      "LifecycleRunState": {
+        "additionalProperties": true,
+        "description": "Whether a check is running in this engine, and how the last one ended.\n\nHeld in the engine's memory: an engine started since the last check has\n``last`` null, and the recorded coverage is then the whole account.\n``error`` is a run that failed outright, with nothing to report.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleRunResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "stop_requested": {
+            "title": "Stop Requested",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "running",
+          "started_at",
+          "last",
+          "error",
+          "stop_requested"
+        ],
+        "title": "LifecycleRunState",
+        "type": "object"
+      },
+      "LifecycleStopAnswer": {
+        "additionalProperties": true,
+        "description": "``POST /api/lifecycle/stop``: asked to stop, or nothing was running.",
+        "properties": {
+          "status": {
+            "enum": [
+              "idle",
+              "stopping"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "LifecycleStopAnswer",
+        "type": "object"
+      },
+      "LifecycleUnanswered": {
+        "additionalProperties": true,
+        "description": "A service that did not answer, and the papers that left unchecked.\n\nThose papers are not recorded at all and are asked about again on the next\nrun, so they count among ``coverage.unchecked``, never among the clear.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "papers": {
+            "title": "Papers",
+            "type": "integer"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          }
+        },
+        "required": [
+          "service",
+          "name",
+          "papers",
+          "reason"
+        ],
+        "title": "LifecycleUnanswered",
         "type": "object"
       },
       "MapPoints": {
@@ -14665,7 +15353,7 @@
       },
       "WatchProfileLifecycle": {
         "additionalProperties": true,
-        "description": "``GET /api/profiles/{profile_id}/lifecycle``.\n\n``checked_documents`` beside ``matched_documents`` is the coverage half:\na profile whose papers have never been through a lifecycle check has no\nfindings *because nothing looked*, which is a different fact from having\nnone. ``coverage_note`` says that in a sentence rather than leaving it to\nbe inferred from two numbers, and a model that dropped it would have turned\nthe one into the other.",
+        "description": "``GET /api/profiles/{profile_id}/lifecycle``.\n\n``checked_documents`` beside ``matched_documents`` is the coverage half:\na profile whose papers have never been through a lifecycle check has no\nfindings *because nothing looked*, which is a different fact from having\nnone. ``coverage_note`` says that in a sentence rather than leaving it to\nbe inferred from two numbers, and a model that dropped it would have turned\nthe one into the other.\n\n``checked_documents`` counts only the papers a check looked at. Those it\nfound nothing to ask about (``no_identifier_documents``) and those a\nservice failed on (``errored_documents``) are counted apart, because\nneither was cleared.",
         "properties": {
           "checked_documents": {
             "title": "Checked Documents",
@@ -14674,6 +15362,10 @@
           "coverage_note": {
             "title": "Coverage Note",
             "type": "string"
+          },
+          "errored_documents": {
+            "title": "Errored Documents",
+            "type": "integer"
           },
           "findings": {
             "items": {
@@ -14685,12 +15377,18 @@
           "matched_documents": {
             "title": "Matched Documents",
             "type": "integer"
+          },
+          "no_identifier_documents": {
+            "title": "No Identifier Documents",
+            "type": "integer"
           }
         },
         "required": [
           "findings",
           "matched_documents",
           "checked_documents",
+          "no_identifier_documents",
+          "errored_documents",
           "coverage_note"
         ],
         "title": "WatchProfileLifecycle",
@@ -19975,7 +20673,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleReport"
+                }
               }
             },
             "description": "Successful Response"
@@ -20002,7 +20702,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleCheckStarted"
+                }
               }
             },
             "description": "Successful Response"
@@ -20039,7 +20741,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleForDocuments"
+                }
               }
             },
             "description": "Successful Response"
@@ -20060,13 +20764,15 @@
     },
     "/api/lifecycle/stop": {
       "post": {
-        "description": "Ask a running check to stop after its current slice.\n\nCooperative rather than abrupt: the papers already checked keep their\nresults, and the rest stay unchecked rather than being recorded as clean.",
+        "description": "Ask a running check to stop before its next request.\n\nCooperative rather than abrupt: a request already in flight is answered,\nthe papers whose answers are in keep their results, and the rest stay\nunchecked rather than being recorded as clean.",
         "operationId": "lifecycle_stop_api_lifecycle_stop_post",
         "responses": {
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/LifecycleStopAnswer"
+                }
               }
             },
             "description": "Successful Response"
