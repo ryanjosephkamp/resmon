@@ -1686,3 +1686,66 @@ export interface JourneyDriver {
   /** Press Mark all read, and wait until the app has recorded the look. */
   markAllRead(): Promise<void>;
 }
+
+// — shared wording (J49) -------------------------------------------------------
+
+/** The kinds of pair the scan lists, and the two it sets aside. */
+export type SharedWordingGroup = 'different_authors' | 'same_authors' | 'authors_unknown' | 'same_work' | 'notice';
+
+/** What Search › Shared wording says after a scan, read as a person reads it. */
+export interface SharedWordingReading {
+  /** The sentence saying what the scan compared and what it did not. */
+  compared: string;
+  /** Each group's count, as its heading gives it. */
+  groups: Record<SharedWordingGroup, number>;
+}
+
+/** One pair side by side, read off the screen. */
+export interface SharedWordingPairReading {
+  /** The papers on the left and the right, by their numbers. */
+  left: number;
+  right: number;
+  /** The pair's sentences. */
+  summary: string[];
+  /** "30 words". */
+  longest: string;
+  /** "40%". */
+  share: string;
+  /** The text marked as shared, passage by passage, on each side. */
+  marked: { left: string[]; right: string[] };
+  /** What the view says resmon cannot see. */
+  limits: string[];
+}
+
+/** The parts of `GET /api/shared-wording` a journey reads. */
+export interface StoredSharedWording {
+  state: 'never' | 'other_version' | 'ready';
+  job: { running: boolean };
+  scan: { compared: number; not_compared: { no_abstract: number; too_short: number } } | null;
+  groups: { category: SharedWordingGroup; count: number; pairs: { a: number; b: number }[] }[];
+}
+
+/** The parts of `GET /api/shared-wording/pairs/{a}/{b}` a journey reads. */
+export interface StoredSharedWordingPair {
+  longest: number;
+  share: number;
+  summary: string[];
+  limits: string[];
+  left: { id: number; text: string };
+  right: { id: number; text: string };
+  passages: { left: number[]; right: number[]; words: number }[];
+}
+
+export interface BackendFacts {
+  /** `GET /api/shared-wording`: the last scan and its pairs by group. */
+  sharedWording(): Promise<StoredSharedWording>;
+  /** `GET /api/shared-wording/pairs/{a}/{b}`: one pair, with both texts and the passages. */
+  sharedWordingPair(a: number, b: number): Promise<StoredSharedWordingPair>;
+}
+
+export interface JourneyDriver {
+  /** Open Search › Shared wording, press its scan button, and read what it says once the engine has stored the scan. */
+  scanForSharedWording(): Promise<SharedWordingReading>;
+  /** Open the listed pair of these two papers and read it side by side. */
+  openTheSharedWordingPair(a: number, b: number): Promise<SharedWordingPairReading>;
+}

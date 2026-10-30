@@ -13,7 +13,7 @@ Atlas interface, which this build serves with `RESMON_UI=atlas`:
 `drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`) and skips every
 other journey with the reason "Not in Atlas yet: …". A candidate run's skipped
 count is therefore how much of the register Atlas still has to carry, and the
-switch-over waits for it to reach zero. J46, J47 and J48 are Atlas's own
+switch-over waits for it to reach zero. J46, J47, J48 and J49 are Atlas's own
 journeys; the classic driver skips them the same way, saying the classic
 renderer has no such screen.
 
@@ -92,7 +92,7 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 48 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
+| `register.ts` | The denominator: all 49 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
 | `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration; the candidate borrows from the classic driver only what `drivers/borrowed.ts` lists, with its reasons. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |

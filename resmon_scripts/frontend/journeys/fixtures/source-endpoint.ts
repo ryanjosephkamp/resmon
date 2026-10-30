@@ -46,7 +46,13 @@ export type SourceReply =
    * pair that differs only in the fields dedup keys on is the smallest honest
    * way to produce one. `AUTHORED_TWICE` is that pair.
    */
-  | 'duplicates';
+  | 'duplicates'
+  /**
+   * Four records, two of which, by different authors, share one 30-word
+   * passage, and a third, by the first author, shares a 24-word passage with
+   * her first. J49: `AUTHORED_SHARED_WORDING`.
+   */
+  | 'shared_wording';
 
 export interface AuthoredRecord {
   id: string;
@@ -129,6 +135,57 @@ export const AUTHORED_TWICE: AuthoredRecord[] = [
   },
 ];
 
+/** The passage two authors' records share, word for word. Invented for this suite. */
+export const AUTHORED_SHARED_PASSAGE = 'A thin layer of glass beads was spread across a level floor and swept by a '
+  + 'steady fan until the ripples settled into evenly spaced crests that moved downstream together.';
+const AUTHORED_KEPT_PASSAGE = 'Each crest was photographed from above every ten seconds, and the photographs were '
+  + 'traced by hand into outlines that a short script then compared.';
+
+/**
+ * Shared wording, authored. Every sentence is invented, and the words around
+ * each passage differ between the records, so the passages are exactly 30 and
+ * 24 words long. The fourth record has 37 words, under the 40 a scan compares.
+ */
+export const AUTHORED_SHARED_WORDING: AuthoredRecord[] = [
+  {
+    id: '2610.52001v1',
+    title: 'Authored note on wind-driven ripple fields in a sealed tank',
+    abstract: `We describe an invented tank experiment written only for this suite. ${AUTHORED_SHARED_PASSAGE} The `
+      + `remaining sentences of this record are its own and appear nowhere else in the fixture corpus. `
+      + `${AUTHORED_KEPT_PASSAGE} Nothing here was fetched.`,
+    author: 'Ada Fixture',
+    published: '2026-09-01T00:00:00Z',
+    category: 'physics.flu-dyn',
+  },
+  {
+    id: '2610.52002v1',
+    title: 'Authored account of granular crests under a household fan',
+    abstract: `This record is invented for the suite and carries no published text. ${AUTHORED_SHARED_PASSAGE} Its other `
+      + 'sentences differ from every other record, so that only the passage before them is in another abstract of this corpus.',
+    author: 'Bo Placeholder',
+    published: '2026-09-15T00:00:00Z',
+    category: 'physics.flu-dyn',
+  },
+  {
+    id: '2610.52003v1',
+    title: 'Authored second note from the same invented tank series',
+    abstract: 'A later record by the same invented author, written for this suite to show wording kept by one author. '
+      + `${AUTHORED_KEPT_PASSAGE} The rest of this abstract is new and tells of a slower fan and fewer beads than the first note did.`,
+    author: 'Ada Fixture',
+    published: '2026-10-01T00:00:00Z',
+    category: 'physics.flu-dyn',
+  },
+  {
+    id: '2610.52004v1',
+    title: 'Authored record about lantern wicks with nothing in common',
+    abstract: 'An unrelated invented record about lantern wicks, their braiding, the oils they draw, and the soot they '
+      + 'leave on a cold glass chimney, written so that no run of its words appears in any other abstract here.',
+    author: 'Cy Fixture',
+    published: '2026-09-20T00:00:00Z',
+    category: 'physics.flu-dyn',
+  },
+];
+
 function atomFeed(records: AuthoredRecord[]): string {
   const entries = records.map((r) => `<entry>
   <id>https://arxiv.org/abs/${r.id}</id>
@@ -181,7 +238,8 @@ export async function startSourceEndpoint(reply: SourceReply): Promise<SourceEnd
       }
       const body = reply === 'empty'
         ? '<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
-        : atomFeed(reply === 'duplicates' ? AUTHORED_TWICE : AUTHORED_RECORDS);
+        : atomFeed(reply === 'duplicates' ? AUTHORED_TWICE
+          : reply === 'shared_wording' ? AUTHORED_SHARED_WORDING : AUTHORED_RECORDS);
       res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
       res.end(body);
     });

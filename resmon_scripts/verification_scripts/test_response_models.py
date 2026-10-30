@@ -200,6 +200,18 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/links/for-documents"),
         ("POST", "/api/links/collapse-preview"),
     ),
+    "shared wording": (
+        ("GET", "/api/shared-wording"),
+        ("POST", "/api/shared-wording/scan"),
+        ("POST", "/api/shared-wording/scan/cancel"),
+        ("GET", "/api/shared-wording/pairs/{a}/{b}"),
+        ("GET", "/api/shared-wording/papers/{document_id}"),
+    ),
+    # The same feature over the Library's prefix, so a slice of its own.
+    "shared wording in a Library file": (
+        ("POST", "/api/library/files/{file_id}/shared-wording"),
+        ("GET", "/api/library/files/{file_id}/shared-wording"),
+    ),
     "the embedding index": (
         ("GET", "/api/embeddings/status"),
     ),
@@ -624,6 +636,7 @@ def driven() -> Drive:
         _drive_source_wall_and_analytics(drive)
         kept = _drive_library(drive, doc_ids[0])
         _drive_evidence(drive, *kept)
+        _drive_shared_wording(drive, kept[0])
         _drive_assistant(drive)
         _drive_backup_and_restore(drive)
         # Last, because it erases what every slice above made: the corpus, the
@@ -799,6 +812,65 @@ def _drive_library(drive: Drive, document_id: int) -> tuple[str, str, str]:
                  f"&expected_version_id={version_id}", headers=library)
     assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
     return vault, file_id, version_id
+
+
+def _drive_shared_wording(drive: Drive, vault: str) -> None:
+    """Shared wording: never scanned, scanned, a pair, a paper, and a Library file.
+
+    Three authored abstracts: two by different authors that share a 30-word
+    passage, and a third by the first author that shares 24 words with her
+    first, so the pair view has an author in common to carry. A text file
+    holding the 30-word passage is kept and compared, so the Library answer has
+    matches rather than an empty list.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+    from implementation_scripts import shared_wording  # noqa: PLC0415
+    from implementation_scripts.database import insert_document  # noqa: PLC0415
+
+    shared = ("a thin layer of glass beads was spread across a level floor and swept by a steady fan "
+              "until the ripples settled into evenly spaced crests that moved downstream together")
+    kept_words = ("each crest was photographed from above every ten seconds and the photographs were "
+                  "traced by hand into outlines that a short script then compared")
+    texts = (
+        ("Ada Fixture", f"We describe an invented tank written only for this scenario. {shared}. The remaining "
+                        f"sentences are its own and appear nowhere else. {kept_words}. Nothing here was fetched."),
+        ("Bo Placeholder", f"This record is invented and carries no published text at all. {shared}. Its other "
+                           "sentences differ from every other record in this scenario and say nothing more."),
+        ("Ada Fixture", f"A later record by the same invented author for this scenario to read. {kept_words}. "
+                        "The rest is new and tells of a slower fan and fewer beads than before."),
+    )
+    conn = resmon_mod._get_db()
+    ids = [insert_document(conn, {
+        "source_repository": "arxiv", "external_id": f"wording-{n}", "title": f"Wording scenario paper {n}",
+        "authors": author, "abstract": abstract, "publication_date": f"2026-0{n + 1}-01",
+        "metadata_hash": f"wording-{n}"}) for n, (author, abstract) in enumerate(texts)]
+
+    assert drive("GET", "/api/shared-wording")["state"] == "never"
+    started = drive("POST", "/api/shared-wording/scan")
+    assert started["running"] is True and started["kind"] == "full"
+    assert shared_wording.scan_job.join()
+    overview = drive("GET", "/api/shared-wording")
+    counts = {g["category"]: g["count"] for g in overview["groups"]}
+    assert (counts["different_authors"], counts["same_authors"]) == (1, 1), overview
+    assert drive("POST", "/api/shared-wording/scan/cancel") == {"status": "idle"}
+    pair = drive("GET", f"/api/shared-wording/pairs/{ids[0]}/{ids[2]}")
+    assert pair["authors_in_common"] and pair["passages"], pair
+    mine = drive("GET", f"/api/shared-wording/papers/{ids[0]}")
+    assert len(mine["pairs"]) == 2
+
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    raw = {**library, "Content-Type": "application/octet-stream"}
+    kept = drive("POST", f"/api/library/files?expected_vault_id={vault}&filename=wording.txt",
+                 expect=201, headers=raw, content=f"Notes typed by hand.\n{shared}\nThat is all.\n".encode())
+    file_id, version_id = kept["file"]["file_id"], kept["file"]["version_id"]
+    query = f"expected_vault_id={vault}&expected_version_id={version_id}"
+    assert drive("GET", f"/api/library/files/{file_id}/shared-wording?{query}", headers=library)["state"] == "never"
+    begun = drive("POST", f"/api/library/files/{file_id}/shared-wording", headers=library,
+                  json={"expected_vault_id": vault, "expected_version_id": version_id})
+    assert begun["state"] == "running"
+    assert shared_wording.library_job.join()
+    done = drive("GET", f"/api/library/files/{file_id}/shared-wording?{query}", headers=library)
+    assert done["state"] == "done" and len(done["result"]["matches"]) == 2, done
 
 
 def _drive_evidence(drive: Drive, vault: str, file_id: str, version_id: str) -> None:

@@ -57,7 +57,7 @@ test.describe('the journey register and this directory agree', () => {
     expect(new Set(ids).size, 'a register ID appears twice').toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^J\d{2}$/);
     expect([...ids].sort(), 'the register is not in ID order').toEqual(ids);
-    expect(JOURNEY_REGISTER.length, 'the parity register has 48 journeys').toBe(48);
+    expect(JOURNEY_REGISTER.length, 'the parity register has 49 journeys').toBe(49);
   });
 
   test('every built row has exactly one spec named for it', () => {

@@ -3,6 +3,7 @@
     run      every measurement; writes results.json and summary.md to --out
     soak     the background service running routines for --hours
     host     the background service as the bare engine and as the app, alternated
+    wording  a shared-wording scan, full and of new papers, timed with its peak memory
     record   record the benchmark sweep's replies from the live sources
     seed     build a seeded corpus (run builds the ones it needs itself)
     compare  a candidate's results.json against a baseline's, by the gate
@@ -23,7 +24,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import engine, host, instance, seed, size, soak, stats
+from . import engine, host, instance, seed, size, soak, stats, wording
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 REPO = SCRIPTS.parent
@@ -209,6 +210,17 @@ def cmd_host(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_wording(args: argparse.Namespace) -> int:
+    work = Path(tempfile.mkdtemp(prefix="resmon-wording-"))
+    try:
+        metrics = wording.measure(work, Path(args.cache), [int(p) for p in args.papers.split(",")], _say)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    instance.write_json(Path(args.out), {"environment": stats.environment(REPO), "metrics": metrics})
+    _say(f"wrote {args.out}")
+    return 0
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     replies = Path(args.replies)
     if (replies / "index.json").exists() and not args.force:
@@ -301,6 +313,12 @@ def main(argv: list[str] | None = None) -> int:
     hs.add_argument("--executable", help="a packaged app's binary; default: the checkout's Electron")
     hs.add_argument("--python", help="the bare engine's interpreter; give a packaged app's own runtime")
     hs.set_defaults(func=cmd_host)
+
+    wd = sub.add_parser("wording")
+    wd.add_argument("--papers", default="16061,100000", help="comma-separated corpus sizes")
+    wd.add_argument("--out", required=True)
+    wd.add_argument("--cache", default=str(DEFAULT_CACHE))
+    wd.set_defaults(func=cmd_wording)
 
     rec = sub.add_parser("record")
     rec.add_argument("--replies", default=replies_default, required=replies_default is None)

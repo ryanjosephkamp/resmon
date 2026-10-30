@@ -2075,6 +2075,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/files/{file_id}/shared-wording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Shared Wording
+         * @description The last comparison of this file since the engine started, or that there is none.
+         */
+        get: operations["library_shared_wording_api_library_files__file_id__shared_wording_get"];
+        put?: never;
+        /**
+         * Library Shared Wording Start
+         * @description Compare this file, page by page, with the abstracts and the other Library files.
+         *
+         *     Runs in the background, one file at a time; the GET beside it reads the answer.
+         */
+        post: operations["library_shared_wording_start_api_library_files__file_id__shared_wording_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/files/{file_id}/text": {
         parameters: {
             query?: never;
@@ -3403,6 +3429,109 @@ export interface paths {
         /** Update Storage Settings */
         put: operations["update_storage_settings_api_settings_storage_put"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-wording": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shared Wording Overview
+         * @description The last scan, the scan in progress, and the pairs it found by group.
+         *
+         *     See ``shared_wording`` for what each number means, which pairs are shown,
+         *     and what the method cannot see.
+         */
+        get: operations["shared_wording_overview_api_shared_wording_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-wording/pairs/{a}/{b}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shared Wording Pair
+         * @description Two abstracts side by side, the passages they share, and the numbers.
+         */
+        get: operations["shared_wording_pair_api_shared_wording_pairs__a___b__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-wording/papers/{document_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Shared Wording For Paper
+         * @description The pairs one paper is in, for its page.
+         */
+        get: operations["shared_wording_for_paper_api_shared_wording_papers__document_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-wording/scan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Shared Wording Scan
+         * @description Compare every abstract with every other, in the background. Returns at once.
+         */
+        post: operations["shared_wording_scan_api_shared_wording_scan_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/shared-wording/scan/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Shared Wording Scan Cancel
+         * @description Stop the scan in progress. The answer stored before it is kept.
+         */
+        post: operations["shared_wording_scan_cancel_api_shared_wording_scan_cancel_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -9686,6 +9815,512 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * SharedWording
+         * @description ``GET /api/shared-wording``.
+         *
+         *     ``state`` is ``never`` (no scan stored), ``other_version`` (the stored
+         *     answer came from another version of the method and is not shown), or
+         *     ``ready``. ``withheld`` counts stored pairs not shown because a paper's text
+         *     changed or the paper left; ``arrived_since`` counts papers the stored answer
+         *     has not compared because they arrived after it.
+         */
+        SharedWording: {
+            /** Arrived Since */
+            arrived_since: number;
+            definitions: components["schemas"]["SharedWordingDefinitions"];
+            /** Groups */
+            groups: components["schemas"]["SharedWordingGroup"][];
+            job: components["schemas"]["SharedWordingJob"];
+            /** Limits */
+            limits: string[];
+            /** Method Version */
+            method_version: number;
+            scan: components["schemas"]["SharedWordingScan"] | null;
+            settings: components["schemas"]["SharedWordingSettings"];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "never" | "other_version" | "ready";
+            /** Withheld */
+            withheld: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingAuthor
+         * @description An author in both records, and whether the ORCID or the name matched.
+         */
+        SharedWordingAuthor: {
+            /**
+             * By
+             * @enum {string}
+             */
+            by: "orcid" | "name";
+            /** Name */
+            name: string;
+            /** Other Name */
+            other_name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingBrief
+         * @description A pair in a list: left is the earlier publication date, only as a reading order.
+         */
+        SharedWordingBrief: {
+            /** A */
+            a: number;
+            /** Authors In Common */
+            authors_in_common: number;
+            /** B */
+            b: number;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "different_authors" | "same_authors" | "authors_unknown" | "same_work" | "notice";
+            left: components["schemas"]["SharedWordingSide"];
+            /** Longest */
+            longest: number;
+            /** Reason Words */
+            reason_words: string | null;
+            /** Reasons */
+            reasons: string[];
+            right: components["schemas"]["SharedWordingSide"];
+            /** Share */
+            share: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingCancel
+         * @description ``POST /api/shared-wording/scan/cancel``: asked to stop, or nothing was running.
+         */
+        SharedWordingCancel: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "idle" | "cancelling";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingDefinitions
+         * @description Each number's definition, one sentence each, for the screen to show beside it.
+         */
+        SharedWordingDefinitions: {
+            /** Authors */
+            authors: string;
+            /** Longest */
+            longest: string;
+            /** Share */
+            share: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingFileMatch
+         * @description A paper's abstract or another file's page that shares wording with one of this file's pages.
+         */
+        SharedWordingFileMatch: {
+            /** Document Id */
+            document_id?: number | null;
+            /** File Id */
+            file_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "paper" | "file";
+            /** Linked */
+            linked?: boolean | null;
+            /** Longest */
+            longest: number;
+            /** Name */
+            name?: string | null;
+            /** Other Page */
+            other_page?: number | null;
+            /** Page */
+            page: number;
+            /** Passages */
+            passages: components["schemas"]["SharedWordingFilePassage"][];
+            /** Publication Date */
+            publication_date?: string | null;
+            /** Share */
+            share: number;
+            /** Shared Phrases */
+            shared_phrases: number;
+            /** Shorter Phrases */
+            shorter_phrases: number;
+            /** Title */
+            title?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingFilePassage
+         * @description A passage on this file's page: codepoint ``[start, end)`` in the page's text, and the text.
+         */
+        SharedWordingFilePassage: {
+            /** End */
+            end: number;
+            /** Start */
+            start: number;
+            /** Text */
+            text: string;
+            /** Words */
+            words: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SharedWordingFileRef */
+        SharedWordingFileRef: {
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Name */
+            name: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingFileResult
+         * @description What one comparison found, and what it read and could not read.
+         */
+        SharedWordingFileResult: {
+            /** Abstracts Compared */
+            abstracts_compared: number;
+            definitions: components["schemas"]["SharedWordingDefinitions"];
+            file: components["schemas"]["SharedWordingFileRef"];
+            /** Files Compared */
+            files_compared: number;
+            /** Files Not Read */
+            files_not_read: components["schemas"]["SharedWordingFileUnread"][];
+            /** Limits */
+            limits: string[];
+            /** Matches */
+            matches: components["schemas"]["SharedWordingFileMatch"][];
+            /** Method Version */
+            method_version: number;
+            /** Page Count */
+            page_count: number | null;
+            /** Pages Read */
+            pages_read: number;
+            /** Pages Unread */
+            pages_unread: components["schemas"]["SharedWordingPageUnread"][];
+            settings: components["schemas"]["SharedWordingSettings"];
+        } & {
+            [key: string]: unknown;
+        };
+        /** SharedWordingFileUnread */
+        SharedWordingFileUnread: {
+            /** File Id */
+            file_id: string;
+            /** Name */
+            name: string;
+            /** Reason */
+            reason: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingForPaper
+         * @description ``GET /api/shared-wording/papers/{document_id}``.
+         *
+         *     ``compared`` is null when the paper arrived or changed after the scan.
+         */
+        SharedWordingForPaper: {
+            /** Compared */
+            compared: boolean | null;
+            /** Document Id */
+            document_id: number;
+            /** Pairs */
+            pairs: components["schemas"]["SharedWordingBrief"][];
+            /** Phrase Words */
+            phrase_words: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "never" | "other_version" | "ready";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingGroup
+         * @description One group of pairs. ``pairs`` holds at most 500; ``count`` counts them all.
+         */
+        SharedWordingGroup: {
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "different_authors" | "same_authors" | "authors_unknown" | "same_work" | "notice";
+            /** Count */
+            count: number;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string;
+            /** Pairs */
+            pairs: components["schemas"]["SharedWordingBrief"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingJob
+         * @description A scan in the background: ``kind`` is ``full`` or ``new`` (papers since the last answer).
+         */
+        SharedWordingJob: {
+            /** Cancelled */
+            cancelled: boolean;
+            /** Done */
+            done: number;
+            /** Error */
+            error: string | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Found */
+            found: number | null;
+            /** Kind */
+            kind: ("full" | "new") | null;
+            /** Running */
+            running: boolean;
+            /** Stage */
+            stage: string | null;
+            /** Started At */
+            started_at: string | null;
+            /** Total */
+            total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingLibrary
+         * @description ``POST`` and ``GET /api/library/files/{file_id}/shared-wording``.
+         *
+         *     ``state`` is ``never`` (not compared since the engine started), ``running``,
+         *     ``done`` (``result`` holds the answer), ``failed`` (``error`` says why), or
+         *     ``cancelled``. Kept in memory only: the comparison is asked for again.
+         */
+        SharedWordingLibrary: {
+            /** Done */
+            done?: number | null;
+            /** Error */
+            error?: string | null;
+            /** File Id */
+            file_id: string;
+            /** Finished At */
+            finished_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            result?: components["schemas"]["SharedWordingFileResult"] | null;
+            /** Stage */
+            stage?: string | null;
+            /** Started At */
+            started_at?: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "never" | "running" | "done" | "failed" | "cancelled";
+            /** Total */
+            total?: number | null;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingNotCompared
+         * @description Papers the scan read and did not compare, by reason.
+         */
+        SharedWordingNotCompared: {
+            /**
+             * No Abstract
+             * @default 0
+             */
+            no_abstract: number;
+            /**
+             * Too Short
+             * @default 0
+             */
+            too_short: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** SharedWordingPageUnread */
+        SharedWordingPageUnread: {
+            /** Page */
+            page: number;
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingPair
+         * @description ``GET /api/shared-wording/pairs/{a}/{b}``.
+         *
+         *     ``state`` is ``changed`` when a text is no longer the one compared, and
+         *     then ``passages`` is empty and ``summary`` says so.
+         */
+        SharedWordingPair: {
+            /** A */
+            a: number;
+            /** Authors In Common */
+            authors_in_common: components["schemas"]["SharedWordingAuthor"][];
+            /** B */
+            b: number;
+            /**
+             * Category
+             * @enum {string}
+             */
+            category: "different_authors" | "same_authors" | "authors_unknown" | "same_work" | "notice";
+            /** Common Phrases */
+            common_phrases: number;
+            definitions: components["schemas"]["SharedWordingDefinitions"];
+            /** Label */
+            label: string;
+            left: components["schemas"]["SharedWordingPairSide"];
+            /** Limits */
+            limits: string[];
+            /** Longest */
+            longest: number;
+            /** Method Version */
+            method_version: number;
+            /** Passages */
+            passages: components["schemas"]["SharedWordingPassage"][];
+            /** Reason Words */
+            reason_words: string | null;
+            /** Reasons */
+            reasons: string[];
+            right: components["schemas"]["SharedWordingPairSide"];
+            /** Scanned At */
+            scanned_at: string | null;
+            /** Share */
+            share: number;
+            /** Shared Phrases */
+            shared_phrases: number;
+            /** Shorter */
+            shorter: number;
+            /** Shorter Phrases */
+            shorter_phrases: number;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "current" | "changed";
+            /** Summary */
+            summary: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingPairSide
+         * @description One paper of a pair in full: ``text`` is its abstract as compared.
+         */
+        SharedWordingPairSide: {
+            /** Authors */
+            authors: string | null;
+            /** Doi */
+            doi: string | null;
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source Repository */
+            source_repository: string | null;
+            /** Text */
+            text: string;
+            /** Title */
+            title: string | null;
+            /** Url */
+            url: string | null;
+            /** Words */
+            words: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingPassage
+         * @description One shared passage: codepoint ``[start, end)`` in each side's ``text``, and its words.
+         */
+        SharedWordingPassage: {
+            /** Left */
+            left: number[];
+            /** Right */
+            right: number[];
+            /** Words */
+            words: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingScan
+         * @description The stored answer's own record: when, what kind of pass, and what it compared.
+         */
+        SharedWordingScan: {
+            /** Compared */
+            compared: number | null;
+            /** Considered */
+            considered: number | null;
+            /** Finished At */
+            finished_at: string | null;
+            /** Full Scan At */
+            full_scan_at: string | null;
+            /** Kind */
+            kind: string | null;
+            /** Method Version */
+            method_version: number | null;
+            not_compared: components["schemas"]["SharedWordingNotCompared"] | null;
+            /** Seconds */
+            seconds: number | null;
+            /** Started At */
+            started_at: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingSettings
+         * @description The method's thresholds, as the scan that answered used them.
+         */
+        SharedWordingSettings: {
+            /** Common Works */
+            common_works: number;
+            /** Min Words */
+            min_words: number;
+            /** Phrase Words */
+            phrase_words: number;
+            /** Shown Longest */
+            shown_longest: number;
+            /** Shown Share */
+            shown_share: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * SharedWordingSide
+         * @description One paper of a pair, as a list row names it.
+         */
+        SharedWordingSide: {
+            /** Id */
+            id: number;
+            /** Publication Date */
+            publication_date: string | null;
+            /** Source Repository */
+            source_repository: string | null;
+            /** Title */
+            title: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * SourceContribution
          * @description ``GET /api/analytics/source-contribution``: overlap needs two sources to compare.
          */
@@ -14073,6 +14708,75 @@ export interface operations {
             };
         };
     };
+    library_shared_wording_api_library_files__file_id__shared_wording_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingLibrary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_shared_wording_start_api_library_files__file_id__shared_wording_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryOpenBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingLibrary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     library_read_text_api_library_files__file_id__text_get: {
         parameters: {
             query: {
@@ -16168,6 +16872,129 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shared_wording_overview_api_shared_wording_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWording"];
+                };
+            };
+        };
+    };
+    shared_wording_pair_api_shared_wording_pairs__a___b__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                a: number;
+                b: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingPair"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shared_wording_for_paper_api_shared_wording_papers__document_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingForPaper"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    shared_wording_scan_api_shared_wording_scan_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingJob"];
+                };
+            };
+        };
+    };
+    shared_wording_scan_cancel_api_shared_wording_scan_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SharedWordingCancel"];
                 };
             };
         };

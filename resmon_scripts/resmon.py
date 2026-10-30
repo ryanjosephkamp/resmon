@@ -112,6 +112,7 @@ from implementation_scripts import (
     source_wall, vector_index, watch_profiles,
     watchdog,
 )
+from implementation_scripts import shared_wording
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import (
@@ -1305,6 +1306,17 @@ def _launch_execution(
             except Exception:
                 logging.getLogger(__name__).exception(
                     "Desktop notification hook raised for exec_id=%s", exec_id,
+                )
+            # Shared wording: a run that brought new papers compares them with
+            # the collection, in the background, when the person has scanned
+            # before. It reads only; a failure is logged and never fails the run.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if row and int(row.get("new_result_count") or 0) > 0:
+                    shared_wording.scan_job.after_run(_get_db)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Shared-wording hook raised for exec_id=%s", exec_id,
                 )
             # Persisting progress must never be able to strand the
             # execution's concurrency slot. ``admission.note_finished`` is what
@@ -3536,7 +3548,7 @@ class LibraryOriginGuard:
             send = text_send
         protected = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and (
             path in ("/api/library", "/api/library/vault", "/api/library/files", "/api/library/export")
-            or re.fullmatch(r"/api/library/files/[^/]+(?:/(?:paper-links|open|text))?", path)
+            or re.fullmatch(r"/api/library/files/[^/]+(?:/(?:paper-links|open|text|shared-wording))?", path)
             or path.startswith("/api/evidence/")
         )
         if protected:
@@ -3709,6 +3721,44 @@ def library_read_text(request: Request, response: Response, file_id: str,
     response.headers["Cache-Control"] = "no-store"
     with _library_connection() as conn:
         return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id)
+
+
+def _library_connection_factory():
+    """A connection of its own for a Library comparison's worker thread."""
+    initialized = _get_db()
+    db_path = initialized.execute("PRAGMA database_list").fetchone()[2]
+    return lambda: get_connection(db_path)
+
+
+@app.post("/api/library/files/{file_id}/shared-wording", response_model=response_models.SharedWordingLibrary,
+          response_model_exclude_unset=True)
+def library_shared_wording_start(request: Request, file_id: str, body: LibraryOpenBody):
+    """Compare this file, page by page, with the abstracts and the other Library files.
+
+    Runs in the background, one file at a time; the GET beside it reads the answer.
+    """
+    _library_query(request, ())
+    with _library_connection() as conn:
+        with library.checked_vault(conn, body.expected_vault_id):
+            library.file_row(conn, file_id, body.expected_version_id)
+    try:
+        return shared_wording.library_job.start(_library_connection_factory(), body.expected_vault_id,
+                                                file_id, body.expected_version_id)
+    except RuntimeError as exc:
+        raise HTTPException(409, {"reason": "busy", "message": str(exc)}) from None
+
+
+@app.get("/api/library/files/{file_id}/shared-wording", response_model=response_models.SharedWordingLibrary,
+         response_model_exclude_unset=True)
+def library_shared_wording(request: Request, response: Response, file_id: str,
+                           expected_vault_id: str, expected_version_id: str):
+    """The last comparison of this file since the engine started, or that there is none."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    response.headers["Cache-Control"] = "no-store"
+    with _library_connection() as conn:
+        library.vault_row(conn, expected_vault_id)
+        library.file_row(conn, file_id, expected_version_id)
+    return shared_wording.library_job.status(file_id, expected_version_id)
 
 
 # Evidence's twelve additive operations reuse the Library Origin/header guard.
@@ -4427,6 +4477,67 @@ def links_scan():
 def links_scan_cancel():
     """Stop after the document in flight. Links already written are kept."""
     return near_duplicates.links_job.cancel()
+
+
+# ---------------------------------------------------------------------------
+# Shared wording: abstracts that share passages word for word
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/shared-wording", response_model=response_models.SharedWording,
+         response_model_exclude_unset=True)
+def shared_wording_overview():
+    """The last scan, the scan in progress, and the pairs it found by group.
+
+    See ``shared_wording`` for what each number means, which pairs are shown,
+    and what the method cannot see.
+    """
+    conn = _get_db()
+    try:
+        return shared_wording.overview(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/shared-wording/scan", response_model=response_models.SharedWordingJob,
+          response_model_exclude_unset=True)
+def shared_wording_scan():
+    """Compare every abstract with every other, in the background. Returns at once."""
+    try:
+        return shared_wording.scan_job.start(_get_db, "full")
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from None
+
+
+@app.post("/api/shared-wording/scan/cancel", response_model=response_models.SharedWordingCancel,
+          response_model_exclude_unset=True)
+def shared_wording_scan_cancel():
+    """Stop the scan in progress. The answer stored before it is kept."""
+    return shared_wording.scan_job.cancel()
+
+
+@app.get("/api/shared-wording/pairs/{a}/{b}", response_model=response_models.SharedWordingPair,
+         response_model_exclude_unset=True)
+def shared_wording_pair(a: int, b: int):
+    """Two abstracts side by side, the passages they share, and the numbers."""
+    conn = _get_db()
+    try:
+        return shared_wording.pair_view(conn, a, b)
+    except LookupError as exc:
+        raise HTTPException(404, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/shared-wording/papers/{document_id}", response_model=response_models.SharedWordingForPaper,
+         response_model_exclude_unset=True)
+def shared_wording_for_paper(document_id: int):
+    """The pairs one paper is in, for its page."""
+    conn = _get_db()
+    try:
+        return shared_wording.pairs_for(conn, document_id)
+    finally:
+        _close_db(conn)
 
 
 @app.post("/api/explorer/facets")
@@ -7072,8 +7183,9 @@ def _erase_corpus(conn) -> int:
     conn.execute("DELETE FROM documents")
     conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
     # The collection map's cache holds positions and words taken from these
-    # papers, so it goes with them.
+    # papers, so it goes with them, and so does the shared-wording answer.
     collection_map.forget(conn)
+    shared_wording.forget(conn)
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
     except sqlite3.Error:
