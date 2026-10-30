@@ -21,18 +21,21 @@ const WALKTHROUGHS: readonly { id: string; title: string; shows: string; now: st
   {
     id: 'O9v7-8IHZHw', title: 'The dashboard',
     shows: 'Active routines, recent runs, and their exports, on one page.',
-    now: 'Today shows the papers new since you last looked, by watch; Watches lists every watch; and every run, with '
-      + 'its exports, is listed beside Search › Ask the sources.',
+    now: 'Today shows the papers new since you last looked, by watch, beside a map of your whole collection where any '
+      + 'paper opens beside it; Watches lists every watch; and every run, with its exports, is listed beside '
+      + 'Search › Ask the sources.',
   },
   {
     id: 'C9F5H_-mzzY', title: 'A Deep Dive',
     shows: 'One source asked in depth, with an optional summary of each paper.',
-    now: 'Search › Ask the sources, with Deep Dive chosen; for summaries, tick Summarize each paper.',
+    now: 'Search › Ask the sources, with Deep Dive chosen; for summaries, tick Summarize each paper. A finished run’s '
+      + 'Map tab draws its papers on a map of their own.',
   },
   {
     id: 'SiNrU6os5AY', title: 'A Deep Sweep',
     shows: 'Several sources asked at once, their papers deduplicated into one report.',
-    now: 'Search › Ask the sources, with Deep Sweep chosen.',
+    now: 'Search › Ask the sources, with Deep Sweep chosen. A finished run’s Map tab draws its papers on a map of '
+      + 'their own.',
   },
   {
     id: 'ZcR-eEw--ho', title: 'Routines',

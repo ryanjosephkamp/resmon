@@ -76,6 +76,66 @@ export function buildSky(points: MapPoints, regions: readonly MapRegion[], today
 }
 
 /**
+ * Some of the collection's papers (a run's) as a sky of their own: each at the
+ * position the whole collection's map gives it, framed to them alone, so they
+ * fill the plate however large the collection around them is.
+ *
+ * Their regions are the whole map's, named as it names them, but each drawn
+ * where these papers are: centered on them, as wide as they spread. A paper
+ * the map has not placed is not in `points`, and so not in the sky; `count`
+ * says how many were.
+ *
+ * `least` is the smallest square side the frame may have, in plate units, so a
+ * handful of papers close together is not magnified into a scatter.
+ */
+export function subSky(points: MapPoints, regions: readonly MapRegion[], ids: Iterable<number>, today: number,
+  least = 0.16): { sky: Sky; regions: MapRegion[] } {
+  const wanted = new Set(ids);
+  const picked: MapPoints = { id: [], x: [], y: [], region: [], seen_day: [] };
+  for (let i = 0; i < points.id.length; i++) {
+    const id = points.id[i] ?? -1;
+    if (!wanted.has(id)) continue;
+    picked.id.push(id);
+    picked.x.push(points.x[i] ?? 0);
+    picked.y.push(points.y[i] ?? 0);
+    picked.region.push(points.region[i] ?? 0);
+    picked.seen_day.push(points.seen_day[i] ?? today);
+  }
+  const sums = new Map<number, { x: number; y: number; n: number }>();
+  for (let i = 0; i < picked.id.length; i++) {
+    const r = picked.region[i] ?? 0;
+    const sum = sums.get(r) ?? { x: 0, y: 0, n: 0 };
+    sum.x += picked.x[i] ?? 0; sum.y += picked.y[i] ?? 0; sum.n += 1;
+    sums.set(r, sum);
+  }
+  const spread = new Map<number, number>();
+  for (let i = 0; i < picked.id.length; i++) {
+    const r = picked.region[i] ?? 0;
+    const sum = sums.get(r);
+    if (!sum) continue;
+    const d = Math.hypot((picked.x[i] ?? 0) - sum.x / sum.n, (picked.y[i] ?? 0) - sum.y / sum.n);
+    spread.set(r, (spread.get(r) ?? 0) + d * d);
+  }
+  const named = new Map(regions.map((r) => [r.id, r]));
+  const local: MapRegion[] = [...sums.entries()].map(([id, sum]) => {
+    const region = named.get(id);
+    // Half again the papers' typical distance from their middle: most of them inside.
+    const rms = Math.sqrt((spread.get(id) ?? 0) / sum.n);
+    return {
+      id, label: region?.label ?? '', terms: region?.terms ?? [], size: sum.n,
+      x: sum.x / sum.n, y: sum.y / sum.n, r: Math.max(rms * 1.5, Math.min(region?.r ?? least / 8, least / 8)),
+    };
+  });
+  const sky = buildSky(picked, [], today);
+  const { minX, minY, size } = sky.bounds;
+  if (size < least) {
+    const cx = minX + size / 2, cy = minY + size / 2;
+    sky.bounds = { minX: cx - least / 2, minY: cy - least / 2, size: least };
+  }
+  return { sky, regions: local };
+}
+
+/**
  * The square the plate's grid covers: every region disc and every paper, with
  * a little air, centered. Square so a grid cell is square.
  */
