@@ -57,6 +57,7 @@ rather than places where the data ran out:
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 from . import repo_catalog, source_coverage, zero_reason
@@ -272,10 +273,51 @@ def _latest_known_state(cells: list[dict]) -> str | None:
     a zero with no reason on file -- is skipped for the same reason, because
     what resmon recorded there is that it does not know.
     """
+    cell = _latest_known_cell(cells)
+    return cell["state"] if cell is not None else None
+
+
+def _latest_known_cell(cells: list[dict]) -> dict | None:
+    """The cell ``_latest_known_state`` reads its state from, by the same rule."""
     for cell in reversed(cells):
         if cell["state"] not in _SILENT:
-            return cell["state"]
+            return cell
     return None
+
+
+# What a source's last recorded non-answer was, for the verb of the headline.
+# ``stopped`` is kept for a source that gave no answer at all: a timeout, a
+# connection that failed, a server error, a recorded query failure. The others
+# are answers of a kind, and calling them a silence would misstate them.
+_LAST_OUTCOME_KINDS = ("stopped", "refused", "unreadable", "not_asked")
+
+
+def _last_outcome_kind(state: str, row: dict | None) -> str:
+    """Which of ``_LAST_OUTCOME_KINDS`` a source's latest non-answer was.
+
+    Read from the recorded row, never inferred: a reply resmon could not read
+    is ``parse_failure``; a refusal is an upstream failure the source answered
+    with an HTTP 4xx or with an error in place of results (``refused``). A row
+    whose detail cannot be read falls back to ``stopped``, the plainest claim.
+    """
+    if state == "could_not_be_asked":
+        return "not_asked"
+    reason = (row or {}).get("zero_reason")
+    if reason == "parse_failure":
+        return "unreadable"
+    if reason == "upstream_failure":
+        detail = (row or {}).get("zero_detail")
+        if isinstance(detail, str):
+            try:
+                detail = json.loads(detail) if detail else {}
+            except ValueError:
+                detail = {}
+        if isinstance(detail, dict):
+            status = detail.get("status")
+            if detail.get("detail") == "refused" or (
+                    isinstance(status, int) and 400 <= status < 500):
+                return "refused"
+    return "stopped"
 
 
 def _join(names: list[str]) -> str:
@@ -284,14 +326,49 @@ def _join(names: list[str]) -> str:
     return f"{', '.join(names[:-1])} and {names[-1]}"
 
 
-def _verdict(sources: list[dict], run_count: int) -> dict:
+def _stopped_sentence(kind: str, names: list[str], total: int) -> str:
+    """One sentence of the headline: the sources whose last outcome was ``kind``.
+
+    Up to three are named, because a name tells the reader what to look at and
+    a number only that something is wrong; past three they are counted.
+    """
+    one = len(names) == 1
+    named = _join(sorted(names)) if len(names) <= 3 else None
+    if kind == "refused":
+        if named:
+            return f"{named} refused resmon's last request{'' if one else 's'}."
+        return f"{len(names)} of {total} sources refused resmon's last requests."
+    if kind == "unreadable":
+        if named and one:
+            return f"{named}'s last reply could not be read."
+        if named:
+            return f"The last replies from {named} could not be read."
+        return f"The last replies from {len(names)} of {total} sources could not be read."
+    if kind == "not_asked":
+        if named:
+            return (f"{named} could not be asked on the last run that included "
+                    f"{'it' if one else 'them'}.")
+        return f"{len(names)} of {total} sources could not be asked on the last runs that included them."
+    if named:
+        return f"{named} {'has' if one else 'have'} stopped answering."
+    return f"{len(names)} of {total} sources have stopped answering."
+
+
+def _verdict(sources: list[dict], run_count: int,
+             last_kinds: dict[str, str] | None = None) -> dict:
     """The sentence at the top of the wall, built from the cells below it.
 
     It is built here and not in the renderer for the reason
     ``zero_reason.sentence`` lives in the backend: one place to be wrong, and
     one place to fix. The wording avoids *intact*, *healthy* and *verified* --
     the wall can say what the last runs recorded and nothing beyond it.
+
+    ``last_kinds`` maps a source's name to what its latest non-answer was (see
+    ``_last_outcome_kind``), so a source whose last reply could not be read is
+    not said to have stopped answering. A source missing from it is worded as
+    stopped.
     """
+    last_kinds = last_kinds or {}
     if not sources:
         return {
             "level": "empty",
@@ -371,15 +448,17 @@ def _verdict(sources: list[dict], run_count: int) -> dict:
         )
 
     if stopped:
-        if len(stopped) <= 3:
-            verb = "has" if len(stopped) == 1 else "have"
-            headline = f"{_join(sorted(stopped))} {verb} stopped answering."
-        else:
-            headline = f"{len(stopped)} of {total} sources have stopped answering."
+        by_kind: dict[str, list[str]] = {}
+        for name in stopped:
+            by_kind.setdefault(last_kinds.get(name, "stopped"), []).append(name)
+        headline = " ".join(
+            _stopped_sentence(kind, by_kind[kind], total)
+            for kind in _LAST_OUTCOME_KINDS if kind in by_kind
+        )
         detail.insert(
             0,
-            "Each of these answered earlier in this window and did not answer "
-            "the last time resmon recorded an outcome for it.",
+            "Each of these answered earlier in this window, and the last outcome "
+            "resmon recorded for it was not an answer.",
         )
         return {"level": "attention", "headline": headline, "detail": detail}
 
@@ -573,6 +652,15 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         for state in WALL_STATES
     }
 
+    # What each source's latest non-answer was, read from its recorded row, so
+    # the headline can say it rather than call every non-answer a silence.
+    last_kinds: dict[str, str] = {}
+    for source in sources:
+        latest = _latest_known_cell(source["cells"])
+        if latest is not None and latest["state"] not in _ANSWERING:
+            row = recorded[latest["execution_id"]].get(source["slug"])
+            last_kinds[source["name"]] = _last_outcome_kind(latest["state"], row)
+
     notes = [
         "Every cell is one source's recorded answer to one run. Nothing here "
         "is inferred: a run with no row for a source reads as not recorded.",
@@ -601,7 +689,7 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         # takes every word from here.
         "state_legend": [dict(entry) for entry in STATE_LEGEND],
         "totals": totals,
-        "verdict": _verdict(sources, len(runs)),
+        "verdict": _verdict(sources, len(runs), last_kinds),
         "window": {
             "requested": limit,
             "returned": len(runs),
