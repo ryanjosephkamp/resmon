@@ -1,5 +1,7 @@
+import { NO_CHOICE, choiceOf } from '../../settings/summaryChoice';
+import type { AiSettings } from '../../settings/summaryLanes';
 import {
-  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, scheduleWords, seededForm, watchBody, whatIsMissing,
+  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, scheduleWords, seededForm, summaryBody, watchBody, whatIsMissing,
   type ScheduleChoice,
 } from '../editor';
 import { scheduleText, type Routine } from '../model';
@@ -141,5 +143,41 @@ describe('a new watch', () => {
     expect(whatIsMissing(blankForm(), 0)).toEqual(['Give it a name.', 'Add at least one term.', 'Choose at least one source.']);
     expect(whatIsMissing({ ...blankForm(), name: 'x', follows: 'retractions' }, 0)).toEqual(['Choose the person it watches for.']);
     expect(whatIsMissing({ ...blankForm(), name: 'x', keywords: ['y'] }, 2)).toEqual([]);
+  });
+});
+
+describe('whether a watch’s runs summarize, as the routine stores it', () => {
+  const AI = {
+    ai_chain: '', ai_cli_path: '', ai_custom_base_url: 'https://llm.example/v1', ai_custom_header_prefix: '', ai_default_models: '',
+    ai_effort: '', ai_extraction_goals: '', ai_local_endpoint: '', ai_local_model: '', ai_model: 'gpt-4o', ai_provider: 'openai',
+    ai_show_audit_prefix: '', ai_subscription_doc_cap: '', ai_summary_length: '', ai_temperature: '', ai_tone: '',
+  } as AiSettings;
+  const stored = choiceOf(true, ROUTINE.ai_settings);
+
+  test('a choice left alone leaves what is stored exactly as it was', () => {
+    expect(stored).toMatchObject({ on: true, lane: 'settings', tone: 'plain' });
+    expect(summaryBody(stored, stored, AI, ROUTINE)).toEqual({ ai_enabled: true });
+  });
+
+  test('a lane of its own, turned on in the editor, is written with the rest of what is stored', () => {
+    const own = { ...stored, lane: 'own' as const, provider: 'custom', model: 'authored-model' };
+    expect(summaryBody(own, stored, AI, ROUTINE)).toEqual({
+      ai_enabled: true,
+      ai_settings: {
+        tone: 'plain', provider: 'custom', model: 'authored-model',
+        chain: JSON.stringify([{ kind: 'api_key', provider: 'custom', model: 'authored-model', credential_alias: 'custom_llm_api_key', base_url: 'https://llm.example/v1' }]),
+      },
+    });
+  });
+
+  test('turned off, the choice is kept for when it is turned on again; cleared, it is sent empty', () => {
+    expect(summaryBody({ ...stored, on: false }, stored, AI, ROUTINE)).toEqual({ ai_enabled: false, ai_settings: { tone: 'plain' } });
+    expect(summaryBody({ ...stored, tone: '' }, stored, AI, ROUTINE)).toEqual({ ai_enabled: true, ai_settings: {} });
+  });
+
+  test('a new watch sends nothing it does not set', () => {
+    expect(summaryBody(NO_CHOICE, NO_CHOICE, AI, null)).toEqual({ ai_enabled: false });
+    expect(summaryBody({ ...NO_CHOICE, on: true }, NO_CHOICE, AI, null)).toEqual({ ai_enabled: true });
+    expect(summaryBody({ ...NO_CHOICE, on: true, length: 'brief' }, NO_CHOICE, AI, null)).toEqual({ ai_enabled: true, ai_settings: { length: 'brief' } });
   });
 });

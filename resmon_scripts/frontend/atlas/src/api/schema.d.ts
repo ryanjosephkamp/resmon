@@ -891,7 +891,16 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Validate Credential */
+        /**
+         * Validate Credential
+         * @description Test a key against its provider: one typed here, or the AI key already stored.
+         *
+         *     ``valid`` is true only when the provider accepted the key. ``outcome`` and
+         *     ``detail`` keep apart what the boolean folds together: a key the provider
+         *     refused, an answer that says nothing about the key, and a provider resmon
+         *     could not reach (``credential_manager.probe_api_key``). A stored key is
+         *     read from the keychain here and never returned.
+         */
         post: operations["validate_credential_api_credentials_validate_post"];
         delete?: never;
         options?: never;
@@ -5276,7 +5285,7 @@ export interface components {
             /** Base Url */
             base_url?: string | null;
             /** Key */
-            key: string;
+            key?: string | null;
             /** Provider */
             provider: string;
         };
@@ -8647,10 +8656,13 @@ export interface components {
         };
         /**
          * Run
-         * @description ``GET /api/executions/{exec_id}``: the row, which backend answered, and the
-         *     runs restarted from it (the reverse of ``restarted_from``).
+         * @description ``GET /api/executions/{exec_id}``: the row, which backend answered, the
+         *     runs restarted from it (the reverse of ``restarted_from``), and the summary
+         *     lanes it tried.
          */
         Run: {
+            /** Ai Lanes */
+            ai_lanes: components["schemas"]["RunAiLane"][];
             /** Cancel Reason */
             cancel_reason: string | null;
             coverage: components["schemas"]["RunCoverage"];
@@ -8722,6 +8734,53 @@ export interface components {
             status: string;
             /** Total Results */
             total_results: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunAiLane
+         * @description One summary lane a run tried, as ``execution_ai`` records it.
+         *
+         *     ``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,
+         *     ``skipped`` (an earlier lane covered everything) or ``running`` (the process
+         *     stopped while the lane held the work). ``credential_alias`` names a keyring
+         *     slot, never a key.
+         */
+        RunAiLane: {
+            /** Credential Alias */
+            credential_alias: string | null;
+            /** Docs Attempted */
+            docs_attempted: number;
+            /** Docs Succeeded */
+            docs_succeeded: number;
+            /** Ended At */
+            ended_at: string | null;
+            /** Error Kind */
+            error_kind: string | null;
+            /** Http Status */
+            http_status: number | null;
+            /** Lane Index */
+            lane_index: number;
+            /**
+             * Lane Kind
+             * @enum {string}
+             */
+            lane_kind: "subscription" | "api_key" | "local";
+            /** Lane Label */
+            lane_label: string;
+            /** Model */
+            model: string | null;
+            /**
+             * Outcome
+             * @enum {string}
+             */
+            outcome: "running" | "ok" | "partial" | "failed" | "skipped";
+            /** Provider */
+            provider: string;
+            /** Safe Message */
+            safe_message: string | null;
+            /** Started At */
+            started_at: string;
         } & {
             [key: string]: unknown;
         };

@@ -7,10 +7,14 @@ import { Icon } from '../../shell/Icon';
 import { SAVED_KEY } from '../collection/savedSearches';
 import { RUNS_KEY } from '../runs/RunLog';
 import type { CatalogEntry } from '../runs/model';
+import { SummaryChoiceField, choiceProblem } from '../settings/SummaryChoiceField';
+import { NO_CHOICE, choiceOf, choiceSentence, type SummaryChoice } from '../settings/summaryChoice';
+import { AI_KEY, type AiSettings } from '../settings/summaryLanes';
 import { coarseFor, coarseSentence, noneAskableAboutAuthors, paceOf, rateLong } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import {
-  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, scheduleWords, seededForm, watchBody, whatIsMissing,
+  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, scheduleWords, seededForm, summaryBody, watchBody,
+  whatIsMissing,
   type Follows, type ScheduleChoice, type WatchForm, type WatchSeed,
 } from './editor';
 import {
@@ -71,7 +75,9 @@ function namesOf(entries: readonly CatalogEntry[]): string {
  *
  * `/watches/new` makes one, begun empty or from a search or a person handed
  * to it; `/watches/:id/edit` changes one. A change never pauses or resumes a
- * watch (its page does that), and leaves its AI settings as they are.
+ * watch (its page does that). Whether its runs summarize each paper, and with
+ * what, is set here too; a save that leaves that choice alone leaves what is
+ * stored for it exactly as it was.
  */
 export function WatchEditor() {
   const { id } = useParams();
@@ -106,6 +112,10 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const initial = useMemo(() => (existing ? formFrom(existing) : seededForm(seed)), [existing, seed]);
   const [form, setForm] = useState<WatchForm>(initial);
   const terms = useTerms(initial.keywords);
+  const initialSummaries = useMemo<SummaryChoice>(
+    () => (existing ? choiceOf(!!existing.ai_enabled, existing.ai_settings) : NO_CHOICE), [existing]);
+  const [summaries, setSummaries] = useState<SummaryChoice>(initialSummaries);
+  const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
   const set = (patch: Partial<WatchForm>) => setForm((f) => ({ ...f, ...patch }));
   const setSchedule = (patch: Partial<ScheduleChoice>) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }));
   /** Whether the stored schedule is one the choices cannot state, so "As it is" is offered. */
@@ -119,7 +129,13 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const current: WatchForm = { ...form, keywords: terms.all };
   const picked = form.sources.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
   const unknown = sources.length ? form.sources.filter((slug) => !sources.some((entry) => entry.slug === slug)) : [];
-  const missing = whatIsMissing(current, form.follows === 'retractions' ? 0 : picked.length);
+  const summariesChanged = JSON.stringify(summaries) !== JSON.stringify(initialSummaries);
+  const missing = [
+    ...whatIsMissing(current, form.follows === 'retractions' ? 0 : picked.length),
+    ...[choiceProblem(summaries)].filter((m): m is string => !!m),
+  ];
+  // A changed choice is written from Settings › AI as read, so it waits for that read.
+  const waiting = summariesChanged && !ai.data;
 
   const choose = (slug: string) => set({
     sources: form.sources.includes(slug) ? form.sources.filter((s) => s !== slug) : [...form.sources, slug],
@@ -136,13 +152,12 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
 
   const save = useMutation({
     mutationFn: async (): Promise<{ id: number; warning: string | null }> => {
-      const body = watchBody(current, existing);
+      const body = { ...watchBody(current, existing), ...summaryBody(summaries, initialSummaries, ai.data, existing) };
       if (existing) {
         await answer(engine().PUT('/api/routines/{routine_id}', { params: { path: { routine_id: existing.id } }, body }));
         return { id: existing.id, warning: null };
       }
-      // A new watch asks no model: summaries go with Ask.
-      const made = await answer(engine().POST('/api/routines', { body: { ...body, is_active: body.is_active ?? true, ai_enabled: false } }));
+      const made = await answer(engine().POST('/api/routines', { body: { ...body, is_active: body.is_active ?? true } }));
       return { id: made.id, warning: made.entity_warning ?? null };
     },
     onSuccess: ({ id, warning }) => {
@@ -167,7 +182,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (terms.draft.trim()) terms.add();
-    if (!missing.length && !save.isPending) save.mutate();
+    if (!missing.length && !waiting && !save.isPending) save.mutate();
   };
 
   const back = existing ? `/watches/${existing.id}` : '/watches';
@@ -306,15 +321,14 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           )}
         </fieldset>
 
-        {existing?.ai_enabled && (
-          <p className="form-hint editor-aside" data-editor="ai">
-            This watch also asks a model to summarize what it finds. That is set where Ask is, and a save here leaves it as
-            it is.
-          </p>
-        )}
+        <fieldset className="choices editor-summaries" data-editor="summaries">
+          <legend className="field-title">Summaries</legend>
+          <SummaryChoiceField id="watch-ai" value={summaries} onChange={setSummaries} stored={ai.data} whose="this watch" toggle="switch" />
+          {ai.isError && <p className="field-error" role="alert">The engine did not say what Settings › AI holds ({ai.error.message}).</p>}
+        </fieldset>
 
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={missing.length > 0 || save.isPending}>
+          <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}>
             {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
           </button>
           <Link to={back} className="btn quiet go-cancel">Cancel</Link>
@@ -340,7 +354,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
       </form>
 
       <WillDo form={current} existing={existing} picked={picked} unknown={unknown} person={person}
-        keyMissing={keyMissing} words={words} cron={cron} />
+        keyMissing={keyMissing} words={words} cron={cron} summaries={summaries} ai={ai.data} />
     </div>
   );
 }
@@ -439,7 +453,9 @@ function ScheduleField({ form, keptOffered, storedWords, storedCron, onCadence, 
  * finishes. Each sentence is the form's own fact or the catalog's, and none
  * guesses at how many papers a run will find.
  */
-function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cron }: {
+function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cron, summaries, ai }: {
+  summaries: SummaryChoice;
+  ai: AiSettings | undefined;
   form: WatchForm;
   existing: Routine | null;
   picked: readonly CatalogEntry[];
@@ -578,6 +594,16 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
               ? 'Destinations are added and changed on its page, under Where reports go.'
               : 'Once it is saved, its page can send reports to a folder, a feed, a webhook, or another address.'}
           </p>
+        </section>
+
+        <section className="will" data-will="summaries">
+          <h3>Summaries</h3>
+          <p>{ai ? choiceSentence(summaries, ai, 'this watch') : 'Reading Settings › AI.'}</p>
+          {summaries.on && (
+            <p className="will-quiet">
+              Each paper’s title and abstract are what is sent to write its summary.
+            </p>
+          )}
         </section>
 
         <section className="will" data-will="intent">

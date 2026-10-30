@@ -83,7 +83,7 @@ from implementation_scripts.credential_manager import (
     keyring_is_responsive,
     PRESENT,
     delete_credential,
-    validate_api_key,
+    probe_api_key,
     push_ephemeral,
     pop_ephemeral,
     AI_CREDENTIAL_NAMES,
@@ -469,7 +469,9 @@ class ExecutionSettingsBody(BaseModel):
 
 class CredentialValidate(BaseModel):
     provider: str
-    key: str
+    # Absent: test the key already stored for an AI provider, which the
+    # renderer never holds and so cannot send.
+    key: Optional[str] = None
     # IMPL-AI12: the Custom provider needs the user-supplied OpenAI-compatible
     # base URL (e.g. ``https://api.together.xyz/v1``) to build the probe.
     base_url: Optional[str] = None
@@ -683,6 +685,80 @@ def _normalize_ai_override(override: dict | None) -> dict:
     return out
 
 
+# The single-provider keys that belong to whichever provider is stored. An
+# override naming another provider must not inherit them: the stored model is
+# another provider's model, and the stored command path is another command.
+_PROVIDER_BOUND_AI_KEYS: tuple[str, ...] = ("ai_model", "ai_local_model", "ai_cli_path", "ai_effort")
+
+
+def _merge_ai_override(persisted: dict, override: dict) -> dict:
+    """The AI settings one run uses: what is stored, with the run's own choices on top.
+
+    An override that names a provider and carries no chain is a different lane
+    for this run, and only that lane. ``resolve_chain`` prefers a stored chain to
+    the single-provider keys, so the chain is set aside here; left in place it
+    ran the stored lanes and silently ignored the provider the run or the watch
+    asked for, which is what happened to every such override once a chain was
+    stored. Where the override names a provider other than the stored one, the
+    stored provider's own keys are dropped rather than inherited, so a lane the
+    override left without a model is skipped with that reason instead of
+    running another provider's model.
+    """
+    merged = {**persisted, **override}
+    provider = str(override.get("ai_provider") or "").strip().lower()
+    if not provider or override.get("ai_chain"):
+        return merged
+    merged["ai_chain"] = ""
+    stored = str(persisted.get("ai_provider") or "").strip().lower()
+    if provider != stored:
+        for key in _PROVIDER_BOUND_AI_KEYS:
+            if key not in override:
+                merged[key] = ""
+    # An Ollama lane reads ``ai_local_model`` before ``ai_model``; an override's
+    # model is the one this run asked for.
+    if provider == "local" and override.get("ai_model") and "ai_local_model" not in override:
+        merged["ai_local_model"] = override["ai_model"]
+    return merged
+
+
+def _ai_choice_event(enabled: bool, chain: list, override: dict, prompt_params: dict) -> dict:
+    """What a run was set to do about summaries, as one progress event.
+
+    Emitted at the start of every run, on or off, so a run's own record says
+    whether it summarized and with what, rather than leaving a run that found
+    no papers to look like one that never asked. ``lane_source`` is ``run``
+    when the lanes came from the run's or the watch's own settings and
+    ``settings`` when they came from Settings › AI.
+    """
+    from_run = bool(override.get("ai_provider") or override.get("ai_chain"))
+    adjusted = [key for key, name in (
+        ("length", "ai_summary_length"), ("tone", "ai_tone"),
+        ("temperature", "ai_temperature"), ("extraction_goals", "ai_extraction_goals"),
+    ) if name in override]
+    lanes = [
+        {"label": lane.label, "kind": lane.kind, "provider": lane.provider, "model": lane.model}
+        for lane in chain
+    ]
+    if not enabled:
+        message = "AI summaries: off for this run."
+    elif not lanes:
+        message = "AI summaries: on, but no provider is configured, so none can be written."
+    else:
+        message = "AI summaries: on, with " + ", then ".join(lane["label"] for lane in lanes) + (
+            ", as set for this run." if from_run else ", from the AI settings.")
+    return {
+        "type": "ai_choice",
+        "enabled": enabled,
+        "lane_source": "run" if from_run else "settings",
+        "lanes": lanes if enabled else [],
+        "adjusted": adjusted if enabled else [],
+        "length": prompt_params.get("length"),
+        "tone": prompt_params.get("tone"),
+        "message": message,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def _load_ai_settings_from_db(conn) -> dict:
     """Return a dict of persisted ``ai_*`` settings (values may be ``""``)."""
     out: dict = {}
@@ -798,7 +874,7 @@ def _apply_ai_settings_to_engine(
     """
     persisted = _load_ai_settings_from_db(conn)
     override = _normalize_ai_override(engine.config.get("ai_settings"))
-    merged = {**persisted, **override}
+    merged = _merge_ai_override(persisted, override)
 
     ai_enabled = bool(engine.config.get("ai_enabled"))
     engine.config["ai_prompt_params"] = _build_prompt_params(merged)
@@ -806,6 +882,7 @@ def _apply_ai_settings_to_engine(
     if not ai_enabled:
         engine.llm_client = None
         engine.ai_lane = None
+        progress_store.emit(exec_id, _ai_choice_event(False, [], override, engine.config["ai_prompt_params"]))
         return
 
     # Resolve the configuration into lanes (1.8a). Today the chain is always
@@ -816,6 +893,7 @@ def _apply_ai_settings_to_engine(
     chain = resolve_chain(merged)
     engine.ai_lanes = chain
     engine.ai_lane = chain[0] if chain else None
+    progress_store.emit(exec_id, _ai_choice_event(True, chain, override, engine.config["ai_prompt_params"]))
     # The engine builds each lane's client lazily, so it needs the
     # per-execution keys rather than a client built here.
     engine.ai_ephemeral = ephemeral_credentials or None
@@ -2374,6 +2452,10 @@ def get_execution(exec_id: int, expected_runtime_id: Optional[str] = None):
         # this is the reverse lookup, so a user reading an interrupted run can
         # see what they started from it without hunting for it in the list.
         row["restarted_into"] = get_executions_restarted_from(conn, exec_id)
+        # Each summary lane the run tried, in order, with what it achieved. Empty
+        # for a run that summarized nothing, whatever the reason; the run's
+        # ``ai_choice`` event says whether it was asked to.
+        row["ai_lanes"] = get_execution_ai(conn, exec_id)
         return row
     finally:
         _close_db(conn)
@@ -6357,8 +6439,35 @@ def update_execution_settings(body: ExecutionSettingsBody):
 
 @app.post("/api/credentials/validate")
 def validate_credential(body: CredentialValidate):
-    valid = validate_api_key(body.provider, body.key, base_url=body.base_url)
-    return {"valid": valid}
+    """Test a key against its provider: one typed here, or the AI key already stored.
+
+    ``valid`` is true only when the provider accepted the key. ``outcome`` and
+    ``detail`` keep apart what the boolean folds together: a key the provider
+    refused, an answer that says nothing about the key, and a provider resmon
+    could not reach (``credential_manager.probe_api_key``). A stored key is
+    read from the keychain here and never returned.
+    """
+    provider = (body.provider or "").strip().lower()
+    key: Optional[str] = (body.key or "").strip() or None
+    base_url = body.base_url
+    if key is None:
+        cred_name = "custom_llm_api_key" if provider == "custom" else f"{provider}_api_key"
+        if cred_name not in AI_CREDENTIAL_NAMES:
+            raise HTTPException(400, "Type the key to test: resmon tests a stored key only for an AI provider.")
+        key = get_credential(cred_name)
+        if not key:
+            raise HTTPException(400, "No key is stored for this provider, so there is nothing to test.")
+    if provider == "custom" and base_url:
+        # The rule a run's requests follow: a key goes over HTTPS, or over
+        # HTTP only to this computer, never in plain text to another one.
+        # Imported here: llm_factory loads the provider SDKs.
+        from implementation_scripts.llm_factory import _validate_custom_base_url
+        try:
+            base_url = _validate_custom_base_url(base_url.strip())
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+    probe = probe_api_key(provider, key, base_url=base_url)
+    return {"valid": probe["outcome"] == "accepted", **probe}
 
 
 @app.post("/api/ai/models")

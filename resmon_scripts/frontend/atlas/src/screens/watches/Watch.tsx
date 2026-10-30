@@ -5,6 +5,8 @@ import { answer, engine, EngineError } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import { RUNS_KEY } from '../runs/RunLog';
+import { choiceOf, stateSentence } from '../settings/summaryChoice';
+import { AI_KEY } from '../settings/summaryLanes';
 import { count, number, when } from '../today/format';
 import { CoverageTab } from './CoverageTab';
 import { DeliveryTab } from './DeliveryTab';
@@ -188,6 +190,7 @@ function WatchPage({ raw }: { raw: string }) {
           <Switch label="Email the report" column="email_enabled" on={data.email_enabled}
             busy={flip.isPending} onFlip={(on) => flip.mutate({ column: 'email_enabled', on })} />
         </div>
+        <WatchSummaries routine={data} />
       </header>
 
       <div className="run-main watch-main">
@@ -226,6 +229,24 @@ function WatchPage({ raw }: { raw: string }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Whether this watch's runs summarize each paper, and with which connection:
+ * its own, or what Settings › AI holds when a run starts. Changed in the
+ * watch's editor.
+ */
+function WatchSummaries({ routine }: { routine: Routine }) {
+  const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
+  const choice = choiceOf(!!routine.ai_enabled, routine.ai_settings);
+  return (
+    <p className="watch-ai" data-watch="summaries" data-on={choice.on} data-lane={choice.on ? choice.lane : 'off'}>
+      <span className="watch-ai-label">Summaries</span>{' '}
+      {ai.data ? stateSentence(choice, ai.data, 'this watch')
+        : ai.isError ? `${choice.on ? 'On' : 'Off'}. The engine did not say what Settings › AI holds.` : 'Reading Settings › AI.'}
+      {' '}<Link to={`/watches/${routine.id}/edit`}>Change</Link>
+    </p>
   );
 }
 

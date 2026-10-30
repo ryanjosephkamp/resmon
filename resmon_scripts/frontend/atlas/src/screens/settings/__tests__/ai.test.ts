@@ -51,7 +51,7 @@ describe('the summary chain, read as the engine reads it', () => {
     const summary = storedSummary(stored);
     expect(summary.form).toEqual({
       ai_provider: 'claude_code', ai_model: 'sonnet', ai_cli_path: '/opt/claude', ai_effort: 'high',
-      ai_custom_base_url: '', ai_local_endpoint: '',
+      ai_custom_base_url: '', ai_local_endpoint: '', doc_cap: '20', batch_size: '3',
     });
     expect(summary.fallbacks.map((f) => f.lane.provider)).toEqual(['openai', 'local']);
     expect(planLimits(stored)).toEqual({ batch: 3, cap: 20 });
@@ -96,24 +96,24 @@ describe('the summary chain, written back', () => {
     const { form, fallbacks } = storedSummary(stored);
     const kept = fallbacks.filter((f) => f.lane.provider !== 'openai');
     expect(summaryChanged(stored, form, kept)).toBe(true);
-    const written = JSON.parse(composeChain(form, kept, stored)) as Record<string, unknown>[];
+    const written = JSON.parse(composeChain(form, kept)) as Record<string, unknown>[];
     expect(written.map((lane) => lane.provider)).toEqual(['claude_code', 'local']);
     expect(written[1]).toEqual(CLASSIC_CHAIN[2]);
   });
 
   test('no chain where it would say nothing the single keys do not; a command always gets one', () => {
     const plain = { ...STORED, ai_provider: 'openai', ai_model: 'gpt-4o' };
-    expect(composeChain(storedSummary(plain).form, [], plain)).toBe('');
-    expect(composeChain({ ...storedSummary(plain).form, ai_provider: '' }, [], plain)).toBe('');
+    expect(composeChain(storedSummary(plain).form, [])).toBe('');
+    expect(composeChain({ ...storedSummary(plain).form, ai_provider: '' }, [])).toBe('');
     const legacyCommand = { ...STORED, ai_provider: 'codex', ai_cli_path: '/bin/codex', ai_subscription_doc_cap: '30' };
-    expect(JSON.parse(composeChain(storedSummary(legacyCommand).form, [], legacyCommand))).toEqual([
+    expect(JSON.parse(composeChain(storedSummary(legacyCommand).form, []))).toEqual([
       { kind: 'subscription', provider: 'codex', binary_path: '/bin/codex', doc_cap: 30 },
     ]);
     // Moving the main lane to a key with fallbacks still stored writes the key lane first.
     const stored = chained(CLASSIC_CHAIN);
     const { fallbacks } = storedSummary(stored);
     const toKey = { ...storedSummary(stored).form, ai_provider: 'custom', ai_model: 'm', ai_custom_base_url: 'https://e/v1' };
-    expect(JSON.parse(composeChain(toKey, fallbacks, stored))[0]).toEqual({
+    expect(JSON.parse(composeChain(toKey, fallbacks))[0]).toEqual({
       kind: 'api_key', provider: 'custom', model: 'm', credential_alias: 'custom_llm_api_key', base_url: 'https://e/v1',
     });
   });

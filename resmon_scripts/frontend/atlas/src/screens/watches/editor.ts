@@ -10,6 +10,8 @@
  * any other expression) is kept as it is unless another is chosen, and a save
  * sends back exactly what was stored for it.
  */
+import { overrideOf, type SummaryChoice } from '../settings/summaryChoice';
+import type { AiSettings } from '../settings/summaryLanes';
 import { scheduleText, type Routine } from './model';
 
 export type Cadence = 'hours' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'kept';
@@ -229,8 +231,8 @@ export interface WatchBody {
  * writes) survives a save. The classic editor's shape, so a watch saved in
  * either interface opens in the other. `is_active` is sent only for a new
  * watch: pausing and resuming are the watch page's, and an edit that sent it
- * would resume a paused watch without a word. AI settings are not sent at
- * all, so a save here leaves them as they were.
+ * would resume a paused watch without a word. Summaries are sent by
+ * `summaryBody`, beside this.
  */
 export function watchBody(form: WatchForm, existing: Routine | null): WatchBody {
   const parameters = existing ? parametersOf(existing.parameters) : {};
@@ -264,6 +266,25 @@ export function watchBody(form: WatchForm, existing: Routine | null): WatchBody 
     email_ai_summary_enabled: form.email && form.attach,
   };
   if (!existing) body.is_active = form.start;
+  return body;
+}
+
+/**
+ * Whether a watch's runs summarize, and with what, as the routine stores it:
+ * `ai_enabled`, and `ai_settings` over Settings › AI. Where the choice is the
+ * one the watch was opened with, `ai_settings` is not sent and stays exactly
+ * as stored, whichever interface wrote it. Otherwise it is rebuilt from what
+ * is stored, so a key this editor does not show survives; an empty object
+ * clears it, which the engine reads as "as Settings › AI has it".
+ */
+export function summaryBody(
+  choice: SummaryChoice, initial: SummaryChoice, stored: AiSettings | undefined, existing: Routine | null,
+): { ai_enabled: boolean; ai_settings?: Record<string, unknown> } {
+  const body: { ai_enabled: boolean; ai_settings?: Record<string, unknown> } = { ai_enabled: choice.on };
+  if (existing && JSON.stringify(choice) === JSON.stringify(initial)) return body;
+  if (!stored) return body;
+  const override = overrideOf(choice, stored, existing?.ai_settings ?? {});
+  if (existing || Object.keys(override).length) body.ai_settings = override;
   return body;
 }
 

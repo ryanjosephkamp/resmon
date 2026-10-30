@@ -7,7 +7,9 @@ import { restartFacts, type RunRow } from './model';
  * summarizes with AI and whether it is emailed or delivered before pressing
  * it, not after.
  */
-export function RestartFacts({ run }: { run: Pick<RunRow, 'parameters' | 'execution_type' | 'routine_id'> }) {
+export function RestartFacts({ run }: {
+  run: Pick<RunRow, 'parameters' | 'execution_type' | 'routine_id'> & { ai_lanes?: readonly unknown[] };
+}) {
   const facts = restartFacts(run);
   return (
     <dl className="run-restart-facts" aria-label="What Restart does" data-run="restart-facts">

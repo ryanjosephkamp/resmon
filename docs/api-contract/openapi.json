@@ -3373,8 +3373,15 @@
             "title": "Base Url"
           },
           "key": {
-            "title": "Key",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key"
           },
           "provider": {
             "title": "Provider",
@@ -3382,8 +3389,7 @@
           }
         },
         "required": [
-          "provider",
-          "key"
+          "provider"
         ],
         "title": "CredentialValidate",
         "type": "object"
@@ -11001,8 +11007,15 @@
       },
       "Run": {
         "additionalProperties": true,
-        "description": "``GET /api/executions/{exec_id}``: the row, which backend answered, and the\nruns restarted from it (the reverse of ``restarted_from``).",
+        "description": "``GET /api/executions/{exec_id}``: the row, which backend answered, the\nruns restarted from it (the reverse of ``restarted_from``), and the summary\nlanes it tried.",
         "properties": {
+          "ai_lanes": {
+            "items": {
+              "$ref": "#/components/schemas/RunAiLane"
+            },
+            "title": "Ai Lanes",
+            "type": "array"
+          },
           "cancel_reason": {
             "anyOf": [
               {
@@ -11412,9 +11425,144 @@
           "total_results",
           "new_results",
           "source_outcomes",
-          "restarted_into"
+          "restarted_into",
+          "ai_lanes"
         ],
         "title": "Run",
+        "type": "object"
+      },
+      "RunAiLane": {
+        "additionalProperties": true,
+        "description": "One summary lane a run tried, as ``execution_ai`` records it.\n\n``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,\n``skipped`` (an earlier lane covered everything) or ``running`` (the process\nstopped while the lane held the work). ``credential_alias`` names a keyring\nslot, never a key.",
+        "properties": {
+          "credential_alias": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Alias"
+          },
+          "docs_attempted": {
+            "title": "Docs Attempted",
+            "type": "integer"
+          },
+          "docs_succeeded": {
+            "title": "Docs Succeeded",
+            "type": "integer"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Kind"
+          },
+          "http_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Http Status"
+          },
+          "lane_index": {
+            "title": "Lane Index",
+            "type": "integer"
+          },
+          "lane_kind": {
+            "enum": [
+              "subscription",
+              "api_key",
+              "local"
+            ],
+            "title": "Lane Kind",
+            "type": "string"
+          },
+          "lane_label": {
+            "title": "Lane Label",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "outcome": {
+            "enum": [
+              "running",
+              "ok",
+              "partial",
+              "failed",
+              "skipped"
+            ],
+            "title": "Outcome",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "safe_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Safe Message"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lane_index",
+          "lane_label",
+          "lane_kind",
+          "provider",
+          "model",
+          "credential_alias",
+          "outcome",
+          "error_kind",
+          "http_status",
+          "safe_message",
+          "docs_attempted",
+          "docs_succeeded",
+          "started_at",
+          "ended_at"
+        ],
+        "title": "RunAiLane",
         "type": "object"
       },
       "RunCancelRequested": {
@@ -17623,6 +17771,7 @@
     },
     "/api/credentials/validate": {
       "post": {
+        "description": "Test a key against its provider: one typed here, or the AI key already stored.\n\n``valid`` is true only when the provider accepted the key. ``outcome`` and\n``detail`` keep apart what the boolean folds together: a key the provider\nrefused, an answer that says nothing about the key, and a provider resmon\ncould not reach (``credential_manager.probe_api_key``). A stored key is\nread from the keychain here and never returned.",
         "operationId": "validate_credential_api_credentials_validate_post",
         "requestBody": {
           "content": {
