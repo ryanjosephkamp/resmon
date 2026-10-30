@@ -642,7 +642,7 @@ def test_engine_records_an_outage_as_upstream_failure(
     record = search_record.build(conn, result["execution_id"])
     assert record["sources"][0]["note"] == expected
     assert record["identification"]["sources_that_answered"] == 0
-    assert any("could not answer" in c for c in record["caveats"])
+    assert any("did not answer, so there is nothing to count" in c for c in record["caveats"])
     conn.close()
 
 
