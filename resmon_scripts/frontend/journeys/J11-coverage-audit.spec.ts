@@ -90,6 +90,14 @@ journey.describe('J11 Coverage audit', () => {
         + 'seventy-five papers close to the intent — which this corpus does not reach.',
       );
     }
+    if (hasVectors) {
+      // The model was set up before the routine fired, so its results were
+      // embedded as they were stored and the audit has vectors to compare:
+      // it must not report that nothing is embedded.
+      console.log(`[J11] reason with vectors: ${JSON.stringify(stated.reason)}`);
+      expect(stated.reason, 'the audit says nothing is embedded after a model was set up and the routine ran')
+        .not.toMatch(/Nothing is embedded yet/);
+    }
     if (!hasVectors) {
       console.log(
         `[J11] NOT VERIFIED: the two lists themselves. This machine cannot load the `

@@ -43,6 +43,7 @@ import type {
   FirstRunCard, GateRun, KeyField, ProfileCreation, ProfileMatches, RankedList,
   WatchdogFinding, WatchdogView,
 } from '../driver';
+import type { EmbeddingBackfill, EmbeddingProviderChoice } from '../driver';
 import { JOURNEY_EMBEDDING_MODEL, startEmbeddingEndpoint } from '../fixtures/embedding-endpoint';
 // Slice 2b's additions, in their own import for the same reason its verbs are
 // in their own block: two branches appending beats two branches interleaving.
@@ -2224,6 +2225,62 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const probe = await session.api<{ ok: boolean; reason?: string }>('POST', '/api/embeddings/probe', {});
       expect(probe.ok, `the embedding probe said: ${probe.reason}`).toBe(true);
       return JOURNEY_EMBEDDING_MODEL;
+    },
+
+    chooseAnEmbeddingProvider: async (provider): Promise<EmbeddingProviderChoice> => {
+      // Over the API, as `enableRankingByMeaning` is: the classic tab draws a
+      // provider that cannot embed as a disabled option, so it cannot be
+      // chosen there at all. What is checked is the engine's refusal at
+      // configuration, which is the same for any interface. A provider the
+      // engine would accept is not written, so this saves nothing either way.
+      const page = await session.api<{ providers: { provider: string; state: string; reason: string }[] }>(
+        'GET', '/api/settings/embeddings',
+      );
+      const answer = page.providers.find((p) => p.provider === provider);
+      if (answer?.state !== 'no') return { refused: false, reason: '' };
+      try {
+        await session.api('PUT', '/api/settings/embeddings', {
+          settings: { embedding_enabled: 'true', embedding_provider: provider },
+        });
+      } catch (error) {
+        const refused = /answered HTTP 400: ([^\n]*)/.exec((error as Error).message);
+        if (!refused) throw error;
+        let reason = refused[1] ?? '';
+        try { reason = String(JSON.parse(reason).detail ?? reason); } catch { /* the body was the sentence */ }
+        return { refused: true, reason };
+      }
+      return { refused: false, reason: '' };
+    },
+
+    embedThePapersStillMissing: async (): Promise<EmbeddingBackfill> => {
+      // Over the API, beside `enableRankingByMeaning`: the estimate, the
+      // backfill and its status are the engine's own, and the sentences
+      // returned here are put together from those answers rather than read
+      // off the classic tab.
+      type Coverage = { embedded: number; total: number };
+      type Status = { coverage: Coverage; run: { running: boolean; finished_at: string | null; processed: number; total: number } };
+      // Where a person does this, so the window leaves the page it was on. The
+      // Explorer reads whether it can rank when it opens; left open across a
+      // backfill made over the API, it would go on answering from before it.
+      await goto(PLACES['AI settings']);
+      const before = await session.api<Status>('GET', '/api/embeddings/status');
+      const estimate = await session.api<{ documents: number; estimated_tokens: number; note: string }>(
+        'GET', '/api/embeddings/estimate',
+      );
+      await session.api('POST', '/api/embeddings/backfill', {});
+      let after = before;
+      await expect.poll(async () => {
+        after = await session.api<Status>('GET', '/api/embeddings/status');
+        return !after.run.running && after.run.finished_at !== before.run.finished_at;
+      }, { timeout: 120_000, message: 'the backfill never finished' }).toBe(true);
+      const missing = before.coverage.total - before.coverage.embedded;
+      return {
+        before: { embedded: before.coverage.embedded, total: before.coverage.total },
+        missing: `${missing} of ${before.coverage.total} papers have no vector.`,
+        estimate: `${estimate.documents} papers to embed, about ${estimate.estimated_tokens} tokens. ${estimate.note}`,
+        outcome: `Embedded ${after.run.processed} of ${after.run.total} papers.`,
+        after: { embedded: after.coverage.embedded, total: after.coverage.total },
+      };
     },
 
     rankTheExplorerBy: async (phrase): Promise<RankedList> => {

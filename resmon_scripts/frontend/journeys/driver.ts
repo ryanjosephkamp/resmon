@@ -406,11 +406,37 @@ export interface ExplorerList {
 
 /** What the Explorer says about a ranked list. */
 export interface RankedList {
-  /** `Closest to: … — using … · N ranked, M not embedded yet and listed last`. */
+  /**
+   * `Closest to: … — using … · N ranked, M not embedded yet and listed last`.
+   * Where the controls are absent, what the page says instead about why it
+   * cannot rank, or '' where it says nothing.
+   */
   note: string;
   /** Whether the semantic controls are on screen at all. */
   controlsPresent: boolean;
   list: ExplorerList;
+}
+
+/** What choosing an embedding provider did, before anything was saved. */
+export interface EmbeddingProviderChoice {
+  /** Whether the provider was refused at the moment it was chosen. */
+  refused: boolean;
+  /** The reason given for the refusal, or ''. */
+  reason: string;
+}
+
+/** Embedding the papers that have no vector for the model set, from start to end. */
+export interface EmbeddingBackfill {
+  /** The backend's coverage before anything was sent. */
+  before: { embedded: number; total: number };
+  /** What the app said about the papers without a vector, before anything was sent. */
+  missing: string;
+  /** The estimate, as it was given before the backfill started. */
+  estimate: string;
+  /** How the app said the backfill ended. */
+  outcome: string;
+  /** The backend's coverage after it ended. */
+  after: { embedded: number; total: number };
 }
 
 /** The coverage audit panel, read as a person reads it. */
@@ -637,6 +663,13 @@ export interface JourneyDriver {
   readExplorerList(): Promise<ExplorerList>;
   /** Turn ranking by meaning on, against a deterministic model on loopback. */
   enableRankingByMeaning(): Promise<string>;
+  /**
+   * Choose this provider for embeddings, and read whether it is refused there
+   * and then, with the reason. Nothing is saved for a provider that is refused.
+   */
+  chooseAnEmbeddingProvider(provider: string): Promise<EmbeddingProviderChoice>;
+  /** Embed every paper with no vector for the model set: the estimate first, then the run, read until it ends. */
+  embedThePapersStillMissing(): Promise<EmbeddingBackfill>;
   /** Sort the Explorer by how close each paper is to this phrase, using the control. */
   rankTheExplorerBy(phrase: string): Promise<RankedList>;
   /** Scan the corpus for papers that look like the same work, and wait for it. */
