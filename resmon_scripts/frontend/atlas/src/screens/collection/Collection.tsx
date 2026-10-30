@@ -1,15 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
-import { answer, engine } from '../../api/client';
+import { answer, engine, type EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { Icon } from '../../shell/Icon';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
 import { capWords } from './countCap';
+import { exportCollection } from './collectionExport';
+import { FacetMenus, type Menu } from './FacetMenus';
+import {
+  chips, countSentence, engineFilters, exportedWords, exportWords, filterCount, narrowingWords, readFilters,
+  toggled, withDate, withoutFilters, type EngineFilters, type Facets,
+} from './filters';
 import { foldedAway, standingInFor } from './fold';
 import { SearchTabs } from './SearchTabs';
+import { FORMATS, type ReferenceFormat } from '../runs/references';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
@@ -35,15 +42,21 @@ const SETTLE_MS = 350;
  * them; folding them hides rows in this view only, and the count does not
  * change.
  *
- * `?source=` and `?category=` narrow it to one source or one subject category,
- * the engine's own filters, so a chart elsewhere can open exactly the papers
- * it drew. Each filter is named on the screen and can be taken off.
+ * Filters narrow it by source, category, author, and publication date, each
+ * value with the engine's count of the papers it would hold (`filters.ts` says
+ * what a count counts). They live in the address, so a chart on Analytics
+ * opens exactly the papers it drew with `?source=` or `?category=`, and that
+ * filter is named on the screen and taken off like any other.
+ *
+ * Export writes every paper the count above the list counts, not the rows
+ * drawn so far: the engine renders the file and the system's save dialog asks
+ * where it goes. Where the engine caps an export, that is said before saving.
  */
 export function Collection() {
   const [params, setParams] = useSearchParams();
-  const source = params.get('source');
-  const category = params.get('category');
-  const filtered = !!(source || category);
+  const filters = useMemo(() => readFilters(params), [params]);
+  const filtered = filterCount(filters) > 0;
+  const [menu, setMenu] = useState<Menu | null>(null);
   const [draft, setDraft] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('newest');
@@ -62,21 +75,38 @@ export function Collection() {
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
+  const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   const pages = useInfiniteQuery({
-    queryKey: ['explorer', query, ranking, source, category],
+    queryKey: ['explorer', query, ranking, filters],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
-      body: {
-        query, sort: ranking, limit: 50, cursor: pageParam, authors: [],
-        sources: source ? [source] : [], categories: category ? [category] : [],
-      },
+      body: { ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam },
     })),
     getNextPageParam: (last) => (last.has_more && last.next_cursor ? String(last.next_cursor) : undefined),
   });
   const first = pages.data?.pages[0];
   const rows: ExplorerPaper[] = useMemo(() => pages.data?.pages.flatMap((p) => p.results) ?? [], [pages.data]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
+
+  // What the list holds, which the counts beside the filters and the export
+  // hold too: the words narrow it unless the engine ranked by meaning, where
+  // they only order it. Where it could not rank, the engine says so and
+  // filters by the words instead, so this follows what it served, and what
+  // was asked for until it answers.
+  const served = first ? (first.sort === 'similarity' ? 'similarity' : 'newest') : ranking;
+  const scope: EngineFilters = useMemo(() => engineFilters(filters, narrowingWords(query, served)), [filters, query, served]);
+  const facets = useQuery({
+    queryKey: ['explorer-facets', scope],
+    enabled: menu !== null && menu !== 'published',
+    placeholderData: keepPreviousData,
+    queryFn: () => answer(engine().POST('/api/explorer/facets', { body: scope })) as Promise<Facets>,
+  });
+  const exporting = useMutation({
+    mutationFn: (asked: { format: ReferenceFormat; scope: EngineFilters }) => exportCollection(asked.scope, asked.format),
+  });
+  // An export's outcome is said only while the filters are the ones it was made under.
+  const exportedHere = !!exporting.variables && JSON.stringify(exporting.variables.scope) === JSON.stringify(scope);
 
   const links = useQuery({
     queryKey: ['links', ids],
@@ -104,17 +134,10 @@ export function Collection() {
 
   const total = first?.total ?? 0;
   const busy = pages.isFetching || links.isFetching || people.isFetching || (fold && folded.isFetching);
-  const papers = first ? `${number(total)}${first.total_is_capped ? '+' : ''} ${total === 1 ? 'paper' : 'papers'}` : '';
-  const countSentence = !first ? ''
-    : filtered ? `${papers} matching your filters${query ? ' and these words' : ''}`
-      : `${papers} ${query ? 'match' : 'in your collection'}`;
+  const said = first ? countSentence(first, filtered, query) : '';
   // The whole collection's own count is the status's, read from every record; it answers only the unfiltered view.
   const cap = first ? capWords(first, !query && !filtered ? status.data?.coverage.total ?? null : null) : null;
-  const drop = (key: 'source' | 'category') => {
-    const next = new URLSearchParams(params);
-    next.delete(key);
-    setParams(next);
-  };
+  const offer = first ? exportWords(first, served) : null;
 
   return (
     <div className="collection">
@@ -152,6 +175,15 @@ export function Collection() {
             />
           </label>
           <div className="results-controls">
+            <FacetMenus
+              filters={filters}
+              facets={{ data: facets.data, error: facets.error, busy: facets.isFetching, stale: facets.isPlaceholderData }}
+              words={!!scope.query}
+              nameOf={nameOf}
+              onMenu={(which, open) => setMenu((now) => (open ? which : now === which ? null : now))}
+              onToggle={(key, value) => setParams(toggled(params, key, value))}
+              onDate={(key, value) => setParams(withDate(params, key, value))}
+            />
             {canRank && (
               <div className="seg" role="group" aria-label="Order">
                 <button type="button" aria-pressed={ranking === 'newest'} onClick={() => setSort('newest')}>Newest</button>
@@ -181,28 +213,45 @@ export function Collection() {
           </div>
           {filtered && (
             <div className="filter-chips" data-collection="filters" aria-label="Filters">
-              {source && (
-                <span className="term" data-filter="source">
-                  From {names.get(source) ?? source}
-                  <button type="button" aria-label={`Show papers from every source, not only ${names.get(source) ?? source}`} onClick={() => drop('source')}>
+              {chips(filters, nameOf).map((chip) => (
+                <span key={`${chip.key}:${chip.value}`} className="term" data-filter={chip.key} data-value={chip.value}>
+                  {chip.text}
+                  <button type="button" aria-label={chip.remove} onClick={() => setParams(chip.key === 'from' || chip.key === 'to'
+                    ? withDate(params, chip.key, '') : toggled(params, chip.key, chip.value))}>
                     <Icon name="close" />
                   </button>
                 </span>
-              )}
-              {category && (
-                <span className="term" data-filter="category">
-                  In {category}
-                  <button type="button" aria-label={`Show papers in every category, not only ${category}`} onClick={() => drop('category')}>
-                    <Icon name="close" />
-                  </button>
-                </span>
+              ))}
+              {filterCount(filters) > 1 && (
+                <button type="button" className="btn quiet sm" onClick={() => setParams(withoutFilters(params))}>Clear all</button>
               )}
             </div>
           )}
           <p className="count-sentence">
-            {countSentence}
+            {said}
             {cap && <span className="count-cap" data-collection="count-cap"> · {cap}</span>}
           </p>
+          {offer && (
+            <div className="collection-export" data-collection="export" role="group" aria-label="Export the papers counted above">
+              <Icon name="download" size={14} />
+              <span>{offer.lead}</span>
+              {FORMATS.map((format) => (
+                <button key={format.id} type="button" className="btn sm" disabled={exporting.isPending}
+                  onClick={() => exporting.mutate({ format: format.id, scope })}>{format.label}</button>
+              ))}
+            </div>
+          )}
+          {offer?.note && <p className="export-note" data-collection="export-note">{offer.note}</p>}
+          {exportedHere && exporting.data && (
+            <p className="export-note" role="status" data-collection="exported">
+              {exportedWords(exporting.data.records, exporting.data.filename)}
+            </p>
+          )}
+          {exportedHere && exporting.error && (
+            <p className="field-error" role="alert" data-collection="export-refused">
+              {(exporting.error as EngineError).detail ?? exporting.error.message}
+            </p>
+          )}
           {ranking === 'similarity' && first && first.sort === 'similarity' && (
             <p className="rank-note">
               Closest to: <strong>{query}</strong>{first.model && <> — using <strong>{first.model}</strong></>}

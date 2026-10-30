@@ -25,6 +25,7 @@ const PATHS = {
   stop: <rect x="3.75" y="3.75" width="8.5" height="8.5" rx="1.5" />,
   back: <path d="M13 8H3M7 4 3 8l4 4" />,
   download: <><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7" /><path d="M2.75 13.25h10.5" /></>,
+  chevron: <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;
