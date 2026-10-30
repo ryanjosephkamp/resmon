@@ -81,10 +81,22 @@ export function utf16Range(text: string, start: number, end: number): [number, n
   return [chars.slice(0, start).join('').length, chars.slice(0, end).join('').length];
 }
 
-/** "1 of 2 pages examined by text extraction. Other pages: not examined." Every page examined says only the first sentence. */
+/**
+ * What text extraction did with the page on screen: "Page 2 of 7, read by text
+ * extraction." Each request reads the one page it asks for, and
+ * `examined_pages` names only that page (`evidence_reader.read_text`), so the
+ * words are about that page alone. A count of pages examined would be true of
+ * the request and read on screen as how much of the file has been read.
+ */
 export function examinedWords(page: PageText): string {
-  const examined = `${page.examined_pages.length} of ${page.page_count ?? 'an unknown number of'} ${page.page_count === 1 ? 'page' : 'pages'} examined by text extraction.`;
-  return page.page_count !== null && page.examined_pages.length >= page.page_count ? examined : `${examined} Other pages: not examined.`;
+  const known = page.page_count !== null;
+  const unknown = known ? '' : '; how many pages the file has is not known';
+  const of = known ? ` of ${page.page_count}` : '';
+  if (!page.examined_pages.includes(page.page_number)) {
+    return `Text extraction could not read page ${page.page_number}${of}${unknown}.`;
+  }
+  const said = `Page ${page.page_number}${of}, read by text extraction${unknown}.`;
+  return page.page_count === 1 ? said : `${said} Each page is read when you open it.`;
 }
 
 /** A page status the engine reports, in words; only `extracted` has text a passage can be taken from. */

@@ -44,11 +44,19 @@ test('a saved passage resolves only against the same version, contract, hash and
   expect(resolves(passage({ kind: 'note' }), page())).toBe(false);
 });
 
-test('how much of a document text extraction looked at, and no word about pages there are not', () => {
-  expect(examinedWords(page({ page_count: 2 }))).toBe('1 of 2 pages examined by text extraction. Other pages: not examined.');
-  expect(examinedWords(page())).toBe('1 of 1 page examined by text extraction.');
+test('what text extraction did with the page on screen, and no word about pages it has not read', () => {
+  expect(examinedWords(page({ page_count: 2 }))).toBe('Page 1 of 2, read by text extraction. Each page is read when you open it.');
+  expect(examinedWords(page())).toBe('Page 1 of 1, read by text extraction.');
   expect(examinedWords(page({ page_count: null }))).toBe(
-    '1 of an unknown number of pages examined by text extraction. Other pages: not examined.');
+    'Page 1, read by text extraction; how many pages the file has is not known. Each page is read when you open it.');
+  // Each request reads one page: the second page read says it is page 2, not "1 of 7 pages examined".
+  expect(examinedWords(page({ page_number: 2, page_count: 7, examined_pages: [2] })))
+    .toBe('Page 2 of 7, read by text extraction. Each page is read when you open it.');
+  // A page with no text was still read; one that could not be read is not called read.
+  expect(examinedWords(page({ status: 'no_text', page_text_sha256: null, page_count: 3, examined_pages: [1] })))
+    .toBe('Page 1 of 3, read by text extraction. Each page is read when you open it.');
+  expect(examinedWords(page({ status: 'malformed', page_number: 3, page_count: 7, examined_pages: [] })))
+    .toBe('Text extraction could not read page 3 of 7.');
 });
 
 describe('a refused export, in words a person can act on', () => {
