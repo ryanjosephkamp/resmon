@@ -34,7 +34,7 @@ The body:
   "completed_at": "2026-09-21T08:04:11",
   "result_count": 22,
   "new_result_count": 4,
-  "coverage_summary": "3 selected sources: 3 answered, 0 recorded non-answer (could not answer), 0 unknown.",
+  "coverage_summary": "3 selected sources: 3 answered, 0 recorded non-answers, 0 unknown.",
   "report_sha256": "…",
   "search_record_url": "https://your-resmon.example/api/executions/128/search-record?format=json",
   "bundle_url": "https://your-resmon.example/api/deliveries/41/bundle?exp=1758556800&sig=…",

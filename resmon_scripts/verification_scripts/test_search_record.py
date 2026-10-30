@@ -471,3 +471,32 @@ def test_an_answered_source_with_no_recorded_reason_is_still_called_unexplained(
     exec_id = _run(conn, sources={"arxiv": {"status": "ok", "result_count": 0}})
     record = search_record.build(conn, exec_id)
     assert any("did not record why 1 of the 1 sources" in c for c in record["caveats"])
+
+
+def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
+    exec_id = _run(conn, sources={"arxiv": {"result_count": 4}})
+    record_execution_source(conn, exec_id, "crossref", "ok", result_count=0,
+                            zero_reason="upstream_failure",
+                            zero_detail=json.dumps({"detail": "http_503", "status": 503, "attempts": 2}))
+    caveats = search_record.build(conn, exec_id)["caveats"]
+    assert (
+        "1 of the 2 recorded sources did not answer, so there is nothing to count (crossref). "
+        "Its note below says why. It did not contribute to this search."
+    ) in caveats
+    assert not any("nothing to find (crossref)" in c for c in caveats)
+
+    record_execution_source(conn, exec_id, "doaj", "ok", result_count=0, zero_reason="parse_failure",
+                            zero_detail=json.dumps({"detail": "parse_error"}))
+    caveats = search_record.build(conn, exec_id)["caveats"]
+    assert (
+        "2 of the 3 recorded sources did not answer, so there is nothing to count (crossref, doaj). "
+        "Their notes below say why. They did not contribute to this search."
+    ) in caveats
+
+
+def test_a_cancelled_run_s_coverage_says_it_was_cancelled_not_that_the_source_failed(conn):
+    exec_id = _run(conn, sources={"hal": {"status": "cancelled"}})
+    update_execution_status(conn, exec_id, "cancelled", end_time="2026-07-01T09:00:08Z")
+    summary = search_record.build(conn, exec_id)["coverage"]["summary"]
+    assert summary == (
+        "1 selected source: 0 answered, 1 recorded non-answer (cancelled before it answered), 0 unknown.")

@@ -113,6 +113,30 @@ def outcome(row: dict) -> dict:
             "partial": partial}
 
 
+def _counted(n: int, singular: str) -> str:
+    return f"{n} {singular}" if n == 1 else f"{n} {singular}s"
+
+
+def _non_answers(sources: list[dict], n: int) -> str:
+    """The non-answer count, and why, in words that agree with the count.
+
+    A source the run was still asking when it was cancelled did not fail to
+    answer: the run stopped first, and the report says so in those words. Only
+    the rest are said to have been unable to answer.
+    """
+    phrase = f"{n} recorded non-answer{'' if n == 1 else 's'}"
+    if not n:
+        return phrase
+    cancelled = sum(s["category"] == "non_answer" and s["status"] == "cancelled" for s in sources)
+    could_not = n - cancelled
+    stopped = f"cancelled before {'it' if cancelled == 1 else 'they'} answered"
+    if not cancelled:
+        return f"{phrase} (could not answer)"
+    if not could_not:
+        return f"{phrase} ({stopped})"
+    return f"{phrase} ({could_not} could not answer, {cancelled} {stopped})"
+
+
 def build(execution: dict, rows: list[dict]) -> dict:
     selected, provenance = selection(execution.get("parameters"))
     recorded = {row["source"]: outcome(row) for row in rows}
@@ -128,8 +152,9 @@ def build(execution: dict, rows: list[dict]) -> dict:
     counts["genuine_empty"] = sum(s["genuine_empty"] for s in sources)
     counts["partial"] = sum(bool(s.get("partial")) for s in sources)
     label = "selected sources" if selected is not None else "recorded sources"
-    summary = (f"{len(sources)} {label}: {counts['answered']} answered, "
-               f"{counts['non_answer']} recorded non-answer (could not answer), {counts['unknown']} unknown.") if sources else "No source outcomes were recorded; the full selected set is unknown."
+    noun = "selected source" if selected is not None else "recorded source"
+    summary = (f"{_counted(len(sources), noun)}: {counts['answered']} answered, "
+               f"{_non_answers(sources, counts['non_answer'])}, {counts['unknown']} unknown.") if sources else "No source outcomes were recorded; the full selected set is unknown."
     unexplained = sum(s["outcome_recorded"] and s["category"] == "unknown" and s["result_count"] == 0
                       and s["zero_reason"] in (None, "not_recorded") for s in sources)
     if unexplained:
