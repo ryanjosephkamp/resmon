@@ -1397,27 +1397,138 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-identity > div { display: contents; }
 .ev-identity dd { min-width: 0; margin: 0; }
 .ev-identity code.path { display: block; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ev-pages { display: flex; align-items: center; gap: 10px; margin-top: 10px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
+/* The reader's tools: the page, the zoom, every page at once, and focus mode. */
+.ev-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
+.ev-focus-name { display: none; }
+.ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
 .ev-page-input {
-  width: 4.5em; height: 30px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
+  width: 4.5em; height: 28px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
   background: var(--plate); color: var(--ink); font: 500 13px/1 var(--sans); text-align: right;
 }
 .ev-page-input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
-.ev-pdf { margin: 12px 0 14px; display: grid; gap: 8px; }
-.ev-pdf .form-hint { margin: 0; }
-.ev-pdf-head { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
-.ev-pdf-head select {
-  height: 30px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
-  background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
+.ev-zoom { display: inline-flex; align-items: center; gap: 2px; }
+.ev-zoom select {
+  height: 28px; padding: 0 6px; border: 1px solid var(--rule-2); border-radius: var(--r);
+  background: var(--plate); color: var(--ink); font: 400 12.5px/1 var(--sans); font-variant-numeric: tabular-nums;
 }
-.ev-pdf-head select:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
-/* The page is paper whatever the theme: PDF.js draws it on white. */
-.ev-pdf-frame {
-  max-height: 80vh; overflow: auto; scrollbar-gutter: stable;
-  border: 1px solid var(--rule-2); border-radius: var(--r); background: #fff;
+.ev-zoom select:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.btn.ev-icon { width: 28px; padding: 0; }
+.ev-tools kbd { padding: 2px 5px; font-size: 10.5px; }
+.ev-bridge {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin: 10px 0 0; padding: 6px 6px 6px 12px;
+  border-radius: var(--r); background: var(--panel-2); font: 400 13px/1.45 var(--sans); color: var(--ink-2);
 }
-.ev-pdf-frame canvas { display: block; }
+.ev-bridge span { flex: 1 1 24ch; }
+/* One column that never grows to its content: the pages scroll inside it, whatever their zoom. */
+.ev-pdf { margin: 12px 0 14px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.ev-pdf .form-hint { margin: 0; max-width: 84ch; }
+.ev-pdf .record-cap { margin: 0; }
 .ev-pdf-said { font-variant-numeric: tabular-nums; }
+.ev-pdf-failed { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ev-pdf-failed .field-error { margin: 0; }
+/* The pages, stacked in one scroll. Each is paper whatever the theme: PDF.js draws it on white. */
+.ev-viewport { position: relative; min-width: 0; min-height: 0; }
+.ev-scroll {
+  height: clamp(420px, calc(100vh - 240px), 1200px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  border: 1px solid var(--rule); border-radius: var(--r); background: var(--panel-2);
+}
+.ev-scroll:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.ev-sheets { position: relative; min-width: 100%; }
+.ev-sheet { position: absolute; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); }
+.ev-sheet-paint, .ev-sheet-paint canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+.ev-sheet-number { position: absolute; inset: 0; display: grid; place-items: center; font: 500 13px/1 var(--sans); color: #8c897f; font-variant-numeric: tabular-nums; }
+.ev-sheet-text { position: absolute; inset: 0; }
+.ev-sheet-error { position: absolute; left: 12px; right: 12px; top: 12px; margin: 0; padding: 8px 10px; border-radius: var(--r); background: var(--panel); }
+.ev-links { position: absolute; inset: 0; pointer-events: none; }
+.ev-link { position: absolute; display: block; padding: 0; border: 0; border-radius: 2px; background: transparent; cursor: pointer; pointer-events: auto; }
+.ev-link:hover { background: var(--accent-wash-2); }
+.ev-link:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.ev-chip { position: absolute; z-index: 3; border-radius: var(--r); box-shadow: var(--shadow); }
+/* PDF.js's text layer, styled as its own viewer styles it: transparent text laid over the drawing, there to be selected. */
+.ev-sheet .textLayer {
+  position: absolute; inset: 0; overflow: clip; opacity: 1; line-height: 1; text-align: initial; text-size-adjust: none;
+  forced-color-adjust: none; transform-origin: 0 0; caret-color: CanvasText; z-index: 0;
+  --scale-round-x: 1px; --scale-round-y: 1px;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+.ev-sheet .textLayer :is(span, br) { position: absolute; color: transparent; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+.ev-sheet .textLayer > :not(.markedContent), .ev-sheet .textLayer .markedContent span:not(.markedContent) {
+  z-index: 1; font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate, 0deg)) scaleX(var(--scale-x, 1)) scale(var(--min-font-size-inv));
+}
+.ev-sheet .textLayer .markedContent { display: contents; }
+.ev-sheet .textLayer span[role="img"] { user-select: none; cursor: default; }
+.ev-sheet .textLayer ::selection { background: var(--accent-wash-2); color: transparent; }
+.ev-sheet .textLayer br::selection { background: transparent; }
+.ev-sheet .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; }
+.ev-sheet .textLayer.selecting .endOfContent { top: 0; }
+/* Every page at once, over the pages. */
+.ev-gallery { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; border: 1px solid var(--rule); border-radius: var(--r); background: var(--panel); }
+.ev-gallery-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px 6px 14px; border-bottom: 1px solid var(--rule); }
+.ev-gallery-head .record-sub { margin: 0; }
+.ev-gallery-scroll { flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; }
+.ev-thumbs { list-style: none; margin: 0; padding: 14px; display: grid; grid-template-columns: repeat(auto-fill, minmax(136px, 1fr)); gap: 14px 10px; }
+.ev-thumb {
+  display: grid; justify-items: center; gap: 7px; width: 100%; padding: 8px 6px 7px; border: 0; border-radius: var(--r);
+  background: transparent; color: var(--ink-3); cursor: pointer;
+}
+.ev-thumb:hover { background: var(--panel-2); color: var(--ink); }
+.ev-thumb[aria-current="page"] { background: var(--accent-wash); color: var(--ink); }
+.ev-thumb:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.ev-thumb-paper { display: block; width: 120px; background: #fff; box-shadow: 0 0 0 1px var(--rule-2); overflow: hidden; }
+.ev-thumb[aria-current="page"] .ev-thumb-paper { box-shadow: 0 0 0 2px var(--accent-mark); }
+.ev-thumb-paper img { display: block; width: 100%; height: 100%; }
+.ev-thumb-number { font: 500 12px/1 var(--sans); }
+/*
+ * Focus mode: the reader takes the window, its tools become the top bar (the
+ * window's own controls inset at the left on macOS, as in the frame's bar),
+ * and the notes come back beside the pages when asked for.
+ */
+.ev-body[data-focus="true"] { --ev-side: min(400px, 34vw); }
+.ev-body[data-focus="true"] .ev-members, .ev-body[data-focus="true"] .ev-notes { display: none; }
+.ev-reader[data-focus="true"] {
+  position: fixed; inset: 0; z-index: 40; display: flex; flex-direction: column;
+  padding: 0; border: 0; border-radius: 0; background: var(--ground);
+}
+.ev-reader[data-focus="true"] > :not(.ev-tools, .ev-pdf, .ev-verdict, .ev-bridge) { display: none; }
+.ev-reader[data-focus="true"] .ev-tools {
+  flex: none; flex-wrap: nowrap; height: var(--bar-h); margin: 0; padding: 0 14px 0 20px; gap: 10px;
+  background: var(--bar); border-bottom: 1px solid var(--rule); -webkit-app-region: drag; user-select: none;
+}
+.is-mac .ev-reader[data-focus="true"] .ev-tools { padding-left: 86px; }
+.ev-reader[data-focus="true"] .ev-tools :is(button, input, select, label) { -webkit-app-region: no-drag; }
+.ev-reader[data-focus="true"] .ev-focus-name {
+  display: block; flex: 1 1 auto; min-width: 0; margin: 0; font: 600 14px/1.2 var(--sans); color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ev-reader[data-focus="true"] .ev-verdict { margin: 0; border-radius: 0; }
+.ev-reader[data-focus="true"] .ev-bridge {
+  position: absolute; left: 50%; bottom: 20px; z-index: 3; transform: translateX(-50%);
+  width: max-content; max-width: min(640px, calc(100% - 40px)); margin: 0;
+  border: 1px solid var(--rule); background: var(--raise); box-shadow: var(--shadow);
+}
+.ev-reader[data-focus="true"] .ev-pdf { flex: 1; min-height: 0; margin: 0; display: flex; flex-direction: column; gap: 0; }
+.ev-reader[data-focus="true"] .ev-pdf > :not(.ev-viewport, .ev-pdf-failed, .ev-pdf-opening) { display: none; }
+.ev-reader[data-focus="true"] :is(.ev-pdf-failed, .ev-pdf-opening) { padding: 14px 20px; }
+.ev-reader[data-focus="true"] .ev-viewport { flex: 1; }
+.ev-reader[data-focus="true"] .ev-scroll { height: 100%; border: 0; border-radius: 0; }
+/* The pages fill the window here, so the keyboard's place is a line under the tools rather than a frame around everything. */
+.ev-reader[data-focus="true"] .ev-scroll:focus-visible { outline: 0; box-shadow: inset 0 2px 0 var(--accent-mark); }
+.ev-reader[data-focus="true"] .ev-gallery { border: 0; border-radius: 0; }
+.ev-body[data-notes="open"] .ev-reader[data-focus="true"] { right: var(--ev-side); }
+.ev-body[data-notes="open"] .ev-notes {
+  display: block; position: fixed; top: 0; right: 0; bottom: 0; z-index: 40; width: var(--ev-side);
+  overflow: auto; overscroll-behavior: contain; padding: 0 18px 18px;
+  border: 0; border-left: 1px solid var(--rule); border-radius: 0; background: var(--panel);
+}
+.ev-notes-bar {
+  position: sticky; top: 0; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  height: var(--bar-h); margin: 0 -18px 14px; padding: 0 10px 0 18px;
+  background: var(--bar); border-bottom: 1px solid var(--rule); -webkit-app-region: drag;
+}
+.ev-notes-bar .record-sub { margin: 0; }
+.ev-notes-bar button { -webkit-app-region: no-drag; }
 .ev-text {
   width: 100%; margin-top: 10px; padding: 10px 12px; resize: vertical; border-radius: var(--r); border: 1px solid var(--rule-2);
   background: var(--plate); color: var(--ink); font: 400 13.5px/1.6 var(--sans);

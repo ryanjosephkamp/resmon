@@ -1,11 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import { MAX_CANVAS_BYTES, MAX_PIXELS, PDF_VERSION, RENDER_TIMEOUT, canvasScale, pdfAsset } from '../pdfjs';
+import { MAX_CANVAS_BYTES, MAX_DRAWN_PAGES, MAX_PIXELS, PDF_VERSION, RENDER_TIMEOUT, canvasScale, pdfAsset } from '../pdfjs';
 
 const ATLAS = path.join(__dirname, '..', '..', '..', '..');
 
 test('the bounds are the classic reader’s: 4 million pixels, 16 MiB, 20 seconds, PDF.js 6.3.289', () => {
   expect([MAX_PIXELS, MAX_CANVAS_BYTES, PDF_VERSION, RENDER_TIMEOUT]).toEqual([4_000_000, 16 * 1024 * 1024, '6.3.289', 20_000]);
+  // Pages are drawn near the view only, so the page count bounds the layout rather than memory.
+  expect(MAX_DRAWN_PAGES).toBe(5_000);
 });
 
 test('a canvas stays inside both budgets whatever the page size or zoom, and says when it was reduced', () => {
@@ -28,17 +30,25 @@ test('only files of the fixed copy beside the app are ever asked for', () => {
   expect(() => pdfAsset('https://example.com/pdf.min.js')).toThrow();
 });
 
-test('the page is drawn in a worker of its own, with every active part of a PDF switched off', () => {
-  const source = fs.readFileSync(path.join(__dirname, '..', 'PdfPage.tsx'), 'utf8');
-  expect(source).toContain('new Worker(');
-  expect(source).toContain('port: native');
-  expect(source).toContain('native?.terminate()');
-  expect(source).toContain('annotationMode: api.AnnotationMode.DISABLE');
+test('the pages are drawn in a worker of their own, with every active part of a PDF switched off but its links', () => {
+  const read = (name: string) => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+  const opening = read('pdfDocument.ts');
+  expect(opening).toContain('new Worker(');
+  expect(opening).toContain('port: native');
+  expect(opening).toContain('native?.terminate()');
   for (const token of ['enableXfa: false', 'useWasm: false', 'useSystemFonts: false', 'useWorkerFetch: false',
     'stopAtErrors: true', 'disableAutoFetch: true', 'disableStream: true', 'disableRange: true']) {
-    expect(source).toContain(token);
+    expect(opening).toContain(token);
   }
-  expect(source).not.toMatch(/getAnnotations|AnnotationLayer|getJSActions|getAttachments|isEvalSupported/);
+  // Every canvas, a page's or a thumbnail's, is drawn without annotations.
+  for (const name of ['PdfPage.tsx', 'PdfGallery.tsx']) expect(read(name)).toContain('annotationMode: session.api.AnnotationMode.DISABLE');
+  // Annotations are read only to find links, and only links are made from them.
+  const page = read('PdfPage.tsx');
+  expect(page).toContain("getAnnotations({ intent: 'display' })");
+  expect(page).toContain('linkTarget(annotation, session.api.AnnotationType.LINK)');
+  for (const name of ['pdfDocument.ts', 'PdfPage.tsx', 'PdfView.tsx', 'PdfGallery.tsx', 'readerModel.ts']) {
+    expect(read(name)).not.toMatch(/AnnotationLayer|getJSActions|getAttachments|isEvalSupported|unsafeUrl|renderForms|enableScripting/);
+  }
 });
 
 test('the window may start a worker from its own origin, and may not evaluate strings', () => {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
@@ -131,6 +131,10 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
   const [editing, setEditing] = useState<Note | null>(null);
   const [adding, setAdding] = useState(false);
   const [exporting, setExporting] = useState(false);
+  /** Focus mode: the reader takes the window, and the notes come back as a side panel when asked for. */
+  const [focus, setFocus] = useState(false);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
 
   /** A write answers with the project at its new revision: keep it, and read the lists again. */
   const changed = (next: Project) => {
@@ -159,6 +163,8 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
   const memberList = members.data?.files ?? [];
   const current: Member | undefined = memberList.find((m) => m.file_id === (reopen?.file_id ?? picked)) ?? (reopen ? undefined : memberList[0]);
   const reopenedFile: FileRecord | null = reopen && !current ? reopen.file : null;
+  const reading = current?.file ?? reopenedFile;
+  const focused = focus && view === 'files' && reading?.media_type === 'application/pdf';
 
   return (
     <section className="ev-workspace" aria-label={`Project ${project.name}`} data-project={project.project_id} data-revision={project.revision}>
@@ -210,7 +216,7 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
       </div>
       {view === 'answers' && <Answers project={project} members={memberList} notes={notes.data?.notes ?? []} />}
       {view === 'files' && (
-      <div className="ev-body">
+      <div className="ev-body" ref={body} data-focus={focused ? 'true' : undefined} data-notes={focused && notesOpen ? 'open' : undefined}>
         <section className="ev-members" aria-label="Files in this project">
           <h2 className="record-sub">Files</h2>
           {members.data && !memberList.length && <p className="record-cap">None yet. Add files from your library.</p>}
@@ -227,13 +233,15 @@ function Workspace({ vault, projectId, brought, onHandedOff }: {
           </ol>
         </section>
 
-        {(current || reopenedFile) && (
-          <Reader key={`${(current?.file ?? reopenedFile)!.file_id}:${reopen?.note_id ?? ''}`} project={project}
-            file={(current?.file ?? reopenedFile)!} member={!!current} pin={pin}
-            onAnchor={(a) => { setEditing(null); setAnchor(a); }} onRemove={current ? () => remove.mutate(current.file) : undefined} removing={remove.isPending} />
+        {reading && (
+          <Reader key={`${reading.file_id}:${reopen?.note_id ?? ''}`} project={project}
+            file={reading} member={!!current} pin={pin}
+            onAnchor={(a) => { setEditing(null); setAnchor(a); }} onRemove={current ? () => remove.mutate(current.file) : undefined} removing={remove.isPending}
+            focus={focused} onFocus={setFocus} notesOpen={notesOpen} onNotes={setNotesOpen} focusScope={body} />
         )}
 
         <NotesPanel project={project} file={current?.file ?? null} member={!!current} anchor={anchor}
+          onClose={focused ? () => setNotesOpen(false) : undefined}
           editing={editing} onEdit={(n) => { setAnchor(null); setEditing(n); }}
           notes={notes.data?.notes ?? []} total={notes.data?.total ?? 0}
           onSaved={changed} onClear={() => setAnchor(null)}
@@ -315,8 +323,11 @@ function AddFiles({ vault, project, members, onAdded }: { vault: string; project
   );
 }
 
-function NotesPanel({ project, file, member, anchor, editing, onEdit, notes, total, onSaved, onClear, onReopen }: {
-  project: Project; file: FileRecord | null; member: boolean; anchor: Anchor | null; editing: Note | null;
+function NotesPanel({ project, file, member, anchor, onClose, editing, onEdit, notes, total, onSaved, onClear, onReopen }: {
+  project: Project; file: FileRecord | null; member: boolean; anchor: Anchor | null;
+  /** In focus mode the panel sits beside the pages, and this puts it away again. */
+  onClose?: () => void;
+  editing: Note | null;
   onEdit: (n: Note | null) => void; notes: Note[]; total: number;
   onSaved: (p: Project) => void; onClear: () => void; onReopen: (n: Note) => void;
 }) {
@@ -332,6 +343,12 @@ function NotesPanel({ project, file, member, anchor, editing, onEdit, notes, tot
   const canSave = !save.isPending && length <= 20_000 && (editing ? true : member && !!file && (anchor ? true : length > 0));
   return (
     <section className="ev-notes" aria-label="Saved evidence notes">
+      {onClose && (
+        <div className="ev-notes-bar">
+          <h2 className="record-sub">Notes</h2>
+          <button type="button" className="btn sm quiet" onClick={onClose}>Close the notes</button>
+        </div>
+      )}
       {(file || editing) && (
         <form className="ev-note-form" onSubmit={(e) => { e.preventDefault(); if (canSave) save.mutate(); }}>
           <h3 className="record-sub">{heading}</h3>

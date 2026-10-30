@@ -6,21 +6,43 @@
  * pixels and 16 MiB of canvas memory, and 20 seconds to draw a page.
  */
 
-/** Only the public PDF.js canvas and worker calls the reader makes. */
-export interface PdfViewport { width: number; height: number }
+/** Only the public PDF.js calls the reader makes: drawing, a page's text to select, and its links. */
+export interface PdfViewport {
+  width: number; height: number; scale: number; rotation: number;
+  rawDims: { pageWidth: number; pageHeight: number; pageX: number; pageY: number };
+  convertToViewportPoint(x: number, y: number): number[];
+}
 export interface PdfRenderTask { promise: Promise<void>; cancel(): void }
+/** A page's text as positioned runs, which `TextLayer` lays over the drawing so it can be selected. */
+export interface PdfTextContent { items: unknown[]; styles: Record<string, unknown>; lang: string | null }
+/** An annotation as PDF.js reports it; the reader reads a link's rectangle and target and nothing else. */
+export interface PdfAnnotation { annotationType: number; rect: number[]; url?: unknown; dest?: unknown; action?: unknown; attachment?: unknown }
 export interface PdfPageProxy {
+  userUnit: number;
   getViewport(options: { scale: number }): PdfViewport;
   render(options: { canvas: HTMLCanvasElement; canvasContext: CanvasRenderingContext2D; viewport: PdfViewport; annotationMode: number }): PdfRenderTask;
+  getTextContent(options: { includeMarkedContent: boolean; disableNormalization: boolean }): Promise<PdfTextContent>;
+  getAnnotations(options: { intent: 'display' }): Promise<PdfAnnotation[]>;
   cleanup(): boolean;
 }
-export interface PdfDocument { numPages: number; getPage(page: number): Promise<PdfPageProxy>; destroy(): Promise<void> }
+export interface PdfRef { num: number; gen: number }
+export interface PdfDocument {
+  numPages: number;
+  getPage(page: number): Promise<PdfPageProxy>;
+  /** A named destination's explicit form, for a link within the document. */
+  getDestination(name: string): Promise<unknown[] | null>;
+  getPageIndex(ref: PdfRef): Promise<number>;
+  destroy(): Promise<void>;
+}
 export interface PdfWorker { promise: Promise<void>; destroy(): void }
 export interface PdfLoadingTask { promise: Promise<PdfDocument>; destroy(): Promise<void> }
+export interface PdfTextLayer { render(): Promise<void>; cancel(): void }
 export interface PdfModule {
   version: string;
   PDFWorker: new (options: { port: Worker; name: string }) => PdfWorker;
   AnnotationMode: { DISABLE: number };
+  AnnotationType: { LINK: number };
+  TextLayer: new (options: { textContentSource: PdfTextContent; container: HTMLElement; viewport: PdfViewport }) => PdfTextLayer;
   getDocument(options: {
     data: Uint8Array; worker: PdfWorker; enableXfa: false; useWasm: false; useSystemFonts: false; useWorkerFetch: false;
     stopAtErrors: true; disableAutoFetch: true; disableStream: true; disableRange: true; cMapUrl: string; cMapPacked: true;
@@ -32,6 +54,13 @@ export const PDF_VERSION = '6.3.289';
 export const MAX_PIXELS = 4_000_000;
 export const MAX_CANVAS_BYTES = 16 * 1024 * 1024;
 export const RENDER_TIMEOUT = 20_000;
+/**
+ * The most pages the reader lays out. Pages are drawn only near the view and
+ * let go away from it, so the count bounds the layout, not memory. The
+ * engine reads the text of PDFs up to 200 pages; a longer one is drawn here
+ * and its text is said not to be read.
+ */
+export const MAX_DRAWN_PAGES = 5_000;
 
 /** A file of the fixed distribution, by its path inside it; nothing outside it is ever asked for. */
 export function pdfAsset(relative: string): string {
@@ -49,7 +78,7 @@ export function loadPdfJs(): Promise<PdfModule> {
   pending ??= import(/* @vite-ignore */ pdfAsset('build/pdf.min.js')).then((value: unknown) => {
     const api = value as PdfModule;
     if (api.version !== PDF_VERSION || typeof api.PDFWorker !== 'function' || typeof api.getDocument !== 'function'
-      || api.AnnotationMode?.DISABLE !== 0) {
+      || typeof api.TextLayer !== 'function' || api.AnnotationMode?.DISABLE !== 0 || api.AnnotationType?.LINK !== 2) {
       throw new Error(`The page drawer is not PDF.js ${PDF_VERSION}.`);
     }
     return api;
