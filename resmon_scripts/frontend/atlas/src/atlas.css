@@ -724,7 +724,7 @@ kbd {
 /* A watching watch nothing will run, or none is confirmed to: said in words, and never in the accent a run gets. */
 .watch-next[data-firing="will-not-run"], .watch-next[data-firing="unconfirmed"] { color: var(--ink-2); font-weight: 560; }
 .firing-note {
-  margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; border-left: 2px solid var(--ink-3);
+  margin: 12px 0 0; padding: 10px 12px; border-radius: 8px;
   background: var(--panel-2); font: 400 13px/1.45 var(--sans); color: var(--ink); max-width: 72ch;
 }
 .firing-note a, .watch-warning a, .trouble-notes a { color: var(--ink); text-decoration: underline; text-decoration-color: var(--ink-3); text-underline-offset: 3px; }
