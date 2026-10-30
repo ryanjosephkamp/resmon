@@ -8196,6 +8196,179 @@
         "title": "LifecycleUnanswered",
         "type": "object"
       },
+      "MapFacetWatch": {
+        "additionalProperties": true,
+        "description": "A watch, and every paper its runs have ever returned.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "members": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "members"
+        ],
+        "title": "MapFacetWatch",
+        "type": "object"
+      },
+      "MapFacets": {
+        "additionalProperties": true,
+        "description": "``GET /api/map/facets``: what the map's filters and colors read, per paper.\n\nColumns in id order, one entry per paper in ``ids``. ``source`` indexes\n``sources`` (slugs). ``published_day`` is days since 1970-01-01 of the first\nday the stored publication date names (a year alone counts from January 1),\nor null where it is not a date. ``found_at`` is when resmon first collected\nthe paper, in Unix seconds. ``saved`` and ``read`` are the reading queue's\npapers by status; ``new`` the papers first collected after ``since``, which\nis Today's window (``window`` as Today words it).",
+        "properties": {
+          "found_at": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Found At",
+            "type": "array"
+          },
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "new": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "New",
+            "type": "array"
+          },
+          "published_day": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Published Day",
+            "type": "array"
+          },
+          "read": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Read",
+            "type": "array"
+          },
+          "saved": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Saved",
+            "type": "array"
+          },
+          "since": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Since"
+          },
+          "source": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Source",
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "watches": {
+            "items": {
+              "$ref": "#/components/schemas/MapFacetWatch"
+            },
+            "title": "Watches",
+            "type": "array"
+          },
+          "window": {
+            "enum": [
+              "since_last_look",
+              "first_look"
+            ],
+            "title": "Window",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ids",
+          "source",
+          "sources",
+          "published_day",
+          "found_at",
+          "saved",
+          "read",
+          "since",
+          "window",
+          "new",
+          "watches"
+        ],
+        "title": "MapFacets",
+        "type": "object"
+      },
+      "MapFind": {
+        "additionalProperties": true,
+        "description": "``GET /api/map/find``: the papers whose title or authors contain the query, newest first.",
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query",
+          "ids"
+        ],
+        "title": "MapFind",
+        "type": "object"
+      },
       "MapPoints": {
         "additionalProperties": true,
         "description": "Every paper on the plate, one entry per paper in each list, in id order.\n\nColumns rather than one object per paper: at 100,000 papers this is the\ndifference between a few megabytes and a few dozen.",
@@ -8312,6 +8485,169 @@
           "not_embedded"
         ],
         "title": "MapUnplaced",
+        "type": "object"
+      },
+      "MapView": {
+        "additionalProperties": true,
+        "description": "``GET`` and ``PUT /api/map/views/{name}``: a map's remembered filters and colors.\n\nEmpty ``watches`` or ``sources`` filter nothing. ``dates`` says which date\n``date_from`` and ``date_to`` (inclusive, ``YYYY-MM-DD``, either may be\nnull) are read against. The PUT answers what it stored, after anything it\ndid not recognize fell back to the default.",
+        "properties": {
+          "color": {
+            "enum": [
+              "region",
+              "watch",
+              "source",
+              "age"
+            ],
+            "title": "Color",
+            "type": "string"
+          },
+          "date_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "dates": {
+            "enum": [
+              "found",
+              "published"
+            ],
+            "title": "Dates",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "state": {
+            "enum": [
+              "any",
+              "saved",
+              "to_read",
+              "read",
+              "new"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "watches": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Watches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "color",
+          "watches",
+          "sources",
+          "dates",
+          "date_from",
+          "date_to",
+          "state"
+        ],
+        "title": "MapView",
+        "type": "object"
+      },
+      "MapViewBody": {
+        "description": "A map's whole view, every time: a PUT replaces it.",
+        "properties": {
+          "color": {
+            "enum": [
+              "region",
+              "watch",
+              "source",
+              "age"
+            ],
+            "title": "Color",
+            "type": "string"
+          },
+          "date_from": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date From"
+          },
+          "date_to": {
+            "anyOf": [
+              {
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date To"
+          },
+          "dates": {
+            "default": "found",
+            "enum": [
+              "found",
+              "published"
+            ],
+            "title": "Dates",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Sources",
+            "type": "array"
+          },
+          "state": {
+            "default": "any",
+            "enum": [
+              "any",
+              "saved",
+              "to_read",
+              "read",
+              "new"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "watches": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 500,
+            "title": "Watches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "color"
+        ],
+        "title": "MapViewBody",
         "type": "object"
       },
       "MissedFire": {
@@ -12229,6 +12565,24 @@
           "partial"
         ],
         "title": "RunCoverageSource",
+        "type": "object"
+      },
+      "RunDocumentIds": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/document-ids``: every paper the run\nstored that is still in the collection, by id, for the run's map.",
+        "properties": {
+          "ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ids"
+        ],
+        "title": "RunDocumentIds",
         "type": "object"
       },
       "RunLog": {
@@ -21478,6 +21832,46 @@
         "summary": "List Execution Deliveries"
       }
     },
+    "/api/executions/{exec_id}/document-ids": {
+      "get": {
+        "description": "Every paper this run stored that is still in the collection, by id.\n\nThe run's map needs all of them and nothing else about them: the map\nalready holds their positions. The papers themselves are paged by\n``/documents``; ids alone are a few bytes each, so they come whole.",
+        "operationId": "get_execution_document_ids_api_executions__exec_id__document_ids_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exec_id",
+            "required": true,
+            "schema": {
+              "title": "Exec Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunDocumentIds"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Execution Document Ids"
+      }
+    },
     "/api/executions/{exec_id}/documents": {
       "get": {
         "description": "One page of the papers this run found, each with its stored id.\n\nResults & Logs listed runs and rendered a Markdown report; the papers\ninside a run were reachable only by reading that text or by exporting the\nwhole file. Neither gives a user something to click, and an execution id is\nnot a paper id -- so the Papers tab needed a route that hands back the\ncorpus-local document ids the rest of the app is keyed on (the same ids\n``include_ids`` carries into a JSON export, phase 2.1a).\n\nPaged rather than whole: a sweep can return thousands, and a renderer that\nholds all of them is a renderer that stops responding on the run that\nmatters most. ``queue_status`` rides along so the Save control can show the\nstate the database actually holds instead of guessing from what the user\nlast clicked.",
@@ -22909,6 +23303,154 @@
           }
         },
         "summary": "Get Collection Map"
+      }
+    },
+    "/api/map/facets": {
+      "get": {
+        "description": "What the map's filters and colors read about every paper: its source,\nits dates, its place in the reading queue, whether it is new on Today, and\nthe watches that found it. See ``map_facets`` for what each says.",
+        "operationId": "get_map_facets_api_map_facets_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapFacets"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Map Facets"
+      }
+    },
+    "/api/map/find": {
+      "get": {
+        "description": "The papers whose title or authors contain ``q``, newest first, for\nlighting them on a map. Fewer than two characters find nothing.",
+        "operationId": "find_on_map_api_map_find_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapFind"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Find On Map"
+      }
+    },
+    "/api/map/views/{name}": {
+      "get": {
+        "description": "The filters and colors a map was last left with: Today's (``today``),\nor every run's map (``run``).",
+        "operationId": "get_map_view_api_map_views__name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Map View"
+      },
+      "put": {
+        "operationId": "put_map_view_api_map_views__name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MapViewBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Map View"
       }
     },
     "/api/onboarding": {

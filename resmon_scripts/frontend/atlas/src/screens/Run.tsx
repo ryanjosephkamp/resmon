@@ -16,7 +16,7 @@ import { exportReferences, FORMATS, type ReferenceFormat } from './runs/referenc
 import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
-import { RunTabs, type RunPaper } from './runs/RunTabs';
+import { RunTabs, type RunPaper, type Tab } from './runs/RunTabs';
 import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
 import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
@@ -78,6 +78,14 @@ export function Run() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const [now] = useState(() => new Date());
+  const [tab, setTab] = useState<Tab>('Papers');
+  // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
+  const openMap = () => {
+    setTab('Map');
+    requestAnimationFrame(() => document.getElementById('run-record')?.scrollIntoView({
+      block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+    }));
+  };
 
   const run = useQuery({
     queryKey: ['run', id],
@@ -376,10 +384,12 @@ export function Run() {
             </>
           )}
         </section>
-        <RunSky paperIds={(papers.data?.papers ?? []).map((paper) => paper.id)} />
+        <RunSky paperIds={(papers.data?.papers ?? []).map((paper) => paper.id)} endedAt={running ? null : data.end_time ?? null}
+          onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined} />
       </div>
 
-      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running} />
+      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running}
+        tab={tab} onTab={setTab} />
     </div>
   );
 }

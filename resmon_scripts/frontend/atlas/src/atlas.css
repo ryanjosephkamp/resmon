@@ -337,7 +337,8 @@ kbd {
 /* ----------------------------------------------------------------- today */
 
 .today { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 40vw, 600px); height: 100%; min-height: 0; }
-.today-plate { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; min-height: 0; background: var(--plate); }
+.today-plate { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--plate); }
+.today-plate > .plate { flex: 1 1 auto; }
 
 .plate { position: relative; min-width: 0; min-height: 0; overflow: hidden; animation: plate-in 520ms var(--ease-out); }
 .plate-canvas { display: block; cursor: crosshair; touch-action: none; }
@@ -394,6 +395,90 @@ kbd {
 .plate-key-unit { margin-left: 2px; }
 .plate-key-item { display: inline-flex; align-items: center; gap: 6px; }
 .plate-key-item svg { color: var(--ink); }
+.plate-key-colors { display: contents; }
+.map-key-n { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.map-key-entry { color: var(--ink-2); }
+
+/* A map's bar: find, filters, and colors over it, in one line the height of the list's bar beside it. */
+.map-bar {
+  flex: none; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 8px; min-height: 56px; padding: 10px 30px 10px 28px;
+  border-bottom: 1px solid var(--rule); background: var(--plate);
+}
+.map-find {
+  display: inline-flex; align-items: center; gap: 6px; flex: 1 1 200px; max-width: 340px; min-width: 170px; height: 30px;
+  padding: 0 4px 0 10px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--panel); color: var(--ink-3);
+}
+.map-find:focus-within { border-color: var(--ink-3); }
+.map-find input {
+  flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none;
+  font: 400 13px/1 var(--sans); color: var(--ink);
+}
+.map-find input::placeholder { color: var(--ink-3); }
+.map-find input::-webkit-search-cancel-button { cursor: pointer; }
+.map-find:has(input:focus-visible) { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
+.map-find-at { flex: none; font: 500 12px/1 var(--sans); color: var(--ink-2); padding: 0 2px; }
+.map-find-step {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--ink-2); cursor: pointer;
+}
+.map-find-step:hover { background: var(--panel-2); color: var(--ink); }
+.map-find-step .icon { transform: rotate(180deg); }
+.map-find-step.next .icon { transform: none; }
+.map-facet .map-facet-label { color: var(--ink-3); }
+.map-facet .map-facet-value { color: var(--ink); }
+.map-shown { margin-left: auto; font: 400 12.5px/1.35 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; text-align: right; }
+.facet-trigger[data-facet="today-filters"] { anchor-name: --map-today-filters; }
+.facet-trigger[data-facet="today-colors"] { anchor-name: --map-today-colors; }
+.facet-trigger[data-facet="run-filters"] { anchor-name: --map-run-filters; }
+.facet-trigger[data-facet="run-colors"] { anchor-name: --map-run-colors; }
+.facet-menu[data-facet="today-filters"] { position-anchor: --map-today-filters; }
+.facet-menu[data-facet="today-colors"] { position-anchor: --map-today-colors; }
+.facet-menu[data-facet="run-filters"] { position-anchor: --map-run-filters; }
+.facet-menu[data-facet="run-colors"] { position-anchor: --map-run-colors; }
+.facet-menu.map-menu { width: 340px; max-height: min(720px, calc(100vh - 150px)); position-try-fallbacks: flip-inline, flip-block; }
+.map-menu-head { display: flex; align-items: flex-start; gap: 8px; }
+.map-menu-head .facet-caption { flex: 1; }
+.map-menu-head .btn { flex: none; margin: -4px 4px 0 0; }
+.map-menu-group { padding: 8px 0 6px; border-top: 1px solid var(--rule); }
+.map-menu-group:first-of-type { border-top: 0; }
+.map-menu-group legend { padding: 4px 8px 6px; font: 600 12.5px/1.2 var(--sans); color: var(--ink); }
+.map-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 8px; font: 400 13px/1.3 var(--sans); color: var(--ink-2); }
+.map-menu-row select, .map-menu-row input {
+  width: 200px; height: 30px; padding: 0 8px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans); color-scheme: inherit;
+}
+.map-menu-dates .facet-caption { margin-top: 2px; }
+.map-color-option { grid-template-columns: 15px minmax(0, 1fr); row-gap: 2px; align-items: start; }
+.map-color-option input { margin-top: 1px; }
+.map-color-hint { grid-column: 2; font: 400 12px/1.4 var(--sans); color: var(--ink-3); }
+
+/* A paper chosen on the map, beside it in the list's place, with the same facts and actions as its own page. */
+.map-paper .index-bar { justify-content: space-between; gap: 10px; padding-left: 18px; }
+.map-paper-back { margin-left: -2px; color: var(--ink); }
+.map-paper .map-paper-scroll { padding-top: 18px; }
+.map-paper-place { display: flex; align-items: baseline; gap: 8px; margin: 0; font: 500 12.5px/1.3 var(--sans); color: var(--ink-3); }
+.map-paper-place .cell {
+  border: 1px solid var(--rule-2); background: transparent; padding: 3px 7px; border-radius: 6px;
+  font: 600 12px/1 var(--sans); color: var(--ink-2); font-variant-numeric: tabular-nums; cursor: zoom-in;
+}
+.map-paper-place .cell:hover { color: var(--accent-ink); border-color: var(--accent-mark); }
+.map-paper-place .it { font-size: 15px; color: var(--ink-2); }
+.map-paper-title { margin: 10px 0 0; font: 600 21px/1.25 var(--sans); letter-spacing: -.012em; color: var(--ink); text-wrap: balance; }
+.map-paper .paper-meta { margin-top: 8px; }
+.map-paper .paper-meta .who { white-space: normal; }
+.map-paper-found { margin: 2px 0 0; font: 400 12.5px/1.4 var(--sans); color: var(--ink-3); }
+.map-paper-found .sep-dot { margin: 0 2px; }
+.map-paper .paper-actions { margin-top: 14px; }
+.map-paper-links { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 14px 0 0; padding: 0; }
+.map-paper-links a {
+  display: inline-flex; align-items: center; gap: 6px; font: 500 13px/1.3 var(--sans); color: var(--ink);
+  text-decoration: underline; text-decoration-color: var(--rule-2); text-underline-offset: 3px; overflow-wrap: anywhere;
+}
+.map-paper-links a:hover { text-decoration-color: var(--ink-3); }
+.map-paper-links .icon { color: var(--ink-3); }
+.map-paper .paper-section { margin-top: 26px; }
+.map-paper .paper-section h2 { font-size: 14.5px; }
+.map-paper-abstract { font-size: 14px; line-height: 1.6; }
 
 .index { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--rule); }
 .index-bar { height: 56px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 22px 0 28px; border-bottom: 1px solid var(--rule); }
@@ -660,7 +745,22 @@ kbd {
 .sky figcaption { margin-top: 10px; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
 .sky.tall figcaption { margin: 0; padding: 12px 28px 16px; border-top: 1px solid var(--rule); }
 
-.run-record { margin-top: 40px; }
+.run-sky-open { margin-top: 12px; }
+
+.run-record { margin-top: 40px; scroll-margin-top: 12px; }
+
+/* A run's own map: Today's plate and its bar over the run's papers, the chosen paper beside it. */
+.run-map {
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 30vw, 420px);
+  height: clamp(480px, calc(100vh - 150px), 900px); border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden;
+}
+.run-map-plate { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--plate); }
+.run-map-plate > .plate { flex: 1 1 auto; }
+.run-map-plate .map-bar { padding-left: 18px; padding-right: 18px; }
+.run-map-plate .plate-key { padding-left: 18px; padding-right: 18px; }
+.run-map .index-bar h2 { margin: 0; }
+.run-map-account { margin: 18px 0 0; font: 500 15px/1.45 var(--sans); color: var(--ink); text-wrap: pretty; }
+.run-map-note { margin: 10px 0 0; font: 400 13px/1.55 var(--sans); color: var(--ink-2); max-width: 52ch; text-wrap: pretty; }
 .run-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--rule); overflow-x: auto; }
 .run-tabs button {
   position: relative; display: inline-flex; align-items: center; gap: 7px; height: 40px; padding: 0 12px;
@@ -711,6 +811,7 @@ kbd {
 @media (max-width: 1180px) {
   .run-main { grid-template-columns: minmax(0, 1fr); }
   .run-main .sky { max-width: 420px; }
+  .run-map { grid-template-columns: minmax(0, 1fr) 320px; }
 }
 
 /* ------------------------------------------------------------ collection */

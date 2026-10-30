@@ -129,7 +129,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 
     // The tabs a run's record has.
     expect((await win.getByRole('tab').allInnerTexts()).map((t) => t.trim()))
-      .toEqual(['Papers', 'Report', 'Search record', 'Log', 'Metadata', 'Progress']);
+      .toEqual(['Papers', 'Map', 'Report', 'Search record', 'Log', 'Metadata', 'Progress']);
     await win.getByRole('tab', { name: 'Report' }).click();
     await expect(win.locator('.record-text.is-report')).toContainText(TITLE);
 

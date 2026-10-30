@@ -12,7 +12,7 @@ const NUMBER = new Intl.NumberFormat('en-US');
  * time, which puts a UTC clock on the screen, so a date and time with no zone
  * is read as UTC. Anything else is read as written.
  */
-function instant(iso: string): Date {
+export function instant(iso: string): Date {
   const bare = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(iso) && !/(?:Z|[+-]\d\d:?\d\d)$/i.test(iso);
   return new Date(bare ? `${iso.replace(' ', 'T')}Z` : iso);
 }
