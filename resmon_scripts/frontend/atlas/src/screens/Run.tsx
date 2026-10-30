@@ -5,13 +5,14 @@ import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
 import { duration, when } from './today/format';
 import {
-  FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle, selectedSources,
-  type CoverageSource, type ProgressEvent, type Run as RunData,
+  deletedSentence, deleteQuestion, FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle,
+  selectedSources, type CoverageSource, type ProgressEvent, type Run as RunData,
 } from './runs/model';
 import { saveBundle } from './runs/downloads';
+import { useDeleteRuns } from './runs/remove';
 import { RestartFacts } from './runs/RestartFacts';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
-import { RUNS_KEY } from './runs/RunLog';
+import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper } from './runs/RunTabs';
@@ -116,6 +117,20 @@ export function Run() {
     mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: [id] }, format, `resmon-references-${id}`),
   });
   const bundle = useMutation({ mutationFn: (runId: number) => saveBundle(runId) });
+  // Deleted, the run has no page: back to the log, which no longer lists it,
+  // in place of this page in the history so Back does not return to it.
+  const remove = useDeleteRuns();
+  const askToDelete = (data: RunData, title: string) => {
+    const question = deleteQuestion([{ id: data.id, status: data.status, title }]);
+    if (!question || !window.confirm(question)) return;
+    remove.mutate([data.id], {
+      onSuccess: (outcome) => {
+        const said = deletedSentence(outcome);
+        if (said) navigate('/search/ask', { replace: true, state: { deleted: said } satisfies RunLogNotice });
+      },
+    });
+  };
+  const refused = remove.variables?.[0] === id ? remove.data?.refused[0]?.reason ?? null : null;
 
   const live = useMemo(
     () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
@@ -144,13 +159,14 @@ export function Run() {
   const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
   const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null);
+  const title = runTitle(data, watch);
 
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
       <header className="run-head">
         <Link to="/search/ask" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">
-          <h1 className={watch ? 'run-name it' : 'run-name'}>{runTitle(data, watch)}</h1>
+          <h1 className={watch ? 'run-name it' : 'run-name'}>{title}</h1>
           <div className="run-actions">
             {running && (
               <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping}>
@@ -175,6 +191,13 @@ export function Run() {
               <button type="button" className="btn" data-run="bundle" disabled={bundle.isPending}
                 aria-describedby="run-bundle-what" onClick={() => bundle.mutate(id)}>
                 <Icon name="download" size={14} />{bundle.isPending && bundle.variables === id ? 'Building the bundle' : 'Bundle'}
+              </button>
+            )}
+            {/* A run still running is not offered: the engine refuses to delete it. */}
+            {!running && (
+              <button type="button" className="btn quiet" data-run="delete" disabled={remove.isPending}
+                onClick={() => askToDelete(data, title)}>
+                {remove.isPending && remove.variables?.[0] === id ? 'Deleting' : 'Delete this run'}
               </button>
             )}
           </div>
@@ -211,6 +234,7 @@ export function Run() {
           </p>
         )}
         {failure && <p className="field-error" role="alert">{refusal(failure)}</p>}
+        {refused && <p className="field-error" role="alert" data-run="delete-refused">{refused}</p>}
       </header>
 
       <div className="run-main">

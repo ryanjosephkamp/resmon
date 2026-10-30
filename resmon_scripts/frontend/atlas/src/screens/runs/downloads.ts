@@ -5,10 +5,12 @@
  *
  * The report and the search record are Markdown text. The run's bundle (the
  * report, its PDF and LaTeX where a LaTeX engine could make them, the log, the
- * metadata, and the search record) and the saved-search archive are ZIPs the
- * engine builds with the same code that writes them for classic's exports.
+ * metadata, and the search record), several runs' bundles in one archive, and
+ * the saved-search archive are ZIPs the engine builds with the same code that
+ * writes them for classic's exports.
  */
 import { EngineError, engineSentence, engine } from '../../api/client';
+import { runsFileStem } from './model';
 
 /** Hand bytes or text the engine composed to the system as a download. */
 export function saveFile(content: BlobPart, filename: string, type: string): void {
@@ -65,4 +67,15 @@ export function saveBundle(id: number): Promise<void> {
     params: { path: { exec_id: id } },
     parseAs: 'arrayBuffer',
   }), `resmon-bundle-${id}.zip`, 'The bundle');
+}
+
+/**
+ * Several runs' bundles in one archive, one folder per run, built by the engine as it builds one run's.
+ * The runs go in by number, as the file name lists them, whatever order they were ticked or drawn in.
+ */
+export function saveRunsBundle(ids: readonly number[]): Promise<void> {
+  return saveZip(engine().POST('/api/executions/archive', {
+    body: { ids: [...new Set(ids)].sort((a, b) => a - b) },
+    parseAs: 'arrayBuffer',
+  }), `${runsFileStem('resmon-bundle', ids)}.zip`, 'The bundle');
 }

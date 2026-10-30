@@ -132,7 +132,7 @@ export function Search() {
   const coarse = useMemo(() => coarseFor(picked, dates.from, dates.to), [picked, dates]);
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
-    ? 'resmon is already running as many searches as it allows at once. Try again in a few seconds.'
+    ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
     : start.error ? `The search could not start: ${start.error.message}.` : null;
 
   return (

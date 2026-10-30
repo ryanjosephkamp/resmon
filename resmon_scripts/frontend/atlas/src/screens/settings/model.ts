@@ -89,6 +89,53 @@ export function daemonSentence(daemon: DaemonStatus, state: DaemonState, since: 
 }
 
 /**
+ * The two limits the engine's admission control reads (`admission.py`), and
+ * the ranges `PUT /api/settings/execution` accepts.
+ */
+export const RUN_LIMITS = {
+  runs: { min: 1, max: 8, words: 'Runs at once' },
+  queue: { min: 1, max: 64, words: 'Watch runs that can wait' },
+} as const;
+
+/** Why a typed limit cannot be saved, or null when it can. */
+export function limitProblem(raw: string, limit: (typeof RUN_LIMITS)[keyof typeof RUN_LIMITS]): string | null {
+  const text = raw.trim();
+  const n = Number(text);
+  if (text === '' || !/^\d+$/.test(text) || n < limit.min || n > limit.max) {
+    return `${limit.words} must be a whole number from ${limit.min} to ${limit.max}.`;
+  }
+  return null;
+}
+
+/**
+ * Which engine a change to the limits reaches, and when. Each engine holds
+ * its own count of what it is running and reads the stored limits when it
+ * starts; the one that answers the change also applies it at once. Only the
+ * background service runs watches on schedule, so a window with an engine of
+ * its own changes the service's limits only from the service's next start.
+ */
+export function limitsReach(state: DaemonState | null): string {
+  switch (state) {
+    case 'attached':
+      return 'This window uses the background service’s engine, so a change applies to it at once: to your searches and to your watches.';
+    case 'beside':
+      return 'This window uses an engine it started itself, so a change applies to that engine at once. The background service, '
+        + 'which runs your watches on schedule, is a separate engine with its own count, and reads these limits when it next starts.';
+    case 'none':
+    case 'unanswered':
+      return 'This window uses an engine it started itself, so a change applies to that engine at once. The background service, '
+        + 'which runs your watches on schedule, reads these limits when it starts.';
+    default:
+      return 'A change applies at once to the engine this window uses. Any other engine reads these limits when it next starts.';
+  }
+}
+
+/** Whether the stored `cloud_auto_backup` is on, as the engine reads it: "true", in any case, and nothing else. */
+export function autoBackupOn(stored: string | null | undefined): boolean {
+  return (stored ?? '').trim().toLowerCase() === 'true';
+}
+
+/**
  * Whether the staged restore runs when this app next starts, so Restart
  * resmon now would carry it out. Not where the background service holds the
  * database (restarting the app is not a start of the service), and not for a

@@ -2413,11 +2413,28 @@ def get_execution_log(exec_id: int):
 
 @app.delete("/api/executions/{exec_id}")
 def delete_execution(exec_id: int):
+    """Delete a run's record; its report and log files stay where they were written.
+
+    The row goes, and with it, by ``ON DELETE CASCADE``, what each source
+    answered (``execution_sources``), its AI lanes (``execution_ai``), where
+    its report was sent (``deliveries``), and its links to the papers it found
+    (``execution_documents``). The papers stay in the corpus, and a run
+    restarted from this one stays, without the link back.
+
+    A run that is still running is refused with 409. Its worker writes its
+    papers, its outcomes and its final status into the row as it goes, and a
+    row deleted under it would turn those writes into failures of a run the
+    person can no longer see.
+    """
     conn = _get_db()
     try:
         row = get_execution_by_id(conn, exec_id)
         if not row:
             raise HTTPException(404, "Execution not found")
+        if row.get("status") == "running":
+            raise HTTPException(409, (
+                f"Run {exec_id} is still running, so it was not deleted. Stop it, "
+                "and delete it once it has stopped."))
         conn.execute("DELETE FROM executions WHERE id = ?", (exec_id,))
         conn.commit()
         return {"success": True}
@@ -2508,6 +2525,35 @@ def download_execution_bundle(exec_id: int):
     finally:
         _close_db(conn)
     return _zip_download(out, out.name, staging)
+
+
+@app.post("/api/executions/archive", response_model=None, response_class=FileResponse, responses=_ZIP_DOWNLOAD)
+def download_executions(body: ExecutionExport):
+    """The same archive ``POST /api/executions/export`` writes, as bytes.
+
+    Several runs' reports, logs, metadata and search records in one ZIP, built
+    by ``_build_execution_zip`` as the export route builds it. The export route
+    writes to a folder the engine chooses and answers with the path; this one
+    answers with the archive itself, so a renderer can hand it to the system's
+    save dialog. A run that no longer exists is left out, as the export route
+    leaves it out, and a choice with none left is a 404 rather than an empty
+    archive.
+    """
+    conn = _get_db()
+    staging = tempfile.mkdtemp(prefix="resmon_runs_")
+    try:
+        rows = [row for row in (get_execution_by_id(conn, eid) for eid in dict.fromkeys(body.ids)) if row]
+        if not rows:
+            raise HTTPException(404, "None of the chosen runs exists.")
+        companions = {int(row["id"]): search_record.build(conn, int(row["id"])) for row in rows}
+        out = _build_execution_zip(rows, Path(staging) / "runs.zip", companions=companions)
+    except BaseException:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    finally:
+        _close_db(conn)
+    stamp = datetime.now().strftime('%Y%m%dT%H%M%S')
+    return _zip_download(out, f"resmon_executions_{stamp}.zip", staging)
 
 
 def _build_execution_zip(rows: list[dict], out_path: Path, *,

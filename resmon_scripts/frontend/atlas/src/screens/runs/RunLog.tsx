@@ -1,14 +1,22 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router-dom';
-import { answer, engine } from '../../api/client';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { answer, engine, EngineError } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { clock, count, dayWord, number } from '../today/format';
-import { interruptedSentence, RESTARTABLE, runKind, runTitle, type RunRow } from './model';
+import { saveRunsBundle } from './downloads';
+import {
+  deletedSentence, deleteQuestion, interruptedSentence, RESTARTABLE, RUNS_KEY, runKind, runsFileStem, runTitle,
+  stillRunning, type RunRow,
+} from './model';
 import { exportReferences, FORMATS, type ReferenceFormat } from './references';
+import { useDeleteRuns } from './remove';
 import { RestartFacts } from './RestartFacts';
 
-export const RUNS_KEY = ['runs'] as const;
+export { RUNS_KEY };
+
+/** What a run's own page hands the log when it deleted the run and came back here. */
+export interface RunLogNotice { deleted?: string }
 
 /** The routines' names, for a watch run's title. `/api/routines` declares no model. */
 interface RoutineName { id: number; name: string }
@@ -38,12 +46,15 @@ function summary(run: RunRow): string {
 /**
  * Every run so far, newest first, grouped by day: a manual search by its
  * terms, a watch's run by the watch's name. Selected runs export their papers
- * together, one entry per paper however many runs found it. A run that
- * stopped before it finished can be started again from here, after the same
- * account of what Restart does that the run's own page gives.
+ * together, one entry per paper however many runs found it, or the runs
+ * themselves as one bundle, or are deleted, after a question that says what
+ * deleting removes and what it leaves. A run that stopped before it finished
+ * can be started again from here, after the same account of what Restart does
+ * that the run's own page gives.
  */
 export function RunLog() {
   const navigate = useNavigate();
+  const notice = (useLocation().state as RunLogNotice | null)?.deleted ?? null;
   const [now] = useState(() => new Date());
   const runs = useQuery({
     queryKey: RUNS_KEY,
@@ -68,10 +79,30 @@ export function RunLog() {
     })),
     onSuccess: (started) => navigate(`/runs/${started.execution_id}`),
   });
+  // The chosen runs as the log now holds them: a run deleted elsewhere, or no
+  // longer among the runs read, is not counted, exported, or asked about.
+  const chosen = useMemo(() => (runs.data ?? []).filter((run) => selected.includes(run.id)), [runs.data, selected]);
+  const ids = chosen.map((run) => run.id);
   const exporting = useMutation({
-    mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: selected }, format,
-      `resmon-references-${[...selected].sort((a, b) => a - b).join('-')}`),
+    mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: ids }, format, runsFileStem('resmon-references', ids)),
   });
+  const bundling = useMutation({ mutationFn: (runIds: number[]) => saveRunsBundle(runIds) });
+  const remove = useDeleteRuns();
+  const going = chosen.filter((run) => run.status === 'running');
+  const askToDelete = () => {
+    const question = deleteQuestion(chosen.map((run) => ({
+      id: run.id, status: run.status, title: runTitle(run, run.routine_id ? names.get(run.routine_id) ?? null : null),
+    })));
+    if (!question || !window.confirm(question)) return;
+    remove.mutate(ids.filter((id) => !going.some((run) => run.id === id)), {
+      onSuccess: (outcome) => {
+        const gone = new Set([...outcome.deleted, ...outcome.gone]);
+        setSelected((current) => current.filter((id) => !gone.has(id)));
+      },
+    });
+  };
+  const said = remove.data ? deletedSentence(remove.data) : notice;
+  const failure = exporting.error ?? bundling.error;
 
   const groups = useMemo(() => {
     const out: { day: string; runs: RunRow[] }[] = [];
@@ -92,17 +123,47 @@ export function RunLog() {
       <div className="index-bar">
         <h2>Runs<span>{runs.data ? number(runs.data.length) : ''}</span></h2>
       </div>
-      {selected.length > 0 && (
-        <div className="export-bar" role="group" aria-label="Export the selected runs">
-          <span>{count(selected.length, 'run')}: export their papers as</span>
+      {chosen.length > 0 && (
+        <div className="export-bar" role="group" aria-label="The selected runs">
+          <span>{count(chosen.length, 'run')}: export their papers as</span>
           {FORMATS.map((format) => (
             <button key={format.id} type="button" className="btn sm" disabled={exporting.isPending}
               onClick={() => exporting.mutate(format.id)}>
               {format.label}
             </button>
           ))}
-          <button type="button" className="btn quiet sm" onClick={() => setSelected([])}>Clear</button>
-          {exporting.error && <p className="field-error" role="alert">{exporting.error.message}</p>}
+          <div className="export-runs">
+            <span>The runs themselves:</span>
+            <button type="button" className="btn sm" data-runs="bundle" aria-describedby="runs-bundle-what"
+              disabled={bundling.isPending} onClick={() => bundling.mutate(ids)}>
+              <Icon name="download" size={14} />{bundling.isPending ? 'Building the bundle' : 'Bundle'}
+            </button>
+            <button type="button" className="btn sm" data-runs="delete" disabled={remove.isPending || going.length === chosen.length}
+              onClick={askToDelete}>
+              {remove.isPending ? 'Deleting' : 'Delete'}
+            </button>
+            <button type="button" className="btn quiet sm" onClick={() => setSelected([])}>Clear</button>
+          </div>
+          <p id="runs-bundle-what" className="sr-only">
+            The runs&rsquo; bundle: each run&rsquo;s report, with a PDF and LaTeX where they could be made, its log, its
+            metadata, and its search record, in one archive.
+          </p>
+          {going.length > 0 && (
+            <p className="export-note" data-runs="still-running">{stillRunning(going.map((run) => run.id))}</p>
+          )}
+          {failure && (
+            <p className="field-error" role="alert">
+              {failure instanceof EngineError && failure.detail ? failure.detail : failure.message}
+            </p>
+          )}
+        </div>
+      )}
+      {(said || (remove.data && remove.data.refused.length > 0)) && (
+        <div className="runlog-said" data-runs="deleted">
+          {said && <p className="settings-said" role="status">{said}</p>}
+          {remove.data?.refused.map((refused) => (
+            <p key={refused.id} className="field-error" role="alert">{refused.reason}</p>
+          ))}
         </div>
       )}
       <div className="index-scroll">
@@ -122,7 +183,7 @@ export function RunLog() {
                     type="checkbox"
                     checked={selected.includes(run.id)}
                     onChange={() => toggle(run.id)}
-                    aria-label={`Select run ${run.id} for export`}
+                    aria-label={`Select run ${run.id}`}
                   />
                   <div className="run-body">
                     <Link to={`/runs/${run.id}`} className={watch ? 'run-title it' : 'run-title'}>
@@ -167,7 +228,12 @@ export function RunLog() {
             })}
           </section>
         ))}
-        {restart.error && <p className="field-error" role="alert">Restart failed: {restart.error.message}.</p>}
+        {restart.error && (
+          <p className="field-error" role="alert">
+            {restart.error instanceof EngineError && restart.error.detail
+              ? restart.error.detail : `Restart failed: ${restart.error.message}.`}
+          </p>
+        )}
       </div>
     </section>
   );

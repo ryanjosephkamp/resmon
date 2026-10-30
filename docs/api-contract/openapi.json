@@ -18469,6 +18469,46 @@
         "summary": "Active Executions"
       }
     },
+    "/api/executions/archive": {
+      "post": {
+        "description": "The same archive ``POST /api/executions/export`` writes, as bytes.\n\nSeveral runs' reports, logs, metadata and search records in one ZIP, built\nby ``_build_execution_zip`` as the export route builds it. The export route\nwrites to a folder the engine chooses and answers with the path; this one\nanswers with the archive itself, so a renderer can hand it to the system's\nsave dialog. A run that no longer exists is left out, as the export route\nleaves it out, and a choice with none left is a 404 rather than an empty\narchive.",
+        "operationId": "download_executions_api_executions_archive_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionExport"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/zip": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The archive, as a download."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Download Executions"
+      }
+    },
     "/api/executions/export": {
       "post": {
         "description": "Bundle the reports and logs for the selected executions into a .zip.\n\nThe output path respects the Storage tab's configured export directory\nwhen set; otherwise a temporary file is used. Raises 404 if no executions\nin the selection exist.",
@@ -18508,6 +18548,7 @@
     },
     "/api/executions/{exec_id}": {
       "delete": {
+        "description": "Delete a run's record; its report and log files stay where they were written.\n\nThe row goes, and with it, by ``ON DELETE CASCADE``, what each source\nanswered (``execution_sources``), its AI lanes (``execution_ai``), where\nits report was sent (``deliveries``), and its links to the papers it found\n(``execution_documents``). The papers stay in the corpus, and a run\nrestarted from this one stays, without the link back.\n\nA run that is still running is refused with 409. Its worker writes its\npapers, its outcomes and its final status into the row as it goes, and a\nrow deleted under it would turn those writes into failures of a run the\nperson can no longer see.",
         "operationId": "delete_execution_api_executions__exec_id__delete",
         "parameters": [
           {

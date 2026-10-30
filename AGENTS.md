@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 196 routes, the API seam
+├── resmon.py                       FastAPI app — 197 routes, the API seam
 │                                   described in docs/api-contract/ (generated, guarded)
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request
@@ -87,8 +87,8 @@ shape changes its output: the same test compares them.
                                              # 92 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1056 tests across 102 suites
-npm run e2e                                      # the real Electron app — 137 cases in 54 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1112 tests across 104 suites
+npm run e2e                                      # the real Electron app — 139 cases in 55 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 

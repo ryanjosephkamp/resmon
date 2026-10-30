@@ -1557,6 +1557,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions/archive": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Download Executions
+         * @description The same archive ``POST /api/executions/export`` writes, as bytes.
+         *
+         *     Several runs' reports, logs, metadata and search records in one ZIP, built
+         *     by ``_build_execution_zip`` as the export route builds it. The export route
+         *     writes to a folder the engine chooses and answers with the path; this one
+         *     answers with the archive itself, so a renderer can hand it to the system's
+         *     save dialog. A run that no longer exists is left out, as the export route
+         *     leaves it out, and a choice with none left is a 404 rather than an empty
+         *     archive.
+         */
+        post: operations["download_executions_api_executions_archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions/export": {
         parameters: {
             query?: never;
@@ -1592,7 +1620,21 @@ export interface paths {
         get: operations["get_execution_api_executions__exec_id__get"];
         put?: never;
         post?: never;
-        /** Delete Execution */
+        /**
+         * Delete Execution
+         * @description Delete a run's record; its report and log files stay where they were written.
+         *
+         *     The row goes, and with it, by ``ON DELETE CASCADE``, what each source
+         *     answered (``execution_sources``), its AI lanes (``execution_ai``), where
+         *     its report was sent (``deliveries``), and its links to the papers it found
+         *     (``execution_documents``). The papers stay in the corpus, and a run
+         *     restarted from this one stays, without the link back.
+         *
+         *     A run that is still running is refused with 409. Its worker writes its
+         *     papers, its outcomes and its final status into the row as it goes, and a
+         *     row deleted under it would turn those writes into failures of a run the
+         *     person can no longer see.
+         */
         delete: operations["delete_execution_api_executions__exec_id__delete"];
         options?: never;
         head?: never;
@@ -12942,6 +12984,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ActiveRuns"];
+                };
+            };
+        };
+    };
+    download_executions_api_executions_archive_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ExecutionExport"];
+            };
+        };
+        responses: {
+            /** @description The archive, as a download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

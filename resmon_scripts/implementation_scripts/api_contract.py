@@ -300,6 +300,7 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     # --- Executions: history, reports, exports -----------------------------
     ("GET", "/api/executions"): ("J18",),
     ("POST", "/api/executions/export"): ("J18",),
+    ("POST", "/api/executions/archive"): ("J18",),
     ("DELETE", "/api/executions/{exec_id}"): ("J18",),
     ("GET", "/api/executions/{exec_id}"): ("J18", "J29", "J38"),
     ("GET", "/api/executions/{exec_id}/documents"): ("J18",),

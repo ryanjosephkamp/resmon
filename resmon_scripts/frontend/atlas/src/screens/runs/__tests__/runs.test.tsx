@@ -11,8 +11,8 @@ import * as path from 'path';
 import { render } from '@testing-library/react';
 import { Markdown } from '../markdown';
 import {
-  absentRecordWords, eventTime, interruptedSentence, liveLabel, liveSources, outcomeOf, restartFacts, runTitle,
-  ZERO_LABELS, type ProgressEvent,
+  absentRecordWords, deletedSentence, deleteQuestion, eventTime, interruptedSentence, liveLabel, liveSources, outcomeOf,
+  restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS, type ProgressEvent,
 } from '../model';
 
 describe("a source's outcome from its count and reason", () => {
@@ -186,6 +186,65 @@ describe('what Restart does, said before it is pressed', () => {
     const facts = restartFacts({ parameters: JSON.stringify({ ai_enabled: true }), execution_type: 'deep_dive', routine_id: null });
     expect(facts.ai).toMatch(/^On when this run started, as its parameters record\./);
     expect(restartFacts({ parameters: 'not json', execution_type: 'deep_dive', routine_id: null }).ai).toMatch(/^Not recorded/);
+  });
+});
+
+describe('deleting runs: the question first, then what came of it', () => {
+  test('one run is named with its title, and the question says what goes and what stays', () => {
+    expect(deleteQuestion([{ id: 12, status: 'completed', title: 'graph learning' }])).toBe(
+      'Delete run 12, “graph learning”? resmon deletes its record, with its line in the run log, what each source answered, '
+      + 'which papers it found, and where its report was sent. The papers stay in your collection, and its report and log '
+      + 'files stay in the reports folder. This cannot be undone.',
+    );
+  });
+
+  test('several are counted and numbered, and a run still running is named and left out', () => {
+    const asked = deleteQuestion([
+      { id: 3, status: 'completed', title: 'a' },
+      { id: 5, status: 'running', title: 'b' },
+      { id: 9, status: 'failed', title: 'c' },
+    ]);
+    expect(asked).toMatch(/^Delete 2 runs \(runs 3 and 9\)\? resmon deletes their records, with/);
+    expect(asked).toContain('their report and log files stay in the reports folder.');
+    expect(asked).toContain(' Run 5 is still running, and is not deleted. This cannot be undone.');
+  });
+
+  test('many runs are counted without every number', () => {
+    const many = Array.from({ length: 7 }, (_, i) => ({ id: i + 1, status: 'completed', title: 't' }));
+    expect(deleteQuestion(many)).toMatch(/^Delete 7 runs\? /);
+  });
+
+  test('nothing is asked when every chosen run is still running', () => {
+    expect(deleteQuestion([{ id: 5, status: 'running', title: 'b' }, { id: 6, status: 'running', title: 'c' }])).toBeNull();
+    expect(stillRunning([5, 6])).toBe('Runs 5 and 6 are still running. A run can be deleted once it has stopped.');
+    expect(stillRunning([5])).toBe('Run 5 is still running. A run can be deleted once it has stopped.');
+  });
+
+  test('the sentence after says what went, and what was already gone', () => {
+    expect(deletedSentence({ deleted: [12], gone: [], refused: [] })).toBe('Deleted run 12.');
+    expect(deletedSentence({ deleted: [3, 9], gone: [4], refused: [] })).toBe('Deleted 2 runs. Run 4 was already gone.');
+    expect(deletedSentence({ deleted: [], gone: [4, 7], refused: [] })).toBe('Runs 4 and 7 were already gone.');
+    // A refusal alone is said in the engine's words beside this, never as a deletion.
+    expect(deletedSentence({ deleted: [], gone: [], refused: [{ id: 5, reason: 'Run 5 is still running.' }] })).toBeNull();
+  });
+
+  test('run numbers read as a list, with the serial comma', () => {
+    expect(runNumbers([4])).toBe('run 4');
+    expect(runNumbers([4, 9])).toBe('runs 4 and 9');
+    expect(runNumbers([4, 9, 12])).toBe('runs 4, 9, and 12');
+  });
+});
+
+describe('a file name for several runs', () => {
+  test('their numbers, in order and once each, while they fit', () => {
+    expect(runsFileStem('resmon-bundle', [9, 3, 5, 3])).toBe('resmon-bundle-3-5-9');
+  });
+
+  test('past eight, how many and the first and last, so the name stays a name the system can save', () => {
+    const ids = Array.from({ length: 60 }, (_, i) => 10_000 + i);
+    const stem = runsFileStem('resmon-references', ids);
+    expect(stem).toBe('resmon-references-60-runs-10000-to-10059');
+    expect(new TextEncoder().encode(`${stem}.bib`).length).toBeLessThan(255);
   });
 });
 

@@ -1,8 +1,14 @@
+import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError } from '../../api/client';
+import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
 import { clock } from '../today/format';
-import { daemonSentence, daemonState, unitKind } from './model';
+import { daemonSentence, daemonState, limitProblem, limitsReach, RUN_LIMITS, unitKind, type DaemonState } from './model';
+
+type ExecutionSettings = components['schemas']['ExecutionSettings'];
+
+const LIMITS_KEY = ['execution-settings'] as const;
 
 /** How often the panel asks again: a service started at login appears without a reload. */
 const EVERY = 5_000;
@@ -140,6 +146,89 @@ export function Background() {
           {toggle.error instanceof EngineError && toggle.error.detail ? toggle.error.detail : toggle.error.message}
         </p>
       )}
+
+      <RunLimits state={daemon.data ? state : null} />
     </section>
+  );
+}
+
+/**
+ * How many runs an engine works on at once, and how many watch runs wait
+ * for a turn (`admission.py`). At the first limit a search or a Restart is
+ * refused (HTTP 429), and a watch run joins the queue; when
+ * the queue is full too, the watch run is dropped. The queue is held in the
+ * engine's memory, so what is waiting when that engine stops does not run.
+ */
+function RunLimits({ state }: { state: DaemonState | null }) {
+  const stored = useQuery({ queryKey: LIMITS_KEY, queryFn: () => answer(engine().GET('/api/settings/execution')) });
+  return (
+    <div className="run-limits" data-limits="group" aria-busy={stored.isPending}>
+      <h3 className="field-title">How many runs at once</h3>
+      <p className="field-lede" data-limits="reach">{limitsReach(state)}</p>
+      {stored.isError && <p className="field-error" role="alert">The engine did not answer ({stored.error.message}).</p>}
+      {/* Mounted once what is stored arrives, so the fields start from it. */}
+      {stored.data && <RunLimitsForm stored={stored.data} />}
+    </div>
+  );
+}
+
+function RunLimitsForm({ stored }: { stored: ExecutionSettings }) {
+  const client = useQueryClient();
+  const [runs, setRuns] = useState(String(stored.max_concurrent_executions));
+  const [queue, setQueue] = useState(String(stored.routine_fire_queue_limit));
+  const dirty = runs.trim() !== String(stored.max_concurrent_executions) || queue.trim() !== String(stored.routine_fire_queue_limit);
+  const problems = [limitProblem(runs, RUN_LIMITS.runs), limitProblem(queue, RUN_LIMITS.queue)].filter((p): p is string => p !== null);
+
+  const save = useMutation({
+    mutationFn: () => answer(engine().PUT('/api/settings/execution', {
+      body: { max_concurrent_executions: Number(runs.trim()), routine_fire_queue_limit: Number(queue.trim()) },
+    })),
+    // The engine echoes what it stored, which is what the fields now hold.
+    onSuccess: (saved) => client.setQueryData<ExecutionSettings>(LIMITS_KEY, {
+      max_concurrent_executions: saved.max_concurrent_executions,
+      routine_fire_queue_limit: saved.routine_fire_queue_limit,
+    }),
+  });
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    if (dirty && !problems.length) save.mutate();
+  };
+
+  return (
+    <form className="settings-form limits-form" onSubmit={submit} aria-label="How many runs at once">
+      <div className="form-grid">
+        <label className="form-field" htmlFor="limit-runs">
+          <span className="form-label">{RUN_LIMITS.runs.words}</span>
+          <input id="limit-runs" type="number" inputMode="numeric" min={RUN_LIMITS.runs.min} max={RUN_LIMITS.runs.max}
+            step={1} value={runs} onChange={(event) => setRuns(event.target.value)} />
+          <span className="form-hint">
+            From 1 to 8. While this many are running, a search you start, or a Restart, is refused with a sentence
+            saying so, and a watch run waits for a turn.
+          </span>
+        </label>
+        <label className="form-field" htmlFor="limit-queue">
+          <span className="form-label">{RUN_LIMITS.queue.words}</span>
+          <input id="limit-queue" type="number" inputMode="numeric" min={RUN_LIMITS.queue.min} max={RUN_LIMITS.queue.max}
+            step={1} value={queue} onChange={(event) => setQueue(event.target.value)} />
+          <span className="form-hint">
+            From 1 to 64. A waiting watch run starts when a run finishes. One that comes due while this many are
+            already waiting is skipped, and runs at its next scheduled time. What is waiting when its engine stops
+            does not run.
+          </span>
+        </label>
+      </div>
+      <div className="form-actions">
+        <button type="submit" className="btn primary" data-limits="save" disabled={!dirty || problems.length > 0 || save.isPending}>
+          {save.isPending ? 'Saving' : 'Save'}
+        </button>
+        {save.isSuccess && !dirty && <span className="settings-said" role="status" data-limits="saved">Saved.</span>}
+      </div>
+      {dirty && problems.map((problem) => <p key={problem} className="field-error" role="alert">{problem}</p>)}
+      {save.error && (
+        <p className="field-error" role="alert">
+          {save.error instanceof EngineError && save.error.detail ? save.error.detail : save.error.message}
+        </p>
+      )}
+    </form>
   );
 }
