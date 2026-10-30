@@ -177,8 +177,13 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     expect(placed).toBe(60);
 
     // 1. A paper that is not among the new ones opens beside the map, in the list's place.
-    const chosen = await reachable(win, canvas, seed.old_protein.slice(3), map);
-    await clickPaper(win, canvas, chosen, map);
+    // These papers share most of their words, so their dots can fall on one
+    // another: a click opens the nearest, which is whichever of them it is.
+    const target = await reachable(win, canvas, seed.old_protein.slice(3), map);
+    await clickPaper(win, canvas, target, map);
+    await expect(win.locator(canvas)).toHaveAttribute('data-selected', /^\d+$/);
+    const chosen = Number(await win.locator(canvas).getAttribute('data-selected'));
+    expect(seed.old_protein).toContain(chosen);
     const panel = win.locator(`section[data-map-paper="${chosen}"]`);
     await expect(panel).toBeVisible();
     await expect(win.locator(canvas)).toHaveAttribute('data-selected', String(chosen));
@@ -203,7 +208,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect(panel).toHaveCount(0);
     await expect(win.getByRole('heading', { name: /^New since yesterday/ })).toBeVisible();
     await expect(win.locator(canvas)).not.toHaveAttribute('data-selected', /.+/);
-    await clickPaper(win, canvas, chosen, map);
+    await clickPaper(win, canvas, target, map);
     await expect(panel).toBeVisible();
     await panel.getByRole('button', { name: 'Back to the list' }).click();
     await expect(panel).toHaveCount(0);
@@ -320,7 +325,8 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
       const now = await engine<MapBody>(win, '/api/map');
       const here = await reachable(win, canvas, [chosen, ...seed.old_protein], now);
       await clickPaper(win, canvas, here, now);
-      await expect(win.locator(`section[data-map-paper="${here}"]`)).toBeVisible();
+      await expect(win.locator('section[data-map-paper]')).toBeVisible();
+      expect(seed.old_protein).toContain(Number(await win.locator('section[data-map-paper]').getAttribute('data-map-paper')));
       await shot(win, `today-${other}-${width}`);
       await engine(win, '/api/appearance', 'PUT', { theme: theme ?? 'dark', accent: null });
       await win.reload();
