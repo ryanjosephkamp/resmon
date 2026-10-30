@@ -281,17 +281,99 @@ export interface WatchShape {
   id: number;
   name: string;
   outline: Segment[];
-  /** Where the watch's name sits: above the top of its outline, centered on its papers. */
-  labelAt: [number, number] | null;
+  /** Where along its outline the watch's name may sit, each with the way out of the watch. */
+  spots: LabelSpot[];
   /** Region centers the watch spans, and the tree through them. */
   stars: [number, number][];
   lines: [number, number][];
 }
 
 /**
+ * A point on a watch's outline, in plate space, and the unit direction its
+ * density falls there (out of the watch). A name set beside its outline, on
+ * that side, reads as the region's label without covering the region.
+ */
+export interface LabelSpot { x: number; y: number; nx: number; ny: number }
+
+/**
+ * Up to `most` places spread along an outline. Each one's outward direction is
+ * down the slope of the watch's own density, read between grid cells, so it
+ * points out of the watch however the outline curves.
+ */
+export function labelSpots(outline: readonly Segment[], field: Field, bounds: Sky['bounds'], most = 40): LabelSpot[] {
+  if (!outline.length || field.max <= 0) return [];
+  const { n, values } = field;
+  const step = bounds.size / n;
+  // The field at a plate point, bilinear between cell centers; row 0 is the top.
+  const at = (x: number, y: number) => {
+    const fc = Math.min(n - 1, Math.max(0, (x - bounds.minX) / step - 0.5));
+    const fr = Math.min(n - 1, Math.max(0, (bounds.minY + bounds.size - y) / step - 0.5));
+    const c0 = Math.floor(fc), r0 = Math.floor(fr);
+    const c1 = Math.min(n - 1, c0 + 1), r1 = Math.min(n - 1, r0 + 1);
+    const tc = fc - c0, tr = fr - r0;
+    const v = (r: number, c: number) => values[r * n + c] ?? 0;
+    return (v(r0, c0) * (1 - tc) + v(r0, c1) * tc) * (1 - tr) + (v(r1, c0) * (1 - tc) + v(r1, c1) * tc) * tr;
+  };
+  const every = Math.max(1, Math.ceil(outline.length / most));
+  const spots: LabelSpot[] = [];
+  for (let k = Math.floor(every / 2); k < outline.length; k += every) {
+    const [x1, y1, x2, y2] = outline[k] ?? [0, 0, 0, 0];
+    const x = (x1 + x2) / 2, y = (y1 + y2) / 2;
+    // Down the slope: the negative gradient, by central differences one cell apart.
+    let nx = at(x - step, y) - at(x + step, y);
+    let ny = at(x, y - step) - at(x, y + step);
+    const length = Math.hypot(nx, ny);
+    if (length === 0) continue;
+    nx /= length; ny /= length;
+    spots.push({ x, y, nx, ny });
+  }
+  return spots;
+}
+
+/** A label's box in screen pixels: its left, its top, its width and its height. */
+export interface Box { x: number; y: number; w: number; h: number }
+
+/**
+ * Where a watch's name goes, in screen pixels, or null where it does not fit.
+ *
+ * It is set just outside its outline, at whichever of `spots` (screen pixels,
+ * y down, each with its outward direction) leaves the fewest papers under it,
+ * a little in favor of above the line, where a map reader looks for a region's
+ * name, and of beside it over below it. A place counts only where `fits` says so (inside the plate, clear of
+ * other names, off the watch's own line), and the best of them only when it
+ * covers no more than `allowed` papers: a name that would sit across the dots
+ * is dropped, as a region's name is where its region has no room.
+ */
+export function placeName(
+  spots: readonly LabelSpot[], width: number, height: number,
+  fits: (box: Box) => boolean, papersUnder: (box: Box) => number, allowed: number, gap = 3,
+): Box | null {
+  let best: Box | null = null;
+  let bestScore = Infinity;
+  let bestPapers = Infinity;
+  for (const spot of spots) {
+    // A line of type reads as a boundary's label set level above or below it,
+    // centered on the place, or level beside it, starting from the place; set
+    // along a slanting direction, a long name drifts away from its line.
+    const level = Math.abs(spot.ny) >= 0.45;
+    const dx = level ? 0 : Math.sign(spot.nx);
+    const dy = level ? Math.sign(spot.ny) : 0;
+    const cx = spot.x + dx * (width / 2 + gap);
+    const cy = spot.y + dy * (height / 2 + gap);
+    const box = { x: cx - width / 2, y: cy - height / 2, w: width, h: height };
+    if (!fits(box)) continue;
+    const papers = papersUnder(box);
+    // Above the line, then beside it, then below: a tie goes up.
+    const score = papers + (dy + 1) * 0.25;
+    if (score < bestScore) { bestScore = score; bestPapers = papers; best = box; }
+  }
+  return best && bestPapers <= allowed ? best : null;
+}
+
+/**
  * A watch's outline (the level its paper density falls to a fifth of its peak),
- * its name's place, and its constellation: the regions holding at least 3% of
- * its papers, joined by their spanning tree.
+ * the places along it its name may sit, and its constellation: the regions
+ * holding at least 3% of its papers, joined by their spanning tree.
  */
 export function watchShape(sky: Sky, regions: readonly MapRegion[], watch: Watch, n = 96): WatchShape {
   const indices: number[] = [];
@@ -299,13 +381,10 @@ export function watchShape(sky: Sky, regions: readonly MapRegion[], watch: Watch
     const i = sky.indexOf.get(id);
     if (i !== undefined) indices.push(i);
   }
-  if (indices.length === 0) return { id: watch.id, name: watch.name, outline: [], labelAt: null, stars: [], lines: [] };
+  if (indices.length === 0) return { id: watch.id, name: watch.name, outline: [], spots: [], stars: [], lines: [] };
   const field = density(sky, n, 2, indices);
   const outline = field.max > 0 ? contour(field, field.max * 0.2, sky.bounds) : [];
-
-  let top = -Infinity, sumX = 0;
-  for (const i of indices) { sumX += sky.x[i] ?? 0; top = Math.max(top, sky.y[i] ?? 0); }
-  for (const [, y1, , y2] of outline) top = Math.max(top, y1, y2);
+  const spots = labelSpots(outline, field, sky.bounds);
 
   const perRegion = new Map<number, number>();
   for (const i of indices) perRegion.set(sky.region[i] ?? 0, (perRegion.get(sky.region[i] ?? 0) ?? 0) + 1);
@@ -323,5 +402,5 @@ export function watchShape(sky: Sky, regions: readonly MapRegion[], watch: Watch
     const [bx, by] = stars[b] ?? [0, 0];
     return Math.hypot(ax - bx, ay - by) <= longest;
   });
-  return { id: watch.id, name: watch.name, outline, labelAt: [sumX / indices.length, top], stars, lines };
+  return { id: watch.id, name: watch.name, outline, spots, stars, lines };
 }
