@@ -458,7 +458,7 @@ def test_a_retractions_report_never_says_nothing_has_happened(fired):
         resmon_mod._close_db(conn)
     report = Path(row["result_path"]).read_text(encoding="utf-8")
     assert "not a statement that nothing has happened" in report
-    assert "have been through a lifecycle check" in report
+    assert "have been checked for retractions and updates" in report
 
 
 def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):

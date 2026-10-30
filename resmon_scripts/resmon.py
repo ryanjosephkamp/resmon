@@ -4539,10 +4539,18 @@ def _run_lifecycle_check(limit: int, run_until_done: bool) -> None:
             should_stop=_lifecycle_should_stop,
         )
         with _lifecycle_lock:
+            # What a reader needs to tell a quiet result from a broken one:
+            # which services did not answer and how many papers that left
+            # unchecked, and whether the run was stopped before it asked
+            # about everything it selected.
             _lifecycle_run["last"] = {
                 "checked_now": summary["checked_now"],
+                "outcomes": summary["outcomes"],
                 "remaining": summary["remaining"],
                 "errors": summary["errors"],
+                "unanswered": summary["unanswered"],
+                "stopped": summary["stopped"],
+                "not_asked": summary["not_asked"],
                 "checked_at": summary["checked_at"],
             }
             _lifecycle_run["error"] = None
@@ -4556,7 +4564,8 @@ def _run_lifecycle_check(limit: int, run_until_done: bool) -> None:
         _close_db(conn)
 
 
-@app.post("/api/lifecycle/check")
+@app.post("/api/lifecycle/check", response_model=response_models.LifecycleCheckStarted,
+          response_model_exclude_unset=True)
 def lifecycle_check(request: LifecycleCheckRequest):
     """Start a bounded lifecycle check over the least recently checked papers.
 
@@ -4572,6 +4581,10 @@ def lifecycle_check(request: LifecycleCheckRequest):
             "%Y-%m-%dT%H:%M:%SZ")
         _lifecycle_run["error"] = None
         _lifecycle_run["stop_requested"] = False
+        # ``last`` is the account of the most recent run to finish, and from
+        # here that is this one. Left in place, a run that then failed outright
+        # would have shown the previous run's result beside its own error.
+        _lifecycle_run["last"] = None
 
     thread = threading.Thread(
         target=_run_lifecycle_check,
@@ -4586,12 +4599,14 @@ def lifecycle_check(request: LifecycleCheckRequest):
     }
 
 
-@app.post("/api/lifecycle/stop")
+@app.post("/api/lifecycle/stop", response_model=response_models.LifecycleStopAnswer,
+          response_model_exclude_unset=True)
 def lifecycle_stop():
-    """Ask a running check to stop after its current slice.
+    """Ask a running check to stop before its next request.
 
-    Cooperative rather than abrupt: the papers already checked keep their
-    results, and the rest stay unchecked rather than being recorded as clean.
+    Cooperative rather than abrupt: a request already in flight is answered,
+    the papers whose answers are in keep their results, and the rest stay
+    unchecked rather than being recorded as clean.
     """
     with _lifecycle_lock:
         if not _lifecycle_run["running"]:
@@ -4600,7 +4615,8 @@ def lifecycle_stop():
     return {"status": "stopping"}
 
 
-@app.get("/api/lifecycle")
+@app.get("/api/lifecycle", response_model=response_models.LifecycleReport,
+         response_model_exclude_unset=True)
 def lifecycle_report():
     """Recorded lifecycle events, and how much of the corpus they cover."""
     conn = _get_db()
@@ -4617,7 +4633,8 @@ class LifecycleForDocumentsRequest(BaseModel):
     document_ids: list[int] = Field(default_factory=list, max_length=500)
 
 
-@app.post("/api/lifecycle/for-documents")
+@app.post("/api/lifecycle/for-documents", response_model=response_models.LifecycleForDocuments,
+          response_model_exclude_unset=True)
 def lifecycle_for_documents(request: LifecycleForDocumentsRequest):
     """Lifecycle events for a page of results, in one round trip.
 

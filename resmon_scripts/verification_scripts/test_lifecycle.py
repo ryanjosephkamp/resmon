@@ -20,14 +20,18 @@ from __future__ import annotations
 import json
 import sqlite3
 import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from implementation_scripts import lifecycle  # noqa: E402
+from implementation_scripts import config, lifecycle  # noqa: E402
 from implementation_scripts.database import (  # noqa: E402
     MissingNoticeError,
     get_lifecycle_for_document,
@@ -573,6 +577,211 @@ def test_the_default_limit_is_workable_on_a_real_corpus(conn):
 
 
 # ---------------------------------------------------------------------------
+# What a run could not do
+# ---------------------------------------------------------------------------
+
+
+class _FailingArxiv:
+    def fetch_many(self, base_ids):
+        raise RuntimeError("arXiv refused the connection")
+
+    def fetch(self, base_id):
+        return self.fetch_many([base_id])
+
+
+def test_an_arxiv_paper_crossref_did_not_answer_for_is_left_unchecked(conn):
+    """Retractions come from Crossref. An arXiv paper with a DOI whose batch
+    failed was recorded as checked against Crossref, and not asked about again
+    for thirty days."""
+    doc_id = _doc(conn, source="arxiv", ext="2301.00001v1", doi="10.1/a")
+
+    summary = lifecycle.check_corpus(
+        conn, crossref=_FakeCrossref({}, fail=True), biorxiv=_NoProvider(),
+        arxiv=_CountingArxiv())
+
+    assert summary["checked_now"] == 0
+    assert summary["coverage"]["unchecked"] == 1
+    assert summary["unanswered"] == [{
+        "service": "crossref", "name": "Crossref", "papers": 1,
+        "reason": "crossref unavailable"}]
+    assert lifecycle.documents_due(conn)[0]["id"] == doc_id
+
+    # Crossref back: the paper is checked by both, and no longer unanswered.
+    again = lifecycle.check_corpus(
+        conn, crossref=_FakeCrossref({}), biorxiv=_NoProvider(),
+        arxiv=_CountingArxiv())
+    assert again["checked_now"] == 1
+    assert again["unanswered"] == []
+    providers = conn.execute(
+        "SELECT providers FROM document_lifecycle_checks WHERE document_id = ?",
+        (doc_id,)).fetchone()[0]
+    assert json.loads(providers) == ["crossref", "arxiv"]
+
+
+def test_an_arxiv_paper_arxiv_did_not_answer_for_is_not_recorded_as_unidentifiable(conn):
+    """It was recorded as carrying no identifier at all, which is a statement
+    about the paper, when the fact was about arXiv. A paper that really has
+    none is recorded as such, and the run's outcomes keep the two apart from a
+    paper that was looked at."""
+    _doc(conn, source="arxiv", ext="2301.00001v1", doi=None)
+    _doc(conn, source="dblp", ext="d1", doi=None)
+
+    summary = lifecycle.check_corpus(
+        conn, crossref=_NoProvider(), biorxiv=_NoProvider(), arxiv=_FailingArxiv())
+
+    assert summary["coverage"]["no_identifier"] == 1
+    assert summary["coverage"]["unchecked"] == 1
+    assert summary["checked_now"] == 1
+    assert summary["outcomes"] == {"ok": 0, "no_identifier": 1, "error": 0}
+    assert summary["unanswered"] == [{
+        "service": "arxiv", "name": "arXiv", "papers": 1,
+        "reason": "arXiv refused the connection"}]
+
+
+def test_a_stop_part_way_through_a_pass_asks_nothing_more(conn):
+    """A pass is up to a thousand papers. The stop is honored before the next
+    request, the answers already in are kept, and what was never asked about
+    stays unchecked and is counted."""
+    for i in range(100):
+        _doc(conn, ext=str(i), doi=f"10.1/{i}")
+    crossref = _FakeCrossref({})
+    asked = {"n": 0}
+
+    def should_stop():
+        asked["n"] += 1
+        return asked["n"] > 1
+
+    summary = lifecycle.check_corpus(
+        conn, should_stop=should_stop, crossref=crossref,
+        biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert len(crossref.calls) == 1
+    assert summary["stopped"] is True
+    assert summary["checked_now"] == lifecycle.CROSSREF_BATCH
+    assert summary["not_asked"] == 100 - lifecycle.CROSSREF_BATCH
+    assert summary["coverage"]["unchecked"] == 100 - lifecycle.CROSSREF_BATCH
+    assert summary["unanswered"] == []
+
+
+def test_a_run_nobody_stopped_says_so(conn):
+    _doc(conn, doi="10.1/a")
+    summary = lifecycle.check_corpus(
+        conn, should_stop=lambda: False, crossref=_FakeCrossref({}),
+        biorxiv=_NoProvider(), arxiv=_NoProvider())
+
+    assert summary["stopped"] is False
+    assert summary["not_asked"] == 0
+
+
+# ---------------------------------------------------------------------------
+# On loopback: the shipped providers, pointed at an authored server
+# ---------------------------------------------------------------------------
+
+
+class _Authored:
+    """Crossref, bioRxiv and arXiv on loopback, each answering as authored.
+
+    Real sockets and the shipped providers, so ``safe_request``, the status
+    check and the parsers all run as they do against the real services; only
+    the address changes, the way a source client's is changed for a test.
+    ``hold`` keeps the first Crossref request waiting until ``release``.
+    """
+
+    def __init__(self, *, crossref: tuple[int, Any], biorxiv: tuple[int, Any] = (200, {}),
+                 arxiv: tuple[int, str] = (200, ""), hold: bool = False) -> None:
+        self.replies = {"/works": crossref, "/details": biorxiv, "/api/query": arxiv}
+        self.requests: list[str] = []
+        self.gate = threading.Event()
+        if not hold:
+            self.gate.set()
+
+    def __enter__(self) -> "_Authored":
+        authored = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self) -> None:  # noqa: N802 - the stdlib's name
+                authored.requests.append(self.path)
+                prefix = next(p for p in authored.replies if self.path.startswith(p))
+                if prefix == "/works":
+                    authored.gate.wait(10)
+                status, body = authored.replies[prefix]
+                data = (body if isinstance(body, str) else json.dumps(body)).encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *_args: Any) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        return self
+
+    def point(self, monkeypatch) -> None:
+        monkeypatch.setattr(lifecycle, "_CROSSREF_URL", f"{self.base}/works")
+        monkeypatch.setattr(lifecycle, "_BIORXIV_URL", f"{self.base}/details")
+        monkeypatch.setattr(lifecycle, "_ARXIV_URL", f"{self.base}/api/query")
+
+    def __exit__(self, *_exc: Any) -> None:
+        self.gate.set()
+        self.server.shutdown()
+        self.server.server_close()
+        self.thread.join()
+
+
+def test_the_whole_check_runs_against_a_loopback_endpoint(conn, monkeypatch):
+    """Every service the check asks is reached through a module-level address,
+    so a test, or the app's own end-to-end suite, can answer for it."""
+    retracted = _doc(conn, ext="w", doi="10.1016/S0140-6736(97)11096-0")
+    preprint = _doc(conn, source="biorxiv", ext="b", doi="10.1101/2020.02.11.944462")
+    versioned = _doc(conn, source="arxiv", ext="2301.00001v1", doi=None)
+
+    with _Authored(crossref=(200, {"status": "ok", "message": {"items": [WAKEFIELD]}}),
+                   biorxiv=(200, BIORXIV_PUBLISHED),
+                   arxiv=(200, ARXIV_ATOM_V3)) as authored:
+        authored.point(monkeypatch)
+        summary = lifecycle.check_corpus(conn)
+
+    assert {r.split("?")[0] for r in authored.requests} == {
+        "/works", "/details/biorxiv/10.1101/2020.02.11.944462", "/api/query"}
+    assert summary["checked_now"] == 3
+    assert summary["unanswered"] == []
+    kinds = {doc: {e["kind"] for e in get_lifecycle_for_document(conn, doc)}
+             for doc in (retracted, preprint, versioned)}
+    assert kinds == {retracted: {"retraction", "correction"},
+                     preprint: {"preprint_published"},
+                     versioned: {"new_version"}}
+
+
+def test_a_service_that_answers_an_error_status_is_not_a_clean_result(conn, monkeypatch):
+    """The status decides, not the body. An arXiv 503 page holds no entries and
+    read as "no newer version"; a Crossref error body with no items would have
+    read as "Crossref knows none of these DOIs". Either one recorded every
+    paper in the batch as checked and clear. The bodies here are authored."""
+    monkeypatch.setattr(config, "DEFAULT_MAX_RETRIES", 0)
+    _doc(conn, ext="c", doi="10.1/a")
+    _doc(conn, source="arxiv", ext="2301.00001v1", doi=None)
+
+    with _Authored(crossref=(503, {"status": "error", "message": {"items": []}}),
+                   arxiv=(503, "<html>Service Unavailable</html>")) as authored:
+        authored.point(monkeypatch)
+        summary = lifecycle.check_corpus(conn)
+
+    assert summary["checked_now"] == 0
+    assert summary["coverage"]["checked"] == 0
+    assert summary["coverage"]["unchecked"] == 2
+    assert summary["sufficient"] is False
+    assert summary["unanswered"] == [
+        {"service": "arxiv", "name": "arXiv", "papers": 1, "reason": "arXiv answered HTTP 503"},
+        {"service": "crossref", "name": "Crossref", "papers": 1,
+         "reason": "Crossref answered HTTP 503"},
+    ]
+
+
+# ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
 
@@ -657,6 +866,72 @@ def test_the_per_document_endpoint_distinguishes_clean_from_unchecked():
 def test_the_per_document_endpoint_404s_on_an_unknown_paper():
     client, _ = _client()
     assert client.get("/api/documents/424242/lifecycle").status_code == 404
+
+
+def _settled(client, timeout: float = 15.0) -> dict:
+    """``GET /api/lifecycle`` once the background check has finished."""
+    deadline = time.monotonic() + timeout
+    while True:
+        body = client.get("/api/lifecycle").json()
+        if not body["run"]["running"]:
+            return body
+        assert time.monotonic() < deadline, "the check did not finish"
+        time.sleep(0.05)
+
+
+def test_the_run_says_which_service_did_not_answer(monkeypatch):
+    """What the Watchdog screen reads after a check: an unchecked corpus that
+    Crossref did not answer for, said as that, and never as nothing found."""
+    monkeypatch.setattr(config, "DEFAULT_MAX_RETRIES", 0)
+    client, resmon_mod = _client()
+    db = resmon_mod._get_db()
+    for i in range(3):
+        _doc(db, ext=str(i), doi=f"10.1/{i}")
+
+    with _Authored(crossref=(503, "Service Unavailable")) as authored:
+        authored.point(monkeypatch)
+        assert client.post("/api/lifecycle/check", json={}).json()["status"] == "started"
+        body = _settled(client)
+
+    assert body["run"]["error"] is None
+    assert body["run"]["last"]["checked_now"] == 0
+    assert body["run"]["last"]["stopped"] is False
+    assert body["run"]["last"]["unanswered"] == [{
+        "service": "crossref", "name": "Crossref", "papers": 3,
+        "reason": "Crossref answered HTTP 503"}]
+    assert body["sufficient"] is False
+    assert body["coverage"]["unchecked"] == 3
+
+
+def test_a_stop_pressed_while_a_request_is_out_keeps_its_answer(monkeypatch):
+    """The stop route, as the screen uses it: pressed while Crossref is still
+    answering. That answer is kept; the arXiv request after it is never made,
+    and the arXiv paper stays unchecked, counted as not asked."""
+    client, resmon_mod = _client()
+    db = resmon_mod._get_db()
+    retracted = _doc(db, ext="w", doi="10.1016/S0140-6736(97)11096-0")
+    _doc(db, source="arxiv", ext="2301.00001v1", doi=None)
+
+    with _Authored(crossref=(200, {"status": "ok", "message": {"items": [WAKEFIELD]}}),
+                   arxiv=(200, ARXIV_ATOM_V3), hold=True) as authored:
+        authored.point(monkeypatch)
+        client.post("/api/lifecycle/check", json={})
+        deadline = time.monotonic() + 10
+        while not authored.requests:
+            assert time.monotonic() < deadline, "Crossref was never asked"
+            time.sleep(0.02)
+        assert client.post("/api/lifecycle/stop").json() == {"status": "stopping"}
+        authored.gate.set()
+        body = _settled(client)
+
+    assert [r.split("?")[0] for r in authored.requests] == ["/works"]
+    last = body["run"]["last"]
+    assert (last["stopped"], last["checked_now"], last["not_asked"]) == (True, 1, 1)
+    assert last["outcomes"] == {"ok": 1, "no_identifier": 0, "error": 0}
+    assert body["coverage"]["checked"] == 1
+    assert body["coverage"]["unchecked"] == 1
+    assert {f["document_id"] for f in body["findings"]} == {retracted}
+    assert client.post("/api/lifecycle/stop").json() == {"status": "idle"}
 
 
 # ---------------------------------------------------------------------------

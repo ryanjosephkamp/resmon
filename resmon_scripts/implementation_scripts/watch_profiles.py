@@ -451,21 +451,44 @@ def profile_lifecycle_findings(conn: sqlite3.Connection, profile_id: int,
     matched = conn.execute(
         "SELECT COUNT(*) FROM watch_profile_matches WHERE profile_id = ?",
         (profile_id,)).fetchone()[0]
-    checked = conn.execute(
-        "SELECT COUNT(*) FROM watch_profile_matches m "
-        "  JOIN document_lifecycle_checks c ON c.document_id = m.document_id "
-        " WHERE m.profile_id = ?", (profile_id,)).fetchone()[0]
+    # By how each check ended. Only an ``ok`` check looked at the paper: a
+    # ``no_identifier`` one found nothing that could be asked about, and an
+    # ``error`` one was not answered. Counting all three as checked made a
+    # person whose papers carry no DOI read as checked and clear.
+    states = {
+        row[0]: row[1] for row in conn.execute(
+            "SELECT c.status, COUNT(*) FROM watch_profile_matches m "
+            "  JOIN document_lifecycle_checks c ON c.document_id = m.document_id "
+            " WHERE m.profile_id = ? GROUP BY c.status", (profile_id,))
+    }
+    checked = states.get("ok", 0)
+    no_identifier = states.get("no_identifier", 0)
+    errored = states.get("error", 0)
+    unchecked = max(0, matched - checked - no_identifier - errored)
+
+    # Said rather than left to be inferred from the numbers.
+    note = [f"{checked} of {matched} matched papers have been checked for "
+            f"retractions and updates."]
+    if no_identifier:
+        one = no_identifier == 1
+        note.append(f"{no_identifier} {'carries' if one else 'carry'} no DOI or "
+                    f"other identifier that could be asked about, so "
+                    f"{'it was' if one else 'they were'} never looked at.")
+    if errored:
+        note.append(f"{errored} could not be checked: a service failed on "
+                    f"{'it' if errored == 1 else 'them'}.")
+    if unchecked:
+        note.append(f"{unchecked} {'has' if unchecked == 1 else 'have'} not been "
+                    f"looked at yet, which is not the same as having nothing to "
+                    f"report.")
 
     return {
         "findings": [dict(r) for r in rows],
         "matched_documents": matched,
         "checked_documents": checked,
-        # Said rather than left to be inferred from two numbers.
-        "coverage_note": (
-            f"{checked} of {matched} matched papers have been through a "
-            f"lifecycle check. The rest have not been looked at, which is not "
-            f"the same as having nothing to report."
-        ),
+        "no_identifier_documents": no_identifier,
+        "errored_documents": errored,
+        "coverage_note": " ".join(note),
     }
 
 

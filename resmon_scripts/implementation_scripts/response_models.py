@@ -557,11 +557,18 @@ class WatchProfileLifecycle(LosslessModel):
     none. ``coverage_note`` says that in a sentence rather than leaving it to
     be inferred from two numbers, and a model that dropped it would have turned
     the one into the other.
+
+    ``checked_documents`` counts only the papers a check looked at. Those it
+    found nothing to ask about (``no_identifier_documents``) and those a
+    service failed on (``errored_documents``) are counted apart, because
+    neither was cleared.
     """
 
     findings: list[WatchProfileLifecycleFinding]
     matched_documents: int
     checked_documents: int
+    no_identifier_documents: int
+    errored_documents: int
     coverage_note: str
 
 
@@ -4395,3 +4402,186 @@ class FactoryReset(LosslessModel):
     settings_cleared: int
     ai_keys_removed: int
     repo_keys_removed: int
+
+
+# ===========================================================================
+# Corpus lifecycle: retractions, concerns, corrections, and newer versions
+# ===========================================================================
+#
+# Every event here is a row resmon recorded from a notice it can link to:
+# ``notice_url`` is ``NOT NULL`` in ``document_lifecycle`` and is required on
+# every model below, because an event without its notice is resmon asserting a
+# retraction on its own authority. ``severity`` and a check's ``status`` are
+# closed by ``CHECK`` constraints in the schema, so they are ``Literal`` here:
+# a value the table cannot hold is a 500 in the equality sweep rather than a
+# word the renderer has no sentence for.
+
+LifecycleSeverity = Literal["critical", "caution", "informational"]
+
+
+class LifecycleEvent(LosslessModel):
+    """One recorded event on a paper: a row of ``document_lifecycle``.
+
+    ``label`` is the upstream's own wording, verbatim; ``provider_source`` is
+    who registered the notice where Crossref says (``retraction-watch`` or
+    ``publisher``).
+    """
+
+    document_id: int
+    kind: str
+    severity: LifecycleSeverity
+    notice_key: str
+    label: Optional[str]
+    notice_doi: Optional[str]
+    notice_url: str
+    notice_date: Optional[str]
+    detail: Optional[str]
+    provider: str
+    provider_source: Optional[str]
+    first_seen_at: str
+
+
+class LifecycleFinding(LifecycleEvent):
+    """An event in the corpus report, with the paper it is on."""
+
+    title: str
+    document_doi: Optional[str]
+    source_repository: str
+    document_url: Optional[str]
+    publication_date: Optional[str]
+
+
+class LifecycleCounts(LosslessModel):
+    """Recorded events by severity, over the whole corpus."""
+
+    critical: int
+    caution: int
+    informational: int
+
+
+class LifecycleCoverage(LosslessModel):
+    """How much of the corpus the recorded events cover.
+
+    The four counts partition ``corpus``. ``no_identifier`` papers were never
+    looked at, because nothing could be asked about them; ``errored`` papers
+    were asked about and a service failed on them; ``unchecked`` papers have
+    not been asked about yet.
+    """
+
+    corpus: int
+    checked: int
+    no_identifier: int
+    errored: int
+    unchecked: int
+    last_checked_at: Optional[str]
+    recheck_after_days: int
+
+
+class LifecycleCheckError(LosslessModel):
+    """A paper a service failed on part-way, recorded as errored."""
+
+    document_id: int
+    title: Optional[str]
+    error: Optional[str]
+
+
+class LifecycleUnanswered(LosslessModel):
+    """A service that did not answer, and the papers that left unchecked.
+
+    Those papers are not recorded at all and are asked about again on the next
+    run, so they count among ``coverage.unchecked``, never among the clear.
+    """
+
+    service: str
+    name: str
+    papers: int
+    reason: Optional[str]
+
+
+class LifecycleRunOutcomes(LosslessModel):
+    """How each check a run recorded ended, by ``document_lifecycle_checks.status``."""
+
+    ok: int
+    no_identifier: int
+    error: int
+
+
+class LifecycleRunResult(LosslessModel):
+    """The account of the most recent run to finish, in this engine.
+
+    ``checked_now`` counts every paper the run recorded, and ``outcomes``
+    divides it: only ``ok`` papers were looked at. ``stopped`` is true when the
+    run was stopped before it had asked about everything it selected, and
+    ``not_asked`` is how many papers it never asked about as a result.
+    """
+
+    checked_now: int
+    outcomes: LifecycleRunOutcomes
+    remaining: int
+    errors: list[LifecycleCheckError]
+    unanswered: list[LifecycleUnanswered]
+    stopped: bool
+    not_asked: int
+    checked_at: str
+
+
+class LifecycleRunState(LosslessModel):
+    """Whether a check is running in this engine, and how the last one ended.
+
+    Held in the engine's memory: an engine started since the last check has
+    ``last`` null, and the recorded coverage is then the whole account.
+    ``error`` is a run that failed outright, with nothing to report.
+    """
+
+    running: bool
+    started_at: Optional[str]
+    last: Optional[LifecycleRunResult]
+    error: Optional[str]
+    stop_requested: bool
+
+
+class LifecycleReport(LosslessModel):
+    """``GET /api/lifecycle``: every recorded event, the coverage, and the run.
+
+    ``sufficient`` is false until at least one paper has been checked: an empty
+    ``findings`` on an unchecked corpus is not "nothing has been retracted".
+    """
+
+    findings: list[LifecycleFinding]
+    counts: LifecycleCounts
+    coverage: LifecycleCoverage
+    sufficient: bool
+    run: LifecycleRunState
+
+
+class LifecycleCheckStarted(LosslessModel):
+    """``POST /api/lifecycle/check``: the check was started in the background."""
+
+    status: Literal["started"]
+    limit: int
+    run_until_done: bool
+
+
+class LifecycleStopAnswer(LosslessModel):
+    """``POST /api/lifecycle/stop``: asked to stop, or nothing was running."""
+
+    status: Literal["idle", "stopping"]
+
+
+class LifecycleCheckState(LosslessModel):
+    """When a paper was last checked, and how that check ended."""
+
+    checked_at: str
+    status: Literal["ok", "no_identifier", "error"]
+
+
+class LifecycleForDocuments(LosslessModel):
+    """``POST /api/lifecycle/for-documents``: events and check state for a page.
+
+    Both maps are keyed by the paper's id as a string. A paper absent from
+    ``events`` has nothing recorded against it; absent from ``checked`` as
+    well, it has never been checked, which is the different fact.
+    """
+
+    events: dict[str, list[LifecycleEvent]]
+    checked: dict[str, LifecycleCheckState]

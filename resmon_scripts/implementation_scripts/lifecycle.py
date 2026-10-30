@@ -74,6 +74,15 @@ _CROSSREF_MAILTO = "resmon@example.com"
 _BIORXIV_URL = "https://api.biorxiv.org/details"
 _BIORXIV_LIMITER = RateLimiter(requests_per_second=2.0)
 
+# Module-level like the two above and like every source client's, so each is
+# read when a request is made and a test can point the check at a loopback
+# server, which is how the suite exercises the whole path without the network.
+_ARXIV_URL = "https://export.arxiv.org/api/query"
+
+# The names a reader sees for each service, in the run's account of what did
+# not answer.
+SERVICE_NAMES = {"crossref": "Crossref", "biorxiv": "bioRxiv", "arxiv": "arXiv"}
+
 # DOIs go out in batches. Crossref's ``filter=doi:A,doi:B`` returns them
 # together, which turns a thousand-paper corpus from a thousand requests into
 # twenty-five. Kept modest so the request URL stays well inside any proxy's
@@ -346,6 +355,29 @@ def findings_from_arxiv(
 # ---------------------------------------------------------------------------
 
 
+class ServiceDidNotAnswer(RuntimeError):
+    """A service replied with something other than an answer."""
+
+
+def _answered(response, service: str):
+    """The response, when it is an answer at all.
+
+    ``safe_request`` hands a non-2xx response back rather than raising, which
+    is right for a search client and wrong here. An arXiv error page holds no
+    entries, so a 503 from arXiv read as "no newer version" and every paper in
+    the batch was recorded as checked. Crossref's and bioRxiv's error pages
+    were refused only because they happened not to parse as the JSON expected;
+    a JSON error body with no ``items`` would have read as "Crossref knows none
+    of these DOIs". The status decides now, not the body: a service that did
+    not answer is a reason to leave the paper unchecked, never a clean result.
+    """
+    if not 200 <= response.status_code < 300:
+        raise ServiceDidNotAnswer(
+            f"{SERVICE_NAMES.get(service, service)} answered HTTP "
+            f"{response.status_code}")
+    return response
+
+
 class CrossrefLifecycleProvider:
     """Fetches ``updated-by`` for a batch of DOIs."""
 
@@ -375,7 +407,7 @@ class CrossrefLifecycleProvider:
             },
             headers={"User-Agent": f"resmon (mailto:{self._mailto})"},
         )
-        body = response.json()
+        body = _answered(response, self.name).json()
         items = ((body or {}).get("message") or {}).get("items") or []
         out: dict[str, dict] = {}
         for item in items:
@@ -395,7 +427,7 @@ class BiorxivLifecycleProvider:
             "GET", f"{_BIORXIV_URL}/{server}/{doi}",
             rate_limiter=_BIORXIV_LIMITER,
         )
-        return response.json()
+        return _answered(response, self.name).json()
 
 
 class ArxivLifecycleProvider:
@@ -416,13 +448,13 @@ class ArxivLifecycleProvider:
         if not base_ids:
             return ""
         response = safe_request(
-            "GET", "https://export.arxiv.org/api/query",
+            "GET", _ARXIV_URL,
             params={
                 "id_list": ",".join(base_ids),
                 "max_results": len(base_ids),
             },
         )
-        return response.text
+        return _answered(response, self.name).text
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +572,63 @@ def _biorxiv_stored_version(external_id: str) -> tuple[str, int | None]:
     return base, version
 
 
+@dataclass
+class _Pass:
+    """What one bounded slice did, and what it could not do."""
+
+    checked: int = 0
+    errors: list[dict] = field(default_factory=list)
+    #: Papers recorded as checked, whatever the outcome.
+    recorded: set[int] = field(default_factory=set)
+    #: How each recorded check ended. ``checked`` counts all three, and only
+    #: an ``ok`` one looked at anything: a paper with no identifier was
+    #: recorded without a request, and an ``error`` one was not answered.
+    outcomes: dict[str, int] = field(
+        default_factory=lambda: {"ok": 0, "no_identifier": 0, "error": 0})
+    #: Service -> the papers left unchecked because it did not answer.
+    unanswered: dict[str, set[int]] = field(default_factory=dict)
+    #: Service -> what it said, or what happened, instead of answering.
+    reasons: dict[str, str] = field(default_factory=dict)
+    #: Papers never asked about because the check was told to stop.
+    not_asked: set[int] = field(default_factory=set)
+    stopped: bool = False
+
+    def merge(self, other: "_Pass") -> None:
+        self.checked += other.checked
+        self.errors.extend(other.errors)
+        self.recorded |= other.recorded
+        for status, n in other.outcomes.items():
+            self.outcomes[status] = self.outcomes.get(status, 0) + n
+        for service, ids in other.unanswered.items():
+            self.unanswered.setdefault(service, set()).update(ids)
+        self.reasons.update(other.reasons)
+        self.not_asked |= other.not_asked
+        self.stopped = self.stopped or other.stopped
+
+    def unanswered_list(self) -> list[dict]:
+        """Each service that did not answer, with the papers it left unchecked.
+
+        A paper that failed in one pass and was recorded in a later one is no
+        longer counted: it is not unchecked.
+        """
+        out: list[dict] = []
+        for service in sorted(self.unanswered):
+            left = self.unanswered[service] - self.recorded
+            if left:
+                out.append({
+                    "service": service,
+                    "name": SERVICE_NAMES.get(service, service),
+                    "papers": len(left),
+                    "reason": self.reasons.get(service),
+                })
+        return out
+
+
+def _reason(exc: BaseException) -> str:
+    """What a failure says, or what kind of failure it was when it says nothing."""
+    return str(exc).strip() or type(exc).__name__
+
+
 def check_corpus(
     conn: sqlite3.Connection,
     *,
@@ -554,7 +643,14 @@ def check_corpus(
 
     With ``run_until_done`` the bounded slice repeats until the corpus is
     covered, ``should_stop`` returns true, or a pass makes no progress. Without
-    it a single slice runs, exactly as before.
+    it a single slice runs, exactly as before. ``should_stop`` is asked before
+    every request, so a stop takes effect part-way through a pass as well as
+    between passes.
+
+    The summary says what could not be done as well as what was: ``unanswered``
+    names each service that did not answer, how many papers that left
+    unchecked, and why; ``stopped`` and ``not_asked`` say whether the check was
+    stopped and how many papers it never asked about as a result.
 
     Providers are injectable so the suite can exercise the whole path against
     recorded payloads without touching the network. In production the defaults
@@ -564,25 +660,24 @@ def check_corpus(
     biorxiv = biorxiv or BiorxivLifecycleProvider()
     arxiv = arxiv or ArxivLifecycleProvider()
 
-    total_checked = 0
-    errors: list[dict] = []
+    total = _Pass()
     while True:
-        checked, batch_errors = _check_one_pass(
-            conn, limit, crossref, biorxiv, arxiv,
+        one = _check_one_pass(
+            conn, limit, crossref, biorxiv, arxiv, should_stop=should_stop,
         )
-        total_checked += checked
-        errors.extend(batch_errors)
+        total.merge(one)
+        if one.stopped:
+            break
         # Stop when asked to do one pass, when the corpus is covered, or when a
         # pass made no progress at all -- the last guard is what stops a run
         # spinning forever on papers that cannot be advanced.
-        if not run_until_done or checked == 0 or _remaining(conn) == 0:
+        if not run_until_done or one.checked == 0 or _remaining(conn) == 0:
             break
         if should_stop is not None and should_stop():
+            total.stopped = True
             break
 
-    return _summary(
-        conn, checked=total_checked, remaining=_remaining(conn), errors=errors,
-    )
+    return _summary(conn, total)
 
 
 def check_documents(
@@ -615,14 +710,15 @@ def check_documents(
 
     ids = [int(i) for i in document_ids]
     due = documents_due(conn, limit=limit, document_ids=ids)
-    checked, errors = _check_one_pass(
+    one = _check_one_pass(
         conn, limit, crossref, biorxiv, arxiv, document_ids=ids,
     )
     return {
-        "checked_now": checked,
+        "checked_now": one.checked,
         "eligible": len(ids),
         "selected": len(due),
-        "errors": errors,
+        "errors": one.errors,
+        "unanswered": one.unanswered_list(),
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
 
@@ -634,22 +730,46 @@ def _check_one_pass(
     biorxiv,
     arxiv,
     document_ids: Optional[Sequence[int]] = None,
-) -> tuple[int, list[dict]]:
-    """One bounded slice: select, fetch in batches, record."""
+    should_stop=None,
+) -> _Pass:
+    """One bounded slice: select, fetch in batches, record.
+
+    **A paper is recorded as checked only when every service due to be asked
+    about it answered.** A paper with a DOI needs Crossref, which is where
+    retractions come from; an arXiv paper held at a version needs arXiv. If
+    either did not answer, nothing is recorded and the paper is asked about
+    again on the next run. Recording it was worse than useless: an arXiv paper
+    with a DOI whose Crossref batch failed was recorded as checked against
+    Crossref, and an arXiv paper whose arXiv batch failed as carrying no
+    identifier at all, and neither was asked about again for thirty days.
+    """
+    result = _Pass()
     documents = documents_due(conn, limit=limit, document_ids=document_ids)
     if not documents:
-        return 0, []
+        return result
+
+    def stopping() -> bool:
+        # Asked before every request, not only between passes: a pass is up to
+        # a thousand papers, and a stop that waited for it to end was a stop in
+        # name only.
+        if not result.stopped and should_stop is not None and should_stop():
+            result.stopped = True
+        return result.stopped
 
     # One Crossref round trip per batch of DOIs rather than one per paper.
     crossref_works: dict[str, dict] = {}
-    # DOIs whose batch never came back. Crossref not *knowing* a DOI and
-    # Crossref not *answering* are completely different facts, and only the
-    # second is a reason to leave a paper unchecked. Conflating them was a
-    # livelock: a corpus holding one DOI Crossref has no record of would have
-    # re-selected the same papers on every run and never advanced.
-    unanswered: set[str] = set()
+    # The DOIs Crossref answered for, whether or not it knew them. Crossref not
+    # *knowing* a DOI and Crossref not *answering* are completely different
+    # facts, and only the second is a reason to leave a paper unchecked.
+    # Conflating them was a livelock: a corpus holding one DOI Crossref has no
+    # record of would have re-selected the same papers on every run and never
+    # advanced.
+    answered: set[str] = set()
+    failed: set[str] = set()
     dois = [d["doi"].strip() for d in documents if (d.get("doi") or "").strip()]
     for start in range(0, len(dois), CROSSREF_BATCH):
+        if stopping():
+            break
         batch = dois[start:start + CROSSREF_BATCH]
         try:
             crossref_works.update(crossref.fetch(batch))
@@ -658,11 +778,15 @@ def _check_one_pass(
             # Leaving those papers unchecked is what keeps the coverage figure
             # honest on the next run.
             logger.warning("Crossref lifecycle batch failed: %s", exc)
-            unanswered.update(doi.lower() for doi in batch)
+            failed.update(doi.lower() for doi in batch)
+            result.reasons["crossref"] = _reason(exc)
+            continue
+        answered.update(doi.lower() for doi in batch)
 
     # arXiv batches too. One request per fifty ids rather than one per paper is
     # the difference between a full pass being minutes and being hours.
     arxiv_feeds: dict[str, str] = {}
+    arxiv_failed: set[str] = set()
     arxiv_ids: list[str] = []
     for d in documents:
         if (d.get("source_repository") or "") != "arxiv":
@@ -671,22 +795,44 @@ def _check_one_pass(
         if version is not None and base_id:
             arxiv_ids.append(base_id)
     for start in range(0, len(arxiv_ids), ARXIV_BATCH):
+        if stopping():
+            break
         batch = arxiv_ids[start:start + ARXIV_BATCH]
         try:
             atom = arxiv.fetch_many(batch)
         except Exception as exc:
             # Same rule as a failed Crossref batch: learn nothing, claim nothing.
             logger.warning("arXiv lifecycle batch failed: %s", exc)
+            arxiv_failed.update(batch)
+            result.reasons["arxiv"] = _reason(exc)
             continue
         for base_id in batch:
             arxiv_feeds[base_id] = atom
 
-    checked = 0
-    errors: list[dict] = []
+    def leave(document_id: int, service: str | None) -> None:
+        """Leave a paper unchecked: a service did not answer, or none was asked."""
+        if service is None:
+            result.not_asked.add(document_id)
+        else:
+            result.unanswered.setdefault(service, set()).add(document_id)
+
     for document in documents:
-        doi = (document.get("doi") or "").strip()
-        if doi and doi.lower() in unanswered and not _other_provider(document):
-            # Nothing was learned about this paper. Not cleared — skipped.
+        document_id = int(document["id"])
+        doi = (document.get("doi") or "").strip().lower()
+        source = (document.get("source_repository") or "").strip()
+        if doi and doi not in answered:
+            # Nothing was learned about retractions. Not cleared — skipped.
+            leave(document_id, "crossref" if doi in failed else None)
+            continue
+        if source == "arxiv":
+            base_id, version = arxiv_version(
+                (document.get("external_id") or "").strip())
+            if version is not None and base_id and base_id not in arxiv_feeds:
+                leave(document_id, "arxiv" if base_id in arxiv_failed else None)
+                continue
+        if source == "biorxiv" and doi and stopping():
+            # Its own request is still to be made, and the check was stopped.
+            leave(document_id, None)
             continue
 
         outcome = _outcome_for(document, crossref_works, arxiv_feeds, biorxiv)
@@ -717,19 +863,17 @@ def _check_one_pass(
             providers=outcome.providers,
             error_message=outcome.error_message,
         )
-        checked += 1
+        result.checked += 1
+        result.recorded.add(document_id)
+        result.outcomes[outcome.status] = result.outcomes.get(outcome.status, 0) + 1
         if outcome.status == "error":
-            errors.append({
+            result.errors.append({
                 "document_id": outcome.document_id,
                 "title": document.get("title"),
                 "error": outcome.error_message,
             })
 
-    return checked, errors
-
-
-def _other_provider(document: dict) -> bool:
-    return (document.get("source_repository") or "") in ("arxiv", "biorxiv")
+    return result
 
 
 def _remaining(conn: sqlite3.Connection) -> int:
@@ -745,11 +889,15 @@ def _remaining(conn: sqlite3.Connection) -> int:
     ).fetchone()[0]
 
 
-def _summary(conn: sqlite3.Connection, *, checked: int, remaining: int, errors: list) -> dict:
+def _summary(conn: sqlite3.Connection, done: _Pass) -> dict:
     return {
-        "checked_now": checked,
-        "remaining": remaining,
-        "errors": errors,
+        "checked_now": done.checked,
+        "outcomes": dict(done.outcomes),
+        "remaining": _remaining(conn),
+        "errors": done.errors,
+        "unanswered": done.unanswered_list(),
+        "stopped": done.stopped,
+        "not_asked": len(done.not_asked - done.recorded),
         "checked_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         **report(conn),
     }
