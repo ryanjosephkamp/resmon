@@ -71,8 +71,8 @@ export function About() {
             chose, and leave it only in the ways listed below.
           </li>
           <li>
-            Keys and passwords (sources’ API keys, AI providers’ keys, the email password, webhook secrets, and the Google
-            Drive sign-in) are kept in {keychain}, not in the database. A backup carries none of them, and neither does an
+            Keys and passwords (sources’ API keys, AI providers’ keys, the email password, and webhook secrets) are kept
+            in {keychain}, not in the database. A backup carries none of them, and neither does an
             export of saved searches; restoring a backup names the ones to enter again.
           </li>
           <li>resmon has no account and no server of its own, and it sends no record of how you use it.</li>
@@ -107,8 +107,12 @@ export function About() {
           <li>
             <b>Reports.</b> A report leaves this computer only where you send it. A watch’s email and webhook destinations
             are sent each of its reports when it runs, or once you release the report if you chose to review it first; a
-            folder or a feed is written on this computer. Google Drive is sent the reports folder when you press Upload,
-            and each run’s report and log as it finishes if you turn that on in Settings › Cloud Storage.
+            folder or a feed is written on this computer.
+          </li>
+          <li>
+            <b>Backups.</b> A backup is written to the folder you choose in{' '}
+            <Link to="/settings/storage">Settings › Backup</Link>, on this computer. If that is a folder Google Drive for
+            desktop keeps, that app uploads it; resmon itself does not sign in to Google.
           </li>
           <li>
             <b>Updates.</b> On Windows and Linux, an installed resmon asks GitHub for a newer version about{' '}
