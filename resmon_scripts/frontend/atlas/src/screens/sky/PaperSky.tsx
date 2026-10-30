@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
 import { MAP_KEY } from '../Today';
-import { instant } from '../today/format';
+import { useReadAfter } from './readAfter';
 
 /** Up to this many marked papers are ringed; more are drawn as accent points. */
 const RING_LIMIT = 80;
@@ -192,16 +192,7 @@ export function PaperSky({ marked, focus = null, label, caption, shape = 'square
     return () => observer.disconnect();
   }, [map.data, wanted, ringed, outline, focus, shown, theme]);
 
-  // A map read before `readAfter` is read again, once for each `readAfter`.
-  const after = readAfter ? instant(readAfter).getTime() : null;
-  const current = after === null || (!!map.data && map.dataUpdatedAt >= after);
-  const reread = useRef<number | null>(null);
-  const { refetch } = map;
-  useEffect(() => {
-    if (after === null || current || reread.current === after || map.isFetching) return;
-    reread.current = after;
-    void refetch();
-  }, [after, current, map.isFetching, refetch]);
+  const current = useReadAfter(map, readAfter);
 
   const ready = current && !!map.data && map.data.state === 'ready' && map.data.points.id.length > 0;
   const facts: SkyFacts = {

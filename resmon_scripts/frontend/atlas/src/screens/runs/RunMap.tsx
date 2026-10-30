@@ -4,6 +4,7 @@ import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
 import { MAP_KEY, Tip, findPosition } from '../Today';
+import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
 import { filterCount } from '../sky/look';
@@ -19,6 +20,8 @@ interface Props {
   running: boolean;
   /** When the run ended, so its papers are read again once it has. */
   settledAt: string | null | undefined;
+  /** The run's end time: a map read before it lacks the run's papers. */
+  endedAt: string | null;
   names: ReadonlyMap<string, string>;
 }
 
@@ -32,7 +35,7 @@ interface Props {
  * and the run's sky, and the run's ids are a few bytes each, so drawing it
  * costs one pass over the collection's points.
  */
-export function RunMap({ runId, running, settledAt, names }: Props) {
+export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
   const client = useQueryClient();
   const { theme, shown } = useAppearance();
   const [now] = useState(() => new Date());
@@ -57,7 +60,9 @@ export function RunMap({ runId, running, settledAt, names }: Props) {
   }, [settledAt, client]);
 
   const sourceName = useMemo(() => (slug: string) => names.get(slug) ?? slug, [names]);
-  const ready = map.data?.state === 'ready' ? map.data : null;
+  // Until the map has been read since the run ended, it lacks the run's papers.
+  const current = useReadAfter(map, endedAt);
+  const ready = current && map.data?.state === 'ready' ? map.data : null;
   const built = useMemo(
     () => (ready && ids.data ? subSky(ready.points, ready.regions, ids.data.ids, epochDay(now)) : null),
     [ready, ids.data, now],
@@ -102,7 +107,7 @@ export function RunMap({ runId, running, settledAt, names }: Props) {
   const placed = built?.sky.count ?? null;
   const selectedIndex = selectedId !== null && sky ? sky.indexOf.get(selectedId) ?? null : null;
   const look = mapLook.look;
-  const account = placementWords(map.data, total, placed);
+  const account = placementWords(current ? map.data : undefined, total, placed);
 
   return (
     <div className="run-map" data-run-map={runId} data-placed={placed ?? ''} data-total={total ?? ''}>
