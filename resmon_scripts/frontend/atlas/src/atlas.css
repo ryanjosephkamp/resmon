@@ -1072,6 +1072,8 @@ code.path {
 /* ---------------------------------------------------------------- health */
 
 .health { max-width: 1440px; }
+/* The wall is a grid of runs, and more runs read better than more margin: it takes the window's width. Its sentences keep their own measures. */
+.health.wall-page { max-width: none; }
 .tab-count {
   display: inline-grid; place-items: center; min-width: 17px; height: 17px; margin-left: 6px; padding: 0 5px;
   border-radius: 999px; background: var(--fault); color: var(--plate); font: 600 11px/1 var(--sans); font-variant-numeric: tabular-nums;
