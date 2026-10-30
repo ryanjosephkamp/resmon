@@ -4280,9 +4280,10 @@ class DriveUploadNoticeAcknowledged(LosslessModel):
 class AiKeysErased(LosslessModel):
     """``POST /api/admin/erase-ai-keys``: every AI provider key slot cleared.
 
-    ``ai_keys_removed`` is the number of AI provider key names cleared. A name
-    that held no key counts too, and the legacy ``ai_api_key`` slot is cleared
-    without being counted. This route takes no ``confirm``.
+    ``ai_keys_removed`` is the number of AI provider keys that were stored and
+    are now gone, the legacy ``ai_api_key`` slot included. A name that held no
+    key is not counted, so with none stored it is 0. This route takes no
+    ``confirm``.
     """
 
     success: bool
@@ -4292,8 +4293,9 @@ class AiKeysErased(LosslessModel):
 class RepositoryKeysErased(LosslessModel):
     """``POST /api/admin/erase-repo-keys``: every repository key slot the catalog names cleared.
 
-    ``repo_keys_removed`` is the number of catalog credential names cleared,
-    whether or not each held a key. This route takes no ``confirm``.
+    ``repo_keys_removed`` is the number of repository keys that were stored
+    and are now gone; a name that held no key is not counted. This route takes
+    no ``confirm``.
     """
 
     success: bool
@@ -4339,7 +4341,8 @@ class AppDataErased(LosslessModel):
     """``POST /api/admin/erase-app-data``: papers, configurations, runs, and every AI and repository key.
 
     Settings, the SMTP password and the Library's files are kept. The key
-    counts are of names cleared, not keys found.
+    counts are of keys found and removed, as ``AiKeysErased`` and
+    ``RepositoryKeysErased`` count them.
     """
 
     success: bool
@@ -4365,25 +4368,27 @@ class SettingsReset(LosslessModel):
     """``POST /api/admin/reset-settings``: every stored setting cleared, and every AI, repository and SMTP key.
 
     ``settings_cleared`` counts the stored settings deleted; the schema
-    version marker is kept and not counted. The key counts are of names
-    cleared, not keys found, and the SMTP password is cleared without being
-    counted. Configurations, runs and papers are kept.
+    version marker is kept and not counted. The key counts are of keys found
+    and removed, and ``smtp_credentials_removed`` counts the SMTP password the
+    same way, apart from the AI and repository keys. Configurations, runs and
+    papers are kept.
     """
 
     success: bool
     settings_cleared: int
     ai_keys_removed: int
     repo_keys_removed: int
+    smtp_credentials_removed: int
 
 
 class FactoryReset(LosslessModel):
     """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
 
-    The counts are as the single-purpose routes count them, so the key counts
-    are of names cleared. It does not clear a Google Drive sign-in stored by
-    the removed upload or a delivery target's webhook secret, and it does not
-    touch the Library's files, report files on disk, or a restore's undo
-    copies.
+    The counts are as the single-purpose routes and ``SettingsReset`` count
+    them, so the key counts are of keys found and removed. It does not clear a
+    Google Drive sign-in stored by the removed upload or a delivery target's
+    webhook secret, and it does not touch the Library's files, report files on
+    disk, or a restore's undo copies.
     """
 
     success: bool
@@ -4393,6 +4398,7 @@ class FactoryReset(LosslessModel):
     settings_cleared: int
     ai_keys_removed: int
     repo_keys_removed: int
+    smtp_credentials_removed: int
 
 
 # ===========================================================================

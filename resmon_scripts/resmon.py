@@ -7116,19 +7116,23 @@ def _require_confirm(body: AdminConfirmBody) -> None:
         )
 
 
+# Each eraser counts the keys that were stored and are now gone, never the
+# names it asked about: with nothing stored, every count is 0. A delete that
+# times out raises, so a key that may still be there is never counted.
+
+
 def _erase_ai_keys() -> int:
-    for name in AI_CREDENTIAL_NAMES:
-        delete_credential(name)
-    # Legacy single global slot from pre-update_2 builds, if present.
-    delete_credential("ai_api_key")
-    return len(AI_CREDENTIAL_NAMES)
+    # The legacy single global slot from pre-update_2 builds is an AI key too.
+    names = sorted(AI_CREDENTIAL_NAMES) + ["ai_api_key"]
+    return sum(delete_credential(name) for name in names)
 
 
 def _erase_repo_keys() -> int:
-    names = sorted(catalog_credential_names())
-    for name in names:
-        delete_credential(name)
-    return len(names)
+    return sum(delete_credential(name) for name in sorted(catalog_credential_names()))
+
+
+def _erase_smtp_credentials() -> int:
+    return sum(delete_credential(name) for name in sorted(SMTP_CREDENTIAL_NAMES))
 
 
 def _erase_configs(conn) -> int:
@@ -7318,13 +7322,13 @@ def admin_reset_settings(body: AdminConfirmBody):
     r = _erase_repo_keys()
     # Also clear the SMTP password stored under SMTP_CREDENTIAL_NAMES so a
     # settings reset truly removes every secret tied to settings.
-    for name in SMTP_CREDENTIAL_NAMES:
-        delete_credential(name)
+    m = _erase_smtp_credentials()
     return {
         "success": True,
         "settings_cleared": n,
         "ai_keys_removed": a,
         "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
     }
 
 
@@ -7348,8 +7352,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         _close_db(conn)
     a = _erase_ai_keys()
     r = _erase_repo_keys()
-    for name in SMTP_CREDENTIAL_NAMES:
-        delete_credential(name)
+    m = _erase_smtp_credentials()
     return {
         "success": True,
         "configs_removed": c,
@@ -7358,6 +7361,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         "settings_cleared": s,
         "ai_keys_removed": a,
         "repo_keys_removed": r,
+        "smtp_credentials_removed": m,
     }
 
 
