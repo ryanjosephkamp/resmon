@@ -931,6 +931,65 @@ class CollectionMap(LosslessModel):
     points: MapPoints
 
 
+class MapFacetWatch(LosslessModel):
+    """A watch, and every paper its runs have ever returned."""
+
+    id: int
+    name: str
+    is_active: bool
+    members: list[int]
+
+
+class MapFacets(LosslessModel):
+    """``GET /api/map/facets``: what the map's filters and colors read, per paper.
+
+    Columns in id order, one entry per paper in ``ids``. ``source`` indexes
+    ``sources`` (slugs). ``published_day`` is days since 1970-01-01 of the first
+    day the stored publication date names (a year alone counts from January 1),
+    or null where it is not a date. ``found_at`` is when resmon first collected
+    the paper, in Unix seconds. ``saved`` and ``read`` are the reading queue's
+    papers by status; ``new`` the papers first collected after ``since``, which
+    is Today's window (``window`` as Today words it).
+    """
+
+    ids: list[int]
+    source: list[int]
+    sources: list[str]
+    published_day: list[Optional[int]]
+    found_at: list[Optional[int]]
+    saved: list[int]
+    read: list[int]
+    since: Optional[str]
+    window: Literal["since_last_look", "first_look"]
+    new: list[int]
+    watches: list[MapFacetWatch]
+
+
+class MapFind(LosslessModel):
+    """``GET /api/map/find``: the papers whose title or authors contain the query, newest first."""
+
+    query: str
+    ids: list[int]
+
+
+class MapView(LosslessModel):
+    """``GET`` and ``PUT /api/map/views/{name}``: a map's remembered filters and colors.
+
+    Empty ``watches`` or ``sources`` filter nothing. ``dates`` says which date
+    ``date_from`` and ``date_to`` (inclusive, ``YYYY-MM-DD``, either may be
+    null) are read against. The PUT answers what it stored, after anything it
+    did not recognize fell back to the default.
+    """
+
+    color: Literal["region", "watch", "source", "age"]
+    watches: list[int]
+    sources: list[str]
+    dates: Literal["found", "published"]
+    date_from: Optional[str]
+    date_to: Optional[str]
+    state: Literal["any", "saved", "to_read", "read", "new"]
+
+
 class TodaySourceNote(LosslessModel):
     """A source that did not answer on a watch's last run, or whose answer is unknown.
 
@@ -1981,6 +2040,13 @@ class RunPapersPage(LosslessModel):
     limit: int
     offset: int
     only_new: bool
+
+
+class RunDocumentIds(LosslessModel):
+    """``GET /api/executions/{exec_id}/document-ids``: every paper the run
+    stored that is still in the collection, by id, for the run's map."""
+
+    ids: list[int]
 
 
 class PaperWhyDocument(LosslessModel):

@@ -142,6 +142,10 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "collection map": (
         ("GET", "/api/map"),
+        ("GET", "/api/map/facets"),
+        ("GET", "/api/map/find"),
+        ("GET", "/api/map/views/{name}"),
+        ("PUT", "/api/map/views/{name}"),
     ),
     "today": (
         ("GET", "/api/today"),
@@ -193,6 +197,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/executions/{exec_id}/cancel"),
         ("POST", "/api/executions/{exec_id}/restart"),
         ("GET", "/api/executions/{exec_id}/documents"),
+        ("GET", "/api/executions/{exec_id}/document-ids"),
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
@@ -1565,6 +1570,7 @@ def _drive_collection(drive: Drive) -> None:
 
     page = drive("GET", f"/api/executions/{run}/documents")
     assert {p["queue_status"] for p in page["papers"]} == {"to_read", None}
+    assert drive("GET", f"/api/executions/{run}/document-ids")["ids"] == sorted(ids)
     drive("POST", "/api/explorer/search", json={"query": "perovskite", "limit": 50})
     drive("GET", f"/api/documents/{ids[0]}")
     drive("GET", f"/api/documents/{ids[2]}")
@@ -1718,6 +1724,17 @@ def _drive_collection_map(drive: Drive) -> None:
     collection_map.wait(conn)
     ready = drive("GET", "/api/map")
     assert ready["state"] == "ready" and ready["points"]["id"], ready
+    # The columns the filters read, a find that matches and one too short to
+    # run, and a view stored and read back: a date, and a null beside it.
+    facets = drive("GET", "/api/map/facets")
+    assert len(facets["published_day"]) == len(facets["ids"]) and None in facets["published_day"], facets
+    assert drive("GET", "/api/map/find", params={"q": "protein"})["ids"]
+    assert drive("GET", "/api/map/find", params={"q": "p"})["ids"] == []
+    drive("GET", "/api/map/views/today")
+    stored = drive("PUT", "/api/map/views/run", json={
+        "color": "source", "watches": [], "sources": ["arxiv"], "dates": "published",
+        "date_from": "2026-01-01", "date_to": None, "state": "saved"})
+    assert stored == drive("GET", "/api/map/views/run")
     collection_map.forget(conn)
 
 

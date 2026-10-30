@@ -190,14 +190,29 @@ def _last_run(conn: sqlite3.Connection, routine_id: int) -> Optional[dict]:
     }
 
 
+def new_window(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
+    """What "new" counts from: ``floor`` (SQLite-format UTC, compared with
+    ``first_seen_at`` as text), ``since`` (the same moment as ISO 8601), and
+    ``window``, which says whether a look is recorded or the first look's seven
+    days stand in for one."""
+    now = now or datetime.now(timezone.utc)
+    since = looked_at(conn)
+    floor = since or _to_sqlite(now - timedelta(days=FIRST_LOOK_DAYS))
+    return {
+        "window": "since_last_look" if since else "first_look",
+        "floor": floor,
+        "since": _iso(floor),
+    }
+
+
 def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
           now: Optional[datetime] = None) -> dict:
     """Today's papers and watches. ``next_fire`` is ``{routine id: epoch seconds}``
     from the job store (absent or None where no job is held)."""
     now = now or datetime.now(timezone.utc)
-    since = looked_at(conn)
-    window = "since_last_look" if since else "first_look"
-    floor = since or _to_sqlite(now - timedelta(days=FIRST_LOOK_DAYS))
+    span = new_window(conn, now)
+    window = span["window"]
+    floor = span["floor"]
 
     total = int(conn.execute(
         "SELECT COUNT(*) FROM documents WHERE first_seen_at > ?", (floor,)).fetchone()[0])
@@ -262,7 +277,7 @@ def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
 
     return {
         "now": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "since": _iso(since) if since else _iso(floor),
+        "since": span["since"],
         "window": window,
         "total": total,
         "papers": papers,
