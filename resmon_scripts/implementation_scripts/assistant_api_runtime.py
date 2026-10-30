@@ -261,12 +261,13 @@ class ApiKeyRuntime:
                 "A custom endpoint needs its base URL, which is set with the "
                 "custom provider in Settings → AI.")
         if not self._key():
-            alias = self._alias()
+            # The provider and the screen, and never the keychain slot's name:
+            # that is resmon's bookkeeping, not something a person types.
             return RuntimeStatus(
                 self.kind, False,
                 f"No {self.provider} API key is stored. Add one in "
-                f"Settings › AI ({alias}); resmon reads it from your "
-                "system keychain and never puts it in a conversation.")
+                "Settings › AI; resmon reads it from your system keychain and "
+                "never puts it in a conversation.")
         # Deliberately not "ready". Nothing here has spent a token, so nothing
         # here knows the key is accepted -- the same line every other surface in
         # resmon draws between found and working.
