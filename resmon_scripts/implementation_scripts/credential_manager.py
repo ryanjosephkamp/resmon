@@ -436,10 +436,12 @@ _VALIDATION_ENDPOINTS: dict[str, dict] = {
         },
     },
     "google": {
+        # In a header, not ``?key=``: a query string lands in every proxy's
+        # access log on the way, and in the URL ``httpx`` quotes in an error.
+        # ``x-goog-api-key`` is the header the API documents for this endpoint.
         "url": "https://generativelanguage.googleapis.com/v1beta/models",
         "method": "GET",
-        "headers_fn": lambda key: {},
-        "params_fn": lambda key: {"key": key},
+        "headers_fn": lambda key: {"x-goog-api-key": key},
     },
     "xai": {
         "url": "https://api.x.ai/v1/models",
@@ -475,7 +477,10 @@ _VALIDATION_ENDPOINTS: dict[str, dict] = {
     "springer": {
         "url": "https://api.springernature.com/meta/v2/json?q=test&s=1&p=1",
         "method": "GET",
-        "headers_fn": lambda key: {},  # key goes as query param
+        # Still ``?api_key=``, the way ``api_springer`` sends it on every
+        # search: a probe that sent it differently would test the key in a way
+        # it is never used. Moving both is the source client's change to make.
+        "headers_fn": lambda key: {},
         "params_fn": lambda key: {"api_key": key},
     },
 }
