@@ -135,6 +135,21 @@ class TaskLogger:
         )
         self._path.write_text(full_text, encoding="utf-8")
 
+    def append(self, message: str) -> None:
+        """Add a timestamped line to a log ``finalize`` has already written.
+
+        For what happens after a run has ended, such as the upload to Google
+        Drive that follows it: ``log`` keeps a line in memory until
+        ``finalize`` writes the file, so a line logged afterwards would never
+        reach it.
+        """
+        ts = now_iso()
+        short_ts = ts[11:19] if len(ts) >= 19 else ts
+        line = f"[{short_ts}] {message}"
+        self._entries.append(line)
+        with self._path.open("a", encoding="utf-8") as stream:
+            stream.write(line + "\n")
+
 
 # ---------------------------------------------------------------------------
 # Helpers

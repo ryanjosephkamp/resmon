@@ -2067,6 +2067,12 @@ class SweepEngine:
 
         Runs the upload in a daemon thread so the execution returns
         immediately; failures are logged but never raised.
+
+        What happened is appended to the run's log, which ``finalize`` has
+        already written by the time this runs: a skip, and the upload's start
+        and its outcome. A run with this switched on and Google Drive not
+        connected otherwise uploads nothing and says so nowhere, which looks
+        exactly like an upload that worked.
         """
         try:
             enabled = (get_setting(self.db, "cloud_auto_backup") or "").strip().lower() == "true"
@@ -2080,19 +2086,28 @@ class SweepEngine:
         # and the cloud_storage module and its Google API dependencies.
         try:
             from .cloud_storage import (
-                check_connection as _cloud_check_connection,
+                is_token_stored as _cloud_token_stored,
+                probe_api as _cloud_probe_api,
                 upload_paths as _upload_paths,
             )
         except Exception as exc:
             logger.warning("auto-backup import failed (exec_id=%d): %s", exec_id, exc)
             return
 
+        # Two checks rather than ``check_connection``'s one boolean, so the
+        # log can say which it was: nothing linked, or a link Google refused.
         try:
-            if not _cloud_check_connection():
-                task_log.log("Auto-backup skipped: cloud storage not linked.")
+            if not _cloud_token_stored():
+                task_log.append("Auto-backup skipped: Google Drive is not connected.")
+                return
+            ok, reason = _cloud_probe_api()
+            if not ok:
+                task_log.append(
+                    f"Auto-backup skipped: Google Drive could not be used ({reason or 'no reason given'})."
+                )
                 return
         except Exception as exc:
-            task_log.log(f"Auto-backup connection check failed: {exc}")
+            task_log.append(f"Auto-backup connection check failed: {exc}")
             return
 
         # Only this execution's artifacts. Missing files are filtered by
@@ -2102,21 +2117,21 @@ class SweepEngine:
 
         def _run() -> None:
             try:
-                task_log.log(
+                task_log.append(
                     f"Auto-backup: uploading execution #{exec_id} artifacts to Google Drive..."
                 )
                 result = _upload_paths(paths_to_upload, REPORTS_DIR, folder_name=folder_name)
                 uploaded = len(result.get("uploaded_ids", []))
                 total = result.get("total_files", 0)
                 folder = result.get("folder_name") or ""
-                task_log.log(
+                task_log.append(
                     f"Auto-backup complete: uploaded {uploaded}/{total} files"
                     + (f" to '{folder}'." if folder else ".")
                 )
             except Exception as exc:
                 logger.warning("Auto-backup upload failed (exec_id=%d): %s", exec_id, exc)
                 try:
-                    task_log.log(f"Auto-backup failed: {exc}")
+                    task_log.append(f"Auto-backup failed: {exc}")
                 except Exception:
                     pass
 

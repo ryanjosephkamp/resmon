@@ -192,3 +192,45 @@ def test_a_run_that_does_not_exist_is_refused_and_leaves_nothing(client, staged)
     assert resp.status_code == 404, resp.text
     assert resp.json()["detail"] == "Execution not found"
     assert not any(path.exists() for path in staged), "a refusal left its staging folder behind"
+
+
+# ---------------------------------------------------------------------------
+# Several runs in one archive
+# ---------------------------------------------------------------------------
+
+def test_several_runs_download_as_the_export_routes_archive(client, staged, tmp_path):
+    first, first_report, _ = _finished_run(tmp_path)
+    second, second_report, second_log = _finished_run(tmp_path)
+
+    resp = client.post("/api/executions/archive", json={"ids": [first, second]})
+    _is_download(resp, "resmon_executions_")
+    downloaded = _members(resp.content)
+
+    written = client.post("/api/executions/export", json={"ids": [first, second]})
+    assert written.status_code == 200, written.text
+    on_disk = _members(Path(written.json()["path"]).read_bytes())
+    Path(written.json()["path"]).unlink()
+
+    assert sorted(downloaded) == sorted(on_disk)
+    assert downloaded[f"execution_{first}/{first_report.name}"] == first_report.read_bytes()
+    assert downloaded[f"execution_{second}/{second_report.name}"] == second_report.read_bytes()
+    assert downloaded[f"execution_{second}/{second_log.name}"] == second_log.read_bytes()
+    for eid in (first, second):
+        assert json.loads(downloaded[f"execution_{eid}/search-record.json"])["search"]["execution_id"] == eid
+        assert downloaded[f"execution_{eid}/search-record.md"].startswith(b"# Search record")
+    assert [entry["id"] for entry in json.loads(downloaded["manifest.json"])] == [first, second]
+    assert staged and not any(path.exists() for path in staged), "the staging folder outlived the response"
+
+
+def test_a_run_that_is_gone_is_left_out_and_a_choice_of_none_is_refused(client, staged, tmp_path):
+    kept, _, _ = _finished_run(tmp_path)
+
+    resp = client.post("/api/executions/archive", json={"ids": [kept, 99999, kept]})
+    _is_download(resp, "resmon_executions_")
+    assert [entry["id"] for entry in json.loads(_members(resp.content)["manifest.json"])] == [kept]
+
+    for ids in ([99999], []):
+        refused = client.post("/api/executions/archive", json={"ids": ids})
+        assert refused.status_code == 404, refused.text
+        assert refused.json()["detail"] == "None of the chosen runs exists."
+    assert not any(path.exists() for path in staged), "a refusal left its staging folder behind"
