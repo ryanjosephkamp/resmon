@@ -116,7 +116,8 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'
   | 'observeOwnRequests' | 'readSidebarPlaces' | 'readTheFirstRunCard' | 'skipTheFirstRunCard' | 'eraseWith'
   | 'saveKeyFor' | 'readKeyFields' | 'readSourceDetails' | 'readRequiredAttributions'
-  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'chooseGoogleDrivesFolderForBackups' | 'backUpNow'
+  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'readTheRecordingsHere' | 'chooseGoogleDrivesFolderForBackups'
+  | 'backUpNow'
   | 'readRestoreCard'
   // The setup a person does on a screen, taken through Atlas's own.
   | 'createRoutine' | 'fireRoutineNow' | 'addDeliveryTarget' | 'restoreIntoFreshState'
@@ -2686,6 +2687,29 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const out: { text: string; href: string }[] = [];
       for (let i = 0; i < await links.count(); i += 1) {
         out.push({ text: (await links.nth(i).innerText()).trim(), href: String(await links.nth(i).getAttribute('href')) });
+      }
+      return out;
+    },
+
+    readTheRecordingsHere: async () => {
+      // Settings › Tutorials: each recording's picture, the GIF or its still,
+      // read once it has decoded, against the renderer's own origin.
+      const section = win().locator('main.stage section.tutorials');
+      await section.waitFor({ timeout: 30_000 });
+      const own = new URL(win().url()).origin;
+      const items = section.locator('li[data-tutorial]');
+      const out: { title: string; fromTheApp: boolean; drawn: boolean }[] = [];
+      for (let i = 0; i < await items.count(); i += 1) {
+        const picture = await items.nth(i).locator('img').evaluate(async (node) => {
+          const img = node as HTMLImageElement;
+          const drawn = await img.decode().then(() => img.naturalWidth > 0, () => false);
+          return { src: img.currentSrc || img.src, drawn };
+        });
+        out.push({
+          title: (await items.nth(i).locator('.tutorial-title').innerText()).trim(),
+          fromTheApp: new URL(picture.src).origin === own,
+          drawn: picture.drawn,
+        });
       }
       return out;
     },

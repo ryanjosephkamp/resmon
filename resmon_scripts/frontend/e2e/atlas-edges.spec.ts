@@ -11,8 +11,8 @@
  * run switched on, which was removed, and Backup says so once. There is no
  * Cloud Storage group: resmon does not sign in to Google. The Danger zone
  * refuses the wrong word on screen and in the engine, and the right word
- * erases only what it names. Tutorials are links, never frames, and say what
- * has changed since they were recorded.
+ * erases only what it names. Tutorials are recordings that ship with the app,
+ * never frames or links out, and one plays only while it is on screen.
  *
  * **Scripted:** the folder chooser. Each state is held to the engine's record.
  * No network beyond loopback.
@@ -181,17 +181,42 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     await expect(row.getByRole('status')).toContainText(/^There were no papers to remove\.$/, { timeout: 30_000 });
     expect((await engine<unknown[]>(win, '/api/configurations')).body.length, 'erasing papers took a saved search').toBe(configsBefore);
 
-    // — Tutorials: links that leave, never frames ---------------------------------------
+    // — Tutorials: the app's own recordings, never frames or links out ------------------
+    const fromElsewhere: string[] = [];
+    const notice = (request: { url(): string }) => {
+      if (!request.url().startsWith('http://127.0.0.1:')) fromElsewhere.push(request.url());
+    };
+    win.on('request', notice);
     await win.evaluate(() => { window.location.hash = '#/settings/tutorials'; });
     await expect(win.getByRole('heading', { name: 'Tutorials', level: 2 })).toBeVisible();
     expect(await win.locator('main.stage').locator('iframe, webview, object, embed').count()).toBe(0);
-    const links = win.getByRole('link', { name: 'Watch on YouTube' });
-    expect(await links.count()).toBeGreaterThan(0);
-    for (const link of await links.all()) expect(await link.getAttribute('href')).toMatch(/^https:\/\/www\.youtube\.com\/watch\?v=/);
-    // Recorded in the earlier interface, and saying so rather than that nothing changed.
     const tutorials = win.locator('section.tutorials');
-    await expect(tutorials).not.toContainText('The steps are the same');
-    await expect(tutorials.locator('[data-tutorial="AcTF9d39BNA"] [data-tutorial-now]')).toContainText('no day or week view');
+    expect(await tutorials.locator('a[href^="http"]').count()).toBe(0);
+    await expect(tutorials.locator('li[data-tutorial]')).toHaveCount(7);
+    await expect(tutorials).toContainText('Ask has no recording yet');
+    // Every picture is drawn, from the renderer's own origin: the GIF of the one on
+    // screen, and the still of each further down.
+    const origin = new URL(win.url()).origin;
+    const pictures = await tutorials.locator('img').evaluateAll((imgs) => Promise.all(imgs.map(async (node) => {
+      const img = node as HTMLImageElement;
+      const drawn = await img.decode().then(() => img.naturalWidth, () => 0);
+      return { src: img.currentSrc || img.src, drawn };
+    })));
+    expect(pictures).toHaveLength(7);
+    for (const p of pictures) {
+      expect(new URL(p.src).origin, `${p.src} is not the app's own file`).toBe(origin);
+      expect(p.drawn, `${p.src} was not drawn`).toBe(960);
+    }
+    await expect(tutorials.locator('li[data-tutorial="today"] img')).toHaveAttribute('data-picture', 'gif');
+    await expect(tutorials.locator('li[data-tutorial="getting-around"] img')).toHaveAttribute('data-picture', 'still');
+    // Paused, it stays on its still; scrolled to, the next one plays.
+    await tutorials.getByRole('button', { name: 'Pause Today' }).click();
+    await expect(tutorials.locator('li[data-tutorial="today"] img')).toHaveAttribute('data-picture', 'still');
+    await tutorials.locator('li[data-tutorial="getting-around"] .tutorial-frame').scrollIntoViewIfNeeded();
+    await expect(tutorials.locator('li[data-tutorial="getting-around"] img')).toHaveAttribute('data-picture', 'gif');
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-tutorials.png') });
+    win.off('request', notice);
+    expect(fromElsewhere, 'the Tutorials page fetched from somewhere other than the app').toEqual([]);
 
     await win.evaluate(() => { window.location.hash = '#/settings/storage'; });
     await expect(win.locator('section.storage')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });

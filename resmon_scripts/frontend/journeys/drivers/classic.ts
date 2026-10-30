@@ -2655,6 +2655,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return out;
     },
 
+    // The classic Tutorials tab links to its recordings on YouTube and ships none.
+    readTheRecordingsHere: async () => [],
+
     runTheGate: async (args): Promise<GateRun> => {
       // The build's own interpreter, the build's own repository, and a state
       // directory of this session's own so the gate cannot touch anybody's
