@@ -177,7 +177,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     // Changing the main lane keeps every fallback exactly as stored, and the engine reads the change.
     await summary.locator('#ai-model').fill('opus');
     await summary.getByRole('button', { name: 'Save summary settings' }).click();
-    await expect(summary.getByRole('status')).toHaveText('Saved.', { timeout: 30_000 });
+    await expect(summary.locator('.settings-said')).toHaveText('Saved.', { timeout: 30_000 });
     const stored = (await api<{ ai_chain: string; ai_model: string }>(win, 'GET', '/api/settings/ai')).body;
     expect(stored.ai_model).toBe('opus');
     expect(JSON.parse(stored.ai_chain)).toEqual([
@@ -191,7 +191,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     await summary.getByRole('button', { name: 'Remove the fallback OpenAI · gpt-4o-mini, with your OpenAI key' }).click();
     await expect(summary.locator('[data-ai="fallbacks-removed"]')).toContainText('Save to stop using it');
     await summary.getByRole('button', { name: 'Save summary settings' }).click();
-    await expect(summary.getByRole('status')).toHaveText('Saved.', { timeout: 30_000 });
+    await expect(summary.locator('.settings-said')).toHaveText('Saved.', { timeout: 30_000 });
     await expect(lanes).toHaveCount(1);
     expect(engineLanes().map((l) => l.provider)).toEqual(['claude_code', 'local']);
 

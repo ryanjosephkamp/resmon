@@ -326,3 +326,44 @@ def test_usable_goes_false_once_every_lane_is_demoted(conn, exec_id, monkeypatch
     runner.summarize_document("one")
     assert runner.usable is False
     runner.finish()
+
+
+# ---------------------------------------------------------------------------
+# What answered, beside what was asked for
+# ---------------------------------------------------------------------------
+
+class ReportingClient(FakeClient):
+    """A client that, like the subscription client, says which models answered."""
+
+    def __init__(self, provider, model, script, reported):
+        super().__init__(provider, model, script)
+        self._reported = reported
+
+    def reported_models(self):
+        return list(self._reported)
+
+
+def test_the_models_a_lane_reported_are_recorded_and_named(conn, exec_id, monkeypatch):
+    runner = _runner(
+        conn, exec_id, [_lane("claude_code", model="haiku", kind="subscription")],
+        {"claude_code": ReportingClient("claude_code", "haiku", ["s"],
+                                        [("claude-haiku-5-5", 3), ("claude-haiku-4-5-20251001", 1)])},
+        monkeypatch,
+    )
+    runner.summarize_document("one")
+    runner.finish()
+    runner.finish()                      # a second finish replaces, never duplicates
+    lane = get_execution_ai(conn, exec_id)[0]
+    assert lane["model"] == "haiku"
+    assert lane["answered_by"] == [
+        {"model": "claude-haiku-5-5", "name": "Haiku 5.5", "calls": 3},
+        {"model": "claude-haiku-4-5-20251001", "name": "Haiku 4.5", "calls": 1},
+    ]
+
+
+def test_a_lane_that_reports_nothing_records_nothing(conn, exec_id, monkeypatch):
+    runner = _runner(conn, exec_id, [_lane("anthropic")],
+                     {"anthropic": FakeClient("anthropic", "m", ["s"])}, monkeypatch)
+    runner.summarize_document("one")
+    runner.finish()
+    assert get_execution_ai(conn, exec_id)[0]["answered_by"] == []

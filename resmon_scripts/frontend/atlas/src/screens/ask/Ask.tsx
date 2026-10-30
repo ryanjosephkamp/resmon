@@ -2,10 +2,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, 
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { download } from '../library/libraryApi';
-import { ask, type Bound, type ChoiceRequest, type Choices, type Detail, type Message, type TurnChoices } from './askApi';
+import { CliSignIn } from '../settings/CliSignIn';
+import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from '../settings/modelWords';
+import { ask, type Bound, type ChoiceRequest, type Choices, type Detail, type Message, type TurnChoices, type TurnFailure } from './askApi';
 import {
-  basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall, providerWords,
-  reportWords, requestedWords, savedCalls, shortToolName, type Card, type LiveCall, type LiveMessage,
+  answerFooterWords, answeredWords, basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall,
+  failureTitle, providerWords, reportWords, requestedWords, savedCalls, shortToolName, type Card, type LiveCall, type LiveMessage,
 } from './askModel';
 import { CHATS_KEY, STATUS_KEY, chatKey, useAsk } from './AskProvider';
 
@@ -103,7 +105,10 @@ function Pane() {
   });
   const mine = live && live.session === selected ? live : null;
   const shown = selected === null ? null : detail.data ?? null;
-  const fault = mine?.error ?? (failure && failure.session === selected ? failure.text : null);
+  // A failure the engine kept with its turn is drawn there, under the message
+  // it failed to answer, and is not said a second time above the composer.
+  const kept = !!failure?.turn && !!shown?.turn_choices.some((t) => t.user_message_id === failure.turn && t.failure);
+  const fault = mine?.error ?? (failure && failure.session === selected && !kept ? failure.text : null);
   const busyElsewhere = answering && !mine && !(selected === null && live === null);
 
   // The transcript follows its newest line, as long as the reader has not
@@ -205,7 +210,8 @@ function Header({ detail }: { detail: Detail | null }) {
         </div>
       </div>
       <p className="conv-fixed">
-        <span className="conv-label">Fixed for this conversation</span> {requestedWords(detail.session.choices)}
+        <span className="conv-label">Fixed for this conversation</span>{' '}
+        {requestedWords(detail.session.choices, answeredWords(detail.turn_choices))}
       </p>
       <p className="conv-quiet conv-saved">
         {detail.snapshot.message_count} saved {detail.snapshot.message_count === 1 ? 'message' : 'messages'}
@@ -218,23 +224,37 @@ function Header({ detail }: { detail: Detail | null }) {
   );
 }
 
-/** The saved transcript: each message as it was stored, and each turn's requested and reported choices. */
+/**
+ * The saved transcript: each message as it was stored, each turn's requested
+ * and reported choices, and, under a message that got no answer, why not.
+ */
 function Saved({ detail }: { detail: Detail }) {
+  const { answering, failure } = useAsk();
   const turns = useMemo(() => new Map(detail.turn_choices.map((t) => [t.user_message_id, t])), [detail.turn_choices]);
+  const answers = useMemo(() => new Map(detail.turn_choices.flatMap((t) => (
+    t.assistant_message_id === null ? [] : [[t.assistant_message_id, t] as const]))), [detail.turn_choices]);
   if (!detail.messages.length) return <p className="conv-quiet">No saved messages.</p>;
+  const lastUser = [...detail.messages].reverse().find((m) => m.role === 'user')?.id;
   return (
     <ol className="conv-messages">
-      {detail.messages.map((message) => (
-        <li key={message.id} className="conv-msg" data-role={message.role}>
-          <SavedMessage message={message} />
-          {message.role === 'user' && turns.has(message.id) && <TurnDisclosure turn={turns.get(message.id) as TurnChoices} />}
-        </li>
-      ))}
+      {detail.messages.map((message) => {
+        const turn = message.role === 'user' ? turns.get(message.id) : undefined;
+        return (
+          <li key={message.id} className="conv-msg" data-role={message.role}>
+            <SavedMessage message={message} turn={message.role === 'assistant' ? answers.get(message.id) : undefined} />
+            {turn && <TurnDisclosure turn={turn} />}
+            {turn?.failure && (
+              <FailedTurn failure={turn.failure} retry={message.id === lastUser && !answering ? message.content : null}
+                fresh={failure?.session === detail.session.id && failure.turn === message.id} />
+            )}
+          </li>
+        );
+      })}
     </ol>
   );
 }
 
-function SavedMessage({ message }: { message: Message }) {
+function SavedMessage({ message, turn }: { message: Message; turn?: TurnChoices }) {
   const calls = savedCalls(message);
   return (
     <>
@@ -246,8 +266,48 @@ function SavedMessage({ message }: { message: Message }) {
       {message.tool_results !== null && message.tool_results !== undefined && (
         <details className="conv-raw"><summary>Saved tool results</summary><pre>{JSON.stringify(message.tool_results, null, 2)}</pre></details>
       )}
-      {message.role === 'assistant' && <p className="conv-quiet conv-cost">{costWords(message.cost_usd)}</p>}
+      {message.role === 'assistant' && <p className="conv-quiet conv-cost">{answerFooterWords(turn, message.cost_usd)}</p>}
     </>
+  );
+}
+
+/**
+ * A turn that produced no answer, kept as that and never as the assistant
+ * speaking. A sign-in failure offers the command's own sign-in right here; a
+ * cost is shown only where the runtime reported one; and what the turn wrote
+ * or called before it ended is there to read, under its own name.
+ */
+function FailedTurn({ failure, retry, fresh }: {
+  failure: TurnFailure;
+  retry: string | null;
+  /** The turn that has just ended here, whose failure is announced as it arrives; an old one is not. */
+  fresh: boolean;
+}) {
+  const { send } = useAsk();
+  const calls = Array.isArray(failure.tool_calls) ? (failure.tool_calls as LiveCall[]) : [];
+  const partial = failure.partial_text.trim();
+  // The command's own words are often the whole of what it wrote, and are
+  // already in the message.
+  const wrote = partial && !failure.message.includes(partial) ? partial : '';
+  return (
+    <div className="conv-failed" role="group" aria-label="This turn got no answer" data-code={failure.code}>
+      <p className="conv-failed-title">{failureTitle(failure.code)}</p>
+      <p className="conv-failed-message" role={fresh ? 'alert' : undefined}>{failure.message}</p>
+      {failure.code === 'cli_auth' && <CliSignIn provider="claude_code" purpose="ask" checkOnOpen={false} />}
+      {failure.cost_usd !== null && failure.cost_usd !== undefined && (
+        <p className="conv-quiet">{costWords(failure.cost_usd)}</p>
+      )}
+      {(wrote || calls.length > 0) && (
+        <details>
+          <summary>What it wrote before it ended</summary>
+          {wrote && <div className="conv-text">{wrote}</div>}
+          {calls.map((call, i) => <CallRow key={call.id ?? i} call={call} live={false} />)}
+        </details>
+      )}
+      {retry !== null && (
+        <button type="button" className="btn sm" onClick={() => void send(retry)}>Try again</button>
+      )}
+    </div>
   );
 }
 
@@ -265,9 +325,14 @@ function TurnDisclosure({ turn }: { turn: TurnChoices }) {
           ? reported.length ? <ol>{reported.map((r) => <li key={r.sequence}>{reportWords(r)}</li>)}</ol> : ' Not reported.'
           : ' Unreadable.'}
       </div>
+      {turn.answered_by && (
+        <p className="conv-answered">
+          Shown as the answering model: {turn.answered_by.name}, from the report {turn.answered_by.source === 'claude_result_model_usage'
+            ? 'of what the answer was billed for' : 'above'}.
+        </p>
+      )}
       <p className="conv-quiet">
-        Each is what was sent or what the runtime said about itself. Neither proves which model answered, and
-        the runtime does not report the effort it used.
+        Each is what was sent or what the runtime said about itself. The runtime does not report the effort it used.
       </p>
     </details>
   );
@@ -431,6 +496,10 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
 }) {
   const connection = connectionOf(choices, value);
   const api = value?.runtime === 'api_key';
+  const cli = value?.runtime === 'claude_cli';
+  // Which model each alias last resolved to, from answers already kept.
+  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: cli, refetchOnMount: 'always' });
+  const modelWords = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
   return (
     <fieldset className="conv-choices">
       <legend className="conv-label">{legacy ? 'Choices from now on' : 'Choices for this conversation'}</legend>
@@ -465,7 +534,11 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
             placeholder={api ? 'A model ID is required' : 'Blank: the CLI’s default'}
             onChange={(e) => onChange({ ...value, model: e.target.value || null })}
           />
-          {!api && <datalist id="conv-claude-aliases">{choices.claude_aliases.map((a) => <option key={a} value={a} />)}</datalist>}
+          {!api && (
+            <datalist id="conv-claude-aliases">
+              {choices.claude_aliases.map((a) => <option key={a} value={a} label={modelWords(a)} />)}
+            </datalist>
+          )}
         </div>
       )}
       {value && !api && (
@@ -478,8 +551,14 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
         </div>
       )}
       {value && api && <p className="conv-quiet conv-no-effort">Effort: not supported by this connection.</p>}
-      {/* An unavailable connection's reason is said once, below, beside the way to Settings › AI. */}
-      {connection?.available && <p className="conv-quiet conv-reason">{connection.reason}</p>}
+      {value && cli && (
+        <p className="conv-quiet conv-model-words" data-ask="model-words">Model: {modelWords(value.model ?? '')}.</p>
+      )}
+      {/* An unavailable connection's reason is said once, below, beside the way to Settings › AI. For
+          Claude Code the command itself is asked whether it is signed in, which says more than the
+          engine's "sign-in unverified" can; model acceptance is in the limits below. */}
+      {connection?.available && !cli && <p className="conv-quiet conv-reason">{connection.reason}</p>}
+      {cli && connection?.available && <CliSignIn provider="claude_code" purpose="ask" checkOnOpen />}
       {!value && choices.default_error && <p className="conv-quiet">{choices.default_error}</p>}
       <details className="conv-limits">
         <summary>What these choices establish</summary>

@@ -8,8 +8,12 @@ export const STATUS_KEY = ['ask', 'status'] as const;
 export const CHATS_KEY = ['ask', 'chats'] as const;
 export const chatKey = (id: number) => ['ask', 'chat', id] as const;
 
-/** A failure, and the conversation it belongs to (`null`: the one not yet started). */
-interface Failure { session: number | null; text: string }
+/**
+ * A failure, and the conversation it belongs to (`null`: the one not yet
+ * started). `turn` is the user message of the turn it ended, where the engine
+ * admitted one: such a failure is kept with the turn and shown there.
+ */
+interface Failure { session: number | null; text: string; turn?: number }
 
 interface AskValue {
   status: UseQueryResult<Status>;
@@ -144,7 +148,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
         await client.fetchQuery({ queryKey: chatKey(id), queryFn: () => ask.detail(id as number), staleTime: 0 }).catch(() => undefined);
       }
       const ended = liveRef.current;
-      if (ended?.error) setFailure({ session: ended.session, text: ended.error });
+      if (ended?.error) setFailure({ session: ended.session, text: ended.error, turn: ended.turns[0]?.user_message_id });
       liveRef.current = null;
       setLive(null);
       turn.current = null;

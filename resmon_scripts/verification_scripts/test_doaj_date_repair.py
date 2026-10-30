@@ -215,7 +215,7 @@ def test_over_a_released_corpus_only_the_named_months_move(tmp_path: Path):
         assert set(after) >= set(before)
         changed = {t: (set(before[t]) - set(after[t]), set(after[t]) - set(before[t]))
                    for t in before if before[t] != after[t]}
-        # The schema marker is the walk's own rewrite (21 -> 22), not this one.
+        # The schema marker is the walk's own rewrite (21 -> 23), not this one.
         assert set(changed) == {"documents", "app_settings"}
         assert {r[0] for r in changed["app_settings"][0]} == {"schema_version"}
         gone, came = changed["documents"]

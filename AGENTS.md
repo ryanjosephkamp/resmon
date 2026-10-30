@@ -30,7 +30,7 @@ implies more certainty than it earns is rejected even when the code is correct.
 
 ```
 resmon_scripts/
-├── resmon.py                       FastAPI app — 199 routes, the API seam
+├── resmon.py                       FastAPI app — 202 routes, the API seam
 │                                   described in docs/api-contract/ (generated, guarded)
 ├── implementation_scripts/         backend modules
 │   ├── api_base.py                 BaseAPIClient, NormalizedResult, RateLimiter, safe_request

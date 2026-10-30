@@ -76,6 +76,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from . import ai_cli
+from .ai_errors import is_cli_sign_in_failure, sanitize
 from .assistant_constitution import load_assistant_constitution
 
 logger = logging.getLogger(__name__)
@@ -617,6 +618,7 @@ class ClaudeCliRuntime(AssistantRuntime):
         )
         with _PROCESS_LOCK:
             _PROCESSES[session_id] = process
+            _STOPPED.discard(session_id)
 
         stderr_tail: list[str] = []
         stderr_thread = threading.Thread(
@@ -644,7 +646,18 @@ class ClaudeCliRuntime(AssistantRuntime):
                     yield event
 
             code = process.wait(timeout=15)
-            if code != 0 or failed_subtype:
+            with _PROCESS_LOCK:
+                stopped = session_id in _STOPPED
+                _STOPPED.discard(session_id)
+            if stopped:
+                # Killed by Stop, or because the panel went away. The exit code
+                # is the kill's, and saying "exit code -9" would describe resmon
+                # rather than the CLI.
+                event = _error_event(
+                    "Stopped before it finished.", detail="stopped", code="stopped")
+                emit(event)
+                yield event
+            elif code != 0 or failed_subtype:
                 stderr_text = "".join(stderr_tail)
                 if outcome is not None:
                     outcome["cannot_resume"] = _is_cannot_resume(
@@ -652,14 +665,15 @@ class ClaudeCliRuntime(AssistantRuntime):
                 # The CLI's own last word first, then stderr. An auth failure
                 # arrives in the result envelope with nothing on stderr at all,
                 # and the budget stop arrives as a subtype with no text.
+                said = (final_error_text or "; ".join(str(e) for e in reported_errors)
+                        or stderr_text)
                 message = _classify_failure(
-                    failed_subtype,
-                    final_error_text or "; ".join(str(e) for e in reported_errors)
-                    or stderr_text,
-                    code,
-                    errors=reported_errors,
+                    failed_subtype, said, code, errors=reported_errors,
                 )
-                event = _error_event(message, detail=failed_subtype or f"exit {code}")
+                event = _error_event(
+                    message, detail=failed_subtype or f"exit {code}",
+                    code=_failure_code(failed_subtype, said, reported_errors),
+                )
                 emit(event)
                 yield event
         finally:
@@ -795,6 +809,7 @@ class ClaudeCliRuntime(AssistantRuntime):
                     with _PROCESS_LOCK:
                         if _PROCESSES.get(session_id) is process:
                             del _PROCESSES[session_id]
+                        _STOPPED.discard(session_id)
 
     def cancel(self, session_id: int) -> bool:
         if self.profile == 'selected_evidence_v1':
@@ -814,12 +829,17 @@ class ClaudeCliRuntime(AssistantRuntime):
 # which is the worst possible failure for a stop button.
 _PROCESSES: dict[int, subprocess.Popen] = {}
 _PROCESS_LOCK = threading.Lock()
+# Sessions whose running CLI was killed on purpose, so the turn that sees the
+# process die says it was stopped rather than reporting the kill's exit code.
+_STOPPED: set[int] = set()
 
 
 def cancel_turn(session_id: int) -> bool:
     """Kill a session's running turn. False when there was nothing to kill."""
     with _PROCESS_LOCK:
         process = _PROCESSES.get(session_id)
+        if process is not None and process.poll() is None:
+            _STOPPED.add(session_id)
     if process is None or process.poll() is not None:
         return False
     process.kill()
@@ -1007,10 +1027,30 @@ def _normalise(line: str) -> list[dict]:
                 usage.get("cache_creation_input_tokens")),
             "duration_ms": message.get("duration_ms"),
             "num_turns": message.get("num_turns"),
+            # The models the turn was billed for, as the CLI resolved them:
+            # ``--model haiku`` is asked for, ``claude-haiku-4-5-20251001`` is
+            # what answered. Biggest writer first. Under its own key rather
+            # than ``model_report``, which carries one observation per event.
+            "model_reports": _usage_reports(message.get("modelUsage")),
         }]
 
     logger.debug("Assistant runtime: dropped a %r stream message", kind)
     return []
+
+
+def _usage_reports(usage: Any) -> list[dict]:
+    """One report per model in a result envelope's ``modelUsage``, biggest writer first."""
+    from .assistant_choices import report
+
+    if not isinstance(usage, dict):
+        return []
+    ranked = []
+    for model, figures in usage.items():
+        output = figures.get("outputTokens") if isinstance(figures, dict) else None
+        ranked.append((model, output if isinstance(output, int) and not isinstance(output, bool) else 0))
+    ranked.sort(key=lambda item: -item[1])
+    reports = [report(model, "claude_result_model_usage") for model, _ in ranked]
+    return [r for r in reports if r is not None]
 
 
 def _short_tool_name(raw: Any) -> str:
@@ -1042,8 +1082,30 @@ def _int_or_none(value: Any) -> Optional[int]:
         return None
 
 
-def _error_event(message: str, detail: Optional[str] = None) -> dict:
-    return {"type": "error", "message": message, "detail": detail}
+def _error_event(message: str, detail: Optional[str] = None,
+                 code: str = "failed") -> dict:
+    """A failed turn, for the panel and for the store.
+
+    ``code`` is what the panel can offer next: ``cli_auth`` is a sign-in,
+    ``stopped`` was a Stop, ``failed`` is anything else.
+    """
+    return {"type": "error", "message": message, "detail": detail, "code": code}
+
+
+def _says_not_signed_in(text: str) -> bool:
+    """Whether the CLI's own words say nobody is signed into it."""
+    lowered = (text or "").lower()
+    return is_cli_sign_in_failure(lowered) or any(
+        word in lowered for word in ("log in", "authentication"))
+
+
+def _failure_code(subtype: str, text: str, errors: Optional[list] = None) -> str:
+    """``cli_auth`` exactly when ``_classify_failure`` says sign in again."""
+    if (subtype == "error_max_budget_usd" or _is_cannot_resume(errors, text)
+            or "unknown option" in (text or "").lower()
+            or "unknown argument" in (text or "").lower()):
+        return "failed"
+    return "cli_auth" if _says_not_signed_in(text) else "failed"
 
 
 def _classify_failure(
@@ -1076,10 +1138,11 @@ def _classify_failure(
             "The installed claude CLI does not accept one of the options resmon "
             "uses. Updating resmon, or the CLI, should fix it."
         )
-    if any(word in lowered for word in ("not logged in", "log in", "unauthenticated",
-                                        "authentication", "/login")):
-        return ("The claude CLI is not signed in. Run `claude` in a terminal and "
-                "sign in, then try again.")
+    if _says_not_signed_in(lowered):
+        first = next((l.strip() for l in stderr.splitlines() if l.strip()), "")
+        return ("The Claude Code command on this computer is not signed in, or "
+                "its sign-in expired, so it could not answer."
+                + (f" It said: {sanitize(first[:300])}" if first else ""))
     if "rate limit" in lowered or "usage limit" in lowered:
         return ("Your Claude usage limit has been reached. The assistant shares "
                 "the same window as your own work.")

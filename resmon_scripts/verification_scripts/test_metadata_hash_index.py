@@ -104,7 +104,7 @@ def test_a_fresh_database_answers_the_duplicate_check_from_the_index(tmp_path):
     database.init_db(str(tmp_path / "fresh.db"))
     conn = _open(tmp_path / "fresh.db")
     try:
-        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 22
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 23
         plan = _plan(conn)
         assert any(INDEX in step for step in plan), plan
         assert not any(step.startswith("SCAN") for step in plan), plan
@@ -149,7 +149,12 @@ def _rows(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
 
 
 def test_the_v230_corpus_gains_the_index_and_nothing_else(tmp_path):
-    """21 -> 22 over a database a released resmon wrote, as its next launch does."""
+    """21 -> 22 over a database a released resmon wrote, as its next launch does.
+
+    The launch also takes the step past 22, which adds schema 23's two tables
+    and moves the marker to 23; those are that step's, and are named here so
+    that nothing else can arrive unnoticed.
+    """
     path = tmp_path / "v230.db"
     conn = _open(path)
     conn.executescript(V230_FIXTURE.read_text(encoding="utf-8"))
@@ -166,7 +171,7 @@ def test_the_v230_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         objects_after, rows_after = _objects(conn), _rows(conn)
-        assert set(objects_after) - set(objects_before) == {INDEX}
+        assert set(objects_after) - set(objects_before) == {INDEX} | set(database._ANSWER_RECORDS_V23_DDL)
         assert set(objects_before) - set(objects_after) == set()
         assert all(objects_after[n] == objects_before[n] for n in objects_before)
         assert objects_after[INDEX] == (
@@ -175,11 +180,14 @@ def test_the_v230_corpus_gains_the_index_and_nothing_else(tmp_path):
         settings_before = dict(rows_before.pop("app_settings"))
         settings_after = dict(rows_after.pop("app_settings"))
         assert settings_before.pop("schema_version") == "21"
-        assert settings_after.pop("schema_version") == "22"
+        assert settings_after.pop("schema_version") == "23"
         # One-shot backfill markers this build writes on any launch, which the
         # cumulative-upgrade test names; they are not this step's doing.
         settings_after.pop("document_facets_backfilled", None)
         assert settings_after == settings_before
+        # Schema 23's tables arrive empty; they are that step's, not this one's.
+        assert rows_after.pop("assistant_turn_failures") == []
+        assert rows_after.pop("execution_ai_models") == []
         assert rows_after == rows_before
 
         assert any(INDEX in step for step in _plan(conn))
@@ -190,7 +198,7 @@ def test_the_v230_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         assert _objects(conn) == objects_after
-        assert database.get_schema_version(conn) == 22
+        assert database.get_schema_version(conn) == 23
     finally:
         conn.close()
 

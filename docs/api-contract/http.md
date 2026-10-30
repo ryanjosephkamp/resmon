@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-199 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+202 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 107 of 199 routes that have one. The remaining 92 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 110 of 202 routes that have one. The remaining 92 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 163 of 199 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 166 of 202 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -154,6 +154,9 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/ai/cli/sign-in` | token | — | `AiCliSignIn` | Ask the command itself whether it is signed in. No model call, no cost. |
+| `POST` | `/api/ai/cli/sign-in` | token | — | `AiCliSignInOpened` | Start the command's own login in a terminal, or say the command to run. |
+| `GET` | `/api/ai/last-answered` | token | — | `AiLastAnswered` | Which model last answered each requested alias, from answers already kept. |
 | `POST` | `/api/assistant/permissions` | token | — | `AssistantPermissionDecision` | Ask the person, and hold this request open until they answer. |
 | `POST` | `/api/assistant/permissions/{request_id}` | token | — | `AssistantPermissionAnswered` | The panel's Allow / Deny. |
 | `GET` | `/api/assistant/sessions` | token | — | `AssistantSessions` | *List Assistant Sessions* |
@@ -188,6 +191,9 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/ai/cli/sign-in` | token | — | `AiCliSignIn` | Ask the command itself whether it is signed in. No model call, no cost. |
+| `POST` | `/api/ai/cli/sign-in` | token | — | `AiCliSignInOpened` | Start the command's own login in a terminal, or say the command to run. |
+| `GET` | `/api/ai/last-answered` | token | — | `AiLastAnswered` | Which model last answered each requested alias, from answers already kept. |
 | `POST` | `/api/ai/models` | token | — | — | Return the list of model IDs the BYOK credential can access. |
 | `GET` | `/api/settings/ai` | token | — | `AiSettings` | *Get Ai Settings* |
 | `PUT` | `/api/settings/ai` | token | — | `SettingsSaved` | *Update Ai Settings* |
@@ -441,7 +447,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 199 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 202 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 

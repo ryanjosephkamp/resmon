@@ -176,6 +176,65 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/ai/cli/sign-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Check Ai Cli Sign In
+         * @description Ask the command itself whether it is signed in. No model call, no cost.
+         *
+         *     Runs ``claude auth status --json`` or ``codex login status`` in the
+         *     environment the lanes use, and answers with what is safe to show. Nothing
+         *     is stored: the next check runs the command again. Called when Settings ›
+         *     AI is opened and on Check again, never on a timer.
+         */
+        get: operations["check_ai_cli_sign_in_api_ai_cli_sign_in_get"];
+        put?: never;
+        /**
+         * Open Ai Cli Sign In
+         * @description Start the command's own login in a terminal, or say the command to run.
+         *
+         *     The sign-in happens between the person and the provider, in the command's
+         *     own login; resmon does not see or keep it. On macOS a ``.command`` script in
+         *     resmon's state directory is opened with ``open`` (``RESMON_SIGN_IN_OPENER``
+         *     names another opener, for a test that must not open Terminal); elsewhere
+         *     the command is returned to be copied.
+         */
+        post: operations["open_ai_cli_sign_in_api_ai_cli_sign_in_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/ai/last-answered": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ai Last Answered
+         * @description Which model last answered each requested alias, from answers already kept.
+         *
+         *     An alias resolves to the CLI's newest model when it runs, so the version is
+         *     known only once an answer reports it. The pickers say "Haiku 5.5 when it
+         *     last answered" from this, and only the alias where nothing has answered yet.
+         */
+        get: operations["get_ai_last_answered_api_ai_last_answered_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/ai/models": {
         parameters: {
             query?: never;
@@ -3716,6 +3775,84 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * AiCliSignIn
+         * @description ``GET /api/ai/cli/sign-in``: what the command said about its own sign-in.
+         *
+         *     ``state`` is ``signed_in`` or ``signed_out`` only when the command said so,
+         *     ``expired`` when its words say the sign-in it had expired, ``unknown`` when
+         *     it answered without saying (``said`` then holds its own words), ``missing``
+         *     when resmon did not find the command, and ``failed`` when it could not be
+         *     run. ``email``, ``plan`` and ``method`` are present only when the command
+         *     reported them. ``message`` is one sentence for a person. ``command`` is the
+         *     status command as it would be typed. Nothing in this answer is stored.
+         */
+        AiCliSignIn: {
+            /** Checked At Utc */
+            checked_at_utc: string;
+            /** Command */
+            command: string;
+            /** Email */
+            email: string | null;
+            /** Message */
+            message: string;
+            /** Method */
+            method: string | null;
+            /** Path */
+            path: string | null;
+            /** Plan */
+            plan: string | null;
+            /** Provider */
+            provider: string;
+            /** Said */
+            said: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "signed_in" | "signed_out" | "expired" | "unknown" | "missing" | "failed";
+        } & {
+            [key: string]: unknown;
+        };
+        /** AiCliSignInBody */
+        AiCliSignInBody: {
+            /** Binary Path */
+            binary_path?: string | null;
+            /** Provider */
+            provider: string;
+            /**
+             * Purpose
+             * @default summaries
+             */
+            purpose: string;
+        };
+        /**
+         * AiCliSignInOpened
+         * @description ``POST /api/ai/cli/sign-in``: whether the command's own login was opened.
+         *
+         *     ``how`` is ``terminal`` when a Terminal window was asked to run it,
+         *     ``copy`` when the person runs ``command`` themselves, and ``none`` when
+         *     there is no command to run. ``message`` says which, in a sentence.
+         */
+        AiCliSignInOpened: {
+            /** Command */
+            command: string;
+            /**
+             * How
+             * @enum {string}
+             */
+            how: "terminal" | "copy" | "none";
+            /** Message */
+            message: string;
+            /** Opened */
+            opened: boolean;
+            /** Path */
+            path: string | null;
+            /** Provider */
+            provider: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * AiCliStatus
          * @description ``GET /api/settings/ai/cli-status``.
          */
@@ -3739,6 +3876,43 @@ export interface components {
             ai_keys_removed: number;
             /** Success */
             success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AiLastAnswered
+         * @description ``GET /api/ai/last-answered``: one entry per command and requested model.
+         */
+        AiLastAnswered: {
+            /** Entries */
+            entries: components["schemas"]["AiLastAnsweredEntry"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AiLastAnsweredEntry
+         * @description The model that last answered one requested model on one command.
+         *
+         *     ``requested`` is the alias or id that was asked for, ``""`` where the
+         *     command chose. ``model`` is what the answer reported, ``name`` the same in
+         *     a person's words. ``where`` is ``ask`` or ``summaries``.
+         */
+        AiLastAnsweredEntry: {
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
+            /** Observed At Utc */
+            observed_at_utc: string;
+            /** Provider */
+            provider: string;
+            /** Requested */
+            requested: string;
+            /**
+             * Where
+             * @enum {string}
+             */
+            where: "ask" | "summaries";
         } & {
             [key: string]: unknown;
         };
@@ -3875,6 +4049,25 @@ export interface components {
             observed_at_utc: string;
             /** Turn Claimed */
             turn_claimed: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantAnsweredBy
+         * @description Which reported model answered a turn, chosen from its reports.
+         *
+         *     ``source`` is the report it was taken from: ``claude_result_model_usage``
+         *     (the models the turn was billed for) first, the provider's reply next, and
+         *     the model the CLI announced as it started last. ``name`` is ``model`` in a
+         *     person's words, or ``model`` itself where its shape is not recognized.
+         */
+        AssistantAnsweredBy: {
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
         } & {
             [key: string]: unknown;
         };
@@ -4068,6 +4261,8 @@ export interface components {
         AssistantModelReport: {
             /** Model */
             model: string;
+            /** Name */
+            name: string;
             /** Observed At Utc */
             observed_at_utc: string;
             /** Sequence */
@@ -4516,16 +4711,21 @@ export interface components {
          * @description One turn's request, and the reports its runtime made, kept apart.
          *
          *     ``assistant_message_id`` is ``None`` until an answer is stored, and stays
-         *     so for a turn that never got one. ``requested`` and ``reported`` are each
+         *     so for a turn that never got one; ``failure`` then says why, where the turn
+         *     ended in a failure resmon recorded. ``answered_by`` is the model the
+         *     reports say answered, for a turn that has an answer, and ``None``
+         *     otherwise. ``requested`` and ``reported`` are each
          *     ``AssistantUnreadable`` when their stored JSON fails validation, and both
          *     are, with ``assistant_message_id`` cleared, when the row points at
          *     messages outside this conversation.
          */
         AssistantTurnChoices: {
+            answered_by: components["schemas"]["AssistantAnsweredBy"] | null;
             /** Assistant Message Id */
             assistant_message_id: number | null;
             /** Created At Utc */
             created_at_utc: string;
+            failure: components["schemas"]["AssistantTurnFailure"] | null;
             /** Reported */
             reported: components["schemas"]["AssistantModelReport"][] | components["schemas"]["AssistantUnreadable"];
             /** Requested */
@@ -4534,6 +4734,44 @@ export interface components {
             user_message_id: number;
             /** Version */
             version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * AssistantTurnFailure
+         * @description A turn that produced no answer, kept as a failure and never as one.
+         *
+         *     ``code`` is ``cli_auth`` when the command said it is not signed in or its
+         *     sign-in expired, ``stopped`` when the turn was stopped, and ``failed``
+         *     otherwise. ``message`` is the sentence the panel showed. ``partial_text``,
+         *     ``tool_calls`` and ``tool_results`` are what the turn wrote and called
+         *     before it ended. ``cost_usd`` is present only when the runtime reported a
+         *     cost above zero for it.
+         */
+        AssistantTurnFailure: {
+            /**
+             * Code
+             * @enum {string}
+             */
+            code: "cli_auth" | "stopped" | "failed";
+            /** Cost Usd */
+            cost_usd: number | null;
+            /** Detail */
+            detail: string | null;
+            /** Failed At Utc */
+            failed_at_utc: string;
+            /** Input Tokens */
+            input_tokens: number | null;
+            /** Message */
+            message: string;
+            /** Output Tokens */
+            output_tokens: number | null;
+            /** Partial Text */
+            partial_text: string;
+            /** Tool Calls */
+            tool_calls: unknown;
+            /** Tool Results */
+            tool_results: unknown;
         } & {
             [key: string]: unknown;
         };
@@ -8790,9 +9028,13 @@ export interface components {
          *     ``outcome`` is ``ok`` (every paper it was given), ``partial``, ``failed``,
          *     ``skipped`` (an earlier lane covered everything) or ``running`` (the process
          *     stopped while the lane held the work). ``credential_alias`` names a keyring
-         *     slot, never a key.
+         *     slot, never a key. ``model`` is what was asked for, often an alias;
+         *     ``answered_by`` is what the lane's command reported answered, biggest
+         *     writer first, and is empty where nothing was reported.
          */
         RunAiLane: {
+            /** Answered By */
+            answered_by: components["schemas"]["RunAiLaneModel"][];
             /** Credential Alias */
             credential_alias: string | null;
             /** Docs Attempted */
@@ -8827,6 +9069,24 @@ export interface components {
             safe_message: string | null;
             /** Started At */
             started_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunAiLaneModel
+         * @description A model an agent CLI reported for a lane's calls.
+         *
+         *     ``model`` is the id as the command reported it, ``name`` the same id in a
+         *     person's words ("Haiku 4.5"), or the id itself where resmon does not
+         *     recognize its shape. ``calls`` is how many of the lane's calls named it.
+         */
+        RunAiLaneModel: {
+            /** Calls */
+            calls: number;
+            /** Model */
+            model: string;
+            /** Name */
+            name: string;
         } & {
             [key: string]: unknown;
         };
@@ -11613,6 +11873,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    check_ai_cli_sign_in_api_ai_cli_sign_in_get: {
+        parameters: {
+            query: {
+                provider: string;
+                purpose?: string;
+                binary_path?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCliSignIn"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    open_ai_cli_sign_in_api_ai_cli_sign_in_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AiCliSignInBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiCliSignInOpened"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ai_last_answered_api_ai_last_answered_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AiLastAnswered"];
                 };
             };
         };

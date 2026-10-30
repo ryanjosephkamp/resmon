@@ -34,6 +34,13 @@ Driven by directives in the prompt, so a test says what the turn should do:
                         failure
     BUDGET              stop the way `--max-budget-usd` really stops: an error
                         result with subtype `error_max_budget_usd`, no text
+    AUTH_EXPIRED        answer the way the real CLI answers when its sign-in has
+                        expired: the failure as an assistant text block, then
+                        an error result whose subtype still reads ``success``,
+                        no cost, exit 1
+    USAGE:<id>[,<id>]   report these models in the result's ``modelUsage``, the
+                        first as the biggest writer, the way the real CLI names
+                        the model an alias resolved to
     CANNOT_RESUME       *when invoked with --resume*, answer the way the real
                         CLI answers a session id it does not have, and exit 1 —
                         with no init message, because the real one sends none.
@@ -44,6 +51,13 @@ Driven by directives in the prompt, so a test says what the turn should do:
 Set ``FAKE_CLAUDE_STATE`` to a directory and the double also refuses a
 ``--resume`` for a session id it was never asked to start — the way the real
 CLI refuses one — without any directive at all.
+
+``auth status --json`` answers from ``FAKE_CLAUDE_AUTH`` (or a file named
+``auth`` in ``FAKE_CLAUDE_STATE``): ``signed_in`` (the default), ``signed_out``,
+``expired`` or ``odd``. The JSON fields are the double's guess at the real
+shape, which is not documented; resmon's parser is written not to depend on
+it. ``auth login`` writes ``signed_in`` there and exits. With the state at
+``expired``, every turn fails as ``AUTH_EXPIRED`` does.
 
 ## The cannot-resume shape, transcribed
 
@@ -126,8 +140,47 @@ def emit(payload: dict) -> None:
     sys.stdout.flush()
 
 
+def _auth_file() -> Optional[Path]:
+    root = os.environ.get("FAKE_CLAUDE_STATE")
+    return Path(root) / "auth" if root else None
+
+
+def _auth_state() -> str:
+    path = _auth_file()
+    if path is not None and path.exists():
+        return path.read_text(encoding="utf-8").strip() or "signed_in"
+    return os.environ.get("FAKE_CLAUDE_AUTH", "signed_in")
+
+
+def _auth(argv: list[str]) -> int:
+    """``claude auth status`` and ``claude auth login``, as a double."""
+    if argv[1:2] == ["login"]:
+        path = _auth_file()
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("signed_in", encoding="utf-8")
+        print("Login successful.")
+        return 0
+    state = _auth_state()
+    if state == "signed_in":
+        emit({"loggedIn": True, "authMethod": "claude.ai", "email": "reader@example.com",
+              "subscriptionType": "max"})
+        return 0
+    if state == "expired":
+        emit({"loggedIn": False, "authMethod": "claude.ai",
+              "error": "OAuth session expired and could not be refreshed"})
+        return 1
+    if state == "odd":
+        sys.stdout.write("Checking credentials... done\n")
+        return 0
+    emit({"loggedIn": False, "authMethod": "none"})
+    return 1
+
+
 def main() -> int:
     argv = sys.argv[1:]
+    if argv[:1] == ["auth"]:
+        return _auth(argv)
     prompt = argv[-1] if argv else ""
 
     def flag(name: str, default: str = "") -> str:
@@ -184,8 +237,25 @@ def main() -> int:
                         {"name": "resmon_permission", "status": "connected"}],
     })
 
+    usage_models: list[str] = []
+    if _auth_state() == "expired":
+        prompt = "AUTH_EXPIRED"
     for line in prompt.splitlines():
         line = line.strip()
+        if line == "AUTH_EXPIRED":
+            # Transcribed from what the real CLI did when its sign-in had
+            # expired: the sentence arrives as the assistant speaking, the
+            # result says it is an error with a subtype of "success", nothing
+            # was spent, and the process exits 1 with nothing on stderr.
+            text = "Failed to authenticate: OAuth session expired and could not be refreshed"
+            emit({"type": "assistant", "message": {"content": [{"type": "text", "text": text}]}})
+            emit({"type": "result", "subtype": "success", "is_error": True,
+                  "terminal_reason": "api_error", "result": text, "total_cost_usd": 0,
+                  "usage": {}, "modelUsage": {}})
+            return 1
+        if line.startswith("USAGE:"):
+            usage_models = [m.strip() for m in line[6:].split(",") if m.strip()]
+            continue
         if line.startswith("SAY:"):
             emit({"type": "assistant", "message": {"content": [
                 {"type": "text", "text": line[4:]}]}})
@@ -245,12 +315,17 @@ def main() -> int:
                      "is_error": True,
                      "content": verdict.get("message", "denied")}]}})
 
-    emit({
+    result = {
         "type": "result", "subtype": "success", "is_error": False,
         "total_cost_usd": 0.0123, "duration_ms": 12, "num_turns": 1,
         "usage": {"input_tokens": 11, "output_tokens": 7,
                   "cache_read_input_tokens": 3, "cache_creation_input_tokens": 5},
-    })
+    }
+    if usage_models:
+        result["modelUsage"] = {model: {"inputTokens": 11, "outputTokens": 7 * (len(usage_models) - i),
+                                        "costUSD": 0.01}
+                                for i, model in enumerate(usage_models)}
+    emit(result)
     return 0
 
 

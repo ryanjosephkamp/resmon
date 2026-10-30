@@ -48,17 +48,22 @@ journey.describe('J17 AI summarization lanes', () => {
   journey('a lane whose sign-in has lapsed stands down with its reason, and the run still finishes', async ({ resmon }) => {
     await resmon.useAnAuthoredSummarizerThatIsNotSignedIn();
 
-    // Before the run: the app says it found the command and says, unprompted,
-    // that finding it is not knowing whether anyone is signed into it. That
-    // sentence is the reason this row can be honest later.
+    // Before the run: the app says it found the command, and that finding it is
+    // not knowing whether anyone is signed into it. Classic says it has not
+    // checked; Atlas asks the command itself, and must report what the lapsed
+    // command said rather than reading "found" as "signed in". Either is the
+    // reason this row can be honest later.
     const lane = await resmon.readAiLaneStatus();
     console.log(`[J17] Settings → AI says: ${JSON.stringify(lane)}`);
     expect(lane, 'Settings → AI does not say which command the lane would use')
       .toContain('authored-summarizer');
+    const said = lane.toLowerCase();
     expect(
-      lane.toLowerCase(),
+      said.includes('has not checked whether you are signed in')
+        || /sign-in has expired|is not signed in|did not say whether it is signed in/.test(said),
       'the page implies that finding the command establishes a sign-in',
-    ).toContain('has not checked whether you are signed in');
+    ).toBe(true);
+    expect(said, 'the page says a command whose sign-in has lapsed is signed in').not.toContain('is signed in as');
 
     const run = await resmon.runDive({
       source: 'arxiv', keywords: ['perovskite'], cap: 10, summarize: true,

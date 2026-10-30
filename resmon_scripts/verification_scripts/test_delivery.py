@@ -601,7 +601,7 @@ def test_a_pre_21_routine_with_email_enabled_still_emails_after_the_migration(
     conn.commit()
 
     database.init_db(conn=conn)             # the user's upgrade, in one call
-    assert database.get_schema_version(conn) == 22
+    assert database.get_schema_version(conn) == 23
 
     targets = delivery.list_targets(conn, routine_id)
     assert len(targets) == 1, targets

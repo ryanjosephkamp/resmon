@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { CLAUDE_ALIASES, LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from './modelWords';
 import { refusal } from './ProviderKey';
 import { CLI_PROVIDERS, laneName, type ModelCatalog } from './summaryLanes';
 
@@ -50,15 +51,24 @@ export function ModelField({ id, provider, value, onChange, list, query, label =
   const choosing = !!catalog && catalog.models.length > 0 && !typing;
   const failed = list.error && list.variables?.provider === provider ? list.error : null;
   const name = laneName(provider);
+  // A command's alias resolves to its newest model when it runs; what it was
+  // when it last answered is known only from answers already kept.
+  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: cli, refetchOnMount: 'always' });
+  const words = (model: string) => modelOptionWords(provider, model, lastFor(last.data, provider, model));
+  const typed = value.trim();
+  // Said under a typed model only where it adds something: an alias, or a
+  // model an answer has already resolved.
+  const said = cli && (lastFor(last.data, provider, typed) || (provider === 'claude_code' && CLAUDE_ALIASES.includes(typed)))
+    ? words(typed) : '';
   return (
     <div className="form-field ai-model" data-ai="model">
       <label className="form-label" htmlFor={id}>{label}</label>
       <span className="password-row">
         {choosing ? (
           <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-            <option value="">{cli ? 'The command’s default' : 'Choose a model'}</option>
+            <option value="">{cli ? words('') : 'Choose a model'}</option>
             {value && !catalog.models.includes(value) && <option value={value}>{value} (not in the list)</option>}
-            {catalog.models.map((model) => <option key={model} value={model}>{model}</option>)}
+            {catalog.models.map((model) => <option key={model} value={model}>{cli ? words(model) : model}</option>)}
           </select>
         ) : (
           <input id={id} value={value} spellCheck={false} autoComplete="off"
@@ -81,6 +91,9 @@ export function ModelField({ id, provider, value, onChange, list, query, label =
         </p>
       )}
       {failed && <p className="field-error" role="alert" data-ai="model-list-error">{refusal(failed)}</p>}
+      {cli && !choosing && said && (
+        <p className="form-hint ai-model-hint" data-ai="model-words">{said}.</p>
+      )}
     </div>
   );
 }

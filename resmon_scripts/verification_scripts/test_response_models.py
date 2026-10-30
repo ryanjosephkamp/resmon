@@ -135,6 +135,11 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/appearance"),
         ("PUT", "/api/appearance"),
     ),
+    "agent CLI sign-in and the models that answered": (
+        ("GET", "/api/ai/cli/sign-in"),
+        ("POST", "/api/ai/cli/sign-in"),
+        ("GET", "/api/ai/last-answered"),
+    ),
     "collection map": (
         ("GET", "/api/map"),
     ),
@@ -1790,6 +1795,16 @@ def _drive_settings(drive: Drive) -> None:
                              "ai_default_models": json.dumps({"openai": "m"})}})
     drive("GET", "/api/settings/ai")
     drive("GET", "/api/settings/ai/cli-status")
+
+    # The sign-in check and the command's own login, against the configured
+    # path, which does not exist: nothing is run and nothing is opened, and the
+    # answer says so. Only ``claude_code`` with a configured path is driven,
+    # because a check with no path set would search the installers' locations
+    # and could run a real command.
+    drive("GET", "/api/ai/cli/sign-in", params={"provider": "claude_code", "purpose": "summaries"})
+    drive("GET", "/api/ai/cli/sign-in", params={"provider": "claude_code", "purpose": "ask"})
+    drive("POST", "/api/ai/cli/sign-in", json={"provider": "claude_code", "purpose": "ask"})
+    drive("GET", "/api/ai/last-answered")
 
     # embeddings: a page before a lane exists and a page after one does.
     before = drive("GET", "/api/settings/embeddings")

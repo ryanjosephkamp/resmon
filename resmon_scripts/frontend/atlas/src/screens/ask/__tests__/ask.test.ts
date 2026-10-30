@@ -1,8 +1,9 @@
 import { frames, type Choices, type TurnEvent } from '../askApi';
 import {
-  applyEvent, callText, choiceProblem, costWords, describeCall, firstChoice, reportWords, requestedWords,
-  savedCalls, shortToolName, startLive,
+  answerFooterWords, answeredWords, applyEvent, callText, choiceProblem, costWords, describeCall, failureTitle, firstChoice,
+  reportWords, requestedWords, savedCalls, shortToolName, startLive,
 } from '../askModel';
+import type { TurnChoices } from '../askApi';
 
 const choices = (over: Partial<Choices> = {}): Choices => ({
   version: 1, default_request: null, default_error: null, claude_aliases: ['opus', 'sonnet', 'haiku'],
@@ -122,4 +123,46 @@ test('saved tool calls are drawn only when they are the shape resmon writes', ()
   expect(savedCalls(message([{ name: 'list_sources', input: {} }]))).toEqual([{ name: 'list_sources', input: {} }]);
   expect(savedCalls(message({ unreadable: true }))).toBeNull();
   expect(savedCalls(message([{ input: {} }]))).toBeNull();
+});
+
+describe('which model answered, said beside what was asked for', () => {
+  const requested = {
+    version: 1, runtime: 'claude_cli', provider: 'claude_code', requested_model: 'haiku', requested_effort: 'high',
+    model_basis: 'explicit', effort_basis: 'explicit', binding_basis: 'new',
+  } as TurnChoices['requested'];
+  const turn = (name: string | null, over: Partial<TurnChoices> = {}): TurnChoices => ({
+    user_message_id: 1, assistant_message_id: 2, version: 1, created_at_utc: 't', requested, reported: [],
+    answered_by: name ? { model: `id-${name}`, name, source: 'claude_result_model_usage' } : null, failure: null, ...over,
+  } as TurnChoices);
+
+  test('the header names the answering model, and says "last" when answers came from more than one', () => {
+    expect(answeredWords([turn('Haiku 5.5'), turn(null), turn('Haiku 5.5')])).toBe('answered by Haiku 5.5');
+    expect(answeredWords([turn('Haiku 4.5'), turn('Haiku 5.5')])).toBe('last answered by Haiku 5.5');
+    expect(answeredWords([turn(null)])).toBeNull();
+    expect(requestedWords(requested, answeredWords([turn('Haiku 5.5')])))
+      .toBe('Claude Code · haiku (answered by Haiku 5.5) · effort high');
+    expect(requestedWords(requested)).toBe('Claude Code · haiku · effort high');
+  });
+
+  test('an answer’s footer: the model it reported, the effort asked for, and the cost', () => {
+    expect(answerFooterWords(turn('Haiku 5.5'), 0.0123)).toBe('Haiku 5.5 · high effort · Reported cost $0.0123, not an invoice');
+    expect(answerFooterWords(turn(null), null)).toBe('Model not reported · high effort · Cost not reported');
+    expect(answerFooterWords(turn('Opus 5.5', { requested: { ...requested, requested_effort: null } as TurnChoices['requested'] }), null))
+      .toBe('Opus 5.5 · default effort · Cost not reported');
+    // A message saved before turns were kept has no turn to read.
+    expect(answerFooterWords(undefined, 0.5)).toBe('Reported cost $0.5000, not an invoice');
+  });
+
+  test('a report names its model where the id is recognized, and keeps the id beside it', () => {
+    expect(reportWords({ model: 'claude-haiku-5-5', source: 'claude_result_model_usage', name: 'Haiku 5.5' }))
+      .toBe('Haiku 5.5 (claude-haiku-5-5), billed for this answer, as the Claude CLI reported');
+    expect(reportWords({ model: 'haiku', source: 'claude_system_init_model', name: 'haiku' }))
+      .toBe('haiku, announced by the Claude CLI as it started');
+  });
+
+  test('a turn with no answer is headed as that, and a stopped one as stopped', () => {
+    expect(failureTitle('cli_auth')).toBe('No answer');
+    expect(failureTitle('failed')).toBe('No answer');
+    expect(failureTitle('stopped')).toBe('Stopped before it answered');
+  });
 });

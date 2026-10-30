@@ -57,13 +57,49 @@ const isReadable = (value: unknown): value is Requested =>
  * model and the effort. Where nothing was named, the runtime's own default
  * was used, and resmon does not know what that is.
  */
-export function requestedWords(choices: Bound | TurnChoices['requested'] | undefined): string {
+export function requestedWords(choices: Bound | TurnChoices['requested'] | undefined, answered?: string | null): string {
   if (choices === null || choices === undefined) return 'Not recorded: this conversation began before resmon kept its choices.';
   if (!isReadable(choices)) return 'Unreadable: the saved choices are not in a form this version reads.';
-  const model = choices.requested_model ?? 'the default model (not known here)';
+  const model = `${choices.requested_model ?? 'the default model (not known here)'}${answered ? ` (${answered})` : ''}`;
   const effort = choices.runtime === 'api_key' ? 'effort not supported by this connection'
     : `effort ${choices.requested_effort ?? 'default (not known here)'}`;
   return `${providerWords(choices.provider)} · ${model} · ${effort}`;
+}
+
+/**
+ * Which model answered a conversation, from its turns' own reports: "answered
+ * by Haiku 5.5", or "last answered by Haiku 5.5" when its answers came from
+ * more than one. `null` before any answer reported a model.
+ */
+export function answeredWords(turns: readonly TurnChoices[]): string | null {
+  const names = turns.flatMap((t) => (t.answered_by ? [t.answered_by.name] : []));
+  if (!names.length) return null;
+  const last = names[names.length - 1] as string;
+  return names.every((n) => n === last) ? `answered by ${last}` : `last answered by ${last}`;
+}
+
+/**
+ * Under an answer: the model that wrote it, as its runtime reported it, the
+ * effort that was asked for, and the cost. "Haiku 5.5 · high effort ·
+ * Reported cost $0.0123, not an invoice". The effort is the request's: no
+ * runtime reports the effort it used.
+ */
+export function answerFooterWords(turn: TurnChoices | undefined, cost: number | null | undefined): string {
+  const parts: string[] = [];
+  if (turn) {
+    parts.push(turn.answered_by ? turn.answered_by.name : 'Model not reported');
+    const requested = turn.requested;
+    if (isReadable(requested) && requested.runtime !== 'api_key') {
+      parts.push(requested.requested_effort ? `${requested.requested_effort} effort` : 'default effort');
+    }
+  }
+  parts.push(costWords(cost));
+  return parts.join(' · ');
+}
+
+/** The heading of a turn that produced no answer. */
+export function failureTitle(code: string): string {
+  return code === 'stopped' ? 'Stopped before it answered' : 'No answer';
 }
 
 const BASIS_WORDS: Record<string, string> = {
@@ -82,13 +118,15 @@ export function basisWords(choices: Bound | TurnChoices['requested'] | undefined
 
 const REPORT_SOURCES: Record<string, string> = {
   claude_system_init_model: 'announced by the Claude CLI as it started',
+  claude_result_model_usage: 'billed for this answer, as the Claude CLI reported',
   api_response_model: 'named in the provider’s reply',
   google_response_modelVersion: 'named in Google’s reply',
 };
 
 /** One runtime report, as a separate claim from the request. */
-export function reportWords(report: { model: string; source: string }): string {
-  return `${report.model}, ${REPORT_SOURCES[report.source] ?? report.source}`;
+export function reportWords(report: { model: string; source: string; name?: string }): string {
+  const named = report.name && report.name !== report.model ? `${report.name} (${report.model})` : report.model;
+  return `${named}, ${REPORT_SOURCES[report.source] ?? report.source}`;
 }
 
 /** A cost the runtime did not report is not zero. */
@@ -165,7 +203,7 @@ export function applyEvent(live: Live, event: TurnEvent): Live {
       if (event.session_id !== live.session || !event.user_message_id || !event.requested) return live;
       return { ...live, turns: [...live.turns, {
         user_message_id: event.user_message_id, assistant_message_id: null, version: 1,
-        created_at_utc: '', requested: event.requested, reported: [],
+        created_at_utc: '', requested: event.requested, reported: [], answered_by: null, failure: null,
       } as TurnChoices] };
     case 'turn_model_report': {
       const report = event.reported;

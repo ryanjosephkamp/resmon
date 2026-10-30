@@ -1,5 +1,5 @@
 import { restartFacts, type ProgressEvent } from '../model';
-import { runSummaries, type RunAiLane } from '../summaries';
+import { laneSentence, needsSignIn, runSummaries, type RunAiLane } from '../summaries';
 
 const CUSTOM = 'Custom endpoint · authored-model';
 
@@ -11,7 +11,8 @@ const choice = (patch: Record<string, unknown> = {}): ProgressEvent => ({
 const lane = (patch: Partial<RunAiLane>): RunAiLane => ({
   lane_index: 0, lane_label: CUSTOM, lane_kind: 'api_key', provider: 'custom', model: 'authored-model',
   credential_alias: 'custom_llm_api_key', outcome: 'ok', error_kind: null, http_status: null, safe_message: null,
-  docs_attempted: 2, docs_succeeded: 2, started_at: '2026-10-29 08:00:00', ended_at: '2026-10-29 08:00:05', ...patch,
+  docs_attempted: 2, docs_succeeded: 2, started_at: '2026-10-29 08:00:00', ended_at: '2026-10-29 08:00:05',
+  answered_by: [], ...patch,
 });
 
 describe('whether a run summarized, with what, and how it went', () => {
@@ -88,5 +89,35 @@ describe('what Restart does with summaries, where the run’s lanes are known', 
     expect(restartFacts({ ...base, ai_lanes: [lane({})] }).ai)
       .toBe('This run tried to summarize, so Restart does too, with what Settings › AI holds now. A connection or wording set for this run alone is not carried over.');
     expect(restartFacts({ ...base, ai_lanes: [] }).ai).toBe('This run recorded no attempt to summarize, so Restart does not summarize.');
+  });
+});
+
+describe('which model wrote the summaries, and a lane that needs a sign-in', () => {
+  const claude = (patch: Partial<RunAiLane>) => lane({
+    lane_label: 'Claude Code · haiku', lane_kind: 'subscription', provider: 'claude_code', model: 'haiku',
+    credential_alias: null, ...patch,
+  });
+
+  test('a lane says which model its command reported writing its summaries', () => {
+    expect(laneSentence(claude({ answered_by: [{ model: 'claude-haiku-5-5', name: 'Haiku 5.5', calls: 2 }] }), false))
+      .toBe('Claude Code · haiku: summarized 2 of 2 papers. Written by Haiku 5.5.');
+    expect(laneSentence(claude({
+      outcome: 'partial', docs_succeeded: 1, safe_message: 'One paper timed out.',
+      answered_by: [{ model: 'claude-haiku-5-5', name: 'Haiku 5.5', calls: 1 }, { model: 'claude-haiku-4-5', name: 'Haiku 4.5', calls: 1 }],
+    }), false)).toBe('Claude Code · haiku: summarized 1 of 2 papers; One paper timed out. Written by Haiku 5.5 and Haiku 4.5.');
+  });
+
+  test('nothing is said about the model where the command reported none, or wrote nothing', () => {
+    expect(laneSentence(claude({}), false)).toBe('Claude Code · haiku: summarized 2 of 2 papers.');
+    expect(laneSentence(claude({
+      outcome: 'failed', docs_succeeded: 0, answered_by: [{ model: 'claude-haiku-5-5', name: 'Haiku 5.5', calls: 1 }],
+    }), false)).toBe('Claude Code · haiku: summarized none of 2 papers.');
+  });
+
+  test('only a command that said it is not signed in is offered the sign-in', () => {
+    expect(needsSignIn(claude({ outcome: 'failed', error_kind: 'cli_auth' }))).toBe(true);
+    expect(needsSignIn(claude({ outcome: 'failed', error_kind: 'cli_auth', provider: 'codex' }))).toBe(true);
+    expect(needsSignIn(claude({ outcome: 'failed', error_kind: 'quota' }))).toBe(false);
+    expect(needsSignIn(lane({ outcome: 'failed', error_kind: 'cli_auth' }))).toBe(false);
   });
 });

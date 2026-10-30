@@ -5483,6 +5483,107 @@ def get_ai_cli_status():
     return {"providers": providers}
 
 
+class AiCliSignInBody(BaseModel):
+    model_config = {"extra": "forbid"}
+    provider: str
+    # ``summaries`` finds the command the way a run's lane does; ``ask`` the way
+    # the assistant does. They read the same setting by different rules.
+    purpose: str = "summaries"
+    # A fallback lane's own path, when it has one. A path to a binary, never a
+    # credential.
+    binary_path: Optional[str] = None
+
+
+def _sign_in_binary(provider: str, purpose: str, binary_path: Optional[str]) -> tuple[Optional[str], str]:
+    """The command a lane for *purpose* would run, and discovery's sentence when there is none."""
+    from implementation_scripts.ai_cli import discover_cli
+
+    if provider not in ("claude_code", "codex"):
+        raise HTTPException(400, "Sign-in is checked for Claude Code and Codex only.")
+    if purpose not in ("summaries", "ask"):
+        raise HTTPException(400, "Purpose is summaries or ask.")
+    if purpose == "ask" and provider != "claude_code":
+        raise HTTPException(400, "Ask runs on Claude Code, not Codex.")
+    conn = _get_db()
+    try:
+        settings = _get_settings_group(conn, "ai")
+    finally:
+        _close_db(conn)
+    configured = str(settings.get("ai_cli_path") or "").strip() or None
+    if purpose == "ask":
+        # The assistant reads ``ai_cli_path`` whichever provider summaries use
+        # (``_assistant_settings``), so the check does the same.
+        explicit = configured
+    elif binary_path and binary_path.strip():
+        explicit = binary_path.strip()
+    else:
+        explicit = configured if settings.get("ai_provider") == provider else None
+    found = discover_cli(provider, explicit)
+    return found.path, found.describe()
+
+
+@app.get("/api/ai/cli/sign-in", response_model=response_models.AiCliSignIn,
+         response_model_exclude_unset=True)
+def check_ai_cli_sign_in(provider: str = Query(..., max_length=32),
+                         purpose: str = Query("summaries", max_length=32),
+                         binary_path: Optional[str] = Query(None, max_length=4096)):
+    """Ask the command itself whether it is signed in. No model call, no cost.
+
+    Runs ``claude auth status --json`` or ``codex login status`` in the
+    environment the lanes use, and answers with what is safe to show. Nothing
+    is stored: the next check runs the command again. Called when Settings ›
+    AI is opened and on Check again, never on a timer.
+    """
+    from implementation_scripts import ai_signin
+
+    binary, not_found = _sign_in_binary(provider, purpose, binary_path)
+    return ai_signin.check_sign_in(provider, binary, not_found=not_found)
+
+
+@app.post("/api/ai/cli/sign-in", response_model=response_models.AiCliSignInOpened,
+          response_model_exclude_unset=True)
+def open_ai_cli_sign_in(body: AiCliSignInBody):
+    """Start the command's own login in a terminal, or say the command to run.
+
+    The sign-in happens between the person and the provider, in the command's
+    own login; resmon does not see or keep it. On macOS a ``.command`` script in
+    resmon's state directory is opened with ``open`` (``RESMON_SIGN_IN_OPENER``
+    names another opener, for a test that must not open Terminal); elsewhere
+    the command is returned to be copied.
+    """
+    import subprocess as _subprocess
+
+    from implementation_scripts import ai_signin
+
+    binary, not_found = _sign_in_binary(body.provider, body.purpose, body.binary_path)
+    opener_name = os.environ.get("RESMON_SIGN_IN_OPENER", "").strip() or "open"
+
+    def opener(argv, **kwargs):
+        return _subprocess.run([opener_name, *argv[1:]], **kwargs)
+
+    return ai_signin.open_sign_in(
+        body.provider, binary, api_auth.state_dir(), not_found=not_found, opener=opener,
+    )
+
+
+@app.get("/api/ai/last-answered", response_model=response_models.AiLastAnswered,
+         response_model_exclude_unset=True)
+def get_ai_last_answered():
+    """Which model last answered each requested alias, from answers already kept.
+
+    An alias resolves to the CLI's newest model when it runs, so the version is
+    known only once an answer reports it. The pickers say "Haiku 5.5 when it
+    last answered" from this, and only the alias where nothing has answered yet.
+    """
+    conn = _get_db()
+    try:
+        from implementation_scripts.database import get_last_answered_models
+
+        return {"entries": get_last_answered_models(conn)}
+    finally:
+        _close_db(conn)
+
+
 # ---------------------------------------------------------------------------
 # Embeddings (1.9)
 # ---------------------------------------------------------------------------
@@ -8087,11 +8188,15 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
     raises here would leave the SSE generator waiting for a ``done`` that never
     comes, and the panel would show a spinner for ever.
     """
+    from implementation_scripts.ai_model_names import model_display_name
+
     logger = logging.getLogger(__name__)
     text_parts: list[str] = []
     tool_calls: list[dict] = []
     tool_results: list[dict] = []
     usage: dict = {}
+    failure: Optional[dict] = None
+    conn = None
     try:
         conn = _get_db()
         # Runtime was captured at admission; never reconstruct it from defaults.
@@ -8103,11 +8208,13 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
             session_id, prompt,
             cli_session_id=cli_session_id, resume=resume, history=history,
         ):
-            observation = event.get('model_report')
-            if observation:
+            observations = [event['model_report']] if event.get('model_report') else []
+            observations += [o for o in event.get('model_reports') or [] if o]
+            for observation in observations:
                 observed = assistant_store.append_report(conn, session_id, user_message_id, observation)
                 assistant_runtime.bus.publish(session_id, {'type': 'turn_model_report', 'session_id': session_id,
-                                                          'user_message_id': user_message_id, 'reported': observed})
+                                                          'user_message_id': user_message_id,
+                                                          'reported': {**observed, 'name': model_display_name(observed['model'])}})
             if event["type"] == "started":
                 # The id the CLI actually reports, which is normally the one it
                 # was handed and is *not* after a failed resume: the runtime
@@ -8138,17 +8245,44 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
                                      "content": event.get("content")})
             elif event["type"] == "done":
                 usage = event
+            elif event["type"] == "error" and failure is None:
+                failure = event
             assistant_runtime.bus.publish(session_id, event)
 
-        assistant_store.finish_turn(
-            conn, session_id, user_message_id,
-            content="".join(text_parts),
-            tool_calls=tool_calls or None,
-            tool_results=tool_results or None,
-            input_tokens=usage.get("input_tokens"),
-            output_tokens=usage.get("output_tokens"),
-            cost_usd=usage.get("cost_usd"),
-        )
+        if failure is None and usage.get("is_error"):
+            # A result envelope that calls itself an error is a failure even
+            # where no error event followed it.
+            failure = {"code": "failed", "detail": usage.get("subtype"),
+                       "message": "The command reported that this turn failed, and did not say why."}
+        if failure is not None:
+            # A failed turn is not an answer. The CLI's failure text arrives as
+            # an ordinary assistant block before the error result ("Failed to
+            # authenticate..."), and storing it as the answer put it in the
+            # transcript as the assistant speaking, with a cost line under it.
+            # It is kept as what the turn wrote before it ended, beside the
+            # failure, and the user's message stays.
+            assistant_store.fail_turn(
+                conn, session_id, user_message_id,
+                code=str(failure.get("code") or "failed"),
+                message=str(failure.get("message") or ""),
+                detail=str(failure["detail"]) if failure.get("detail") else None,
+                partial_text="".join(text_parts),
+                tool_calls=tool_calls or None,
+                tool_results=tool_results or None,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cost_usd=usage.get("cost_usd"),
+            )
+        else:
+            assistant_store.finish_turn(
+                conn, session_id, user_message_id,
+                content="".join(text_parts),
+                tool_calls=tool_calls or None,
+                tool_results=tool_results or None,
+                input_tokens=usage.get("input_tokens"),
+                output_tokens=usage.get("output_tokens"),
+                cost_usd=usage.get("cost_usd"),
+            )
         assistant_store.touch_session(conn, session_id)
     except Exception as exc:                         # noqa: BLE001
         logger.exception("Assistant turn thread failed")
@@ -8156,7 +8290,20 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
             "type": "error",
             "message": "resmon could not finish that turn.",
             "detail": type(exc).__name__,
+            "code": "failed",
         })
+        if conn is not None:
+            # Best effort: the turn is kept as a failure rather than as a user
+            # message nothing answered. The record may itself be what failed.
+            try:
+                assistant_store.fail_turn(
+                    conn, session_id, user_message_id, code="failed",
+                    message="resmon could not finish that turn.", detail=type(exc).__name__,
+                    partial_text="".join(text_parts), tool_calls=tool_calls or None,
+                    tool_results=tool_results or None,
+                )
+            except Exception:                        # noqa: BLE001
+                logger.debug("The failed turn could not be recorded", exc_info=True)
     finally:
         # Always, so the stream ends even when the turn did not.
         assistant_runtime.bus.publish(session_id, {"type": "stream_end"})

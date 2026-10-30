@@ -4,6 +4,7 @@ import { answer, engine } from '../../api/client';
 import { bridge } from '../../bridge';
 import { STATUS_KEY } from '../ask/AskProvider';
 import { ask } from '../ask/askApi';
+import { CliSignIn } from './CliSignIn';
 import { ModelField, listFor, useModelList, type ModelQuery } from './ModelField';
 import { ProviderKey, refusal } from './ProviderKey';
 import {
@@ -152,7 +153,8 @@ export function SummaryForm({ stored }: { stored: AiSettings }) {
         )}
       </div>
       {cli && !dirty && <LaneStatus provider={form.ai_provider} />}
-      {cli && dirty && <p className="form-hint">Save to see whether resmon finds this command.</p>}
+      {cli && !dirty && <CliSignIn key={form.ai_provider} provider={form.ai_provider} purpose="summaries" checkOnOpen />}
+      {cli && dirty && <p className="form-hint">Save to see whether resmon finds this command, and whether it is signed in.</p>}
       {cli && (
         <p className="form-hint">
           This spends your own plan: resmon runs the command you installed and signed into, and never sees or keeps
@@ -388,7 +390,7 @@ function FallbackDraft({ stored, claude, onAdd, onCancel }: {
   );
 }
 
-/** Where resmon found the command, and the one thing finding it does not establish. */
+/** Where resmon found the command. Whether it is signed in is asked of the command itself, below it. */
 function LaneStatus({ provider }: { provider: string }) {
   const status = useQuery({ queryKey: CLI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai/cli-status')) });
   const probe = status.data?.providers.find((p) => p.provider === provider);
@@ -398,7 +400,6 @@ function LaneStatus({ provider }: { provider: string }) {
     <p className="ai-lane" data-ai="lane-status" data-found={probe.found}>
       {/[.!?]$/.test(probe.detail) ? probe.detail : `${probe.detail}.`}
       {!probe.found && ` Looked in: ${probe.tried.join(', ')}.`}
-      {' '}resmon has not checked whether you are signed in: that shows on the first paper, and is recorded on the run.
     </p>
   );
 }

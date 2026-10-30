@@ -638,7 +638,10 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # resmon never observed which papers a user meant to read before the queue
 # existed, so an upgraded database starts empty and says so. 22 indexes
 # ``documents.metadata_hash``, which every stored result is checked against.
-SCHEMA_VERSION = 22
+# 23 adds ``assistant_turn_failures``, so a failed Ask turn is kept as a failure
+# rather than as an answer, and ``execution_ai_models``, the models an agent
+# CLI reported for a run's summaries.
+SCHEMA_VERSION = 23
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -725,6 +728,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # once the rebuild above has run.
     _migrate_delivery(conn)
     _migrate_metadata_hash_index(conn)
+    _migrate_answer_records(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
@@ -2080,6 +2084,78 @@ def _migrate_metadata_hash_index(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# Schema 23. Two records of what an answer was, both additive.
+#
+# ``assistant_turn_failures`` holds an Ask turn that did not produce an answer,
+# keyed by the user's message. Before it, the runtime's failure text (a CLI
+# whose sign-in had expired says so in an assistant block) was stored as the
+# assistant's answer, with a cost line under it. ``code`` is what the screen
+# offers next: ``cli_auth`` is a sign-in, ``stopped`` was the person's Stop,
+# ``failed`` is anything else. What the turn wrote and called before it ended
+# is kept beside the failure, never as an answer.
+#
+# ``execution_ai_models`` holds the model ids an agent CLI reported for a run's
+# summary lane, one row per model, ``position`` 0 being the one that wrote
+# most. ``execution_ai.model`` is what was asked for, often an alias such as
+# ``haiku``; this is what answered.
+_ANSWER_RECORDS_V23_DDL = {
+    "assistant_turn_failures": """CREATE TABLE assistant_turn_failures (
+    user_message_id INTEGER PRIMARY KEY REFERENCES assistant_messages(id) ON DELETE CASCADE,
+    code TEXT NOT NULL CHECK (code IN ('cli_auth', 'stopped', 'failed')),
+    message TEXT NOT NULL,
+    detail TEXT,
+    partial_text TEXT NOT NULL DEFAULT '',
+    tool_calls TEXT,
+    tool_results TEXT,
+    input_tokens INTEGER,
+    output_tokens INTEGER,
+    cost_usd REAL,
+    failed_at_utc TEXT NOT NULL
+)""",
+    "execution_ai_models": """CREATE TABLE execution_ai_models (
+    execution_id INTEGER NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
+    lane_index INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    model TEXT NOT NULL,
+    calls INTEGER NOT NULL CHECK (calls > 0),
+    PRIMARY KEY (execution_id, lane_index, model)
+)""",
+}
+
+
+def _migrate_answer_records(conn: sqlite3.Connection) -> None:
+    """Create the two schema-23 tables. Additive; fresh and upgrade alike.
+
+    An object of either name with other SQL is a conflict, as in
+    ``_migrate_metadata_hash_index``, not something to accept quietly.
+    """
+    conn.execute("SAVEPOINT answer_records_v23")
+    try:
+        for name, ddl in _ANSWER_RECORDS_V23_DDL.items():
+            row = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE name = ?", (name,),
+            ).fetchone()
+            if row is None:
+                conn.execute(ddl)
+                row = conn.execute(
+                    "SELECT sql FROM sqlite_master WHERE name = ?", (name,),
+                ).fetchone()
+            if not row or " ".join((row[0] or "").split()) != " ".join(ddl.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-23 object: " + name)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<23",
+            (_SCHEMA_VERSION_KEY, "23"),
+        )
+        conn.execute("RELEASE answer_records_v23")
+    except BaseException:
+        conn.execute("ROLLBACK TO answer_records_v23")
+        conn.execute("RELEASE answer_records_v23")
+        raise
+    conn.commit()
+
+
 # A DOAJ date stored with its month as a name: ``2025-January-01``,
 # ``2025-Sept.-01``. The day is optional, so ``2025-July`` is caught as well.
 _DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
@@ -3040,8 +3116,103 @@ def finish_ai_lane(
     conn.commit()
 
 
+def record_ai_lane_models(
+    conn: sqlite3.Connection,
+    exec_id: int,
+    lane_index: int,
+    models: list[tuple[str, int]],
+) -> None:
+    """Keep the model ids a lane's CLI reported, biggest writer first.
+
+    *models* is ``(model_id, calls)`` in the order the client ranked them.
+    Replaces what was recorded for the lane, so a second ``finish`` is
+    harmless.
+    """
+    conn.execute(
+        "DELETE FROM execution_ai_models WHERE execution_id = ? AND lane_index = ?",
+        (int(exec_id), int(lane_index)),
+    )
+    conn.executemany(
+        "INSERT INTO execution_ai_models (execution_id, lane_index, position, model, calls) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [(int(exec_id), int(lane_index), position, model, int(calls))
+         for position, (model, calls) in enumerate(models)
+         if isinstance(model, str) and model.strip() and int(calls) > 0],
+    )
+    conn.commit()
+
+
+def _utc_iso(stamp: "str | None") -> str:
+    """SQLite's ``datetime('now')`` (UTC, no zone) as ISO 8601 with its zone."""
+    text = str(stamp or "")
+    if not text or "T" in text:
+        return text
+    return text.replace(" ", "T") + "+00:00"
+
+
+def get_last_answered_models(conn: sqlite3.Connection) -> list[dict]:
+    """For each command and requested model, the model that last answered it.
+
+    The pickers offer aliases (``haiku``) that each CLI resolves to its newest
+    model when it runs. resmon knows which model that was only after an answer
+    reports it, so this is read from answers already kept: Ask turns that were
+    answered, and summary lanes that summarized something. ``requested`` is
+    ``""`` where no model was named and the command chose. An answer that
+    reported only the alias it was asked for says nothing new and is skipped.
+    """
+    from .ai_model_names import answered_by, model_display_name
+
+    latest: dict[tuple[str, str], dict] = {}
+
+    def offer(provider: str, requested: str, model: str, where: str, at: str) -> None:
+        if not model or model == requested:
+            return
+        key = (provider, requested)
+        if key in latest and latest[key]["observed_at_utc"] >= at:
+            return
+        latest[key] = {"provider": provider, "requested": requested, "model": model,
+                       "name": model_display_name(model), "where": where, "observed_at_utc": at}
+
+    for row in conn.execute(
+        "SELECT requested_json, reported_json, created_at_utc FROM assistant_turn_choices "
+        "WHERE assistant_message_id IS NOT NULL ORDER BY created_at_utc DESC LIMIT 500"
+    ).fetchall():
+        try:
+            requested = json.loads(row["requested_json"])
+            reports = json.loads(row["reported_json"])
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(requested, dict) or requested.get("runtime") != "claude_cli":
+            continue
+        answer = answered_by(reports)
+        if answer:
+            offer("claude_code", str(requested.get("requested_model") or ""), answer["model"],
+                  "ask", str(row["created_at_utc"] or ""))
+
+    for row in conn.execute(
+        "SELECT a.provider, a.model AS requested, m.model AS reported, "
+        "       COALESCE(a.ended_at, a.started_at) AS at "
+        "  FROM execution_ai a JOIN execution_ai_models m "
+        "    ON m.execution_id = a.execution_id AND m.lane_index = a.lane_index AND m.position = 0 "
+        " WHERE a.lane_kind = 'subscription' AND a.docs_succeeded > 0 "
+        " ORDER BY at DESC LIMIT 500"
+    ).fetchall():
+        offer(str(row["provider"]), str(row["requested"] or ""), str(row["reported"]),
+              "summaries", _utc_iso(row["at"]))
+
+    return sorted(latest.values(), key=lambda e: (e["provider"], e["requested"]))
+
+
 def get_execution_ai(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
-    """Per-lane AI records for one execution, in the order they were tried."""
+    """Per-lane AI records for one execution, in the order they were tried.
+
+    ``answered_by`` is what the lane's CLI reported about the model that wrote
+    its summaries, biggest writer first, each with the name a person reads.
+    Empty when nothing was reported: an API lane, a lane that never ran, or a
+    run from before schema 23.
+    """
+    from .ai_model_names import model_display_name
+
     rows = conn.execute(
         """
         SELECT lane_index, lane_label, lane_kind, provider, model,
@@ -3054,7 +3225,21 @@ def get_execution_ai(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
         """,
         (int(exec_id),),
     ).fetchall()
-    return [dict(row) for row in rows]
+    reported: dict[int, list[dict]] = {}
+    for row in conn.execute(
+        "SELECT lane_index, model, calls FROM execution_ai_models "
+        "WHERE execution_id = ? ORDER BY lane_index, position",
+        (int(exec_id),),
+    ).fetchall():
+        reported.setdefault(row["lane_index"], []).append({
+            "model": row["model"],
+            "name": model_display_name(row["model"]),
+            "calls": row["calls"],
+        })
+    return [
+        {**dict(row), "answered_by": reported.get(row["lane_index"], [])}
+        for row in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

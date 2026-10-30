@@ -5,7 +5,9 @@ import { answer, engine } from '../../api/client';
 import { STATUS_KEY } from '../ask/AskProvider';
 import { ask } from '../ask/askApi';
 import { providerWords } from '../ask/askModel';
+import { CliSignIn } from './CliSignIn';
 import { EMBEDDING_STATUS_KEY } from './embeddingWords';
+import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from './modelWords';
 import { EMBEDDING_PAGE_KEY, Embeddings, readEmbeddingPage, readEmbeddingStatus } from './Embeddings';
 import { refusal } from './ProviderKey';
 import { SummaryForm } from './SummaryForm';
@@ -91,6 +93,9 @@ function Assistant() {
       </p>
       {settings.isError && <p className="field-error" role="alert">The engine did not answer ({settings.error.message}).</p>}
       {settings.data && status.data && <AssistantForm stored={settings.data} status={status.data} />}
+      {settings.data && (settings.data.assistant_runtime || 'claude_cli') === 'claude_cli' && (
+        <CliSignIn provider="claude_code" purpose="ask" checkOnOpen />
+      )}
       {status.data && (
         <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
           <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
@@ -127,6 +132,8 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
   const set = (key: keyof AssistantSettings) => (value: string) => setForm({ ...form, [key]: value });
   const aliases = choices.claude_aliases.includes(form.assistant_model) || !form.assistant_model
     ? choices.claude_aliases : [...choices.claude_aliases, form.assistant_model];
+  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: !api, refetchOnMount: 'always' });
+  const words = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
   return (
     <form className="settings-form" aria-label="Assistant settings"
       onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
@@ -155,8 +162,8 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
                 placeholder="The provider’s model ID (required)" onChange={(e) => set('assistant_model')(e.target.value)} />
             : (
               <select id="assistant-model" value={form.assistant_model} onChange={(e) => set('assistant_model')(e.target.value)}>
-                <option value="">The command’s default</option>
-                {aliases.map((alias) => <option key={alias} value={alias}>{alias}</option>)}
+                <option value="">{words('')}</option>
+                {aliases.map((alias) => <option key={alias} value={alias}>{words(alias)}</option>)}
               </select>
             )}
         </label>

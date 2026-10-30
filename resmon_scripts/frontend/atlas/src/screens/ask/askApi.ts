@@ -23,6 +23,7 @@ export type Chat = ChatPage['sessions'][number];
 export type Detail = Json<paths['/api/assistant/sessions/{session_id}']['get']>;
 export type Message = Detail['messages'][number];
 export type TurnChoices = Detail['turn_choices'][number];
+export type TurnFailure = NonNullable<TurnChoices['failure']>;
 export type Exported = Json<paths['/api/assistant/sessions/{session_id}/export']['get']>;
 /** What a conversation was fixed to: readable, unreadable, or never recorded (`null`). */
 export type Bound = Session['choices'];
@@ -54,7 +55,9 @@ export interface TurnEvent {
   session_id?: number;
   user_message_id?: number;
   requested?: TurnChoices['requested'];
-  reported?: { model: string; source: string; observed_at_utc: string; sequence?: number };
+  reported?: { model: string; source: string; observed_at_utc: string; sequence?: number; name?: string };
+  /** On an error: `cli_auth` (sign in), `stopped`, or `failed`. */
+  code?: string;
   cost_usd?: number | null;
   input_tokens?: number | null;
   output_tokens?: number | null;

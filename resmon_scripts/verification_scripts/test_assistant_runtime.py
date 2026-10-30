@@ -738,3 +738,51 @@ def test_r04c_missing_invalid_cli_model_is_not_inferred(reported):
     from implementation_scripts import assistant_runtime as runtime
     event = runtime._normalise(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
     assert event['model_report'] is None
+
+
+# ---------------------------------------------------------------------------
+# A sign-in failure is named, and the code says what the panel can offer
+# ---------------------------------------------------------------------------
+
+def test_an_expired_sign_in_is_named_and_coded_for_sign_in(tmp_path):
+    """The shape from the field: the sentence as assistant text, then an error result."""
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    events = list(runtime.run_turn(1, "AUTH_EXPIRED", cli_session_id="s", resume=False))
+    error = events[-1]
+    assert error["type"] == "error"
+    assert error["code"] == "cli_auth"
+    assert error["message"].startswith(
+        "The Claude Code command on this computer is not signed in, or its sign-in expired")
+    assert "Failed to authenticate: OAuth session expired" in error["message"]
+
+
+@pytest.mark.parametrize("prompt, code", [
+    ("RESULT_ERROR:Not logged in · Please run /login", "cli_auth"),
+    ("FAIL:Invalid API key · Please run /login", "cli_auth"),
+    ("FAIL:something else entirely", "failed"),
+    ("SAY:partial\nBUDGET", "failed"),
+])
+def test_each_failure_carries_the_code_the_panel_acts_on(tmp_path, prompt, code):
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    events = list(runtime.run_turn(1, prompt, cli_session_id="s", resume=False))
+    assert events[-1]["type"] == "error"
+    assert events[-1]["code"] == code
+
+
+def test_a_result_names_the_models_it_was_billed_for_biggest_writer_first():
+    line = json.dumps({
+        "type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01,
+        "modelUsage": {"claude-haiku-4-5-20251001": {"outputTokens": 4},
+                       "claude-opus-5-5": {"outputTokens": 120},
+                       "": {"outputTokens": 9}},
+    })
+    done = ar._normalise(line)[0]
+    assert [(r["model"], r["source"]) for r in done["model_reports"]] == [
+        ("claude-opus-5-5", "claude_result_model_usage"),
+        ("claude-haiku-4-5-20251001", "claude_result_model_usage"),
+    ]
+
+
+def test_a_result_with_no_model_usage_reports_no_model():
+    done = ar._normalise(json.dumps({"type": "result", "subtype": "success"}))[0]
+    assert done["model_reports"] == []

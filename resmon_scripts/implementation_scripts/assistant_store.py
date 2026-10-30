@@ -281,6 +281,8 @@ def delete_session(conn: sqlite3.Connection, session_id: int) -> bool:
     """
     conn.execute("DELETE FROM assistant_turn_choices WHERE user_message_id IN "
                  "(SELECT id FROM assistant_messages WHERE session_id=?)", (session_id,))
+    conn.execute("DELETE FROM assistant_turn_failures WHERE user_message_id IN "
+                 "(SELECT id FROM assistant_messages WHERE session_id=?)", (session_id,))
     conn.execute("DELETE FROM assistant_session_choices WHERE session_id=?", (session_id,))
     conn.execute("DELETE FROM assistant_messages WHERE session_id = ?", (session_id,))
     cur = conn.execute("DELETE FROM assistant_sessions WHERE id = ?", (session_id,))
@@ -387,7 +389,14 @@ def admit_turn(conn: sqlite3.Connection, session_id: int, text: str, binding: di
             raise ValueError('Conversation choices changed. Reopen the conversation.')
         history = list_messages(conn, session_id)
         native = session['cli_session_id'] if binding['runtime'] == 'claude_cli' and not legacy else None
-        resume = bool(native) and bool(history)
+        # Resumed only once an earlier turn was answered. A conversation whose
+        # every turn failed or was stopped has nothing in the CLI worth going
+        # back to, and the session a failed first turn may have half-started
+        # would refuse its own id as already in use. So it starts again.
+        answered = any(m['role'] == 'assistant' for m in history)
+        if native and history and not answered:
+            native = None
+        resume = bool(native) and answered
         if binding['runtime'] == 'claude_cli' and not native:
             native = new_cli_session_id()
         if legacy or native != session['cli_session_id']:
@@ -442,10 +451,58 @@ def finish_turn(conn: sqlite3.Connection, session_id: int, user_message_id: int,
     return mid
 
 
+FAILURE_CODES = ('cli_auth', 'stopped', 'failed')
+
+
+def fail_turn(conn: sqlite3.Connection, session_id: int, user_message_id: int, *,
+              code: str, message: str, detail: Optional[str] = None, partial_text: str = '',
+              tool_calls: Optional[list] = None, tool_results: Optional[list] = None,
+              input_tokens: Optional[int] = None, output_tokens: Optional[int] = None,
+              cost_usd: Optional[float] = None) -> None:
+    """Keep a turn that did not produce an answer as a failure, never as one.
+
+    The user's message stays; no assistant message is written. What the turn
+    wrote and called before it ended is kept beside the failure, because a
+    write the person allowed did happen. ``cost_usd`` is kept only when the
+    runtime reported a real figure for it: a failure with nothing spent
+    reports ``0``, and a zero shown under a failure reads as a charge.
+    """
+    if code not in FAILURE_CODES:
+        code = 'failed'
+    if not (isinstance(cost_usd, (int, float)) and not isinstance(cost_usd, bool) and cost_usd > 0):
+        cost_usd = None
+    conn.execute('BEGIN IMMEDIATE')
+    with conn:
+        row = conn.execute("SELECT t.assistant_message_id FROM assistant_turn_choices t JOIN assistant_messages u ON u.id=t.user_message_id "
+                           "WHERE u.id=? AND u.session_id=? AND u.role='user'", (user_message_id, session_id)).fetchone()
+        if not row or row[0] is not None:
+            raise ValueError('A failure cannot be linked to this request.')
+        conn.execute('INSERT INTO assistant_turn_failures(user_message_id,code,message,detail,partial_text,tool_calls,'
+                     'tool_results,input_tokens,output_tokens,cost_usd,failed_at_utc) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+                     (user_message_id, code, message or 'The turn failed without saying why.', detail, partial_text or '',
+                      json.dumps(tool_calls, default=str) if tool_calls else None,
+                      json.dumps(tool_results, default=str) if tool_results else None,
+                      input_tokens, output_tokens, cost_usd, choices.now()))
+
+
+def _failures(conn: sqlite3.Connection, session_id: int) -> dict[int, dict]:
+    rows = conn.execute('SELECT f.* FROM assistant_turn_failures f JOIN assistant_messages u ON u.id=f.user_message_id '
+                        "WHERE u.session_id=? AND u.role='user'", (session_id,)).fetchall()
+    return {row['user_message_id']: {
+        'code': row['code'], 'message': row['message'], 'detail': row['detail'],
+        'partial_text': row['partial_text'], 'tool_calls': _json_or_none(row['tool_calls']),
+        'tool_results': _json_or_none(row['tool_results']), 'input_tokens': row['input_tokens'],
+        'output_tokens': row['output_tokens'], 'cost_usd': row['cost_usd'], 'failed_at_utc': row['failed_at_utc'],
+    } for row in rows}
+
+
 def read_turn_choices(conn: sqlite3.Connection, session_id: int) -> list[dict]:
+    from .ai_model_names import answered_by, model_display_name
+
     rows = conn.execute('SELECT t.*, u.role AS user_role, a.session_id AS assistant_session, a.role AS assistant_role '
                         'FROM assistant_turn_choices t JOIN assistant_messages u ON u.id=t.user_message_id '
                         'LEFT JOIN assistant_messages a ON a.id=t.assistant_message_id WHERE u.session_id=? ORDER BY u.id', (session_id,)).fetchall()
+    failures = _failures(conn, session_id)
     result = []
     for row in rows:
         item = {k: row[k] for k in ('user_message_id', 'assistant_message_id', 'version', 'created_at_utc')}
@@ -465,8 +522,16 @@ def read_turn_choices(conn: sqlite3.Connection, session_id: int) -> list[dict]:
                 for index, report in enumerate(reports, 1):
                     if report['sequence'] != index or choices.report(report['model'], report['source']) is None or not isinstance(report['observed_at_utc'], str):
                         raise ValueError('Invalid report')
-                    item['reported'].append({k: report[k] for k in ('sequence', 'model', 'source', 'observed_at_utc')})
+                    item['reported'].append({**{k: report[k] for k in ('sequence', 'model', 'source', 'observed_at_utc')},
+                                             'name': model_display_name(report['model'])})
             except (ValueError, TypeError, KeyError):
                 item['reported'] = {'unreadable': True}
+        # Which model the reports say answered, in a person's words. Only for
+        # a turn that has an answer: a failed turn's reports say what started,
+        # not what answered.
+        item['answered_by'] = (answered_by(item['reported'])
+                               if isinstance(item['reported'], list) and item['assistant_message_id'] is not None
+                               else None)
+        item['failure'] = failures.get(row['user_message_id'])
         result.append(item)
     return result

@@ -1739,6 +1739,22 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
   margin: 0; padding: 8px 12px; border-left: 3px solid var(--fault);
   border-radius: 0 var(--r) var(--r) 0; background: var(--panel-2); font: 500 13.5px/1.5 var(--sans); color: var(--ink);
 }
+/* A turn that produced no answer: the user's message stays, and this says why. */
+.conv-failed {
+  display: grid; gap: 8px; justify-items: start; padding: 10px 14px; border-left: 3px solid var(--fault);
+  border-radius: 0 var(--r) var(--r) 0; background: var(--panel-2);
+}
+.conv-failed[data-code="stopped"] { border-left-color: var(--rule-2); }
+.conv-failed > p { margin: 0; font: 400 13.5px/1.5 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.conv-failed > .conv-failed-title { font: 600 11px/1.2 var(--sans); letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3); }
+.conv-failed > .conv-quiet { font-size: 12.5px; color: var(--ink-3); }
+.conv-failed .ai-signin { margin: 0; padding: 0; border: 0; background: none; justify-self: stretch; }
+.conv-failed details { justify-self: stretch; }
+.conv-failed details > :not(summary) { margin-top: 6px; }
+.conv-failed summary { cursor: pointer; font: 500 12.5px/1.4 var(--sans); color: var(--ink-3); }
+.conv-failed summary:hover { color: var(--ink); }
+.conv-answered { margin: 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
+.conv-compose .ai-signin { margin: 0; }
 .conv-note { margin: 0; font: 400 13px/1.45 var(--sans); color: var(--ink-2); }
 .conv-compose { padding: 12px 48px 18px; border-top: 1px solid var(--rule); display: grid; gap: 10px; }
 .conv-compose > * { max-width: 76ch; }
@@ -1752,7 +1768,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .conv-choices input { min-width: 16em; }
 .conv-choices :is(select, input):focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
-.conv-choices > p, .conv-choices > details { flex-basis: 100%; }
+.conv-choices > p, .conv-choices > details, .conv-choices > .ai-signin { flex-basis: 100%; }
 .conv-limits p { margin: 4px 0 0; font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
 .conv-adopt { display: grid; gap: 8px; justify-items: start; padding: 12px 14px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); }
 .conv-adopt p { margin: 0; font: 400 13.5px/1.5 var(--sans); color: var(--ink); }
@@ -1788,6 +1804,27 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .ai-lane { margin: 14px 0 0; padding: 8px 12px; border-left: 3px solid var(--rule-2); border-radius: 0 var(--r) var(--r) 0; background: var(--panel-2); font: 400 13px/1.5 var(--sans); color: var(--ink); max-width: 76ch; overflow-wrap: anywhere; }
 .ai-lane[data-found="true"] { border-left-color: var(--accent-mark); }
+/* Whether the command is signed in, and the way to sign it in. Signed out and
+   expired are marked as faults; a state the command did not make clear is not. */
+.ai-signin {
+  margin: 10px 0 0; padding: 8px 12px; display: grid; gap: 6px; max-width: 76ch; border-left: 3px solid var(--rule-2);
+  border-radius: 0 var(--r) var(--r) 0; background: var(--panel-2);
+}
+.ai-signin[data-state="signed_in"] { border-left-color: var(--accent-mark); }
+.ai-signin:is([data-state="signed_out"], [data-state="expired"], [data-state="missing"], [data-state="failed"], [data-state="error"]) { border-left-color: var(--fault); }
+.ai-signin-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.ai-signin-state { margin: 0 auto 0 0; font: 400 13px/1.5 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.ai-signin-state:empty { display: none; }
+.ai-signin-actions { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+.ai-signin-hint, .ai-signin-said p { margin: 0; font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
+.ai-signin-said { display: grid; gap: 4px; margin: 0; font: 400 13px/1.5 var(--sans); color: var(--ink-2); }
+.ai-signin-said > p:first-child { font-size: 13px; color: var(--ink-2); }
+.ai-signin-command { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ai-signin-command code {
+  padding: 4px 8px; border-radius: var(--r); border: 1px solid var(--rule-2); background: var(--plate);
+  font: 500 12.5px/1.4 var(--mono); color: var(--ink); user-select: all; overflow-wrap: anywhere;
+}
+.ai-model-hint { margin: 2px 0 0; }
 .ai-routes { margin: 14px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; max-width: 76ch; }
 .ai-routes li { font: 400 13px/1.5 var(--sans); color: var(--ink-2); padding-left: 14px; position: relative; }
 .ai-routes li::before { content: ""; position: absolute; left: 0; top: .6em; width: 6px; height: 6px; border-radius: 50%; border: 1.5px solid var(--ink-3); }
@@ -1971,6 +2008,7 @@ button.ai-link {
 .run-ai { display: grid; gap: 4px; }
 .run-ai p { margin: 0; }
 .run-ai-lanes { margin: 0; padding: 0 0 0 18px; display: grid; gap: 2px; }
+.run-ai-lanes .ai-signin { margin: 6px 0 4px; }
 .run-ai-note { color: var(--ink-3); }
 
 /* Which papers a watch's runs ask for: said on the watch and on each run, beside Summaries. */

@@ -190,6 +190,9 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/admin/reset-settings"): ("J26",),
     # --- AI lanes ----------------------------------------------------------
     ("POST", "/api/ai/models"): ("J17", "J14"),
+    ("GET", "/api/ai/cli/sign-in"): ("J13", "J17"),
+    ("POST", "/api/ai/cli/sign-in"): ("J13", "J17"),
+    ("GET", "/api/ai/last-answered"): ("J13", "J17"),
     ("GET", "/api/settings/ai"): ("J17",),
     ("PUT", "/api/settings/ai"): ("J17",),
     ("GET", "/api/settings/ai/cli-status"): ("J13",),
