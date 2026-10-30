@@ -21,7 +21,6 @@ export const GROUPS = [
   { slug: 'ai', label: 'AI' },
   { slug: 'sources', label: 'Sources' },
   { slug: 'storage', label: 'Backup' },
-  { slug: 'cloud', label: 'Cloud Storage' },
   { slug: 'tutorials', label: 'Tutorials' },
   { slug: 'about', label: 'About resmon' },
   { slug: 'danger', label: 'Danger zone' },
@@ -129,11 +128,6 @@ export function limitsReach(state: DaemonState | null): string {
     default:
       return 'A change applies at once to the engine this window uses. Any other engine reads these limits when it next starts.';
   }
-}
-
-/** Whether the stored `cloud_auto_backup` is on, as the engine reads it: "true", in any case, and nothing else. */
-export function autoBackupOn(stored: string | null | undefined): boolean {
-  return (stored ?? '').trim().toLowerCase() === 'true';
 }
 
 /**

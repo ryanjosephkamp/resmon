@@ -10,7 +10,6 @@ import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { About } from './settings/About';
 import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
-import { Cloud } from './settings/Cloud';
 import { DangerZone } from './settings/DangerZone';
 import { Email } from './settings/Email';
 import { Notifications } from './settings/Notifications';
@@ -146,7 +145,6 @@ export function Settings() {
           {known?.slug === 'ai' && <Ai />}
           {known?.slug === 'sources' && <Sources />}
           {known?.slug === 'storage' && <Storage />}
-          {known?.slug === 'cloud' && <Cloud />}
           {known?.slug === 'tutorials' && <Tutorials />}
           {known?.slug === 'about' && <About />}
           {known?.slug === 'danger' && <DangerZone />}

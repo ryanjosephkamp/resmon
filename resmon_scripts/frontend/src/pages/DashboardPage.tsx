@@ -206,7 +206,7 @@ const DashboardPage: React.FC = () => {
           </div>
           <div className="about-resmon-feature">
             <strong>Email &amp; Backup</strong>
-            <span>Email delivery and Google Drive backup.</span>
+            <span>Email delivery, and backups into a folder you choose.</span>
           </div>
           <div className="about-resmon-feature">
             <strong>Local-first</strong>

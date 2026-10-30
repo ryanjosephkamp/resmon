@@ -1759,20 +1759,16 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .tutorial-title { font: 600 14px/1.3 var(--sans); color: var(--ink); }
 .tutorial-covers { margin-top: 3px; font: 400 13px/1.5 var(--sans); color: var(--ink-3); }
 
-/* Settings: Backup and Cloud Storage */
+/* Settings: Backup */
 .backup-where, .backup-now, .backup-restore { margin-top: 24px; max-width: 820px; display: grid; gap: 8px; }
 .backup-where code, .backup-now code, .backup-restore code, .backup-reentry code, .settings-said code { font: 400 12.5px/1.4 var(--mono); overflow-wrap: anywhere; }
 .backup-check { display: inline-flex; align-items: center; gap: 8px; font: 500 13.5px/1.3 var(--sans); color: var(--ink); cursor: pointer; }
 .backup-check input { width: 16px; height: 16px; accent-color: var(--accent-fill); }
-.backup-report, .backup-reentry { padding: 12px 16px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); display: grid; gap: 8px; }
-.backup-reentry { border-color: var(--accent-mark); margin-top: 18px; max-width: 820px; }
-.backup-report p, .backup-reentry p { font: 400 13.5px/1.5 var(--sans); color: var(--ink); }
+.backup-report, .backup-reentry, .backup-notice { padding: 12px 16px; border: 1px solid var(--rule-2); border-radius: var(--r-lg); background: var(--panel); display: grid; gap: 8px; }
+.backup-reentry, .backup-notice { border-color: var(--accent-mark); margin-top: 18px; max-width: 820px; }
+.backup-report p, .backup-reentry p, .backup-notice p { font: 400 13.5px/1.5 var(--sans); color: var(--ink); }
 .backup-reentry ul { margin: 0; padding-left: 18px; }
-.cloud-state { margin-top: 18px; font: 500 14px/1.5 var(--sans); color: var(--ink); }
-.cloud-auto { margin-top: 26px; padding-top: 20px; border-top: 1px solid var(--rule); max-width: 820px; display: grid; gap: 8px; justify-items: start; }
-.cloud-auto .switch { font-size: 14px; }
-.cloud-auto .form-hint { max-width: 76ch; }
-.cloud-auto-state { margin: 0; font: 500 13.5px/1.5 var(--sans); color: var(--ink); max-width: 76ch; }
+.backup-reentry .btn, .backup-notice .btn { justify-self: start; }
 
 /* Retractions and updates: each notice's severity in words, its own label as the link, its date, and who registered it. */
 .life-marks { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }

@@ -99,7 +99,6 @@ const PLACES: Record<Exclude<Place, AtlasOnlyPlace>, string> = {
   'AI settings': '/settings/ai',
   'Email settings': '/settings/email',
   'Notification settings': '/settings/notifications',
-  'Cloud Storage settings': '/settings/cloud',
   'Advanced settings': '/settings/advanced',
   Tutorials: '/about-resmon/tutorials',
   // — slice 3 ---------------------------------------------------------------
@@ -1714,6 +1713,34 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     // — storage ---------------------------------------------------------------
+
+    chooseGoogleDrivesFolderForBackups: async (): Promise<string> => {
+      // Google Drive for desktop keeps My Drive at
+      // ~/Library/CloudStorage/GoogleDrive-<account>/My Drive on a Mac. A
+      // folder of this session's, laid out the same, stands in for it; it is
+      // removed with the session. resmon's part ends at writing into it.
+      const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-drive-')));
+      session.alsoRemoveOnClose(parent);
+      const drive = path.join(parent, 'CloudStorage', 'GoogleDrive-journey@example.org', 'My Drive');
+      fs.mkdirSync(drive, { recursive: true });
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, drive);
+      // The Storage tab's Export Location: Browse… fills the field, and Save
+      // stores it. A backup is written wherever it points.
+      await goto(PLACES['Storage settings']);
+      const field = win().getByPlaceholder('/path/to/export/folder');
+      await expect(field).toBeVisible({ timeout: 30_000 });
+      await win().getByRole('button', { name: 'Browse…', exact: true }).click();
+      await expect(field).toHaveValue(drive, { timeout: 30_000 });
+      // The form's own Save: the PDF and TXT policy rows each have a button
+      // named Save too.
+      await win().locator('.settings-form .form-actions').getByRole('button', { name: 'Save', exact: true }).click();
+      await stored('the folder backups go to',
+        () => session.api<{ export_directory: string }>('GET', '/api/settings/storage'),
+        (settings) => settings.export_directory === drive);
+      return drive;
+    },
 
     backUpNow: async (options): Promise<BackupResult> => {
       await goto(PLACES['Storage settings']);

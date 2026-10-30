@@ -120,7 +120,7 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 | [HTTP API reference](https://ryanjosephkamp.github.io/resmon/guide/api-reference/) | The local API, endpoint by endpoint |
 | [AI summarization](https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/) | Providers, fallback chains, and per-run overrides |
 | [Email notifications](https://ryanjosephkamp.github.io/resmon/guide/email-notifications/) | SMTP, credential storage, and per-routine controls |
-| [Backup and restore](https://ryanjosephkamp.github.io/resmon/guide/backup/) | Local backup, and the optional Google Drive backup |
+| [Backup and restore](https://ryanjosephkamp.github.io/resmon/guide/backup/) | Local backup and restore, and keeping a backup in Google Drive |
 | [Contributing](https://ryanjosephkamp.github.io/resmon/guide/contributing/) | Issues, pull requests, commit messages |
 | [Acknowledgments](https://ryanjosephkamp.github.io/resmon/guide/acknowledgments/) | The providers, projects, and standards this is built on |
 | [License](https://ryanjosephkamp.github.io/resmon/guide/license/) | Licensing, and the third-party notices |

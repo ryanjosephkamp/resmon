@@ -6,7 +6,7 @@ This document covers cross-cutting behavior, shared components, and infrastructu
 
 ### App Purpose
 
-resmon (Research Monitor) is a local-first literature-surveillance desktop application that queries a curated catalog of open-access scholarly repositories, normalizes and deduplicates results across sources, persists them to a local SQLite database, optionally summarizes each paper via a user-configured BYOK LLM provider, and surfaces the resulting artifacts through an Electron + React UI. It supports on-demand manual runs ("Deep Dive" single-repo, "Deep Sweep" multi-repo) as well as cron-scheduled automated sweeps ("Routines") driven by a persistent APScheduler job store. Optional integrations include transactional email (SMTP), Google Drive artifact backup, and a closed-beta multi-user cloud mirror.
+resmon (Research Monitor) is a local-first literature-surveillance desktop application that queries a curated catalog of open-access scholarly repositories, normalizes and deduplicates results across sources, persists them to a local SQLite database, optionally summarizes each paper via a user-configured BYOK LLM provider, and surfaces the resulting artifacts through an Electron + React UI. It supports on-demand manual runs ("Deep Dive" single-repo, "Deep Sweep" multi-repo) as well as cron-scheduled automated sweeps ("Routines") driven by a persistent APScheduler job store. Optional integrations include transactional email (SMTP), backup into a folder of the user's choosing (Google Drive for desktop's folder among them), and a closed-beta multi-user cloud mirror.
 
 ### High-Level Architecture
 
@@ -29,7 +29,7 @@ Frontend ↔ backend communication is exclusively `fetch`-over-localhost JSON pl
 The app supports three operational modes that are orthogonal to the page surface:
 
 1. **Local-only** — default. All routines, executions, and credentials live in the user's local SQLite database and OS keyring; cloud auth is not required.
-2. **Hybrid** — local execution plus opt-in Google Drive artifact backup (see `Settings → Cloud Storage` panel and `settings_info.md`) and/or opt-in multi-device cloud sync (ingests remote `cloud_routines` / `cloud_executions` mirror rows via `useCloudSync`).
+2. **Hybrid** — local execution plus opt-in multi-device cloud sync (ingests remote `cloud_routines` / `cloud_executions` mirror rows via `useCloudSync`).
 3. **Cloud-executed routines** (IMPL-37) — individual routines may be flagged `execution_location = "cloud"` so they run against the cloud service's worker path; local mirrors are pulled back on sync.
 
 The Electron shell additionally supports a **headless daemon split** (IMPL-25): the backend can run as a long-lived OS service (launchd on macOS, `systemd --user` on Linux, Task Scheduler on Windows; see `implementation_scripts/service_manager.py`), and multiple renderer windows can attach to that single daemon via the lock file written by `daemon.py`. **Update 4 (`5_5_26`):** the Electron main process raises its `/api/health` probe timeout (~3 s) and retries the lock-file → health-probe sequence with a brief backoff so a launchd daemon that is still mid-bootstrap is waited for rather than racing into a competing renderer-spawned backend; and when the renderer must legitimately fall back to spawning its own backend (no daemon installed), it sets `RESMON_DISABLE_SCHEDULER=1` on the child so the renderer-spawned backend never instantiates a `ResmonScheduler` against the shared SQLite jobstore. Only the daemon ever owns the scheduler.
@@ -199,7 +199,6 @@ Cross-cutting responsibilities:
 - **MCP server (`resmon_scripts/mcp_server.py`).** Speaks MCP over stdio and is an HTTP client of the running backend on `127.0.0.1` — it never opens the database, so the backend keeps sole ownership of its connections, scheduler and admission control. Seventeen tools; nothing destructive, and no tool reads or writes a credential value (aliases and presence only). Port discovery is `RESMON_PORT` → the port file beside the database → the default, and a *named* port that does not answer is reported unavailable rather than widened to the default, so a harness cannot silently attach to a different installation. Contract: `docs/api-contract/mcp.md`.
 - **Required-credentials gate** — `sweep_engine.required_credential_for_sweep` asks the catalog which repositories cannot return any results without a key, and for the credential name. It reads `repo_catalog.required_credential_for`, so the set is whatever carries `api_key_requirement="required"` — currently `core`, `govinfo`, `nasa_ads` and `springer`. It used to be a dict written out in `sweep_engine`, which named three of the four and left GovInfo recorded as a source that had answered with nothing. Missing credentials short-circuit the repo with a user-visible error.
 - **Cooperative cancellation** — `_search_with_heartbeat` polls `progress_store`'s cancel flag on a 2-second heartbeat; `_ExecutionCancelled` is caught by `_handle_cancellation` to persist a partial report.
-- **Optional auto-backup** — `_maybe_auto_backup` invokes `cloud_storage.upload_directory` when the `cloud_auto_backup` setting is true and a Google Drive token is present.
 - **Per-execution task log** — `TaskLogger` writes structured per-execution logs under `resmon_reports/logs/` (see `results_and_logs_info.md`).
 
 ### ResmonScheduler
@@ -220,7 +219,7 @@ The FastAPI startup hook (IMPL-R4) calls `set_dispatcher(_dispatch_routine_fire)
 
 Two distinct cloud surfaces exist and must not be conflated:
 
-1. **Google Drive artifact backup** (`implementation_scripts/cloud_storage.py`) — least-privilege `drive.file` OAuth 2.0 scope, `InstalledAppFlow.from_client_secrets_file` using `credentials.json` at the project root, token serialized and stored in the OS keyring under `google_drive_token`. Public helpers: `check_connection`, `authorize_google_drive`, `revoke_authorization`, `upload_directory`, `is_token_stored`, `probe_api`. Surfaced through `Settings → Cloud Storage` (see [settings_info.md](settings_info.md)).
+1. **Google Drive artifact backup** (removed). resmon no longer signs in to Google: the Google Drive upload and its Cloud Storage tab were removed on October 30, 2026. A backup is written into the folder `export_directory` names (Storage tab), and Google Drive for desktop's folder keeps it in Drive.
 2. **resmon-cloud account + multi-device sync** (IMPL-27..40) — separate microservice backing the closed-beta experience. Desktop consumes it via `AuthContext`, `api/cloudClient.ts`, `useCloudSync`, and the local-daemon ingest endpoint (`/api/cloud-sync/ingest`, `/api/cloud-sync/clear`). Envelope-encrypted per-user credentials (ADQ-11, IMPL-31): per-user DEK wrapped by a KMS-held KEK. JWKS-verified JWTs, per-user row-level security (IMPL-28..29), signed-URL artifact fetches (IMPL-34), per-user rate limiting (IMPL-33). The `Settings → Cloud Account` panel is currently "under construction" — backend endpoints exist but the UI does not wire up a hosted IdP in this build (see [settings_info.md](settings_info.md)).
 
 ### Credential Manager and Ephemeral Key Stack
@@ -256,10 +255,9 @@ Schema-version tracking (`SCHEMA_VERSION`, `get_schema_version`) runs migrations
 
 ### Settings Surface Summary
 
-Every persisted preference is eventually a row in the `settings` table. The Settings page is divided into eight panels (see [settings_info.md](settings_info.md)): **Email**, **Cloud Account**, **Cloud Storage**, **AI**, **Storage**, **Notifications**, **Advanced**, **About App**. Cross-cutting behaviors reached from multiple pages:
+Every persisted preference is eventually a row in the `settings` table. The Settings page is divided into eight panels (see [settings_info.md](settings_info.md)): **Email**, **Cloud Account**, **AI**, **Storage**, **Notifications**, **Advanced**, **About App**. Cross-cutting behaviors reached from multiple pages:
 
 - `notify_manual` / `notify_automatic_mode` — consumed by `ExecutionContext.maybeNotifyCompletion`.
-- `cloud_auto_backup` — consumed by `SweepEngine._maybe_auto_backup`.
 - `max_concurrent_executions` / `routine_fire_queue_limit` (IMPL-R12) — consumed by the admission controller.
 - `ai_provider` / `ai_model` / `ai_local_model` / `ai_custom_base_url` / `ai_custom_header_prefix` / `ai_summary_length` / `ai_tone` / `ai_temperature` / `ai_extraction_goals` — consumed by `llm_factory.build_llm_client_from_settings` and the summarizer.
 - `export_directory` — consumed by report export actions on the Results page.

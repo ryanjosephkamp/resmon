@@ -328,7 +328,6 @@ Read/write surface for the eight Settings panels. Each slice is a keyed subset o
 - `GET /api/settings/email` / `PUT /api/settings/email` — `smtp_server`, `smtp_port`, `smtp_username`, `smtp_from`, `smtp_to`.
 - `POST /api/settings/email/test` — sends a test email using the saved SMTP settings and the stored `smtp_password` credential.
 - `GET /api/settings/ai` / `PUT /api/settings/ai` — `ai_provider`, `ai_model`, `ai_local_model`, `ai_summary_length`, `ai_tone`, `ai_temperature`, `ai_extraction_goals`, `ai_custom_base_url`, `ai_custom_header_prefix`.
-- `GET /api/settings/cloud` / `PUT /api/settings/cloud` — `cloud_auto_backup` and related toggles.
 - `GET /api/settings/storage` / `PUT /api/settings/storage` — `pdf_policy`, `txt_policy`, `archive_after_days`, `export_directory` (policy values are constrained to `save` / `archive` / `discard`).
 - `GET /api/settings/notifications` / `PUT /api/settings/notifications` — desktop-notification toggles.
 - `GET /api/settings/execution` / `PUT /api/settings/execution` — admission-controller tunables (`max_concurrent` clamped to `[1, 8]`, routine queue clamped to `[1, 64]`); reloaded live by the admission controller.
@@ -344,11 +343,12 @@ Presence-only surface over the OS keyring through `credential_manager.py`. Secre
 - `POST /api/credentials/validate` — validate a remote LLM key (Test key button on the AI panel).
 - `POST /api/ai/models` — list the per-provider model catalog using either the freshly typed key or the stored credential (Load models button on the AI panel).
 
-### `/api/cloud`
+### `/api/backup` and `/api/restore`
 
-Google Drive backup — see [Google Drive Backup](#google-drive-backup).
+Backup and restore — see [Google Drive Backup](#google-drive-backup) for keeping a backup in Drive. resmon does not sign in to Google; the `/api/cloud` routes were removed on October 30, 2026.
 
-- `GET /api/cloud/status` — `{ is_linked, api_ok, api_reason }` describing the Google Drive link state.
-- `POST /api/cloud/link` — triggers the Google Drive OAuth installed-app flow; the resulting token is stored in the OS keyring.
-- `POST /api/cloud/unlink` — removes the stored token.
-- `POST /api/cloud/backup` — ad-hoc backup of the report tree to the linked Drive folder; returns `{ uploaded, total_files, folder_name, web_view_link }`.
+- `POST /api/backup` — writes one bundle into `export_directory` (the system's temporary folder when it is unset); the body carries `confirm: "CONFIRM"` and `include_reports`.
+- `POST /api/backup/verify` — recomputes a bundle's hashes and reports what a restore would do with it.
+- `GET /api/backup/last` — the last bundle, a staged restore, the last restore's record, the undo copies, and `drive_upload_retired`: whether this database still has the removed upload to Google Drive switched on.
+- `POST /api/backup/drive-upload-notice/acknowledge` — dismisses the notice that the upload has gone, and deletes its two settings.
+- `POST /api/restore`, `POST /api/restore/cancel`, `POST /api/restore/acknowledge`, `POST /api/restore/undo-copy/delete` — stage a restore for the next start, cancel it, dismiss the card it leaves, and delete the copies it set aside.

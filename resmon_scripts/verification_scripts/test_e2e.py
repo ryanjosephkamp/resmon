@@ -9,7 +9,7 @@ E2E-3 : Routine lifecycle (create, trigger, verify results and log)
 E2E-4 : AI summarization (Deep Dive with LLM summaries)
 E2E-5 : Configuration export and re-import
 E2E-6 : Email notification for a completed routine
-E2E-7 : Cloud backup of routine results
+E2E-7 : A backup written into the folder a sync client keeps
 E2E-8 : Calendar correctly displays executions with color coding
 
 Feature cross-check (§15.2.2): CP-1..CP-7, UI-1..UI-6, CAL-1..CAL-8,
@@ -604,76 +604,32 @@ def test_e2e_email_notification(client):
 
 
 # ===================================================================
-# E2E-7  Cloud backup
+# E2E-7  A backup into the folder a sync client keeps
 # ===================================================================
 
-def test_e2e_cloud_backup(client):
-    """E2E-7: Cloud link/unlink, status, backup.
+def test_e2e_backup_into_a_synced_folder(client, tmp_path):
+    """E2E-7: a backup written into the folder Google Drive for desktop keeps.
 
-    Covers CLOUD-1..CLOUD-4.
+    resmon no longer signs in to Google: a backup is written into a folder the
+    person chooses, and a folder a sync client keeps carries it off the
+    machine. A scratch folder stands in for Google Drive for desktop's. Covers
+    CLOUD-3 and CLOUD-4; CLOUD-1 and CLOUD-2 were the sign-in and the upload
+    after each run, and went with them.
     """
-    # ---- initial status: not linked ----
-    # Mock the keyring probe so the test is hermetic regardless of what
-    # tokens the developer's OS keychain happens to hold.
-    with patch("resmon.cloud_is_token_stored", return_value=False):
-        status = client.get("/api/cloud/status").json()
-        assert status["is_linked"] is False
+    drive = tmp_path / "CloudStorage" / "GoogleDrive-someone@example.org" / "My Drive"
+    drive.mkdir(parents=True)
+    client.put("/api/settings/storage", json={"settings": {"export_directory": str(drive)}})
 
-    # ---- persist cloud settings ----
-    client.put("/api/settings/cloud", json={"settings": {
-        "cloud_provider": "google_drive",
-        "cloud_auto_backup": "true",
-    }})
-    cs = client.get("/api/settings/cloud").json()
-    assert cs["cloud_provider"] == "google_drive"
-    assert cs["cloud_auto_backup"] == "true"
+    resp = client.post("/api/backup", json={"confirm": "CONFIRM", "include_reports": False})
+    assert resp.status_code == 200, resp.text
+    bundle = Path(resp.json()["path"])
+    assert bundle.parent == drive, bundle
+    assert (bundle / "manifest.json").is_file()
 
-    # ---- link (mocked OAuth) ----
-    # POST /api/cloud/link pre-flights the presence of a Google OAuth client
-    # secrets file at PROJECT_ROOT/credentials.json and returns 400 when it is
-    # absent. That file is user-supplied and never committed, so mocking
-    # authorize_google_drive alone was not enough - the request was rejected
-    # before it got there. Point PROJECT_ROOT at a temp dir holding a stub.
-    import tempfile as _tempfile
-    from pathlib import Path as _Path
-    with _tempfile.TemporaryDirectory() as _td:
-        (_Path(_td) / "credentials.json").write_text("{}", encoding="utf-8")
-        with (
-            patch("implementation_scripts.config.PROJECT_ROOT", _Path(_td)),
-            patch("resmon.authorize_google_drive", return_value=True),
-        ):
-            link_resp = client.post("/api/cloud/link")
-            assert link_resp.status_code == 200, link_resp.text
-
-    # ---- backup (mocked) ----
-    with (
-        patch("resmon.cloud_check_connection", return_value=True),
-        patch(
-            "resmon.upload_directory",
-            return_value={
-                "uploaded_ids": ["file_id_1", "file_id_2"],
-                "total_files": 2,
-                "folder_id": "folder_id_1",
-                "folder_name": "backup-20260420-000000",
-                "web_view_link": "https://drive.google.com/drive/folders/folder_id_1",
-            },
-        ),
-    ):
-        backup_resp = client.post("/api/cloud/backup", json={})
-        assert backup_resp.status_code == 200
-        assert backup_resp.json()["success"] is True
-
-    # ---- backup when not linked → 400 ----
-    # Mock cloud_check_connection to False so this is hermetic regardless of
-    # any token the developer's OS keychain might hold.
-    with patch("resmon.cloud_check_connection", return_value=False):
-        fail_resp = client.post("/api/cloud/backup", json={})
-        assert fail_resp.status_code == 400
-
-    # ---- unlink ----
-    with patch("resmon.revoke_authorization", return_value=True):
-        unlink_resp = client.post("/api/cloud/unlink")
-        assert unlink_resp.status_code == 200
+    # The sign-in and the upload are gone from the API, not just the screens.
+    assert client.get("/api/cloud/status").status_code == 404
+    assert client.get("/api/settings/cloud").status_code == 404
+    assert client.post("/api/cloud/backup", json={}).status_code == 404
 
 
 # ===================================================================
@@ -830,11 +786,12 @@ def test_requirement_crosscheck(client):
     assert client.get("/api/settings/email").status_code == 200
 
     # ------------------------------------------------------------------ CLOUD
-    # CLOUD-1  Link cloud account        → E2E-7
-    # CLOUD-2  Auto backup               → E2E-7 (cloud_auto_backup setting)
-    # CLOUD-3  Manual backup             → E2E-7 (/api/cloud/backup)
-    # CLOUD-4  Supplement or replace     → settings (cloud_auto_backup)
-    assert client.get("/api/cloud/status").status_code == 200
+    # CLOUD-1  Link cloud account        → retired October 30, 2026: resmon
+    #                                      does not sign in to Google
+    # CLOUD-2  Auto backup               → retired with it
+    # CLOUD-3  Manual backup             → E2E-7 (/api/backup into a folder)
+    # CLOUD-4  Supplement or replace     → E2E-7 (a synced folder as the destination)
+    assert client.get("/api/backup/last").status_code == 200
 
     # ------------------------------------------------------------------ AI
     # AI-1  Optional AI pipeline         → E2E-4

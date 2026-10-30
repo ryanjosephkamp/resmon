@@ -24,6 +24,15 @@
  * collection map behind Today's plate (`/api/map`), and J48, Today itself
  * (`/api/today`), arrived the same way.
  *
+ * **J24 kept its title and changed its journey.** It was resmon's own Google
+ * sign-in, uploading the reports folder to Drive. That was retired (RK,
+ * 2026-10-30): resmon no longer signs in to Google, and a backup is written
+ * into a folder the person chooses, Google Drive for desktop's among them. The
+ * row is now that: Drive's folder chosen on the Backup screen, a backup
+ * written into it, and nothing leaving the machine. "Google Drive backup"
+ * still names what a person does, so the title, the spec's file name and the
+ * workspace register's row stay as they were.
+ *
  * **`status`.** A row that stops being carried takes `status: 'not_carried_forward'`
  * and must then carry a `reason` naming the N-row it was decided under and the
  * initials of whoever decided it — B4 in prose, enforced by the guard. J27, the
@@ -204,9 +213,11 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   '/repositories': { rows: ['J22', 'J08'] },
   '/settings': { rows: ['J23'], why: 'Lands on the Email tab.' },
   '/settings/email': { rows: ['J23'] },
-  '/settings/cloud': { rows: ['J24'] },
   '/settings/ai': { rows: ['J13', 'J14', 'J17', 'J33'] },
-  '/settings/storage': { rows: ['J41'] },
+  '/settings/storage': {
+    rows: ['J41', 'J24'],
+    why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',
+  },
   '/settings/notifications': { rows: ['J23'] },
   '/settings/advanced': { rows: ['J04', 'J26'] },
   '/about-resmon': { rows: ['J25'], why: 'Lands on the Tutorials tab.' },

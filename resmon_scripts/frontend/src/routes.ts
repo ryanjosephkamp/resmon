@@ -64,7 +64,7 @@ export const APP_ROUTES: readonly AppRoute[] = [
     path: '/settings/*',
     name: 'Settings',
     childrenFrom: 'pages/SettingsPage.tsx',
-    children: ['email', 'cloud', 'ai', 'storage', 'notifications', 'advanced'],
+    children: ['email', 'ai', 'storage', 'notifications', 'advanced'],
     redirectsTo: '/settings/email',
   },
   {

@@ -107,6 +107,9 @@ CREATE TABLE IF NOT EXISTS saved_configurations (
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- The removed Google Drive upload's table. Nothing reads or writes it. It is
+-- kept so a fresh database matches one upgraded from a release that made it:
+-- dropping it would be a schema step for no gain.
 CREATE TABLE IF NOT EXISTS cloud_sync (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL DEFAULT 'google_drive',

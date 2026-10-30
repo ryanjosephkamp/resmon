@@ -4,14 +4,14 @@
 
 ### Purpose
 
-The Settings page is the central configuration surface for `resmon`. It groups all user-configurable behavior into seven sub-tabs — Email, Cloud Account, Cloud Storage, AI, Storage, Notifications, and Advanced — each handling a self-contained slice of backend configuration, secret management, or diagnostics. (The previous **About App** sub-tab was relocated to the new top-level [About resmon](about_resmon_info.md) page in Update 3.)
+The Settings page is the central configuration surface for `resmon`. It groups all user-configurable behavior into six sub-tabs — Email, Cloud Account, AI, Storage, Notifications, and Advanced — each handling a self-contained slice of backend configuration, secret management, or diagnostics. (The previous **About App** sub-tab was relocated to the new top-level [About resmon](about_resmon_info.md) page in Update 3.)
 
 ### Primary User Flows
 
 1. Open **Settings** from the sidebar. The page renders a tab strip and a panel area; the route defaults to the Email panel.
-2. Click a tab to navigate to its panel (`/settings/email`, `/settings/account`, `/settings/cloud`, `/settings/ai`, `/settings/storage`, `/settings/notifications`, `/settings/advanced`).
+2. Click a tab to navigate to its panel (`/settings/email`, `/settings/account`, `/settings/ai`, `/settings/storage`, `/settings/notifications`, `/settings/advanced`).
 3. Within a panel, edit fields and press **Save** (or the panel-specific action button) to persist the change through the corresponding `PUT /api/settings/*` endpoint (or a credential / service endpoint, depending on the tab).
-4. Test actions (send test email, test API key, list models, link Google Drive, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.
+4. Test actions (send test email, test API key, list models, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.
 
 ### Reading and configuring the assistant
 
@@ -22,7 +22,7 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 ### Inputs and Outputs
 
 - **Inputs** — per-panel form fields, toggles, and action buttons; secrets typed into password inputs (SMTP password, AI provider API key).
-- **Outputs** — rows written to the `settings` table via `set_setting`, OS-keychain entries written through `credential_manager.store_credential`, OAuth tokens acquired by `cloud_storage.authorize_google_drive`, and scheduler / service diagnostic data surfaced read-only.
+- **Outputs** — rows written to the `settings` table via `set_setting`, OS-keychain entries written through `credential_manager.store_credential`, and scheduler / service diagnostic data surfaced read-only.
 
 ### Known Constraints
 
@@ -41,7 +41,7 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 ### Child Components and Hooks
 
-- Panel components (all under `resmon_scripts/frontend/src/components/Settings/`): `EmailSettings`, `CloudAccountSettings`, `CloudSettings`, `AISettings`, `StorageSettings`, `NotificationSettings`, `AdvancedSettings`. (The previous `AboutAppSettings` was relocated to `components/AboutResmon/AboutAppTab.tsx` and is now mounted on the About resmon page.)
+- Panel components (all under `resmon_scripts/frontend/src/components/Settings/`): `EmailSettings`, `CloudAccountSettings`, `AISettings`, `StorageSettings`, `NotificationSettings`, `AdvancedSettings`. (The previous `AboutAppSettings` was relocated to `components/AboutResmon/AboutAppTab.tsx` and is now mounted on the About resmon page.)
 - Per-page tutorial deep-link: a `TutorialLinkButton` (`anchor="settings"`) is rendered in `<div className="page-header">` next to the `<h1>Settings</h1>` title, and each panel header renders its own `TutorialLinkButton` (`settings-email`, `settings-account`, `settings-cloud`, `settings-ai`, `settings-storage`, `settings-notifications`, `settings-advanced`) so users can jump from any sub-tab to the matching tutorial section. See [about_resmon_info.md](about_resmon_info.md).
 - Shared help component: `PageHelp` (each panel wires its own `storageKey`, e.g. `settings-email`, `settings-ai`, `settings-advanced`).
 - Hooks: `useState`, `useEffect`, `useCallback` for panel-local state; `NavLink` / `Navigate` / `Routes` from `react-router-dom` for tab routing; `apiClient` wrapper for REST calls.
@@ -52,14 +52,14 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 - `loading: boolean` / `saving: boolean` — request guards.
 - `status: string` — transient inline status line, cleared via `setTimeout`.
-- A `settings` object mirroring the tab's settings subset (Email, AI, Storage, Notifications, Cloud Storage).
+- A `settings` object mirroring the tab's settings subset (Email, AI, Storage, Notifications).
 - Secret inputs (SMTP password, AI key) held in separate state with a companion `*Masked` flag; presence of the stored credential fetched as a boolean.
 
 ### Key Interactions and Events
 
 - **Tab switch** — `NavLink` updates the URL; the matching panel mounts and triggers its own initial `GET`.
 - **Save** — each panel's primary button calls `apiClient.put('/api/settings/<slice>', { settings })` and reloads the presence / status it needs.
-- **Test** — panel-specific side actions: `POST /api/settings/email/test`, `POST /api/credentials/validate`, `POST /api/ai/models`, `POST /api/cloud/backup`, `POST /api/service/install`.
+- **Test** — panel-specific side actions: `POST /api/settings/email/test`, `POST /api/credentials/validate`, `POST /api/ai/models`, `POST /api/service/install`.
 - **Credential write / delete** — `PUT /api/credentials/{name}` and `DELETE /api/credentials/{name}` from Email and AI panels.
 
 ### Error and Empty States
@@ -82,12 +82,9 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 - Renders a `PageHelp` block describing why cloud sign-in matters (cloud routines, cloud-scoped credentials, cloud-executed reports) and a privacy note that local executions never depend on cloud sign-in.
 - Body is a static "Under construction" placeholder; no sign-in control is rendered because no hosted identity provider is wired in this build. The underlying backend routes (`/api/cloud-auth/*`) exist and are covered by the Backend section below.
 
-### Panel: Cloud Storage
+### Panel: Cloud Storage (removed)
 
-- Component: `CloudSettings` ([resmon_scripts/frontend/src/components/Settings/CloudSettings.tsx](resmon_scripts/frontend/src/components/Settings/CloudSettings.tsx)).
-- State: `isLinked`, `apiOk`, `apiReason`, `autoBackup` — loaded from `GET /api/cloud/status` and `GET /api/settings/cloud`.
-- Actions: **Link Google Drive** (`POST /api/cloud/link` — triggers the OAuth installed-app flow in the backend), **Unlink** (`POST /api/cloud/unlink`), **Toggle auto-backup** (writes `cloud_auto_backup` via `PUT /api/settings/cloud`), **Back up now** (`POST /api/cloud/backup` — returns `{ uploaded, total_files, folder_name, web_view_link }`).
-- Surfaces Drive-API error reasons via `API_REASON_HINTS` (`accessNotConfigured`, `insufficientPermissions`, `no_token`) so the user can resolve Google Cloud Console / scope-consent issues.
+- resmon no longer signs in to Google: the Google Drive upload and its Cloud Storage tab were removed on October 30, 2026. A backup is written into the folder `export_directory` names (Storage tab), and Google Drive for desktop's folder keeps it in Drive.
 
 ### Panel: AI
 
@@ -128,7 +125,7 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
   3. **Erase all configs** — `POST /api/admin/erase-configs`. Deletes every row in `saved_configurations`; cascades to any routine linked through `linked_routine_id`. Typed-`CONFIRM` gate (case-sensitive, all caps).
   4. **Erase execution history** — `POST /api/admin/erase-executions`. Deletes every row in `executions` (and child rows: progress events, logs links) and resets the `sqlite_sequence` row for `executions` so the next run starts at `Execution #1`. Typed-`CONFIRM` gate.
   5. **Erase all execution data** — `POST /api/admin/erase-execution-data`. Composite of (3) + (4). Typed-`CONFIRM` gate.
-  6. **Erase all app data** — `POST /api/admin/erase-app-data`. Composite of (1) + (2) + (5); non-AI Settings tabs (Email, Cloud Storage, Storage, Notifications, Advanced) are preserved. Typed-`CONFIRM` gate.
+  6. **Erase all app data** — `POST /api/admin/erase-app-data`. Composite of (1) + (2) + (5); non-AI Settings tabs (Email, Storage, Notifications, Advanced) are preserved. Typed-`CONFIRM` gate.
   7. **Reset all settings** — `POST /api/admin/reset-settings`. Resets every Settings tab to defaults, deletes every API key (AI + repo + SMTP password), and clears the cached cloud-account email; configs and executions are preserved. Typed-`CONFIRM` gate.
   8. **Factory reset** — `POST /api/admin/factory-reset`. Composite of (6) + (7). Typed-`CONFIRM` gate.
 - The two confirmation modals are rendered locally inside `AdvancedSettings.tsx`. The simple variant (buttons 1–2) shows a green Confirm + red Cancel pair. The typed variant (buttons 3–8) renders the action's irreversibility warning, an `<input>` whose value must equal the literal string `CONFIRM` exactly (case-sensitive, no surrounding whitespace), and a red Confirm button that stays `disabled` until the input matches. Both modals close on backdrop click only when the action is not in flight.
@@ -150,11 +147,6 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 | POST | `/api/settings/email/test` | Send a test email using the current config + stored password | Email |
 | GET / PUT | `/api/settings/ai` | AI provider / model / tone / temperature / extraction goals / custom-base-url settings | AI |
 | POST | `/api/ai/models` | List models for a provider using ephemeral or stored key | AI |
-| GET / PUT | `/api/settings/cloud` | Cloud-storage preferences (e.g. `cloud_auto_backup`) | Cloud Storage |
-| POST | `/api/cloud/link` | Start Google Drive OAuth flow | Cloud Storage |
-| POST | `/api/cloud/unlink` | Revoke and drop the Drive token | Cloud Storage |
-| GET | `/api/cloud/status` | `{ is_linked, api_ok, api_reason }` | Cloud Storage |
-| POST | `/api/cloud/backup` | Upload `resmon_reports/` to Drive; returns `{ uploaded, total_files, folder_name, web_view_link }` | Cloud Storage |
 | GET / PUT | `/api/settings/storage` | PDF / TXT policies, archive retention, export directory | Storage |
 | GET / PUT | `/api/settings/notifications` | `notify_manual`, `notify_automatic_mode` | Notifications |
 | GET | `/api/service/status` | OS service-unit state | Advanced |
@@ -186,7 +178,6 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 - `settings` table (SQLite) via `get_setting` / `set_setting` for every `/api/settings/*` endpoint. Schema version tracked in `SCHEMA_VERSION`.
 - OS keychain via `credential_manager.store_credential` / `get_credential` / `delete_credential` (Python `keyring`, per ADQ-4). Service name is `resmon` (`APP_NAME`).
-- Google Drive OAuth token persisted through `cloud_storage.authorize_google_drive` / `revoke_authorization`; presence probed by `cloud_is_token_stored` and API reachability by `cloud_probe_api`.
 - APScheduler job store (SQLAlchemy over SQLite, per ADQ-3) queried by `GET /api/scheduler/jobs`.
 - OS-level service unit files (launchd / systemd / Task Scheduler) written by the `/api/service/install` path.
 
@@ -194,7 +185,6 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 - Saving `/api/settings/execution` updates the in-process `admission` controller's `max_concurrent_executions` and the scheduler's `routine_fire_queue_limit`, affecting subsequent manual and routine launches.
 - `POST /api/settings/email/test` sends a real SMTP message using the stored `smtp_password`.
-- `POST /api/cloud/backup` walks `REPORTS_DIR` and uploads files to Google Drive, returning the created folder's share link.
 - `POST /api/service/install` and `/uninstall` mutate system-level service units and therefore whether routines can run while the app is closed.
 - `POST /api/credentials/validate` and `/api/ai/models` issue a small number of outbound HTTPS requests to the provider's models endpoint.
 
@@ -209,13 +199,9 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 - `POST /api/cloud-auth/session`, `GET /api/cloud-auth/status`, `DELETE /api/cloud-auth/session`, `POST /api/cloud-auth/refresh`, `PUT /api/cloud-auth/sync` — JWKS-verified session lifecycle endpoints per IMPL-29 / 30. Present in the backend but not currently exercised by this panel because no hosted identity provider is wired.
 
-### Endpoints: Cloud Storage Panel
+### Endpoints: Cloud Storage Panel (removed)
 
-- `GET /api/cloud/status` — `{ is_linked, api_ok, api_reason }`.
-- `POST /api/cloud/link` — runs `authorize_google_drive` (installed-app OAuth with `drive.file` scope).
-- `POST /api/cloud/unlink` — runs `revoke_authorization` and discards the stored token.
-- `GET / PUT /api/settings/cloud` — reads and writes `cloud_auto_backup` (and any other cloud-storage-scoped settings).
-- `POST /api/cloud/backup` — walks `REPORTS_DIR` with `cloud_storage.upload_directory` and returns `{ uploaded, total_files, folder_name, web_view_link }`.
+- The `/api/cloud/*` routes and `/api/settings/cloud` were removed with the panel. `GET /api/backup/last` answers `drive_upload_retired` while a database still has the old upload switched on, and `POST /api/backup/drive-upload-notice/acknowledge` dismisses that notice.
 
 ### Endpoints: AI Panel
 
@@ -246,7 +232,7 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
   - `POST /api/admin/erase-configs` — `DELETE FROM saved_configurations`; cascades to routines via `linked_routine_id`; resets `sqlite_sequence` for the affected tables.
   - `POST /api/admin/erase-executions` — `DELETE FROM executions` (plus child progress / log rows) and `DELETE FROM sqlite_sequence WHERE name='executions'` so the auto-incremented `Execution #N` counter restarts at 1.
   - `POST /api/admin/erase-execution-data` — composite of `erase-configs` + `erase-executions`.
-  - `POST /api/admin/erase-app-data` — composite of `erase-ai-keys` + `erase-repo-keys` + `erase-execution-data`. Non-AI Settings tabs (Email, Cloud Storage, Storage, Notifications, Advanced) are left alone.
+  - `POST /api/admin/erase-app-data` — composite of `erase-ai-keys` + `erase-repo-keys` + `erase-execution-data`. Non-AI Settings tabs (Email, Storage, Notifications, Advanced) are left alone.
   - `POST /api/admin/reset-settings` — wipes every row in the `settings` table back to defaults, deletes every AI / repo / SMTP credential, and clears the cached cloud-account email. Configs and executions are kept.
   - `POST /api/admin/factory-reset` — composite of `erase-app-data` + `reset-settings`; the resulting state is equivalent to a fresh install on this device.
   - `POST /api/admin/cloud/{erase-ai-keys,erase-repo-keys,erase-configs,erase-executions,erase-execution-data,erase-app-data,reset-settings,factory-reset}` — eight cloud-account mirrors that share the same handler shape as their local counterparts. They are scaffolding for the upcoming cloud-account feature; the UI renders the cloud column disabled until cloud sign-in lands.
@@ -280,8 +266,6 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 
 ### Panel: Cloud Account
 
-### Panel: Cloud Storage
-
 ### Panel: AI
 
 ### Panel: Storage
@@ -303,8 +287,6 @@ The **Ask** panel opens over the page on an opaque surface. When available, its 
 ### Endpoints: Email Panel
 
 ### Endpoints: Cloud Account Panel
-
-### Endpoints: Cloud Storage Panel
 
 ### Endpoints: AI Panel
 

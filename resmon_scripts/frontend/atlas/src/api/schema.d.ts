@@ -592,6 +592,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/backup/drive-upload-notice/acknowledge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Drive Upload Notice Acknowledge
+         * @description Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from.
+         */
+        post: operations["drive_upload_notice_acknowledge_api_backup_drive_upload_notice_acknowledge_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/backup/last": {
         parameters: {
             query?: never;
@@ -643,74 +663,6 @@ export interface paths {
         get: operations["calendar_events_api_calendar_events_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud/backup": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cloud Backup */
-        post: operations["cloud_backup_api_cloud_backup_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud/link": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cloud Link */
-        post: operations["cloud_link_api_cloud_link_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud/status": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Cloud Status */
-        get: operations["cloud_status_api_cloud_status_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud/unlink": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Cloud Unlink */
-        post: operations["cloud_unlink_api_cloud_unlink_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3325,24 +3277,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/settings/cloud": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Get Cloud Settings */
-        get: operations["get_cloud_settings_api_settings_cloud_get"];
-        /** Update Cloud Settings */
-        put: operations["update_cloud_settings_api_settings_cloud_put"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/settings/email": {
         parameters: {
             query?: never;
@@ -4548,13 +4482,18 @@ export interface components {
          *     is the record of the last restore a start acted on, applied or refused,
          *     and ``None`` when there is none or its file is not a JSON object.
          *     ``undo_copies`` lists the folders restores set aside, sorted by name,
-         *     which is the UTC time each was made.
+         *     which is the UTC time each was made. ``drive_upload_retired`` is true
+         *     while this database still has the removed upload to Google Drive after
+         *     each run switched on, until ``POST
+         *     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
          *
          *     A pointer or record edited by hand into a shape no resmon wrote matches
          *     neither model of its union, and this route then answers 500 rather than a
          *     body.
          */
         BackupLast: {
+            /** Drive Upload Retired */
+            drive_upload_retired: boolean;
             last_backup: components["schemas"]["BackupSummary"] | null;
             /** Last Backup Path Recorded */
             last_backup_path_recorded: string | null;
@@ -4873,109 +4812,6 @@ export interface components {
             total_results: number | null;
             /** Type */
             type: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /** CloudBackup */
-        CloudBackup: {
-            /** Execution Ids */
-            execution_ids?: number[] | null;
-        };
-        /**
-         * CloudBackupUploaded
-         * @description ``POST /api/cloud/backup``: what one upload of the reports folder to Google Drive reported.
-         *
-         *     The whole reports folder is uploaded into a ``backup-<local timestamp>``
-         *     folder under ``resmon`` in the person's Drive. It is the reports folder
-         *     only: not the database and not the Library, which ``POST /api/backup``
-         *     carries. The request's ``execution_ids`` are not read.
-         *
-         *     ``success`` is true on every 200, including an upload that sent nothing.
-         *     ``uploaded`` counts the files Drive accepted and ``total_files`` the files
-         *     found in the folder, so ``uploaded < total_files`` means some were not
-         *     sent, and both are 0 when the upload stopped before walking the folder.
-         *     ``folder_name`` is ``None`` when it stopped before a Drive folder was made,
-         *     and ``web_view_link`` when Drive did not return the folder's link.
-         */
-        CloudBackupUploaded: {
-            /** Folder Name */
-            folder_name: string | null;
-            /** Success */
-            success: boolean;
-            /** Total Files */
-            total_files: number;
-            /** Uploaded */
-            uploaded: number;
-            /** Web View Link */
-            web_view_link: string | null;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
-         * CloudLinked
-         * @description ``POST /api/cloud/link``: Google's sign-in flow ended with a token, and resmon stored it.
-         *
-         *     ``auth_url`` is the fixed string ``oauth_completed``, not a URL. The
-         *     sign-in runs to its end inside this request, in a browser on this
-         *     machine, so there is no address left to hand back. A stored token is not a
-         *     working Drive: ``GET /api/cloud/status`` is the route that asks the API.
-         *     Only this body is modeled; a missing ``credentials.json`` is a 400 and a
-         *     flow that fails is a 500.
-         */
-        CloudLinked: {
-            /** Auth Url */
-            auth_url: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
-         * CloudSettings
-         * @description ``GET /api/settings/cloud`` — the Google Drive backup lane's two keys.
-         */
-        CloudSettings: {
-            /** Cloud Auto Backup */
-            cloud_auto_backup: string;
-            /** Cloud Provider */
-            cloud_provider: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
-         * CloudStatus
-         * @description ``GET /api/cloud/status``: whether a Drive token is stored, and what one call to the Drive API answered.
-         *
-         *     ``is_linked`` reads only the local keyring. ``api_ok`` is the outcome of
-         *     one ``about.get`` call made with that token during this request, so it can
-         *     be false while linked, for instance when the Drive API is not enabled on
-         *     the OAuth project. ``api_reason`` is ``None`` when that call succeeded;
-         *     otherwise a short code: Google's own error reason (such as
-         *     ``accessNotConfigured``), ``http_error`` when the error carried none, the
-         *     name of the Python exception that stopped the call, or ``no_token`` when
-         *     nothing is linked and no call was made.
-         */
-        CloudStatus: {
-            /** Api Ok */
-            api_ok: boolean;
-            /** Api Reason */
-            api_reason: string | null;
-            /** Is Linked */
-            is_linked: boolean;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
-         * CloudUnlinked
-         * @description ``POST /api/cloud/unlink``: no Google Drive token is stored here any more.
-         *
-         *     ``success`` is true on every 200. With a token stored, resmon sends Google
-         *     a revocation request when the token carries an access token, does not read
-         *     the answer, and deletes the token from the keyring either way, so this
-         *     says the local token is gone, not that Google revoked it. With no token
-         *     stored, nothing is sent anywhere.
-         */
-        CloudUnlinked: {
-            /** Success */
-            success: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -5683,6 +5519,23 @@ export interface components {
              * @default []
              */
             document_ids: number[];
+        };
+        /**
+         * DriveUploadNoticeAcknowledged
+         * @description ``POST /api/backup/drive-upload-notice/acknowledge``: the notice that the upload to Google Drive is gone, dismissed.
+         *
+         *     The removed upload's two settings are deleted, so ``GET
+         *     /api/backup/last`` answers ``drive_upload_retired: false`` from then on.
+         *     ``acknowledged`` is whether the upload was switched on when this was
+         *     asked; ``success`` is true either way.
+         */
+        DriveUploadNoticeAcknowledged: {
+            /** Acknowledged */
+            acknowledged: boolean;
+            /** Success */
+            success: boolean;
+        } & {
+            [key: string]: unknown;
         };
         /**
          * EmailSettings
@@ -6515,9 +6368,10 @@ export interface components {
          * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
          *
          *     The counts are as the single-purpose routes count them, so the key counts
-         *     are of names cleared. It does not clear the Google Drive token or a
-         *     delivery target's webhook secret, and it does not touch the Library's
-         *     files, report files on disk, or a restore's undo copies.
+         *     are of names cleared. It does not clear a Google Drive sign-in stored by
+         *     the removed upload or a delivery target's webhook secret, and it does not
+         *     touch the Library's files, report files on disk, or a restore's undo
+         *     copies.
          */
         FactoryReset: {
             /** Ai Keys Removed */
@@ -11782,6 +11636,26 @@ export interface operations {
             };
         };
     };
+    drive_upload_notice_acknowledge_api_backup_drive_upload_notice_acknowledge_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DriveUploadNoticeAcknowledged"];
+                };
+            };
+        };
+    };
     backup_last_api_backup_last_get: {
         parameters: {
             query?: never;
@@ -11863,99 +11737,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cloud_backup_api_cloud_backup_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CloudBackup"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CloudBackupUploaded"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    cloud_link_api_cloud_link_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CloudLinked"];
-                };
-            };
-        };
-    };
-    cloud_status_api_cloud_status_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CloudStatus"];
-                };
-            };
-        };
-    };
-    cloud_unlink_api_cloud_unlink_post: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CloudUnlinked"];
                 };
             };
         };
@@ -16074,59 +15855,6 @@ export interface operations {
         };
     };
     update_assistant_settings_api_settings_assistant_put: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SettingsBody"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SettingsSaved"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_cloud_settings_api_settings_cloud_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["CloudSettings"];
-                };
-            };
-        };
-    };
-    update_cloud_settings_api_settings_cloud_put: {
         parameters: {
             query?: never;
             header?: never;

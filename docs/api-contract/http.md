@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-197 routes, over 48 register rows: 43 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+192 routes, over 48 register rows: 43 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 99 of 197 routes that have one. The remaining 98 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 100 of 192 routes that have one. The remaining 92 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 161 of 197 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 156 of 192 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -261,12 +261,11 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/api/cloud/backup` | token | — | `CloudBackupUploaded` | *Cloud Backup* |
-| `POST` | `/api/cloud/link` | token | — | `CloudLinked` | *Cloud Link* |
-| `GET` | `/api/cloud/status` | token | — | `CloudStatus` | *Cloud Status* |
-| `POST` | `/api/cloud/unlink` | token | — | `CloudUnlinked` | *Cloud Unlink* |
-| `GET` | `/api/settings/cloud` | token | — | `CloudSettings` | *Get Cloud Settings* |
-| `PUT` | `/api/settings/cloud` | token | — | `SettingsSaved` | *Update Cloud Settings* |
+| `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
+| `POST` | `/api/backup/drive-upload-notice/acknowledge` | token | — | `DriveUploadNoticeAcknowledged` | Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
+| `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
 ## J25 — In-app documentation
 
@@ -440,7 +439,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 197 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 192 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 

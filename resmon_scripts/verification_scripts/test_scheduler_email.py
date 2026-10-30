@@ -1,5 +1,5 @@
-# resmon_scripts/verification_scripts/test_scheduler_email_cloud.py
-"""Step 10 verification: scheduler, email notifier, and cloud storage."""
+# resmon_scripts/verification_scripts/test_scheduler_email.py
+"""Step 10 verification: scheduler and email notifier."""
 
 import sqlite3
 import sys
@@ -12,7 +12,6 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 from implementation_scripts.database import init_db
 from implementation_scripts.scheduler import ResmonScheduler
 from implementation_scripts.email_notifier import compose_notification
-from implementation_scripts.cloud_storage import check_connection
 
 
 def test_scheduler_add_remove_routine():
@@ -46,8 +45,3 @@ def test_email_composition():
     message = compose_notification(execution_data, ai_summary=None)
     assert "Test Routine" in message.as_string()
     assert "completed" in message.as_string().lower()
-
-
-def test_cloud_check_disconnected():
-    """check_connection returns False when no OAuth token is stored."""
-    assert check_connection() is False

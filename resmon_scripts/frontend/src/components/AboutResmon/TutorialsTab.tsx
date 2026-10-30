@@ -103,7 +103,7 @@ export const sections: TutorialSection[] = [
       'Watch live progress on the Monitor page and review past runs on the Results & Logs page.',
     ],
     features: [
-      'Local-first SQLite store, BYOK (bring-your-own-key) AI summarization, and optional Google Drive backup.',
+      'Local-first SQLite store, BYOK (bring-your-own-key) AI summarization, and backups into a folder you choose, Google Drive\'s among them.',
       'Persistent APScheduler job store that keeps routines firing across restarts.',
       'A headless `resmon-daemon` that fires routines while the Electron UI is closed.',
     ],
@@ -640,17 +640,17 @@ export const sections: TutorialSection[] = [
   {
     anchor: 'settings',
     title: 'Settings (overview)',
-    blurb: 'The seven Settings sub-tabs and what each one configures.',
+    blurb: 'The five Settings sub-tabs and what each one configures.',
     mediaCaption: 'Settings overview demo.',
     youtubeId: 'Jfvimo4t9bk',
     instructions: [
       'Open Settings from the sidebar; the route defaults to the Email panel.',
-      'Click a tab — Email, Cloud Storage, AI, Storage, Notifications, or Advanced — to switch panels.',
+      'Click a tab — Email, AI, Storage, Notifications, or Advanced — to switch panels.',
       'Within a panel, edit fields and press `Save` (or the panel-specific action button) to persist through `PUT /api/settings/*` (or the corresponding credential / service endpoint).',
     ],
     features: [
       'Secrets (SMTP password, AI provider API keys) live in the OS keychain; the UI only sees presence booleans from `GET /api/credentials`.',
-      'Test actions (test email, test API key, list models, link Google Drive, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.',
+      'Test actions (test email, test API key, list models, install service, refresh scheduler jobs) call their backend endpoints directly and surface an inline status line.',
     ],
     tips: [
       'About App now lives on the About resmon page (the tab next to Tutorials), not inside Settings.',
@@ -679,26 +679,6 @@ export const sections: TutorialSection[] = [
       'If the test email fails, double-check the SMTP port (465 implicit TLS vs. 587 STARTTLS) and any provider-specific App Password requirement.',
     ],
     destination: { path: '/settings/email', label: 'Go to Tab' },
-  },
-  {
-    anchor: 'settings-cloud',
-    title: 'Settings → Cloud Storage',
-    blurb: 'Optional Google Drive backup for execution artifacts.',
-    mediaCaption: 'Cloud Storage demo.',
-    youtubeId: '-o88hqQtcXQ',
-    instructions: [
-      'Click `Link Google Drive` to launch the installed-app OAuth flow (`drive.file` scope); follow the browser prompts to grant access.',
-      'Toggle `Auto-backup` to push completed executions to Drive automatically (writes `cloud_auto_backup` via `PUT /api/settings/cloud`).',
-      'Click `Back up now` to upload `resmon_reports/` immediately; the success line shows the created folder name and a Drive web link.',
-      'Click `Unlink` to revoke the OAuth token and discard it locally.',
-    ],
-    features: [
-      'Surfaces Drive-API error reasons via `API_REASON_HINTS` (`accessNotConfigured`, `insufficientPermissions`, `no_token`) so Google Cloud Console issues are diagnosable in-app.',
-    ],
-    tips: [
-      'The `drive.file` scope limits access to files this app creates — it cannot read your existing Drive contents.',
-    ],
-    destination: { path: '/settings/cloud', label: 'Go to Tab' },
   },
   {
     anchor: 'settings-ai',
@@ -780,8 +760,8 @@ export const sections: TutorialSection[] = [
     ],
     tips: [
       'PDF and TXT policies are reserved for a future per-paper artifact download feature and have no effect on current Deep Dive / Deep Sweep output.',
-      'Set the export directory to a synced folder (Drive, Dropbox, iCloud) to share exported reports across devices.',
-      'No credential value is ever written into a backup. After a restore, this tab lists by name the keyring entries this machine is missing — SMTP password, provider keys, webhook secrets, the Drive token — so you can enter them again.',
+      'Set the export directory to a synced folder (Drive, Dropbox, iCloud) to share exported reports across devices. A backup is written there too: to keep one in Google Drive, choose the folder Google Drive for desktop keeps on this computer. resmon does not sign in to Google.',
+      'No credential value is ever written into a backup. After a restore, this tab lists by name the keyring entries this machine is missing — SMTP password, provider keys, webhook secrets — so you can enter them again.',
       'A backup taken while a sweep is running is still a consistent snapshot: the database is read through the SQLite backup API, not copied.',
     ],
     destination: { path: '/settings/storage', label: 'Go to Tab' },
@@ -802,7 +782,7 @@ export const sections: TutorialSection[] = [
       'The dispatcher is invoked from both the foreground app and the headless `resmon-daemon`, so notifications fire even when the Electron UI is closed.',
     ],
     tips: [
-      'Email notifications and Google Drive uploads are independent of this tab — toggle them on the Routines page and on Settings → Cloud Storage respectively.',
+      'Email notifications are independent of this tab — toggle them on the Routines page.',
       'A stale daemon started before a notification-feature update silently drops the new code path until restarted; restart after upgrading.',
     ],
     destination: { path: '/settings/notifications', label: 'Go to Tab' },

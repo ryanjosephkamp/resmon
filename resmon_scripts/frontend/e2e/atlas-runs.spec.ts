@@ -1,16 +1,14 @@
 /**
  * Atlas: what happens to runs, in the real app. How many run at once, set in
- * Settings › In the background and then met by a search; the upload after
- * each run, switched on in Settings › Cloud Storage with nothing connected;
- * and the run log's selection, bundled and deleted, with a run still going
- * left alone, and a run deleted from its own page.
+ * Settings › In the background and then met by a search; and the run log's
+ * selection, bundled and deleted, with a run still going left alone, and a
+ * run deleted from its own page.
  *
  * arXiv is a loopback server in this spec. It answers each query with one
  * authored paper named for the query, and holds a query for "slow" open until
  * the spec lets it go, so a run can be seen while it is still running. Every
  * other connection the engine tries, and port 8742, is refused by the startup
- * hook, and the spec fails if anything was: nothing here signs in to Google
- * or uploads anything, and the run's log is where the skipped upload is read.
+ * hook, and the spec fails if anything was.
  *
  * The runs a person would already have are started over the API; everything
  * the spec checks is done with the controls themselves, and then read back
@@ -45,7 +43,7 @@ async function engine<T>(win: Page, route: string, method = 'GET', body?: unknow
 
 interface RunRead { id: number; status: string; result_path: string | null; log_path: string | null }
 
-test('runs: how many at once, the upload after each, and the log\'s selection bundled and deleted', async () => {
+test('runs: how many at once, and the log\'s selection bundled and deleted', async () => {
   test.setTimeout(300_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-runs-'));
   const held: http.ServerResponse[] = [];
@@ -130,26 +128,6 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await win.reload();
     await expect(win.locator('#limit-runs')).toHaveValue('1', { timeout: 60_000 });
     await expect(win.locator('#limit-queue')).toHaveValue('5');
-
-    // — Cloud Storage: the upload after each run, on with nothing connected ---
-    await win.evaluate(() => { window.location.hash = '#/settings/cloud'; });
-    await expect(win.locator('[data-cloud="state"]')).toContainText('Not connected', { timeout: 30_000 });
-    const after = win.locator('[role="switch"][data-switch="cloud_auto_backup"]');
-    await expect(after).toHaveAttribute('aria-checked', 'false');
-    await expect(win.locator('[data-cloud="auto-state"]')).toHaveCount(0);
-    const putCloud = () => win.waitForResponse((r) => r.url().endsWith('/api/settings/cloud') && r.request().method() === 'PUT');
-    let savedCloud = putCloud();
-    await after.click();
-    expect((await savedCloud).ok()).toBe(true);
-    await expect(after).toHaveAttribute('aria-checked', 'true');
-    expect((await engine<{ cloud_auto_backup: string }>(win, '/api/settings/cloud')).body.cloud_auto_backup).toBe('true');
-    await expect(win.locator('[data-cloud="auto-state"]'))
-      .toHaveText('On, but Google Drive is not connected, so each run skips the upload and its log says so.');
-    // Not a claim this tab can keep: it uploads reports, not the database or the vault.
-    expect(/backs? up your database|Library vault/i.test(await win.locator('main.stage').innerText())).toBe(false);
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-settings-cloud-after-each-run.png') });
-    await win.reload();
-    await expect(after).toHaveAttribute('aria-checked', 'true', { timeout: 60_000 });
 
     // — The runs a person already has: two finished, one still going ---------
     const dive = async (term: string): Promise<number> => {
@@ -263,13 +241,6 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     release();
     await expect(page).toHaveAttribute('data-status', 'completed', { timeout: 60_000 });
 
-    // The upload after the run was skipped, and its log says why. Nothing
-    // reached Google: the guard's file is checked at the end.
-    await expect.poll(async () => (await engine<{ log_text: string }>(win, `/api/executions/${slow}/log`)).body?.log_text ?? '',
-      { timeout: 30_000 }).toContain('Auto-backup skipped: Google Drive is not connected.');
-    await win.getByRole('tab', { name: 'Log' }).click();
-    await expect(win.locator('.record-text.is-log')).toContainText('Auto-backup skipped: Google Drive is not connected.', { timeout: 30_000 });
-
     const remove = page.locator('[data-run="delete"]');
     await expect(remove).toHaveText('Delete this run');
     win.once('dialog', (d) => { questions.push(d.message()); void d.dismiss(); });
@@ -289,15 +260,6 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     await expect(win.locator('.runlog .index-empty')).toContainText('No runs yet.');
     expect((await engine(win, `/api/executions/${slow}`)).status).toBe(404);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runlog-deleted.png') });
-
-    // — And the upload after each run switched off again --------------------
-    await win.evaluate(() => { window.location.hash = '#/settings/cloud'; });
-    await expect(after).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 });
-    savedCloud = putCloud();
-    await after.click();
-    expect((await savedCloud).ok()).toBe(true);
-    await expect(after).toHaveAttribute('aria-checked', 'false');
-    expect((await engine<{ cloud_auto_backup: string }>(win, '/api/settings/cloud')).body.cloud_auto_backup).toBe('false');
 
     expect(problems).toEqual([]);
   } finally {

@@ -35,7 +35,6 @@ from .database import (
     get_document_by_source,
     get_execution_by_id,
     get_execution_sources,
-    get_setting,
     record_execution_source,
 )
 from . import source_coverage
@@ -921,11 +920,6 @@ class SweepEngine:
             })
             store.mark_complete(exec_id)
 
-            # Auto-backup to cloud if enabled. Runs in a daemon thread so the
-            # execution response is not blocked by upload latency. Failures
-            # are logged but never raised — auto-backup is advisory.
-            self._maybe_auto_backup(exec_id, task_log, report_path, log_path)
-
             return {
                 "execution_id": exec_id,
                 "result_count": dedup_stats["total"] - dedup_stats["invalid"],
@@ -1516,7 +1510,6 @@ class SweepEngine:
             "timestamp": now_iso(),
         })
         store.mark_complete(exec_id)
-        self._maybe_auto_backup(exec_id, task_log, report_path, log_path)
 
         return {
             "execution_id": exec_id,
@@ -2051,93 +2044,6 @@ class SweepEngine:
             # thread-local is out of reach.
             holder["outcome"] = search_outcome().snapshot()
         return holder
-
-    def _maybe_auto_backup(
-        self,
-        exec_id: int,
-        task_log: TaskLogger,
-        report_path: Path,
-        log_path: Path,
-    ) -> None:
-        """Fire a Google Drive backup if ``cloud_auto_backup`` is enabled.
-
-        Uploads **only this execution's** artifacts (report + log) under a
-        per-execution folder name so the full reports history is not
-        re-uploaded on every run. Users who want to mirror the entire
-        reports tree can still click "Backup Now" on the Cloud Storage
-        settings tab, which calls :func:`cloud_storage.upload_directory`.
-
-        Runs the upload in a daemon thread so the execution returns
-        immediately; failures are logged but never raised.
-
-        What happened is appended to the run's log, which ``finalize`` has
-        already written by the time this runs: a skip, and the upload's start
-        and its outcome. A run with this switched on and Google Drive not
-        connected otherwise uploads nothing and says so nowhere, which looks
-        exactly like an upload that worked.
-        """
-        try:
-            enabled = (get_setting(self.db, "cloud_auto_backup") or "").strip().lower() == "true"
-        except Exception as exc:
-            logger.warning("auto-backup setting read failed (exec_id=%d): %s", exec_id, exc)
-            return
-        if not enabled:
-            return
-
-        # Import lazily to avoid a circular dependency between sweep_engine
-        # and the cloud_storage module and its Google API dependencies.
-        try:
-            from .cloud_storage import (
-                is_token_stored as _cloud_token_stored,
-                probe_api as _cloud_probe_api,
-                upload_paths as _upload_paths,
-            )
-        except Exception as exc:
-            logger.warning("auto-backup import failed (exec_id=%d): %s", exec_id, exc)
-            return
-
-        # Two checks rather than ``check_connection``'s one boolean, so the
-        # log can say which it was: nothing linked, or a link Google refused.
-        try:
-            if not _cloud_token_stored():
-                task_log.append("Auto-backup skipped: Google Drive is not connected.")
-                return
-            ok, reason = _cloud_probe_api()
-            if not ok:
-                task_log.append(
-                    f"Auto-backup skipped: Google Drive could not be used ({reason or 'no reason given'})."
-                )
-                return
-        except Exception as exc:
-            task_log.append(f"Auto-backup connection check failed: {exc}")
-            return
-
-        # Only this execution's artifacts. Missing files are filtered by
-        # ``upload_paths`` itself.
-        paths_to_upload = [p for p in (report_path, log_path) if p]
-        folder_name = f"execution-{exec_id}-{time.strftime('%Y%m%d-%H%M%S')}"
-
-        def _run() -> None:
-            try:
-                task_log.append(
-                    f"Auto-backup: uploading execution #{exec_id} artifacts to Google Drive..."
-                )
-                result = _upload_paths(paths_to_upload, REPORTS_DIR, folder_name=folder_name)
-                uploaded = len(result.get("uploaded_ids", []))
-                total = result.get("total_files", 0)
-                folder = result.get("folder_name") or ""
-                task_log.append(
-                    f"Auto-backup complete: uploaded {uploaded}/{total} files"
-                    + (f" to '{folder}'." if folder else ".")
-                )
-            except Exception as exc:
-                logger.warning("Auto-backup upload failed (exec_id=%d): %s", exec_id, exc)
-                try:
-                    task_log.append(f"Auto-backup failed: {exc}")
-                except Exception:
-                    pass
-
-        threading.Thread(target=_run, name=f"resmon-autobackup-{exec_id}", daemon=True).start()
 
     def _handle_cancellation(
         self,

@@ -215,24 +215,21 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     # --- The guard ---------------------------------------------------------
     ("POST", "/api/auth/renderer-origin"): ("J42",),
     # --- Backup and restore ------------------------------------------------
-    ("POST", "/api/backup"): ("J41",),
-    ("GET", "/api/backup/last"): ("J41",),
+    # J24, Google Drive backup, is a backup written into the folder Google
+    # Drive for desktop keeps: resmon stopped signing in to Google (RK,
+    # 2026-10-30), so the row's routes are the backup's.
+    ("POST", "/api/backup"): ("J24", "J41"),
+    ("GET", "/api/backup/last"): ("J24", "J41"),
+    ("POST", "/api/backup/drive-upload-notice/acknowledge"): ("J24",),
     ("POST", "/api/backup/verify"): ("J41",),
     ("POST", "/api/restore"): ("J41",),
     ("POST", "/api/restore/acknowledge"): ("J41",),
     ("POST", "/api/restore/cancel"): ("J41",),
     ("POST", "/api/restore/undo-copy/delete"): ("J41",),
-    ("GET", "/api/settings/storage"): ("J41",),
-    ("PUT", "/api/settings/storage"): ("J41",),
+    ("GET", "/api/settings/storage"): ("J24", "J41"),
+    ("PUT", "/api/settings/storage"): ("J24", "J41"),
     # --- Calendar ----------------------------------------------------------
     ("GET", "/api/calendar/events"): ("J20",),
-    # --- Google Drive backup ----------------------------------------------
-    ("POST", "/api/cloud/backup"): ("J24",),
-    ("POST", "/api/cloud/link"): ("J24",),
-    ("GET", "/api/cloud/status"): ("J24",),
-    ("POST", "/api/cloud/unlink"): ("J24",),
-    ("GET", "/api/settings/cloud"): ("J24",),
-    ("PUT", "/api/settings/cloud"): ("J24",),
     # --- Saved configurations ---------------------------------------------
     ("GET", "/api/configurations"): ("J21",),
     ("POST", "/api/configurations"): ("J21",),

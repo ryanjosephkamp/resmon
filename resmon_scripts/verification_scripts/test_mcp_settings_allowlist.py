@@ -82,7 +82,7 @@ def test_every_settings_key_the_app_has_is_either_writable_or_withheld():
         "unclassified": sorted(app_keys - (writable | withheld)),
         "named_here_but_not_in_the_app": sorted((writable | withheld) - app_keys),
     }
-    assert len(app_keys) == 41, (
+    assert len(app_keys) == 39, (
         "the app's key count moved; the lists above need the same decision "
         "made about whatever changed"
     )
@@ -356,7 +356,7 @@ def _prompt_for(settings: dict) -> str:
 
 
 def test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld():
-    """Drives all 41 keys through the real builder and the real template.
+    """Drives all 39 keys through the real builder and the real template.
 
     The sentinel is distinctive, so "did this key's value reach the prompt"
     is answered by the prompt rather than by anyone's reading of
@@ -436,7 +436,7 @@ def test_every_key_that_moves_an_embedding_requests_destination_is_withheld():
 
     ``EmbeddingLane`` carries two destination fields, ``endpoint`` for the
     local kind and ``base_url`` for an API-key provider, and
-    ``embeddings.build_lane`` is what fills them from settings. Driving all 41
+    ``embeddings.build_lane`` is what fills them from settings. Driving all 39
     keys through the real builder and comparing **only those two fields** is
     what keeps the question "where does the request go" apart from "which keys
     the lane reads" — ``embedding_model`` is read by the same function on the
