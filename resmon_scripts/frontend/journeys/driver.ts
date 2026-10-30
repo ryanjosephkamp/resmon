@@ -52,7 +52,6 @@ export type Place =
   | 'AI settings'
   | 'Email settings'
   | 'Notification settings'
-  | 'Cloud Storage settings'
   | 'Advanced settings'
   | 'Tutorials'
   // — slice 3 -----------------------------------------------------------------
@@ -595,6 +594,15 @@ export interface JourneyDriver {
   importConfigurations(exported: ConfigurationExport): Promise<ImportOutcome>;
 
   // — storage ----------------------------------------------------------------
+  /**
+   * Choose the folder Google Drive for desktop keeps as where backups go, on
+   * the screen that says where they go. A folder of this session's, shaped as
+   * that client lays its own out (`CloudStorage/GoogleDrive-…/My Drive`),
+   * stands in for it, and the folder dialog is answered with it: no automated
+   * suite can operate a native one. Returns the folder, once the app has
+   * stored it.
+   */
+  chooseGoogleDrivesFolderForBackups(): Promise<string>;
   backUpNow(options: { reports: boolean }): Promise<BackupResult>;
   /**
    * Restore this bundle into a fresh state directory, and start the app over

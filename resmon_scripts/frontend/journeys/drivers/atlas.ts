@@ -65,7 +65,6 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Explorer: '/search',
   Results: '/search/ask',
   'Storage settings': '/settings/storage',
-  'Cloud Storage settings': '/settings/cloud',
   Tutorials: '/settings/tutorials',
 };
 
@@ -116,7 +115,8 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'setTheAppWideAssistantDefaults' | 'readAiLaneStatus' | 'readRunLog' | 'readTheReport'
   | 'observeOwnRequests' | 'readSidebarPlaces' | 'readTheFirstRunCard' | 'skipTheFirstRunCard' | 'eraseWith'
   | 'saveKeyFor' | 'readKeyFields' | 'readSourceDetails' | 'readRequiredAttributions'
-  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'backUpNow' | 'readRestoreCard'
+  | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'chooseGoogleDrivesFolderForBackups' | 'backUpNow'
+  | 'readRestoreCard'
   // The setup a person does on a screen, taken through Atlas's own.
   | 'createRoutine' | 'fireRoutineNow' | 'addDeliveryTarget' | 'restoreIntoFreshState'
   | 'useAnAuthoredAgentCommand' | 'useAnAuthoredAgentCommandThatRecordsItsArguments' | 'useAnAuthoredProviderOnAKey'
@@ -2669,6 +2669,29 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         out.push({ text: (await links.nth(i).innerText()).trim(), href: String(await links.nth(i).getAttribute('href')) });
       }
       return out;
+    },
+
+    chooseGoogleDrivesFolderForBackups: async (): Promise<string> => {
+      // Google Drive for desktop keeps My Drive at
+      // ~/Library/CloudStorage/GoogleDrive-<account>/My Drive on a Mac. A
+      // folder of this session's, laid out the same, stands in for it; it is
+      // removed with the session. resmon's part ends at writing into it.
+      const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-drive-')));
+      session.alsoRemoveOnClose(parent);
+      const drive = path.join(parent, 'CloudStorage', 'GoogleDrive-journey@example.org', 'My Drive');
+      fs.mkdirSync(drive, { recursive: true });
+      await session.app.evaluate(({ dialog }, chosen) => {
+        dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
+      }, drive);
+      // Settings › Backup's Where backups go, and its own Choose a folder.
+      await goto('Storage settings');
+      const where = win().locator('[data-backup="destination"]');
+      await where.getByRole('button', { name: /^Choose (a|another) folder$/ }).click();
+      await stored('the folder backups go to',
+        () => session.api<{ export_directory: string }>('GET', '/api/settings/storage'),
+        (settings) => settings.export_directory === drive);
+      await expect(where, 'the folder was stored and the screen never said so').toContainText(drive, { timeout: 30_000 });
+      return drive;
     },
 
     backUpNow: async (options): Promise<BackupResult> => {
