@@ -134,15 +134,24 @@ test('Claude Code sign-in: checked in Settings › AI, offered where a turn fail
     await expect(summaries).toContainText('The Claude Code command’s sign-in has expired. Sign in again through it.');
     await expect(summaries).toContainText('resmon does not see or keep the sign-in: the command keeps it.');
     await summaries.getByRole('button', { name: 'Sign in' }).click();
-    await expect(summaries.locator('[data-ai="sign-in-opened"]')).toContainText('Terminal is running Claude Code’s own sign-in.', { timeout: 30_000 });
-    const script = fs.readFileSync(opened, 'utf8').trim().split('\n').pop() as string;
-    expect(path.dirname(script)).toBe(path.join(stateDir, 'sign-in'));
-    expect(fs.readFileSync(script, 'utf8')).toContain(`\n'${cli}' auth login\n`);
-    await win.locator('[aria-labelledby="ai-summaries"]').scrollIntoViewIfNeeded();
-    await shoot(app, win, 'atlas-ai-sign-in-settings');
-    // What Terminal would have done: the command's own login, then back here.
-    const ran = execFileSync('/bin/sh', [script], { env: { ...env, TERM: 'dumb' }, encoding: 'utf8' });
-    expect(ran).toContain('Done. Return to resmon and choose Check again.');
+    if (process.platform === 'darwin') {
+      await expect(summaries.locator('[data-ai="sign-in-opened"]')).toContainText('Terminal is running Claude Code’s own sign-in.', { timeout: 30_000 });
+      const script = fs.readFileSync(opened, 'utf8').trim().split('\n').pop() as string;
+      expect(path.dirname(script)).toBe(path.join(stateDir, 'sign-in'));
+      expect(fs.readFileSync(script, 'utf8')).toContain(`\n'${cli}' auth login\n`);
+      await win.locator('[aria-labelledby="ai-summaries"]').scrollIntoViewIfNeeded();
+      await shoot(app, win, 'atlas-ai-sign-in-settings');
+      // What Terminal would have done: the command's own login, then back here.
+      const ran = execFileSync('/bin/sh', [script], { env: { ...env, TERM: 'dumb' }, encoding: 'utf8' });
+      expect(ran).toContain('Done. Return to resmon and choose Check again.');
+    } else {
+      // Off macOS no terminal is opened: the command is shown to copy, and
+      // running it is what the person would do in their own terminal.
+      const shown = summaries.locator('[data-ai="sign-in-command"]');
+      await expect(shown).toContainText('Run this in a terminal to sign in to Claude Code with its own login', { timeout: 30_000 });
+      await expect(shown.locator('code')).toHaveText(`'${cli}' auth login`);
+      execFileSync(cli, ['auth', 'login'], { env: { ...env, TERM: 'dumb' }, encoding: 'utf8' });
+    }
     await summaries.getByRole('button', { name: 'Check again' }).click();
     await expect(summaries).toHaveAttribute('data-state', 'signed_in', { timeout: 30_000 });
 
