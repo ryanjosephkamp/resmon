@@ -11426,19 +11426,48 @@
       },
       "RoutineRunStarted": {
         "additionalProperties": true,
-        "description": "``POST /api/routines/{routine_id}/run``: a run started now, outside the\nschedule.\n\n``was_inactive`` says the routine was not scheduled and ran once because it\nwas asked to, and ``detail`` says so in a sentence. A routine already\nrunning is refused with a 409 whose detail names that run, which is an\nerror body and not this one.",
+        "description": "``POST /api/routines/{routine_id}/run``: a run started now, outside the\nschedule, or queued to start when a slot frees.\n\n``was_inactive`` says the routine was not scheduled and ran once because it\nwas asked to, and ``detail`` says so in a sentence. At the run limit the\nanswer is a 202 with ``execution_id`` null, ``queued`` true and\n``queue_position`` (1 is next): the run starts on its own. A routine\nalready running is refused with a 409 whose detail names that run, and so\nis a fire the full queue turned away; both are error bodies, not this one.",
         "properties": {
           "detail": {
             "title": "Detail",
             "type": "string"
           },
           "execution_id": {
-            "title": "Execution Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
           },
           "missed_fires_marked_ran_late": {
             "title": "Missed Fires Marked Ran Late",
             "type": "integer"
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
+          "queued": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued"
           },
           "routine_id": {
             "title": "Routine Id",
@@ -17949,7 +17978,7 @@
       },
       "WatchdogFinding": {
         "additionalProperties": true,
-        "description": "One thing the watchdog can say is wrong, with what it rests on.\n\n``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for\ntwo different reasons, and only one of them is good.\n\n``evidence`` holds a different key set for each of the seven finding kinds,\nso there is no field list to write down and ``dict`` is the description\nthat fits.\n\n``scope`` is ``dict`` because a source's scope carries a **string** id and\na routine's carries an **integer** one, and this docstring used to claim\nthat a model declaring either would silently coerce the other. It would\nnot: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather\nthan stringifying it, so the mistake would be a 500 the equality sweep\ncatches and not a wrong body nobody notices. ``Union[str, int]`` is the\nright annotation, keeps both runtime types, and would give a client a real\nshape instead of ``object``. It is not here because the premise was found\nto be wrong after this slice was reviewed, and adding an unreviewed model\nto an accepted change is the worse trade. See the module docstring.\n\n``what_to_do`` is a field, not prose the renderer composes, because the\nsentence depends on the finding and a generic one would be advice resmon\nhas not earned.",
+        "description": "One thing the watchdog can say is wrong, with what it rests on.\n\n``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for\ntwo different reasons, and only one of them is good.\n\n``evidence`` holds a different key set for each of the eight finding kinds,\nso there is no field list to write down and ``dict`` is the description\nthat fits.\n\n``scope`` is ``dict`` because a source's scope carries a **string** id and\na routine's carries an **integer** one, and this docstring used to claim\nthat a model declaring either would silently coerce the other. It would\nnot: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather\nthan stringifying it, so the mistake would be a 500 the equality sweep\ncatches and not a wrong body nobody notices. ``Union[str, int]`` is the\nright annotation, keeps both runtime types, and would give a client a real\nshape instead of ``object``. It is not here because the premise was found\nto be wrong after this slice was reviewed, and adding an unreviewed model\nto an accepted change is the worse trade. See the module docstring.\n\n``what_to_do`` is a field, not prose the renderer composes, because the\nsentence depends on the finding and a generic one would be advice resmon\nhas not earned.",
         "properties": {
           "detail": {
             "title": "Detail",
@@ -18146,6 +18175,10 @@
           "overdue_floor_days": {
             "title": "Overdue Floor Days",
             "type": "number"
+          },
+          "skipped_fires_window_days": {
+            "title": "Skipped Fires Window Days",
+            "type": "integer"
           }
         },
         "required": [
@@ -18156,7 +18189,8 @@
           "overdue_cadence_multiple",
           "overdue_floor_days",
           "cadence_lag_multiple",
-          "min_runs_for_cadence"
+          "min_runs_for_cadence",
+          "skipped_fires_window_days"
         ],
         "title": "WatchdogThresholds",
         "type": "object"
@@ -24880,7 +24914,7 @@
     },
     "/api/routines/{routine_id}/run": {
       "post": {
-        "description": "Run a routine immediately, outside its schedule.\n\nWriting the MCP contract found that resmon had no way to do this at all:\nroutines could be activated or deactivated, and running one now meant\nrebuilding its configuration by hand as a sweep. That is a gap in the\napplication rather than only in the tool surface -- \"run my arXiv routine\nnow\" is something a person should be able to do from the interface too.\n\nDeliberately a thin wrapper over ``_dispatch_routine_fire``, the same\nfunction the scheduler calls, so a manual run and a scheduled fire take one\ncode path and cannot drift apart. Everything that makes a scheduled fire\ncorrect -- admission control, the routine_id stamp, progress registration,\nthe last_executed_at update -- applies here for free because it is\nliterally the same code.\n\nAn **inactive** routine does run, and the response says so. ``is_active``\ngoverns whether the scheduler fires a routine on its own; it is not a\nstatement that the routine may never run. Refusing here would mean a user\nhas to activate a routine, run it, and deactivate it again to get one\nresult.",
+        "description": "Run a routine immediately, outside its schedule.\n\nWriting the MCP contract found that resmon had no way to do this at all:\nroutines could be activated or deactivated, and running one now meant\nrebuilding its configuration by hand as a sweep. That is a gap in the\napplication rather than only in the tool surface -- \"run my arXiv routine\nnow\" is something a person should be able to do from the interface too.\n\nDeliberately a thin wrapper over ``_dispatch_routine_fire``, the same\nfunction the scheduler calls, so a manual run and a scheduled fire take one\ncode path and cannot drift apart. Everything that makes a scheduled fire\ncorrect -- admission control, the routine_id stamp, progress registration,\nthe last_executed_at update -- applies here for free because it is\nliterally the same code.\n\nAn **inactive** routine does run, and the response says so. ``is_active``\ngoverns whether the scheduler fires a routine on its own; it is not a\nstatement that the routine may never run. Refusing here would mean a user\nhas to activate a routine, run it, and deactivate it again to get one\nresult.\n\nAt the run limit the fire is **queued**, and the answer is a 202 with no\nexecution id, ``queued`` and its place in the queue: it starts on its own\nwhen a run finishes. Only when the queue is full too is it refused (409).",
         "operationId": "run_routine_now_api_routines__routine_id__run_post",
         "parameters": [
           {

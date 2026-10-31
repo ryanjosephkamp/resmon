@@ -1,4 +1,4 @@
-import { deliveryWords, instant, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
+import { deliveryWords, instant, missedFireWords, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
 
 describe('scheduleText says only what the scheduler will do', () => {
   test.each([
@@ -60,5 +60,16 @@ describe('a watch, read out of what the engine stores', () => {
     expect(deliveryWords({ state: 'failed', next_attempt_at_utc: '2026-10-29T00:00:00Z' })).toBe('Failed, trying again');
     expect(deliveryWords({ state: 'failed', next_attempt_at_utc: null })).toBe('Failed');
     expect(deliveryWords({ state: 'awaiting_review', next_attempt_at_utc: null })).toBe('Waiting for you');
+  });
+});
+
+describe('a fire that did not run is said in words', () => {
+  test.each([
+    ['skipped', 'did not run: the run before it was still going'],
+    ['recorded', 'came due while resmon was not running'],
+    ['ran_late', 'ran late, when you asked for a run'],
+    [null, 'did not run'],
+  ])('%s', (disposition, words) => {
+    expect(missedFireWords(disposition)).toBe(words);
   });
 });

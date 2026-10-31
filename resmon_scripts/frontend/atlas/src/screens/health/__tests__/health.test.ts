@@ -63,6 +63,7 @@ describe('the watchdog', () => {
     thresholds: {
       consecutive_errors: 3, consecutive_zeros: 4, min_baseline_runs: 5, flatline_runs: 5,
       overdue_cadence_multiple: 3, overdue_floor_days: 1, cadence_lag_multiple: 2, min_runs_for_cadence: 3,
+      skipped_fires_window_days: 7,
     },
   };
 
@@ -140,5 +141,6 @@ describe('the watchdog', () => {
     const words = thresholdWords(base.thresholds);
     expect(words[0]).toBe('A source is broken after 3 failed runs in a row.');
     expect(words[3]).toContain('for at least 1 day,');
+    expect(words[4]).toBe('A watch is broken when a scheduled run did not happen in the last 7 days because the run before it was still going.');
   });
 });

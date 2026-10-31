@@ -39,6 +39,27 @@ export function when(iso: string | null | undefined, now: Date): string {
   return `${dayWord(at, now)} at ${TIME.format(at)}`;
 }
 
+const PUBLISHED_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+const PUBLISHED_MONTH = new Intl.DateTimeFormat('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+
+/**
+ * A paper's stored publication date in words, as precise as the stored text
+ * and no more: "2026", "April 2026", "April 13, 2026". A date is a calendar
+ * day, not an instant, so it is read in UTC and never moves a day with the
+ * computer's zone. Text that is not one of the three shapes is shown as it is.
+ */
+export function publishedWords(stored: string | null | undefined): string {
+  const text = (stored ?? '').trim();
+  const match = /^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$/.exec(text);
+  if (!match) return text;
+  const [, year, month, day] = match;
+  if (!month) return year!;
+  const at = new Date(Date.UTC(Number(year), Number(month) - 1, day ? Number(day) : 1));
+  if (Number.isNaN(at.getTime()) || at.getUTCMonth() !== Number(month) - 1
+    || (day && at.getUTCDate() !== Number(day))) return text;
+  return (day ? PUBLISHED_DAY : PUBLISHED_MONTH).format(at);
+}
+
 export function clock(iso: string): string {
   return TIME.format(instant(iso));
 }

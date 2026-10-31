@@ -76,7 +76,7 @@ test('Q4: the Search record tab activates under a real Playwright click', async 
     const effect = source.evidence(execId);
     expect(effect.requests).toHaveLength(1);
     expect(effect.requests[0]).toMatchObject({ method: 'GET', status: 200, transport: 'http-response' });
-    expect(effect.requests[0].url).toContain('search_query=all%3Agraph+neural+network');
+    expect(effect.requests[0].url).toContain('search_query=all%3Agraph+AND+all%3Aneural+AND+all%3Anetwork');
     expect(effect.stored.documents).toHaveLength(1);
     expect(effect.stored.documents[0]).toMatchObject({ external_id: '2609.00001v1', title: 'Authored graph neural network fixture' });
 

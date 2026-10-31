@@ -131,7 +131,9 @@ def test_datacite_catalog_records_documented_limits_and_semantics():
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == "datacite")
 
     assert entry.rate_limit == "1.5 req/s (below 500 requests/5 min unidentified)"
-    assert entry.keyword_combination == "Implicit OR"
+    # Measured live; the note says the documentation describes the opposite.
+    assert entry.keyword_combination == "Implicit AND"
+    assert "documentation describes" in entry.keyword_combination_notes
     assert "year" in entry.query_method.lower()
 
 
@@ -157,11 +159,12 @@ def test_dblp_catalog_records_supported_routes_pacing_and_limits():
     assert "not guaranteed" in entry.notes
 
 
-def test_openlibrary_catalog_records_year_precision_and_undocumented_query_semantics():
+def test_openlibrary_catalog_records_year_precision_and_measured_query_semantics():
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == "openlibrary")
 
     assert entry.rate_limit == "1.0 req/s (unidentified-client ceiling)"
-    assert entry.keyword_combination == "Undocumented"
+    assert entry.keyword_combination == "Implicit AND"
+    assert "rests on a live comparison" in entry.keyword_combination_notes
     assert "sub-year window returns nothing" in entry.notes
 
 
@@ -198,11 +201,12 @@ def test_ndl_search_catalog_records_current_contract_and_required_credits():
     assert "same-precision" in entry.notes
 
 
-def test_osti_catalog_does_not_invent_upstream_limits_or_keyword_semantics():
+def test_osti_catalog_does_not_invent_upstream_limits_and_measures_keyword_semantics():
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == "osti")
 
     assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
-    assert entry.keyword_combination == "Combination semantics undocumented"
+    assert entry.keyword_combination == "Implicit AND"
+    assert "rests on a live comparison" in entry.keyword_combination_notes
     assert "publication date" in entry.query_method.lower()
 
 

@@ -3,6 +3,7 @@
 
 import logging
 import time
+from datetime import date, datetime, timezone
 
 from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter, SourceRefused,
                        note_parse_failure, safe_request, search_outcome)
@@ -22,17 +23,33 @@ _MAX_RETRIES = 1
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
 
 
-def _produced_date_range(date_from: str | None, date_to: str | None) -> str:
-    """The Solr range for a window, with an open side written as a bare ``*``.
+def _utc_today() -> date:
+    """Today in UTC. A seam, so a test can fix the day."""
+    return datetime.now(timezone.utc).date()
+
+
+def _produced_date_range(
+    date_from: str | None, date_to: str | None, today: date,
+) -> str:
+    """The Solr range for a window, its open start a bare ``*`` and its open end today.
 
     A time suffix belongs only on a date. Glued to the open side, as in
     ``[2026-10-23T00:00:00Z TO *T23:59:59Z]``, it makes a range HAL cannot
     parse, and HAL answers HTTP 200 with an error instead of records. A watch
     asking for papers since its previous run has no end date, so this is the
     ordinary case, not an edge.
+
+    **An open end stops at the end of today, UTC, rather than at ``*``.** HAL
+    holds records dated in the future, and resmon asks for the newest first, so
+    they come before every current paper. Measured October 30, 2026: `climate`
+    from October 1 with an open end matched 375 records, and the first eight
+    were dated 2028-01-01, 2027-07-01, and on through 2027-01-01; 93 of the 375
+    were dated after October 30. A "since the previous run" watch has no end
+    date and a cap of 100, so those 93 could fill a run before one current
+    paper was read. A record dated ahead is found by a run made after its date.
     """
     lower = f"{date_from}T00:00:00Z" if date_from else "*"
-    upper = f"{date_to}T23:59:59Z" if date_to else "*"
+    upper = f"{date_to or today.isoformat()}T23:59:59Z"
     return f"[{lower} TO {upper}]"
 
 
@@ -68,12 +85,14 @@ class HalClient(BaseAPIClient):
         deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
         start = 0
         page_size = min(max_results, 100)
+        # Every search has a date range now, because an open end stops at
+        # today: with no dates at all, newest first would begin in the future
+        # just the same (see `_produced_date_range`). One day for every page.
+        produced = _produced_date_range(date_from, date_to, _utc_today())
 
         while len(results) < max_results:
             # Build Solr-style query
-            fq_parts: list[str] = []
-            if date_from or date_to:
-                fq_parts.append(f"producedDate_tdate:{_produced_date_range(date_from, date_to)}")
+            fq_parts: list[str] = [f"producedDate_tdate:{produced}"]
 
             params = {
                 "q": query,

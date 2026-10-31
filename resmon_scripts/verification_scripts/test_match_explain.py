@@ -452,3 +452,11 @@ def test_the_keyword_contribution_endpoint_answers():
 
     assert body["sufficient"] is True
     assert body["keywords"][0]["keyword"] == "cardiac"
+
+
+def test_the_match_explanations_lists_take_the_serial_comma():
+    assert match_explain._join_keywords(["a", "b", "c"]) == "“a”, “b”, and “c”"
+    assert match_explain._join_keywords(["a", "b"]) == "“a” and “b”"
+    assert match_explain._describe_fields(["title", "abstract", "categories"]) == (
+        "the title, the abstract, and the subject categories")
+    assert match_explain._describe_fields(["title", "abstract"]) == "the title and the abstract"

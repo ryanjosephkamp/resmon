@@ -665,7 +665,7 @@ def test_arxiv_does_not_wrap_a_field_query_in_its_default_field():
         f"arXiv was asked {entity_query!r}; anything with 'all:' in front of a "
         f"field prefix is the HTTP 400 this guard exists for"
     )
-    assert sent[1]["search_query"] == "all:graph neural network"
+    assert sent[1]["search_query"] == "all:graph AND all:neural AND all:network"
 
 
 def test_no_askable_client_rewrites_the_query_it_is_handed():

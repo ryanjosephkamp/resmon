@@ -119,6 +119,7 @@ from implementation_scripts.admission import (
     admission,
     routine_claims,
     RoutineAlreadyRunning,
+    RoutineFireWaiting,
 )
 from implementation_scripts.scheduler import (
     ResmonScheduler,
@@ -1781,6 +1782,43 @@ def _validated_date_window(parameters: dict) -> Optional[dict]:
         raise HTTPException(400, str(exc)) from None
 
 
+def _search_terms(parameters: object) -> list[str]:
+    """The words a routine's runs search for: its query and its keywords.
+
+    Both editors store the terms twice, as a ``keywords`` list and as the
+    ``query`` string a run sends, and an MCP-made routine stores only
+    ``query``; a term in either counts.
+    """
+    if not isinstance(parameters, dict):
+        return []
+    words = [str(k) for k in parameters.get("keywords") or [] if str(k).strip()] \
+        if isinstance(parameters.get("keywords"), list) else []
+    query = parameters.get("query")
+    if isinstance(query, str) and query.strip():
+        words.append(query)
+    return words
+
+
+def _validated_terms(parameters: dict) -> None:
+    """Refuse a keyword routine with nothing to search for.
+
+    Stored, such a routine sends every source it names an empty search on every
+    run. arXiv, DOAJ, and PLOS answer that with HTTP 400, so each run reads as a
+    row of failing sources when nothing about the sources is wrong. A routine
+    that follows a person (``entity``) has no terms by design, and its entity is
+    checked by ``_validated_entity`` instead.
+    """
+    if isinstance(parameters, dict) and parameters.get("entity") is not None:
+        return
+    if not _search_terms(parameters):
+        raise HTTPException(
+            400,
+            "A watch needs at least one search term, or a person to follow. With "
+            "none, every run would send its sources an empty search, which some "
+            "of them refuse.",
+        )
+
+
 def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional[str]:
     """Whether the sources this routine names can be asked about a person at all.
 
@@ -1837,6 +1875,7 @@ def create_routine(body: RoutineCreate):
     conn = _get_db()
     try:
         entity = _validated_entity(conn, body.parameters)
+        _validated_terms(body.parameters)
         _validated_date_window(body.parameters)
         _readable_schedule(body.schedule_cron, body.parameters)
         routine_dict = {
@@ -1886,6 +1925,7 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["schedule_cron"] = body.schedule_cron
         if body.parameters is not None:
             _validated_entity(conn, body.parameters)
+            _validated_terms(body.parameters)
             _validated_date_window(body.parameters)
             updates["parameters"] = json.dumps(body.parameters)
         if body.schedule_cron is not None or body.parameters is not None:
@@ -2191,7 +2231,7 @@ def retry_delivery(delivery_id: int):
 
 @app.post("/api/routines/{routine_id}/run", response_model=response_models.RoutineRunStarted,
           response_model_exclude_unset=True)
-def run_routine_now(routine_id: int):
+def run_routine_now(routine_id: int, response: Response):
     """Run a routine immediately, outside its schedule.
 
     Writing the MCP contract found that resmon had no way to do this at all:
@@ -2212,6 +2252,10 @@ def run_routine_now(routine_id: int):
     statement that the routine may never run. Refusing here would mean a user
     has to activate a routine, run it, and deactivate it again to get one
     result.
+
+    At the run limit the fire is **queued**, and the answer is a 202 with no
+    execution id, ``queued`` and its place in the queue: it starts on its own
+    when a run finishes. Only when the queue is full too is it refused (409).
     """
     conn = _get_db()
     try:
@@ -2234,7 +2278,39 @@ def run_routine_now(routine_id: int):
         try:
             exec_id = _dispatch_routine_fire(
                 routine_id, existing.get("parameters") or "{}",
-                allow_inactive=True, raise_on_conflict=True,
+                allow_inactive=True, raise_on_conflict=True, run_now=True,
+            )
+        except RoutineFireWaiting as waiting:
+            cap = admission.max()
+            if waiting.decision == "queued":
+                # Accepted, not started: the run begins when a slot frees, with
+                # nothing more for the person to do. Saying "wait and try again"
+                # here sent them to start a second one.
+                position = admission.queue_position(routine_id) or 1
+                ahead = position - 1
+                response.status_code = 202
+                return {
+                    "execution_id": None,
+                    "routine_id": routine_id,
+                    "was_inactive": was_inactive,
+                    "missed_fires_marked_ran_late": 0,
+                    "queued": True,
+                    "queue_position": position,
+                    "detail": (
+                        f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many "
+                        "as it allows at once, so this one is queued"
+                        + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
+                        + ". It starts on its own when a slot frees; there is nothing more to do."
+                        + (" The routine stays paused: this is one run because you asked for it."
+                           if was_inactive else "")
+                    ),
+                }
+            raise HTTPException(
+                409,
+                f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it "
+                f"allows at once, and {admission.queue_limit()} more are waiting, as many as it "
+                "queues. This run was not queued; start it again once one of them has finished.",
+                headers={"X-Resmon-Conflict": "admission_queue_full"},
             )
         except RoutineAlreadyRunning as conflict:
             # A string detail, for the reason ``cancel_execution`` gives one: a
@@ -2258,14 +2334,13 @@ def run_routine_now(routine_id: int):
             )
 
         if exec_id is None:
-            # The routine exists and we were willing to run it, so the only
-            # remaining reason is admission control -- resmon is already
-            # running as many executions as it allows. Saying that plainly
-            # beats a generic failure the caller cannot act on.
+            # Admission's answers are raised above, so what is left is a fire
+            # the dispatcher declined before admission: parameters it could
+            # not read, or a date window (checked above, so a race).
             raise HTTPException(
                 409,
-                "resmon is already running as many executions as it allows at "
-                "once. Wait for one to finish and try again.",
+                "resmon could not start this routine: its stored parameters could "
+                "not be read. Open it and save it again.",
             )
 
         # The fires resmon recorded as missed have now been answered by a run
@@ -6134,6 +6209,10 @@ def _hydrate_admission_from_db() -> None:
 
 def _init_admission_on_startup() -> None:
     _hydrate_admission_from_db()
+    # Every process, not only the scheduler's: Run now queues a fire in
+    # whichever engine the window is talking to. Without a dispatcher the
+    # queue was never drained, and a queued fire never ran.
+    admission.set_dispatcher(_dispatch_queued_fire)
 
 
 def _migrate_legacy_ai_key_on_startup() -> None:
@@ -6173,6 +6252,8 @@ def _dispatch_routine_fire(
     *,
     allow_inactive: bool = False,
     raise_on_conflict: bool = False,
+    run_now: bool = False,
+    queued_at: Optional[str] = None,
 ) -> int | None:
     """Fire a routine: claim, prepare execution, admit, launch, stamp.
 
@@ -6202,8 +6283,22 @@ def _dispatch_routine_fire(
     ``None`` and an info line: a fire arriving while the previous one is still
     going is expected behaviour of a routine that runs longer than its period,
     not a fault, and raising into APScheduler's worker would log it as one.
+    A *scheduled* fire refused that way is still written down, as a missed
+    fire ``skipped`` because the previous run was still going: the scheduler's
+    job returns as soon as the run's thread starts, so this claim, not
+    APScheduler's ``max_instances``, is what refuses an overlapping fire, and
+    until it recorded one the refusal reached only the engine log.
+
+    ``run_now`` marks a fire a person asked for (Run now). It runs a paused
+    routine as ``allow_inactive`` does, and when no slot is free it is queued
+    as asked for, so the drain runs it paused or not. With
+    ``raise_on_conflict`` a fire that was not started now raises
+    ``RoutineFireWaiting`` saying whether it was queued or dropped, because
+    the person is owed the difference. ``queued_at`` is when a fire drained
+    from the queue joined it, which for a scheduled one is when it came due.
     """
     dispatch_logger = logging.getLogger(__name__)
+    allow_inactive = allow_inactive or run_now
     conn = _get_db()
     try:
         row = get_routine_by_id(conn, routine_id)
@@ -6232,6 +6327,8 @@ def _dispatch_routine_fire(
             )
             if raise_on_conflict:
                 raise RoutineAlreadyRunning(routine_id, holder)
+            if not allow_inactive:
+                _record_overlap_skipped_fire(routine_id, _fire_time(queued_at))
             return None
 
         launched = False
@@ -6289,9 +6386,10 @@ def _dispatch_routine_fire(
                     )
                     return None
 
-            if not admission.try_admit(
-                kind="routine", routine_id=routine_id, params_json=parameters,
-            ):
+            decision = admission.admit_routine(routine_id, parameters, run_now=run_now)
+            if decision != "admitted":
+                if raise_on_conflict:
+                    raise RoutineFireWaiting(routine_id, decision)
                 return None
 
             ai_settings_raw = row.get("ai_settings")
@@ -6351,6 +6449,36 @@ def _dispatch_routine_fire(
                 routine_claims.release(routine_id)
     finally:
         _close_db(conn)
+
+
+def _fire_time(queued_at: Optional[str]) -> datetime:
+    """When a refused fire came due: when it joined the queue, or now."""
+    if queued_at:
+        try:
+            return datetime.fromisoformat(queued_at)
+        except ValueError:
+            pass
+    return datetime.now(timezone.utc).replace(microsecond=0)
+
+
+def _dispatch_queued_fire(
+    routine_id: int, parameters: str, *, run_now: bool = False,
+    queued_at: Optional[str] = None,
+) -> None:
+    """The admission queue's door into ``_dispatch_routine_fire``.
+
+    A Run now that waited in the queue is answered here as the run endpoint
+    answers one that started at once: the fires resmon recorded as missed
+    before it are marked ``ran_late``.
+    """
+    exec_id = _dispatch_routine_fire(
+        routine_id, parameters, run_now=run_now, queued_at=queued_at)
+    if exec_id is not None and run_now:
+        conn = _get_db()
+        try:
+            mark_missed_fires_ran_late(conn, routine_id)
+        finally:
+            _close_db(conn)
 
 
 def _record_missed_fires(sched: ResmonScheduler) -> int:
@@ -6436,6 +6564,11 @@ def _record_overlap_skipped_fire(routine_id: int, due_at) -> None:
     one until now, and both produce the same failure for the user: a routine
     that did not run is indistinguishable from a routine that ran and found
     nothing.
+
+    It is also called by ``_dispatch_routine_fire`` for a scheduled fire the
+    routine's claim refused, which is the same refusal reached by the door that
+    actually sees it: the scheduler's job only starts the run's thread and
+    returns, so APScheduler rarely has two instances to refuse.
 
     The disposition written is ``'skipped'`` rather than ``'recorded'``
     because more is known here. The startup path sees a fire that was overdue

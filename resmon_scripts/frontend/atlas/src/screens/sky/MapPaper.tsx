@@ -6,7 +6,7 @@ import { Icon } from '../../shell/Icon';
 import { queueWords } from '../collection/Paper';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { runKind } from '../runs/model';
-import { authors, when } from '../today/format';
+import { authors, publishedWords, when } from '../today/format';
 import { FACETS_KEY } from './useMapLook';
 
 /** A web address the app may hand to its link window: http and https only. */
@@ -145,7 +145,7 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, inline = fal
               <span className="who">{authors(data.authors)}</span>
               <span className="sep" />
               <span>{source}</span>
-              {data.publication_date && (<><span className="sep" /><span>Published {data.publication_date}</span></>)}
+              {data.publication_date && (<><span className="sep" /><span>Published {publishedWords(data.publication_date)}</span></>)}
             </div>
             <p className="map-paper-found">
               Collected {when(data.first_seen_at, now)} <span className="sep-dot" aria-hidden="true">·</span>{' '}

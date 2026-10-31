@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { breakable } from '../../shell/breakable';
 import { clock, when } from '../today/format';
 import { firingOf, firingState, monthAheadLede, type Firing, type SchedulerStatus } from './firing';
 import { CALENDAR_KEY, type CalendarEvent, type RoutineRow } from './model';
@@ -154,7 +155,7 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
                         data-lit={fire.routine_id === lit ? 'true' : undefined}
                       />
                       <span className="fire-time num" aria-hidden="true">{clock(fire.start)}</span>
-                      <span className="fire-name" aria-hidden="true">{nameOf(fire)}</span>
+                      <span className="fire-name" aria-hidden="true">{breakable(nameOf(fire))}</span>
                     </Link>
                   );
                 })}
@@ -175,7 +176,7 @@ export function MonthAhead({ now, events, error, routines, lit, status, onLight 
             <li key={String(fire.id)} data-routine={fire.routine_id ?? undefined} data-firing={firingState(firing)}
               onMouseEnter={() => { if (fire.routine_id !== null) onLight?.(fire.routine_id); }}>
               <span className="next-when">{when(fire.start, now)}</span>
-              <Link to={`/watches/${fire.routine_id}`} className="it">{nameOf(fire)}</Link>
+              <Link to={`/watches/${fire.routine_id}`} className="it">{breakable(nameOf(fire))}</Link>
               {firing === false && <span className="next-doubt">nothing will run it</span>}
               {firing === null && <span className="next-doubt">not confirmed to run</span>}
             </li>

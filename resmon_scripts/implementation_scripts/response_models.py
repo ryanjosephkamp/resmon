@@ -138,7 +138,7 @@ Why some fields here are declared ``dict`` and not a model
 
 A handful of fields carry a shape that genuinely varies by the row's kind. A
 watchdog finding's ``evidence`` is the clear case: it holds a different key
-set for each of the seven finding kinds, so there is no field list to write
+set for each of the eight finding kinds, so there is no field list to write
 down and ``dict`` — "an object whose keys this contract does not enumerate" —
 is the honest description.
 
@@ -1249,7 +1249,7 @@ class WatchdogFinding(LosslessModel):
     ``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for
     two different reasons, and only one of them is good.
 
-    ``evidence`` holds a different key set for each of the seven finding kinds,
+    ``evidence`` holds a different key set for each of the eight finding kinds,
     so there is no field list to write down and ``dict`` is the description
     that fits.
 
@@ -1329,6 +1329,7 @@ class WatchdogThresholds(LosslessModel):
     overdue_floor_days: float
     cadence_lag_multiple: float
     min_runs_for_cadence: int
+    skipped_fires_window_days: int
 
 
 class WatchdogReport(LosslessModel):
@@ -2301,19 +2302,23 @@ class RoutineActivation(LosslessModel):
 
 class RoutineRunStarted(LosslessModel):
     """``POST /api/routines/{routine_id}/run``: a run started now, outside the
-    schedule.
+    schedule, or queued to start when a slot frees.
 
     ``was_inactive`` says the routine was not scheduled and ran once because it
-    was asked to, and ``detail`` says so in a sentence. A routine already
-    running is refused with a 409 whose detail names that run, which is an
-    error body and not this one.
+    was asked to, and ``detail`` says so in a sentence. At the run limit the
+    answer is a 202 with ``execution_id`` null, ``queued`` true and
+    ``queue_position`` (1 is next): the run starts on its own. A routine
+    already running is refused with a 409 whose detail names that run, and so
+    is a fire the full queue turned away; both are error bodies, not this one.
     """
 
-    execution_id: int
+    execution_id: Optional[int]
     routine_id: int
     was_inactive: bool
     missed_fires_marked_ran_late: int
     detail: str
+    queued: Optional[bool] = None
+    queue_position: Optional[int] = None
 
 
 class RoutineDocuments(LosslessModel):

@@ -1016,3 +1016,35 @@ def test_crossref_still_reports_the_wakefield_retraction():
     retractions = [f for f in findings if f.severity == "critical"]
     assert retractions, f"no retraction found; got {[f.kind for f in findings]}"
     assert retractions[0].notice_url.startswith("https://doi.org/")
+
+
+def test_a_retractions_watch_report_says_which_service_did_not_answer(conn):
+    """The corpus check's summary carries ``unanswered``; the retractions watch
+    computed it through ``check_documents`` and then dropped it, so its report
+    read "0 of 1 due checked" with no word of Crossref being down."""
+    from implementation_scripts.report_generator import generate_watch_report
+
+    doc_id = _doc(conn, source="arxiv", ext="2301.00001v1", doi="10.1/a")
+    check = lifecycle.check_documents(
+        conn, [doc_id], crossref=_FakeCrossref({}, fail=True), biorxiv=_NoProvider(),
+        arxiv=_CountingArxiv())
+    assert check["unanswered"] == [{
+        "service": "crossref", "name": "Crossref", "papers": 1, "reason": "crossref unavailable"}]
+
+    report = generate_watch_report(
+        {"display_name": "Jane Doe"},
+        {"findings": [], "matched_documents": 1, "coverage_note": "0 of 1 matched papers have been checked."},
+        check)
+
+    assert "- **Crossref** did not answer for 1 paper: crossref unavailable." in report
+    assert "left unchecked this run rather than recorded as clear" in report
+
+
+def test_a_retractions_watch_report_with_every_service_answering_says_nothing_of_it():
+    from implementation_scripts.report_generator import generate_watch_report
+
+    report = generate_watch_report(
+        {"display_name": "Jane Doe"},
+        {"findings": [], "matched_documents": 1, "coverage_note": "1 of 1 matched papers have been checked."},
+        {"checked_now": 1, "selected": 1, "errors": [], "unanswered": []})
+    assert "did not answer" not in report
