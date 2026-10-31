@@ -310,3 +310,61 @@ def test_the_export_holds_what_the_search_counts_and_the_renderer_can_read_how_m
 
     page = http.post("/api/explorer/search", json=filters)
     assert page.json()["total"] == 2, "the count beside the export is the search's"
+
+
+# ---------------------------------------------------------------------------
+# A page and its marks in one reply
+# ---------------------------------------------------------------------------
+
+
+def _marked_collection(resmon_mod):
+    """Two papers that look like the same work, one matched to a person, one with a notice."""
+    from implementation_scripts import near_duplicates  # noqa: PLC0415
+    from implementation_scripts.database import record_lifecycle_finding  # noqa: PLC0415
+
+    conn = resmon_mod._get_db()
+    a = _doc(conn, ext="1", title="Diffusion models, the preprint")
+    b = _doc(conn, ext="2", title="Diffusion models, the article")
+    c = _doc(conn, ext="3", title="Something else entirely")
+    near_duplicates.write_links(conn, [{"a": min(a, b), "b": max(a, b), "score": 0.97, "method": "title"}])
+    profile = conn.execute(
+        "INSERT INTO watch_profiles (kind, display_name, names, identifiers, affiliations, field_hints) "
+        "VALUES ('person', 'Ada Lovelace', '[]', '{}', '[]', '[]')").lastrowid
+    conn.execute(
+        "INSERT INTO watch_profile_matches (document_id, profile_id, basis, matched_author, evidence) "
+        "VALUES (?, ?, 'name_only', 'Ada Lovelace', 'the name as written')", (a, profile))
+    conn.commit()
+    record_lifecycle_finding(conn, c, kind="retraction", severity="critical", notice_key="r-1",
+                             notice_url="https://e.org/retraction", provider="crossref")
+    return [a, b, c]
+
+
+def test_a_page_carries_its_marks_when_asked_exactly_as_the_three_routes_answer_them(client):
+    resmon_mod, http = client
+    ids = _marked_collection(resmon_mod)
+    page = http.post("/api/explorer/search", json={"include": ["links", "matches", "lifecycle"]})
+    assert page.status_code == 200, page.text
+    body = page.json()
+    assert sorted(p["id"] for p in body["results"]) == sorted(ids)
+    on_page = [p["id"] for p in body["results"]]
+    assert body["links"] == http.post("/api/links/for-documents", json={"document_ids": on_page}).json()
+    assert body["matches"] == http.post("/api/profiles/matches/for-documents", json={"document_ids": on_page}).json()
+    assert body["lifecycle"] == http.post("/api/lifecycle/for-documents", json={"document_ids": on_page}).json()
+    # And the marks are really there, so the comparison above compared something.
+    assert body["links"]["links"] and body["matches"]["matches"] and body["lifecycle"]["events"]
+
+
+def test_a_page_not_asked_for_its_marks_is_the_page_it_always_was(client):
+    # The MCP server's search_corpus and the command line ask for no marks.
+    resmon_mod, http = client
+    _marked_collection(resmon_mod)
+    body = http.post("/api/explorer/search", json={}).json()
+    assert not {"links", "matches", "lifecycle"} & set(body)
+
+
+def test_only_the_marks_asked_for_are_answered(client):
+    resmon_mod, http = client
+    _marked_collection(resmon_mod)
+    body = http.post("/api/explorer/search", json={"include": ["lifecycle"]}).json()
+    assert "lifecycle" in body and "links" not in body and "matches" not in body
+    assert http.post("/api/explorer/search", json={"include": ["everything"]}).status_code == 422

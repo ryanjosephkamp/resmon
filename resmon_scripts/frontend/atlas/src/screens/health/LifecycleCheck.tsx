@@ -44,6 +44,8 @@ export function LifecycleCheck() {
   useEffect(() => {
     if (running) return;
     void client.invalidateQueries({ queryKey: [LIFECYCLE_FOR] });
+    // Search's pages carry their papers' notices too.
+    void client.invalidateQueries({ queryKey: ['explorer'] });
     void client.invalidateQueries({ queryKey: [PROFILE_LIFECYCLE] });
   }, [running, client]);
 

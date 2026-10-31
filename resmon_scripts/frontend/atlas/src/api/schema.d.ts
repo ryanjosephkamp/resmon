@@ -6722,12 +6722,20 @@ export interface components {
          *     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
          *     why a requested ranking was refused and the page fell back to newest.
          *     Each of those four is absent when it does not apply.
+         *
+         *     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
+         *     ``include`` named them: what ``/api/links/for-documents``,
+         *     ``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``
+         *     answer for this page's papers, so a page and its marks arrive together.
          */
         ExplorerPage: {
             /** Count Cap */
             count_cap: number;
             /** Has More */
             has_more: boolean;
+            lifecycle?: components["schemas"]["LifecycleForDocuments"] | null;
+            links?: components["schemas"]["PaperLinks"] | null;
+            matches?: components["schemas"]["WatchProfileMatchesByDocument"] | null;
             /** Model */
             model?: string | null;
             /** Next Cursor */
@@ -6809,6 +6817,8 @@ export interface components {
             date_from?: string | null;
             /** Date To */
             date_to?: string | null;
+            /** Include */
+            include?: ("links" | "matches" | "lifecycle")[];
             /**
              * Limit
              * @default 50

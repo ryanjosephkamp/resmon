@@ -6292,7 +6292,7 @@
       },
       "ExplorerPage": {
         "additionalProperties": true,
-        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match, capped at ``count_cap`` when\n``total_is_capped``. Under ``sort == \"similarity\"`` the phrase ranks the\nfiltered set rather than filtering it, and ``ranked_count``,\n``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says\nwhy a requested ranking was refused and the page fell back to newest.\nEach of those four is absent when it does not apply.",
+        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match, capped at ``count_cap`` when\n``total_is_capped``. Under ``sort == \"similarity\"`` the phrase ranks the\nfiltered set rather than filtering it, and ``ranked_count``,\n``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says\nwhy a requested ranking was refused and the page fell back to newest.\nEach of those four is absent when it does not apply.\n\n``links``, ``matches`` and ``lifecycle`` are present only when the request's\n``include`` named them: what ``/api/links/for-documents``,\n``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``\nanswer for this page's papers, so a page and its marks arrive together.",
         "properties": {
           "count_cap": {
             "title": "Count Cap",
@@ -6301,6 +6301,36 @@
           "has_more": {
             "title": "Has More",
             "type": "boolean"
+          },
+          "lifecycle": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleForDocuments"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "links": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaperLinks"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "matches": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchProfileMatchesByDocument"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "model": {
             "anyOf": [
@@ -6575,6 +6605,19 @@
               }
             ],
             "title": "Date To"
+          },
+          "include": {
+            "items": {
+              "enum": [
+                "links",
+                "matches",
+                "lifecycle"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "title": "Include",
+            "type": "array"
           },
           "limit": {
             "default": 50,
