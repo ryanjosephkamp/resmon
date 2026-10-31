@@ -2952,6 +2952,33 @@ def test_osti_search_returns_empty_on_timeout(monkeypatch):
     assert api_osti.OstiClient().search(query="energy") == []
 
 
+@pytest.mark.parametrize(("slug", "clause"), [
+    ("europepmc", "FIRST_PDATE:[2024-01-01 TO 2024-01-31]"),
+    ("doaj", "bibjson.year:[2024 TO 2024]"),
+    ("plos", "publication_date:[2024-01-01T00:00:00Z TO 2024-01-31T23:59:59Z]"),
+])
+def test_a_date_clause_is_joined_to_the_whole_query(monkeypatch, slug, clause):
+    """Grouped first, so the dates apply to all of it.
+
+    Appended bare, the clause changed what an explicit OR meant: on October 30,
+    2026, Europe PMC matched 63,394 for `climate OR model AND FIRST_PDATE:[...]`
+    and 66,427 for the grouped query, PLOS 1,316 and 1,339, DOAJ 206,374 and
+    230,717.
+    """
+    module = sys.modules[get_client(slug).__class__.__module__]
+    sent: list[str] = []
+
+    def _request(method, url, **kwargs):
+        params = kwargs.get("params") or {}
+        sent.append(params.get("query") or params.get("q") or str(url).rsplit("/", 1)[-1])
+        return _FakeResponse(payload={})
+
+    monkeypatch.setattr(module, "safe_request", _request)
+    get_client(slug).search("climate OR model", "2024-01-01", "2024-01-31", 3)
+
+    assert sent and sent[0] == f"(climate OR model) AND {clause}"
+
+
 @pytest.mark.live_network
 def test_openalex_search():
     """OpenAlex client returns results for a simple query."""

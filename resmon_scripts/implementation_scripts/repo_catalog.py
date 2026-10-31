@@ -588,7 +588,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="The /details endpoint has reported upstream outages; resmon surfaces those failures.",
         keyword_combination="Explicit OR",
-        keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        keyword_combination_notes=(
+            "The documented /details API retrieves by date range or DOI rather "
+            "than keyword; resmon filters the returned records and matches when "
+            "any space-separated term appears in the title or abstract, as part "
+            "of a word. AND and OR are matched as terms too, and as parts of "
+            "words they match almost every abstract."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`: `search()` pages through the `/details` "
@@ -712,7 +718,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Set a contact email in the UA for priority.",
         keyword_combination="Relevance-ranked",
-        keyword_combination_notes="CrossRef ranks by relevance, not strict boolean; documents containing more of the words rank higher but single-term matches can still surface.",
+        keyword_combination_notes=(
+            "CrossRef ranks by relevance, not strict boolean; documents containing "
+            "more of the words rank higher but single-term matches can still "
+            "surface. Measured October 30, 2026: `climate model`, `climate AND model` and "
+            "`climate OR model` each matched 3,793,797 works, more than `model` "
+            "alone (3,183,048), so AND and OR are read as words, not operators."
+        ),
         result_order="relevance",
         result_order_established=(
             "`api_crossref.py`: `search()` sends no sort, and Crossref ranks a "
@@ -750,8 +762,16 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Unidentified requests: 500 per 5 minutes per IP; CC0 metadata; attribution requested; linked resources excluded",
         parallel_safe="Yes",
         notes="Public API returns Findable DOI metadata only. Publication filtering is year-granular upstream; resmon preserves partial date precision and applies exact bounds only when Issued metadata supports them.",
-        keyword_combination="Implicit OR",
-        keyword_combination_notes="DataCite documents every unfielded term as optional so long as at least one matches. Unfielded search covers common metadata fields; explicit AND, OR, and NOT remain available in the forwarded query.",
+        # Live behavior, against DataCite's own description; the note says which is which.
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "DataCite's documentation describes every unfielded term as optional "
+            "so long as one matches, but the live API requires them all. Measured October 30, 2026: "
+            "`climate model` matched 107,442 records, near `climate AND model` "
+            "(120,693) and far from `climate OR model` (4,091,550). Unfielded "
+            "search covers common metadata fields; explicit AND, OR, and NOT "
+            "remain available in the forwarded query."
+        ),
         result_order="relevance",
         result_order_established=(
             "`api_datacite.py`: `search()` sends `sort=relevance`."
@@ -902,8 +922,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No strict rate; courtesy use expected",
         parallel_safe="Yes",
         notes="",
-        keyword_combination="Relevance-ranked (Lucene OR default)",
-        keyword_combination_notes="DOAJ uses a Lucene-style URL path whose default operator is OR; results are returned in relevance-scored order.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "DOAJ requires every word. Measured October 30, 2026: `climate model` matched 63,007 "
+            "articles and `climate AND model` 76,055, against 2,038,283 for "
+            "`climate OR model`. Results are returned in relevance-scored order. "
+            "resmon puts your query in parentheses before adding the year, so "
+            "the year applies to all of it."
+        ),
         result_order="relevance",
         result_order_established=(
             "`api_doaj.py`: `search()` sends no sort, and DOAJ returns results "
@@ -958,7 +984,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "not required: https://dev.datadryad.org/help/guides/reuse."
         ),
         keyword_combination="Implicit AND",
-        keyword_combination_notes="Dryad's OpenAPI /search documentation says multiple q terms return only items containing all terms.",
+        keyword_combination_notes=(
+            "Dryad's OpenAPI /search documentation says multiple q terms return "
+            "only items containing all terms. Measured October 30, 2026: `climate model` matched 3,844 "
+            "datasets, as `climate AND model` did, and `climate OR model` also "
+            "matched 3,844, so an explicit OR is not honored."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_dryad.py`: `search()` sends no sort, and nothing establishes "
@@ -994,7 +1025,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="ERIC documents metadata download for database use. Only publication year is searchable, so resmon preserves year-only precision and does not claim a narrower match. A date window narrower than one whole year therefore returns nothing from ERIC — there is no field to filter on, so resmon reports zero results rather than widening the window you asked for.",
         keyword_combination="Implicit OR",
-        keyword_combination_notes="ERIC documents OR as the default between unmarked terms, with stemming. Explicit AND is required when every term must match.",
+        keyword_combination_notes=(
+            "ERIC documents OR as the default between unmarked terms, with "
+            "stemming. Explicit AND is required when every term must match. "
+            "Measured October 30, 2026: `climate model` matched 225,585 records, as `climate OR model` "
+            "did, and `climate AND model` 3,953."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_eric.py`: `search()` sends no sort, and nothing establishes "
@@ -1046,12 +1082,21 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No hard published rate; 'reasonable use' \u2014 5/s is polite",
         parallel_safe="Yes",
         notes="",
-        keyword_combination="Relevance-ranked (Lucene OR default)",
-        keyword_combination_notes="EuropePMC's Lucene backend defaults to OR between terms; you can place explicit AND/OR/quoted phrases inside a single keyword chip and they will be forwarded verbatim.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "Europe PMC requires every word. Measured October 30, 2026: `climate model` matched "
+            "376,070, the same as `climate AND model`, against 9,315,296 for "
+            "`climate OR model`. Explicit AND, OR, and quoted phrases inside a "
+            "single keyword chip are forwarded as typed, and resmon puts the "
+            "query in parentheses before adding your dates, so the dates apply "
+            "to all of it."
+        ),
         result_order="relevance",
         result_order_established=(
-            "`api_europepmc.py`: `search()` sends no sort, and Europe PMC's "
-            "Lucene backend ranks a query by relevance (`keyword_combination`)."
+            "`api_europepmc.py`: `search()` sends no sort, and Europe PMC "
+            "answers an unsorted search in relevance order, not by date: on "
+            "October 30, 2026 the first ten records for `climate model` were "
+            "dated out of order."
         ),
         attribution='Data from Europe PMC',
         attribution_requirement="requested",
@@ -1139,8 +1184,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "375 records for `climate` since October 1 were dated after that day. "
             "A record dated ahead is found by a run made after its date."
         ),
-        keyword_combination="Implicit OR (Solr default)",
-        keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase. resmon asks for the results newest first, not in relevance order.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "HAL requires every word. Measured October 30, 2026: `climate model` matched 20,595 "
+            "records, the same as `climate AND model`, against 534,623 for "
+            "`climate OR model`. resmon asks for the results newest first, not "
+            "in relevance order."
+        ),
         result_order="newest_first",
         result_order_established=(
             "`api_hal.py`: `search()` sends `sort=producedDate_tdate desc`."
@@ -1221,7 +1271,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Shares the /details client implementation with bioRxiv while remaining a distinct selectable source.",
         keyword_combination="Explicit OR",
-        keyword_combination_notes="The documented /details API retrieves by date range or DOI rather than keyword; resmon filters the returned records and matches when any space-separated term appears in the title or abstract.",
+        keyword_combination_notes=(
+            "The documented /details API retrieves by date range or DOI rather "
+            "than keyword; resmon filters the returned records and matches when "
+            "any space-separated term appears in the title or abstract, as part "
+            "of a word. AND and OR are matched as terms too, and as parts of "
+            "words they match almost every abstract."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`, as for bioRxiv: the `/details` date-range "
@@ -1347,7 +1403,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "This catalog note records those obligations but does not itself discharge attribution."
         ),
         keyword_combination="Implicit AND (documented for anywhere)",
-        keyword_combination_notes="NDL Search API v1.4 documents AND as the default when multiple values are specified for the anywhere search field. resmon sends the query as one safely quoted anywhere value and does not claim local keyword filtering.",
+        keyword_combination_notes=(
+            "NDL Search API v1.4 documents AND as the default when multiple "
+            "values are specified for the anywhere search field. resmon sends the "
+            "query as one safely quoted anywhere value and does not claim local "
+            "keyword filtering. Measured October 30, 2026: `東京 地図` matched 2,066 open records, the "
+            "same as two anywhere clauses joined with AND. An AND or OR typed "
+            "into the query is searched for as a word."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_ndl_search.py`: `search()` sends no sort, and nothing "
@@ -1497,7 +1560,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
         keyword_combination="Combination semantics undocumented",
-        keyword_combination_notes="OpenAIRE documents keywords only as a whitespace-separated list and lists its behavior as N/A. resmon forwards the query and does not infer Boolean semantics or perform local filtering.",
+        keyword_combination_notes=(
+            "OpenAIRE documents keywords only as a whitespace-separated list and "
+            "lists its behavior as N/A. resmon forwards the query and does not "
+            "infer Boolean semantics or perform local filtering. Measured October 30, 2026: `climate "
+            "model` matched 342,094 records, fewer than `climate` (1,684,444) or "
+            "`model` (15,647,488) alone, so the words are not combined with OR; "
+            "a query containing AND or OR was refused with HTTP 409."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_openaire.py`: `search()` sends no sort, and nothing "
@@ -1549,8 +1619,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="10 req/s; 100k/day. Polite pool via mailto= query param or UA",
         parallel_safe="Yes",
         notes="Set mailto for stable performance.",
-        keyword_combination="Relevance-ranked",
-        keyword_combination_notes="OpenAlex's search ranks by relevance across title/abstract/fulltext; not a strict boolean.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "OpenAlex's search requires every word, across title, abstract and "
+            "full text, and ranks by relevance. Measured October 30, 2026: `climate model` matched "
+            "3,987,924 works and `climate AND model` 3,986,942, against "
+            "51,564,188 for `climate OR model`."
+        ),
         result_order="relevance",
         result_order_established=(
             "`api_openalex.py`: `search()` sends no sort, and OpenAlex's "
@@ -1592,12 +1667,18 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="1 request/second for unidentified clients; 3 requests/second only with an application-and-contact User-Agent",
         parallel_safe="Yes",
         notes="Open Library work search exposes only first publication year, so resmon preserves year-only precision and locally checks the requested window. A sub-year window returns nothing: no whole publication year can be established as inside it, so resmon does not widen the request.",
-        keyword_combination="Undocumented",
-        keyword_combination_notes="Open Library documents q as a Solr query, but does not document how plain unfielded space-separated terms are combined. resmon forwards the query and does not claim strict local matching.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "Open Library documents q as a Solr query, but not how plain "
+            "unfielded words are combined, so this rests on a live comparison. "
+            "Measured October 30, 2026: `climate model` matched 1,636 works, the same as `climate AND "
+            "model`, against 275,807 for `climate OR model`. resmon forwards the "
+            "query and does not claim strict local matching."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_openlibrary.py`: `search()` sends no sort, and Open Library "
-            "does not document its default order (`keyword_combination_notes`)."
+            "does not document its default order."
         ),
         # api_openlibrary.py:162-166 — a window with no whole calendar year inside it is refused, not widened.
         date_granularity="year",
@@ -1645,8 +1726,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="No numeric rate limit published; excessive automated requests prohibited; OSTI requests acknowledgement and links to current records",
         parallel_safe="Yes",
         notes="OSTI supports metadata export and full-corpus API access, but public access does not make records or abstracts public domain. OSTI asks users to contact it about library-database reuse and before using records or data as AI, ML, or LLM input.",
-        keyword_combination="Combination semantics undocumented",
-        keyword_combination_notes="OSTI documents q only as searching the full record for provided terms; it does not state how multiple terms are combined. resmon forwards the query unchanged.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "OSTI documents q only as searching the full record for provided "
+            "terms and does not state how they combine, so this rests on a live "
+            "comparison. Measured October 30, 2026: `climate model` matched 94,331 records and "
+            "`climate AND model` 94,877, against 1,020,657 for `climate OR "
+            "model`. resmon forwards the query unchanged."
+        ),
         result_order="unstated",
         result_order_established=(
             "`api_osti.py`: `search()` sends no sort, and nothing establishes "
@@ -1684,8 +1771,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="10 req/min soft guidance (resmon is faster)",
         parallel_safe="Yes",
         notes="If you see 429s lower the limiter to 0.2 req/s.",
-        keyword_combination="Upstream default, unverified",
-        keyword_combination_notes="PLOS uses a Solr backend; the default operator is typically OR, but the upstream's exact configuration is not authoritatively documented. resmon asks for the results newest first, not in relevance order.",
+        keyword_combination="Implicit AND",
+        keyword_combination_notes=(
+            "PLOS requires every word, which its documentation does not state, so "
+            "this rests on a live comparison. Measured October 30, 2026: `climate model` matched 41,718 "
+            "articles, the same as `climate AND model`, against 351,956 for "
+            "`climate OR model`. resmon puts the query in parentheses before "
+            "adding your dates, and asks for the results newest first, not in "
+            "relevance order."
+        ),
         result_order="newest_first",
         result_order_established=(
             "`api_plos.py`: `search()` sends `sort=publication_date desc`."
@@ -1723,7 +1817,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Add an API key to raise the ceiling.",
         keyword_combination="Implicit AND",
-        keyword_combination_notes="NCBI E-utilities default operator is AND; space-separated terms are joined with AND before submission to PubMed's search index.",
+        keyword_combination_notes=(
+            "NCBI documents AND as PubMed's default between terms. Measured October 30, 2026: `climate "
+            "model` matched 67,258 records, fewer than `climate AND model` "
+            "(100,998) and far fewer than `climate OR model` (6,365,493): every "
+            "term must match, and PubMed's automatic term mapping can narrow "
+            "adjacent words further."
+        ),
         result_order="newest_first",
         result_order_established=(
             "`api_pubmed.py`: `search()` sends E-utilities `sort=pub_date`, "
@@ -1871,7 +1971,12 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Date bounds are expressed as a publication_date range inside the q query.",
         keyword_combination="Relevance-ranked (implicit OR)",
-        keyword_combination_notes="Zenodo's search guide says space-separated terms match with OR by default and results are ranked against the query; explicit AND requires both terms.",
+        keyword_combination_notes=(
+            "Zenodo's search guide says space-separated terms match with OR by "
+            "default and results are ranked against the query; explicit AND "
+            "requires both terms. Measured October 30, 2026: `climate model` matched 627,587 records, "
+            "near `climate OR model` (627,593), and `climate AND model` 26,960."
+        ),
         result_order="relevance",
         result_order_established=(
             "`api_zenodo.py`: `search()` sends `sort=bestmatch`."

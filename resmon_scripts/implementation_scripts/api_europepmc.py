@@ -33,7 +33,16 @@ class EuropepmcClient(BaseAPIClient):
         if date_from or date_to:
             d_from = date_from or "1900-01-01"
             d_to = date_to or "2099-12-31"
-            search_query += f" AND FIRST_PDATE:[{d_from} TO {d_to}]"
+            # In parentheses, so the date clause applies to the whole query.
+            # Appended bare, it changed what an explicit OR meant: on October
+            # 30, 2026, `climate OR model AND FIRST_PDATE:[January 2024]` matched
+            # 63,394 where `(climate OR model) AND ...` matched 66,427.
+            # DataCite, ERIC, Open Library and Zenodo already group theirs.
+            date_clause = f"FIRST_PDATE:[{d_from} TO {d_to}]"
+            search_query = (
+                f"({search_query}) AND {date_clause}"
+                if search_query.strip() else date_clause
+            )
 
         results: list[NormalizedResult] = []
         cursor_mark = "*"
