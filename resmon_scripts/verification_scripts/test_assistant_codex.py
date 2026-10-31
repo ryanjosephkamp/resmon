@@ -104,6 +104,11 @@ def test_a_new_thread_is_locked_down_and_its_prompt_comes_last():
                      "features.shell_tool=false", "tools.web_search=false",
                      'model_reasoning_effort="high"'):
         assert expected in overrides, expected
+    # Every way codex-cli 0.166.0 has to run a command, read the machine, or act
+    # for the person, beyond resmon's own tools, is asked off.
+    for feature in ("unified_exec", "unified_exec_tty", "browser_use", "computer_use", "apps", "plugins",
+                    "code_mode_host", "multi_agent", "memories", "view_image", "skill_mcp_dependency_install"):
+        assert f"features.{feature}=false" in overrides, feature
     # ``--`` ends the options, and the prompt is the one thing after it.
     assert argv[-2:] == ["--", "what did my watches find"]
     assert argv.count("what did my watches find") == 1

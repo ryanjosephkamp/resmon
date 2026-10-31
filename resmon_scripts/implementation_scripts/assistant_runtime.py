@@ -841,15 +841,37 @@ _CODEX_LOCKDOWN = (
     # nobody for ``codex exec`` to ask.
     'sandbox_mode="read-only"',
     'approval_policy="never"',
-    # The shell and the web search, asked off. ``features.<name>`` is the path
+    # Everything but resmon's tools, asked off. ``features.<name>`` is the path
     # ``--disable <name>`` writes (codex-cli 0.166.0's help); spelled as a
     # ``-c`` override because an unknown key there is ignored, where an
-    # unknown ``--disable`` name may not be. codex-cli 0.153.1 refused
-    # ``tools.shell`` and a top-level ``shell_tool`` under ``--strict-config``
-    # and accepted ``tools.web_search``; ``features.shell_tool`` has not been
-    # tried against a real codex. So it is asked rather than relied on: the
-    # stream below stops a turn that runs a command or searches the web anyway.
+    # unknown ``--disable`` name may not be. The names are the ones
+    # ``codex features list`` reported on for codex-cli 0.166.0 that run
+    # commands, read the machine, reach the web or a browser, act for the
+    # person, or install anything: the shell and the newer unified exec
+    # beside it, the browser and computer use, apps and plugins, code mode,
+    # sub-agents, memories, images, and dependency installs. It is asked
+    # rather than relied on: the stream below stops a turn that uses any tool
+    # but resmon's, whatever a later codex calls it.
     "features.shell_tool=false",
+    "features.unified_exec=false",
+    "features.unified_exec_tty=false",
+    "features.shell_snapshot=false",
+    "features.browser_use=false",
+    "features.browser_use_external=false",
+    "features.browser_use_full_cdp_access=false",
+    "features.in_app_browser=false",
+    "features.computer_use=false",
+    "features.apps=false",
+    "features.plugins=false",
+    "features.remote_plugin=false",
+    "features.code_mode_host=false",
+    "features.multi_agent=false",
+    "features.memories=false",
+    "features.image_generation=false",
+    "features.view_image=false",
+    "features.skill_mcp_dependency_install=false",
+    "features.workspace_dependencies=false",
+    "features.hooks=false",
     "tools.web_search=false",
 )
 
