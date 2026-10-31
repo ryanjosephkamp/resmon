@@ -62,7 +62,8 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
         {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
-        {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status} names={names} />}
+        {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status}
+          endedAt={running ? null : run.end_time ?? null} names={names} />}
         {tab === 'Report' && <TextRecord run={run} kind="report" running={running} />}
         {tab === 'Log' && <TextRecord run={run} kind="log" running={running} />}
         {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}

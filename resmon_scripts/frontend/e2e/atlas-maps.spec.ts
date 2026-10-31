@@ -138,6 +138,28 @@ async function reachable(win: Page, canvas: string, ids: readonly number[], map:
   throw new Error(`none of papers ${ids.join(', ')} can be clicked on ${canvas}`);
 }
 
+/**
+ * Click papers among *ids* until one of them opens beside the map: the dot
+ * clicked and the paper it opened. A click opens the nearest paper, and on a
+ * small plate that can be another paper's dot drawn over this one, a new one
+ * that the list shows instead.
+ */
+async function openBeside(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<{ clicked: number; opened: number }> {
+  const panel = win.locator('section[data-map-paper]');
+  for (const id of ids) {
+    const clicked = await reachable(win, canvas, [id], map).catch(() => null);
+    if (clicked === null) continue;
+    await clickPaper(win, canvas, clicked, map);
+    if (await panel.waitFor({ timeout: 3_000 }).then(() => true, () => false)) {
+      const opened = Number(await panel.getAttribute('data-map-paper'));
+      if (ids.includes(opened)) return { clicked, opened };
+    }
+    await win.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+  }
+  throw new Error(`none of papers ${ids.join(', ')} opened beside ${canvas}`);
+}
+
 async function resize(app: ElectronApplication, width: number, height: number): Promise<void> {
   await app.evaluate(({ BrowserWindow }, [w, h]) => {
     const win = BrowserWindow.getAllWindows()[0];
@@ -179,11 +201,8 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     // 1. A paper that is not among the new ones opens beside the map, in the list's place.
     // These papers share most of their words, so their dots can fall on one
     // another: a click opens the nearest, which is whichever of them it is.
-    const target = await reachable(win, canvas, seed.old_protein.slice(3), map);
-    await clickPaper(win, canvas, target, map);
-    await expect(win.locator(canvas)).toHaveAttribute('data-selected', /^\d+$/);
-    const chosen = Number(await win.locator(canvas).getAttribute('data-selected'));
-    expect(seed.old_protein).toContain(chosen);
+    // Each of them meets the checks below.
+    const { clicked: target, opened: chosen } = await openBeside(win, canvas, seed.old_protein.slice(3), map);
     const panel = win.locator(`section[data-map-paper="${chosen}"]`);
     await expect(panel).toBeVisible();
     await expect(win.locator(canvas)).toHaveAttribute('data-selected', String(chosen));
@@ -323,10 +342,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
       await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
       const now = await engine<MapBody>(win, '/api/map');
-      const here = await reachable(win, canvas, [chosen, ...seed.old_protein], now);
-      await clickPaper(win, canvas, here, now);
-      await expect(win.locator('section[data-map-paper]')).toBeVisible();
-      expect(seed.old_protein).toContain(Number(await win.locator('section[data-map-paper]').getAttribute('data-map-paper')));
+      const { clicked: here } = await openBeside(win, canvas, [chosen, ...seed.old_protein], now);
       await shot(win, `today-${other}-${width}`);
       await engine(win, '/api/appearance', 'PUT', { theme: theme ?? 'dark', accent: null });
       await win.reload();

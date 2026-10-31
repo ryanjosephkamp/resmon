@@ -337,7 +337,7 @@ kbd {
 /* ----------------------------------------------------------------- today */
 
 .today { display: grid; grid-template-columns: minmax(0, 1fr) clamp(440px, 40vw, 600px); height: 100%; min-height: 0; }
-.today-plate { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--plate); }
+.today-plate { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--plate); container: plate / inline-size; }
 .today-plate > .plate { flex: 1 1 auto; }
 
 .plate { position: relative; min-width: 0; min-height: 0; overflow: hidden; animation: plate-in 520ms var(--ease-out); }
@@ -377,6 +377,20 @@ kbd {
 .cartouche .split b { font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .it { font-family: var(--serif); font-style: italic; font-weight: 400; letter-spacing: .005em; }
 .cartouche .split .it { font-size: 14.5px; color: var(--ink); }
+/* On a narrow plate the title block keeps every sentence, set smaller and
+   closer to the corner, so it covers less of the map. */
+@container plate (max-width: 760px) {
+  .cartouche { width: 252px; padding: 13px 15px 14px; }
+  .cartouche.tr, .cartouche.tl { top: 30px; }
+  .cartouche.br, .cartouche.bl { bottom: 30px; }
+  .cartouche.tr, .cartouche.br { right: 30px; }
+  .cartouche.tl, .cartouche.bl { left: 30px; }
+  .cartouche h1 { margin: 6px 0 3px; font-size: 28px; }
+  .cartouche .since { font-size: 13px; }
+  .cartouche .plt { margin-top: 9px; font-size: 11.5px; }
+  .cartouche .split { margin-top: 9px; padding-top: 8px; font-size: 12px; }
+  .cartouche .split .it { font-size: 13px; }
+}
 
 .tip {
   position: absolute; pointer-events: none; z-index: 5; max-width: 300px; display: grid; gap: 2px;
@@ -481,11 +495,12 @@ kbd {
 .map-paper-abstract { font-size: 14px; line-height: 1.6; }
 
 .index { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--rule); }
-.index-bar { height: 56px; flex: none; display: flex; align-items: center; gap: 10px; padding: 0 22px 0 28px; border-bottom: 1px solid var(--rule); }
+/* 56 pixels high, level with the map's own bar; in a narrow column its controls wrap to a second line rather than run off the edge. */
+.index-bar { min-height: 56px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 22px 10px 28px; border-bottom: 1px solid var(--rule); }
 .index-bar h2 { margin: 0 auto 0 0; font: 600 15px/1 var(--sans); color: var(--ink); white-space: nowrap; }
 .index-bar h2 span { color: var(--ink-3); font-weight: 500; margin-left: 6px; font-variant-numeric: tabular-nums; }
 .seg { display: inline-flex; border: 1px solid var(--rule-2); border-radius: 8px; padding: 2px; background: var(--panel); }
-.seg button { border: 0; background: transparent; height: 26px; padding: 0 10px; border-radius: 6px; font: 500 12.5px/1 var(--sans); color: var(--ink-2); cursor: pointer; }
+.seg button { border: 0; background: transparent; height: 26px; padding: 0 10px; border-radius: 6px; font: 500 12.5px/1 var(--sans); color: var(--ink-2); cursor: pointer; white-space: nowrap; }
 .seg button[aria-pressed="true"] { background: var(--raise); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .18), inset 0 0 0 1px var(--rule-2); }
 .index-scroll { flex: 1; min-height: 0; overflow: auto; padding: 0 22px 24px 28px; scroll-padding-top: 12px; }
 .index-cap, .index-empty { margin: 16px 0 0; font: 400 13px/1.5 var(--sans); color: var(--ink-3); }
@@ -541,7 +556,9 @@ kbd {
 .entry-title:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
 .meta { display: flex; align-items: center; gap: 7px; margin-top: 3px; min-height: 28px; font: 400 12.5px/1.3 var(--sans); color: var(--ink-3); }
 .meta .who { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.meta > span:not(.who), .meta .cell { white-space: nowrap; flex: none; }
+/* A watch's terms can run long: they give way, with the whole on hover, rather than widen the list. */
+.meta .asks { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 0 1 auto; }
+.meta > span:not(.who):not(.asks), .meta .cell { white-space: nowrap; flex: none; }
 .meta .sep { width: 3px; height: 3px; border-radius: 50%; background: var(--ink-3); opacity: .7; flex: none; }
 .meta .cell { border: 0; background: transparent; padding: 0 2px; font: 500 12.5px/1 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; cursor: zoom-in; border-radius: 4px; }
 .meta .cell:hover { color: var(--accent-ink); }
@@ -1610,7 +1627,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The reader's tools: the page, the zoom, every page at once, and focus mode. */
 .ev-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
 .ev-focus-name { display: none; }
-.ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
+.ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
 .ev-page-input {
   width: 4.5em; height: 28px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
   background: var(--plate); color: var(--ink); font: 500 13px/1 var(--sans); text-align: right;
@@ -1690,6 +1707,26 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-thumb[aria-current="page"] .ev-thumb-paper { box-shadow: 0 0 0 2px var(--accent-mark); }
 .ev-thumb-paper img { display: block; width: 100%; height: 100%; }
 .ev-thumb-number { font: 500 12px/1 var(--sans); }
+/* Find in the document: a bar over the pages' top right, and its matches marked in the text layer. */
+.ev-find {
+  position: absolute; top: 10px; right: 18px; z-index: 4; display: flex; align-items: center; gap: 2px;
+  width: min(390px, calc(100% - 36px)); padding: 4px 4px 4px 6px;
+  border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow);
+}
+.ev-find input {
+  flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: calc(var(--r) - 2px);
+  background: transparent; color: var(--ink); font: 400 13px/1 var(--sans);
+}
+.ev-find input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 0; }
+.ev-find-count { flex: none; min-width: 5.5em; padding: 0 6px; text-align: right; font: 500 12px/1 var(--sans); color: var(--ink-3); white-space: nowrap; }
+.ev-find-prev .icon { transform: rotate(180deg); }
+.ev-reader[data-focus="true"] .ev-find { top: 12px; right: 22px; }
+/* On the page's paper: every match washed in the accent, the current one deeper and underlined. */
+::highlight(ev-find) { background-color: color-mix(in srgb, var(--accent-mark) 26%, transparent); }
+::highlight(ev-find-current) {
+  background-color: color-mix(in srgb, var(--accent-mark) 62%, transparent);
+  text-decoration: underline 2px var(--accent-ink);
+}
 /*
  * Focus mode: the reader takes the window, its tools become the top bar (the
  * window's own controls inset at the left on macOS, as in the frame's bar),
