@@ -1,4 +1,6 @@
-"""What arXiv is asked.
+"""What arXiv is asked, and how long resmon waits when arXiv says to wait.
+
+Two properties of one client, both of which failed quietly.
 
 **Every word must match.** arXiv reads `all:graph neural` as `all:graph OR
 all:neural` (331,422 papers on October 30, 2026, against 21,136 for the AND),
@@ -8,19 +10,35 @@ with any one of its words, from any year, while the catalog said all of them.
 The string the client sends is asserted here for every shape a query takes,
 and once more after travelling from a watch's stored keywords through the
 engine. ``test_a_two_word_query_counts_what_the_and_counts`` is the live half.
+
+**A 429 is waited out.** arXiv asks for one request every three seconds and
+answers a busier caller with 429. ``safe_request``'s shared ladder spent its
+four attempts in about ten seconds, and a nightly watch failed twice in one
+week. The ladder is driven here against a real loopback server, with the wait
+replaced by a recorder so no test sleeps.
 """
 
 from __future__ import annotations
 
 import re
+import threading
 import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
-from implementation_scripts import api_arxiv
+from implementation_scripts import api_arxiv, api_base, config, zero_reason
+from implementation_scripts.api_base import NormalizedResult, ServerCooldownActive
 
 _FEED_OPEN = "<feed xmlns='http://www.w3.org/2005/Atom'>"
 _EMPTY_FEED = _FEED_OPEN + "</feed>"
+_ONE_ENTRY = (
+    _FEED_OPEN
+    + "<entry><id>http://arxiv.org/abs/2410.00001v1</id>"
+    "<title>Graph neural networks</title><summary>An abstract.</summary>"
+    "<published>2024-10-01T00:00:00Z</published>"
+    "<author><name>A. Author</name></author></entry></feed>"
+)
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +199,193 @@ def test_a_watch_and_a_search_with_the_same_keywords_ask_arxiv_the_same(
 
 
 # ---------------------------------------------------------------------------
+# Waiting out a 429 or a 503
+# ---------------------------------------------------------------------------
+
+
+class _Script(BaseHTTPRequestHandler):
+    """Answers each request with the next reply in the server's script."""
+
+    def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler's spelling
+        server = self.server
+        with server.lock:
+            server.hits += 1
+            status, headers, body = (
+                server.script.pop(0) if server.script else server.otherwise)
+        payload = body.encode("utf-8")
+        self.send_response(status)
+        for name, value in headers.items():
+            self.send_header(name, value)
+        self.send_header("Content-Type", "application/atom+xml")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, *args):
+        pass
+
+
+class _Limiter:
+    """Admits at once, and can be told to refuse once with a cooldown."""
+
+    def __init__(self):
+        self.cooldown: float | None = None
+        self.deferred: list[float] = []
+
+    def acquire(self, *, deadline=None):
+        if self.cooldown is not None:
+            seconds, self.cooldown = self.cooldown, None
+            raise ServerCooldownActive(seconds, 429)
+
+    def defer(self, seconds, *, status_code=429):
+        self.deferred.append(seconds)
+
+
+@pytest.fixture
+def arxiv(monkeypatch):
+    """arXiv on loopback, a limiter that never sleeps, and a recorded wait."""
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _Script)
+    server.lock = threading.Lock()
+    server.hits = 0
+    server.script = []
+    server.otherwise = (200, {}, _ONE_ENTRY)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    waits: list[float] = []
+    limiter = _Limiter()
+    monkeypatch.setattr(api_arxiv, "_ARXIV_API_URL",
+                        f"http://127.0.0.1:{server.server_address[1]}/api/query")
+    monkeypatch.setattr(api_arxiv, "_RATE_LIMITER", limiter)
+    monkeypatch.setattr(api_arxiv, "_wait", waits.append)
+    # safe_request's own ladder still runs for a 500; nothing in it may sleep.
+    monkeypatch.setattr(config, "DEFAULT_BACKOFF_BASE", 0.0)
+    api_base.reset_search_outcome()
+    server.waits = waits
+    server.limiter = limiter
+    try:
+        yield server
+    finally:
+        api_base.reset_search_outcome()
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+def _search() -> list[NormalizedResult]:
+    return api_arxiv.ArxivClient().search("graph neural", max_results=1)
+
+
+def test_a_429_without_retry_after_is_waited_out_from_five_seconds_doubling(arxiv):
+    arxiv.script = [(429, {}, "")] * 3
+
+    results = _search()
+
+    assert [r.external_id for r in results] == ["2410.00001v1"]
+    assert arxiv.waits == [5.0, 10.0, 20.0]
+    assert arxiv.hits == 4
+    snapshot = api_base.search_outcome().snapshot()
+    assert snapshot["attempts"] == 4
+    assert snapshot["waited_seconds"] == 35.0
+    # A ladder that recovered lost nothing, and is not called partial.
+    assert zero_reason.terminal_issue(snapshot) is None
+
+
+def test_retry_after_is_honored_when_it_asks_for_longer(arxiv):
+    arxiv.script = [(429, {"Retry-After": "30"}, ""), (503, {"Retry-After": "45"}, "")]
+
+    results = _search()
+
+    assert len(results) == 1
+    assert arxiv.waits == [30.0, 45.0]
+    # And it still reaches the shared limiter, so every other arXiv search
+    # running at the same time waits as well.
+    assert arxiv.limiter.deferred == [30.0, 45.0]
+
+
+def test_a_retry_after_shorter_than_the_backoff_does_not_shorten_it(arxiv):
+    arxiv.script = [(429, {"Retry-After": "1"}, "")]
+
+    assert len(_search()) == 1
+    assert arxiv.waits == [5.0]
+
+
+def test_a_429_that_outlasts_the_patience_is_recorded_with_the_time_waited(arxiv):
+    arxiv.otherwise = (429, {}, "")
+
+    assert _search() == []
+
+    # 5 + 10 + 20 + 40 + 80 = 155 seconds; the next wait, 160, would pass
+    # three minutes, so the sixth answer is the one the run records.
+    assert arxiv.waits == [5.0, 10.0, 20.0, 40.0, 80.0]
+    assert arxiv.hits == 6
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert (reason, detail) == ("upstream_failure", {
+        "detail": "rate_limited", "status": 429, "attempts": 6,
+        "waited_seconds": 155,
+    })
+    assert zero_reason.sentence("arXiv", reason, detail) == (
+        "arXiv could not be queried: HTTP 429 after 6 attempts, with 155 "
+        "seconds of waiting between them. This is not a zero — the source "
+        "did not answer."
+    )
+
+
+def test_a_503_is_waited_out_the_same_way(arxiv):
+    arxiv.script = [(503, {}, "")] * 2
+
+    assert len(_search()) == 1
+    assert arxiv.waits == [5.0, 10.0]
+
+
+def test_a_retry_after_beyond_the_patience_is_not_waited_for(arxiv):
+    """An hour is not waited; the 429 is recorded at once, with no wait."""
+    arxiv.otherwise = (429, {"Retry-After": "3600"}, "")
+
+    assert _search() == []
+    assert arxiv.waits == []
+    assert arxiv.hits == 1
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert (reason, detail) == ("upstream_failure", {
+        "detail": "rate_limited", "status": 429, "attempts": 1})
+
+
+def test_a_cooldown_another_search_was_given_is_waited_out(arxiv):
+    """The shared limiter refuses with another search's Retry-After; it is waited."""
+    arxiv.limiter.cooldown = 40.0
+
+    assert len(_search()) == 1
+    assert arxiv.waits == [40.0]
+    assert arxiv.hits == 1
+
+
+def test_other_server_errors_keep_the_shared_quick_retry(arxiv):
+    """A 500 is still safe_request's to retry, at once and without patience."""
+    arxiv.script = [(500, {}, "")]
+
+    assert len(_search()) == 1
+    assert arxiv.waits == []
+    assert arxiv.hits == 2
+
+
+def test_the_patience_is_one_budget_for_the_whole_search(arxiv):
+    """A second page that meets a 429 spends what the first left over."""
+    page = _FEED_OPEN + "".join(
+        f"<entry><id>http://arxiv.org/abs/2410.{n:05d}v1</id><title>T{n}</title></entry>"
+        for n in range(100)) + "</feed>"
+    arxiv.script = [(429, {}, "")] * 4 + [(200, {}, page)]
+    arxiv.otherwise = (429, {}, "")
+
+    results = api_arxiv.ArxivClient().search("graph neural", max_results=101)
+
+    # 5 + 10 + 20 + 40 on the first page leaves 105 seconds of 180: the
+    # second page waits 80 more (the ladder keeps doubling) and then stops,
+    # because 160 would pass the budget. The 100 records already read stay.
+    assert arxiv.waits == [5.0, 10.0, 20.0, 40.0, 80.0]
+    assert len(results) == 100
+
+
+# ---------------------------------------------------------------------------
 # Live
 # ---------------------------------------------------------------------------
 
@@ -218,9 +423,11 @@ def test_a_two_word_query_counts_what_the_and_counts():
         return int(match.group(1))
 
     def asked(search_query: str) -> int:
-        response = real("GET", api_arxiv._ARXIV_API_URL, params={
+        # Through the client's own ladder, so a busy arXiv is waited out here
+        # as it is in a run, rather than failing the comparison.
+        response = api_arxiv._patient_request({
             "search_query": search_query, "start": 0, "max_results": 1,
-        }, rate_limiter=api_arxiv._RATE_LIMITER)
+        }, api_arxiv._Patience())
         assert response.status_code == 200, response.status_code
         return total(response.text)
 

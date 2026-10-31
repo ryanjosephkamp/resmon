@@ -3,13 +3,19 @@
 
 import logging
 import re
+import time
 import xml.etree.ElementTree as ET
+
+import httpx
 
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
+    ServerCooldownActive,
     note_parse_failure,
+    note_retry_wait,
+    retry_after_seconds,
     safe_request,
 )
 
@@ -56,6 +62,85 @@ _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 # arXiv guideline: 1 request per 3 seconds
 _RATE_LIMITER = RateLimiter(requests_per_second=0.33)
+
+# What arXiv is given when it answers 429 or 503: time. Its API terms ask for
+# no more than one request every three seconds, and a 429 means it wants far
+# longer than that. ``safe_request``'s shared ladder waits 1, 2 and 4 seconds,
+# which the limiter stretches to three each, so a nightly watch spent its four
+# attempts inside about ten seconds and failed (October 27 and 29, 2026:
+# `rate_limited`, HTTP 429, 4 attempts, an 11-second run). So those two
+# statuses are left out of ``safe_request``'s own retries and waited out here:
+# 5 seconds doubling, or longer when arXiv's Retry-After asks for longer, until
+# one search has waited `_PATIENCE_SECONDS` in all. 5 + 10 + 20 + 40 + 80 is
+# 155 seconds over six attempts; the next wait would pass three minutes, so
+# the sixth answer stands and the run records it with the time waited. Every
+# other status, a timeout and a dropped connection keep ``safe_request``'s
+# ladder, and each attempt keeps its own request timeout.
+_PATIENT_STATUSES = frozenset({429, 503})
+# The rest of ``safe_request``'s transient set, which it still retries itself.
+_QUICK_RETRY_STATUSES = frozenset({500, 502, 504})
+_FIRST_WAIT_SECONDS = 5.0
+_PATIENCE_SECONDS = 180.0
+
+
+def _wait(seconds: float) -> None:
+    """Sleep between attempts. A seam, so a test can wait without sleeping."""
+    time.sleep(seconds)
+
+
+class _Patience:
+    """One search's waiting, shared by all of its pages."""
+
+    def __init__(self) -> None:
+        self.waited = 0.0
+        self.next_wait = _FIRST_WAIT_SECONDS
+
+    def allows(self, seconds: float) -> bool:
+        return self.waited + seconds <= _PATIENCE_SECONDS
+
+    def spend(self, seconds: float, why: str) -> None:
+        logger.warning("arXiv %s; waiting %.0f s before asking again", why, seconds)
+        _wait(seconds)
+        self.waited += seconds
+        note_retry_wait(seconds)
+
+
+def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
+    """One page, asked again after a 429 or a 503 until the patience runs out.
+
+    The response that ends the ladder is returned as it is, so a page that is
+    still 429 after the last wait reaches the caller, and the run, as the
+    failure it is. ``safe_request`` has already recorded each attempt.
+    """
+    while True:
+        try:
+            response = safe_request(
+                "GET", _ARXIV_API_URL,
+                params=params,
+                rate_limiter=_RATE_LIMITER,
+                retry_statuses=_QUICK_RETRY_STATUSES,
+            )
+        except ServerCooldownActive as exc:
+            # Another arXiv search was told to wait, and the shared limiter
+            # holds that cooldown for every search. Wait it out here too,
+            # rather than giving up while the time is inside the budget.
+            if not patience.allows(exc.seconds):
+                raise
+            patience.spend(exc.seconds, "is cooling down after an earlier 429")
+            continue
+        if response.status_code not in _PATIENT_STATUSES:
+            return response
+        # Retry-After is the earliest arXiv will take another request, so it
+        # is honored as a floor under the doubling wait rather than in place
+        # of it: a header saying 0 or 1 would otherwise turn three minutes
+        # into sixty requests three seconds apart.
+        retry_after = retry_after_seconds(response)
+        seconds = max(retry_after or 0.0, patience.next_wait)
+        if not patience.allows(seconds):
+            return response
+        patience.spend(seconds, f"answered {response.status_code}")
+        patience.next_wait *= 2
+
 
 def _search_query(
     query: str, date_from: str | None = None, date_to: str | None = None,
@@ -159,6 +244,7 @@ class ArxivClient(BaseAPIClient):
         results: list[NormalizedResult] = []
         start = 0
         page_size = min(max_results, 100)
+        patience = _Patience()
 
         while len(results) < max_results:
             params = {
@@ -170,11 +256,7 @@ class ArxivClient(BaseAPIClient):
             }
 
             try:
-                response = safe_request(
-                    "GET", _ARXIV_API_URL,
-                    params=params,
-                    rate_limiter=_RATE_LIMITER,
-                )
+                response = _patient_request(params, patience)
                 if response.status_code != 200:
                     logger.error("arXiv API returned %d", response.status_code)
                     break

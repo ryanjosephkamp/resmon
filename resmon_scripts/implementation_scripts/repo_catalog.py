@@ -516,7 +516,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         registration_url=None,
         upstream_policy="\u22653 s between calls; bulk access via OAI-PMH",
         parallel_safe="Yes",
-        notes="Conservative by design. Do not drop the delay.",
+        notes=(
+            "Conservative by design. Do not drop the delay. When arXiv answers "
+            "429 or 503, resmon waits and asks again: 5 seconds, doubling, or "
+            "longer when arXiv's Retry-After asks for longer, up to three minutes "
+            "of waiting in one search. A run that still gets 429 or 503 records "
+            "how many attempts it made and how long it waited."
+        ),
         # arXiv's own default between bare words is OR, measured October 30,
         # 2026 (`_search_query` in api_arxiv.py has the figures). The AND is
         # resmon's, which is what the qualifier says.

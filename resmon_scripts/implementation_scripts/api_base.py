@@ -471,6 +471,16 @@ def _retry_after_seconds(
         return None
 
 
+def retry_after_seconds(response) -> float | None:
+    """A response's Retry-After, in seconds, read as ``safe_request`` reads it.
+
+    For a client that waits out a 429 or a 503 itself rather than inside
+    ``safe_request`` (arXiv). ``None`` when the header is absent or unreadable;
+    infinity when it asks for longer than anything resmon will wait.
+    """
+    return _retry_after_seconds(response)
+
+
 # ---------------------------------------------------------------------------
 # retry_with_backoff
 # ---------------------------------------------------------------------------
@@ -626,6 +636,9 @@ class SearchOutcome:
     # ``note_author_query``. Written by the client that builds the request,
     # because only it knows which of the profile's facts it used.
     author_query: dict | None = None
+    # Seconds a client's own retry ladder waited between attempts; see
+    # ``note_retry_wait``. Waits inside ``safe_request`` are not counted here.
+    waited_seconds: float = 0.0
 
     def reset(self) -> None:
         self.attempts = 0
@@ -639,6 +652,7 @@ class SearchOutcome:
         self.failure_history = []
         self.failure_history_omitted = 0
         self.author_query = None
+        self.waited_seconds = 0.0
 
     # -- written by safe_request ------------------------------------------
 
@@ -736,6 +750,7 @@ class SearchOutcome:
             "failure_history": list(self.failure_history),
             "failure_history_omitted": self.failure_history_omitted,
             "author_query": dict(self.author_query) if self.author_query else None,
+            "waited_seconds": self.waited_seconds,
         }
 
 
@@ -786,6 +801,18 @@ def note_author_query(kind: str, value: str) -> None:
 
 def note_unanswerable(why: str) -> None:
     search_outcome().note_unanswerable(why)
+
+
+def note_retry_wait(seconds: float) -> None:
+    """Record time a client's own retry ladder spent waiting between attempts.
+
+    A source that answers 429 or 503 and is waited out over minutes has a
+    different story from one that failed four times in ten seconds, and the
+    run's record says which: ``zero_reason.terminal_issue`` puts the total
+    beside the attempt count when the last attempt still failed.
+    """
+    if seconds > 0:
+        search_outcome().waited_seconds += float(seconds)
 
 
 def note_parse_failure(why: str = "parse_error") -> None:
@@ -908,6 +935,7 @@ def safe_request(
     max_retries: int | None = None,
     backoff_base: float | None = None,
     deadline: float | None = None,
+    retry_statuses: frozenset[int] | None = None,
     **kwargs,
 ) -> httpx.Response:
     """HTTP request wrapper integrating rate limiting, retries, and error logging.
@@ -933,6 +961,12 @@ def safe_request(
         in-progress response and joins its owned thread before returning. This
         is cooperative I/O timing, not a bound on blocking DNS shutdown/CPU work.
         Omit to preserve the existing synchronous transport and defaults.
+    retry_statuses : frozenset[int] | None
+        The transient statuses this call retries itself. ``None`` is all of
+        them. A client that waits out some statuses on its own schedule
+        (arXiv, for 429 and 503) leaves those out, and gets the response back
+        on its first occurrence; its Retry-After still reaches the shared
+        limiter.
     **kwargs
         Forwarded to the HTTPX request.
 
@@ -952,6 +986,8 @@ def safe_request(
         max_retries = config.DEFAULT_MAX_RETRIES
     if backoff_base is None:
         backoff_base = config.DEFAULT_BACKOFF_BASE
+    if retry_statuses is None:
+        retry_statuses = frozenset(_TRANSIENT_CODES)
 
     outcome = search_outcome()
     last_exc: Exception | None = None
@@ -1003,7 +1039,7 @@ def safe_request(
             if retry_after is not None and rate_limiter is not None:
                 rate_limiter.defer(retry_after, status_code=response.status_code)
 
-            if response.status_code in _TRANSIENT_CODES and attempt < max_retries:
+            if response.status_code in retry_statuses and attempt < max_retries:
                 # This invocation is not terminal yet. Keep the actual status
                 # locally so a cooldown that prevents the next attempt can
                 # report it once; a later success remains a successful
