@@ -1845,6 +1845,28 @@ READ_TOOLS: frozenset[str] = frozenset(
     t["name"] for t in TOOLS if not t.get("requires_confirmation")
 )
 
+# A server started with ``RESMON_MCP_READ_ONLY=1`` offers ``READ_TOOLS`` and
+# nothing else: ``tools/list`` leaves the writes out, and a call to one is
+# refused here, before anything reaches the backend. It is for a client that
+# cannot ask a person before it calls a tool -- Ask on Codex, whose ``codex
+# exec`` has no way to hold a call for the panel's card. Refusing in the server
+# rather than asking the client to leave the writes alone is the difference
+# between a property and a request: a model that guessed a write's name still
+# has no path to it.
+READ_ONLY_ENV = "RESMON_MCP_READ_ONLY"
+
+
+def read_only() -> bool:
+    """Whether this server was started to offer the read tools only."""
+    return os.environ.get(READ_ONLY_ENV, "").strip() == "1"
+
+
+def offered_tools() -> list[dict]:
+    """The tools this server lists: all of them, or only the reads."""
+    if read_only():
+        return [t for t in TOOLS if not t.get("requires_confirmation")]
+    return list(TOOLS)
+
 
 def call_tool(name: str, args: Optional[dict]) -> dict:
     """Run one tool and return its MCP result payload.
@@ -1858,6 +1880,12 @@ def call_tool(name: str, args: Optional[dict]) -> dict:
         return _result(
             {"error": "invalid_argument", "message": f"Unknown tool '{name}'.",
              "detail": {}}, is_error=True)
+    if name in WRITE_TOOLS and read_only():
+        return _result(
+            {"error": "invalid_argument",
+             "message": (f"'{name}' changes resmon, and this session offers resmon's "
+                         "read-only tools only. Nothing was changed."),
+             "detail": {"read_only": True}}, is_error=True)
     try:
         return _result(fn(args or {}))
     except ToolError as exc:
@@ -1909,7 +1937,7 @@ def handle_message(msg: dict) -> Optional[dict]:
             {"name": t["name"], "description": t["description"],
              "inputSchema": t["schema"],
              "requires_confirmation": bool(t.get("requires_confirmation"))}
-            for t in TOOLS
+            for t in offered_tools()
         ]})
 
     if method == "tools/call":

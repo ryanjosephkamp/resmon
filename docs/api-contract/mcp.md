@@ -641,6 +641,14 @@ not attach to a backend that published no token file. So a separate MCP checkout
 in the same sitting as the app; running one of each is not a degraded mode, it is no
 service at all.
 
+**A read-only session.** A server started with `RESMON_MCP_READ_ONLY=1` lists only the
+tools whose `requires_confirmation` is false, and refuses a call to any other with
+`invalid_argument` and `detail: {"read_only": true}` before anything reaches the backend.
+Any other value, or none, leaves the full surface. It is for a client that cannot ask a
+person before a call runs: Ask on Codex starts resmon's server this way, because `codex
+exec` cannot hold a call for the panel's card. Nothing else about the server changes, and
+the contract version does not move: the default surface is the one above.
+
 ---
 
 ## v2.4 — `update_settings` admits a key by name
