@@ -1,13 +1,13 @@
 /**
  * Every map in Atlas can be explored, in the real app, over the maps specs'
  * collection: on Search › Your collection a match opens in the results' place
- * and Back returns to the results with the search box's words kept; on
- * Watches a paper opens in the list's place, and on a watch's page and a run's
- * page beside the map, in the column there; a paper's page opens a
- * neighbor's own page. Hover names a paper, and a click opens it. A map in a
- * page that scrolls leaves the wheel to the page. Search's fields take the
- * caret on arrival but not on Back. The pages are pictured at 1024 by 684 and
- * 768, and at 1728 wide.
+ * and Back returns to the results with the search box's words kept, as
+ * history's Back to the page does; on Watches a paper opens in the list's
+ * place, and on a watch's page and a run's page beside the map, in the column
+ * there; a paper's page opens a neighbor's own page. Hover names a paper,
+ * and a click opens it. A map in a page that scrolls leaves the wheel to the
+ * page. Search's fields take the caret on arrival but not on Back. The pages
+ * are pictured at 1024 by 684 and 768, and at 1728 wide.
  *
  * Papers are chosen from the keyboard (the plate focused, Enter for the lit
  * paper nearest its middle) and checked by what they open; the one click is
@@ -111,6 +111,9 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     await win.evaluate(() => window.history.back());
     await expect(win.locator('#collection-query')).toBeVisible();
     await expect(win.locator('#collection-query')).not.toBeFocused();
+    // Back finds the words where they were left, and the matches with them.
+    await expect(query).toHaveValue('Quantum');
+    await expect(win.locator('.collection .sky figcaption')).toContainText('Marked: 20 matches');
 
     // Watches: the lit watch's papers outlined; a paper opens in the list's place, Escape returns.
     const watchList = win.getByRole('region', { name: 'Watches' });
@@ -127,6 +130,12 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     await win.keyboard.press('Escape');
     await expect(watchesPanel).toHaveCount(0);
     await expect(watchList).toBeVisible();
+    // Back from another section to Search keeps its words too.
+    await win.evaluate(() => window.history.back());
+    await expect(query).toHaveValue('Quantum');
+    await expect(win.locator('.collection .sky figcaption')).toContainText('Marked: 20 matches');
+    await win.evaluate(() => window.history.forward());
+    await expect(watchList).toBeVisible();
 
     // A watch's page: the paper opens in the run history's place, beside the map.
     await win.evaluate((id) => { window.location.hash = `#/watches/${id}`; }, seed.protein_watch);
@@ -137,15 +146,30 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     const watchPanel = win.locator(`.watch-main section[data-map-paper="${fromWatch}"]`);
     await expect(watchPanel.getByRole('region', { name: 'Found by' })).toContainText('Protein structure');
     await shot(win, 'watch-paper');
-    // The page scrolls under the wheel over its map; the map keeps its view.
-    const before = await win.locator(watch).getAttribute('data-view');
+    // The page scrolls under the wheel over its map; the map keeps its view. The paper opening
+    // beside the map may have scrolled the page (smoothly, to bring it into view): that scroll is
+    // let finish, the page is put back at its top, where it has room to scroll down, and the
+    // pointer goes to the map's middle where it then is.
     const scroller = win.locator('.run');
-    const top = await scroller.evaluate((el) => el.scrollTop);
+    let at = -1;
+    await expect.poll(async () => {
+      const now = await scroller.evaluate((el) => el.scrollTop);
+      const held = now === at;
+      at = now;
+      return held;
+    }, { intervals: [250] }).toBe(true);
+    await scroller.evaluate((el) => el.scrollTo({ top: 0, behavior: 'instant' }));
+    expect(await scroller.evaluate((el) => el.scrollHeight - el.clientHeight), 'the watch page has nothing to scroll')
+      .toBeGreaterThan(40);
+    await stillView(win, watch);
+    const before = await win.locator(watch).getAttribute('data-view');
     const watchBox = await win.locator(watch).boundingBox();
     if (!watchBox) throw new Error('the watch map has no box');
-    await win.mouse.move(watchBox.x + watchBox.width / 2, watchBox.y + watchBox.height / 2);
+    const middle = { x: watchBox.x + watchBox.width / 2, y: Math.min(watchBox.y + watchBox.height / 2, (await win.evaluate(() => window.innerHeight)) - 40) };
+    expect(middle.y, 'the watch map is not on the screen').toBeGreaterThan(watchBox.y);
+    await win.mouse.move(middle.x, middle.y);
     await win.mouse.wheel(0, 240);
-    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(top);
+    await expect.poll(() => scroller.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
     expect(await win.locator(watch).getAttribute('data-view')).toBe(before);
     await watchPanel.getByRole('button', { name: 'Back to the runs' }).click();
     await expect(watchPanel).toHaveCount(0);

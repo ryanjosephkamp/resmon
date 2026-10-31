@@ -5681,9 +5681,9 @@ def _sign_in_binary(provider: str, purpose: str, binary_path: Optional[str]) -> 
         # (``assistant_runtime.codex_cli_path``), and the check asks that one.
         explicit = assistant_runtime.codex_cli_path(settings) or None
     elif purpose == "ask":
-        # The assistant reads ``ai_cli_path`` whichever provider summaries use
-        # (``_assistant_settings``), so the check does the same.
-        explicit = configured
+        # Ask's Claude Code connection reads ``ai_cli_path`` unless it names
+        # Codex (``assistant_runtime.claude_cli_path``), so the check does the same.
+        explicit = assistant_runtime.claude_cli_path(settings) or None
     elif binary_path and binary_path.strip():
         explicit = binary_path.strip()
     else:
@@ -5837,6 +5837,9 @@ class MapViewBody(BaseModel):
     date_from: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     date_to: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     state: Literal["any", "saved", "to_read", "read", "new"] = "any"
+    # How the list beside the map is grouped. Only Today's map has a list; a
+    # run's map keeps the default.
+    list_by: Literal["watch", "region"] = "watch"
 
 
 def _map_view_name(name: str) -> str:
@@ -5848,8 +5851,8 @@ def _map_view_name(name: str) -> str:
 @app.get("/api/map/views/{name}", response_model=response_models.MapView,
          response_model_exclude_unset=True)
 def get_map_view(name: str):
-    """The filters and colors a map was last left with: Today's (``today``),
-    or every run's map (``run``)."""
+    """The filters and colors a map was last left with, and how the list
+    beside it was grouped: Today's (``today``), or every run's map (``run``)."""
     conn = _get_db()
     try:
         return map_facets.read_view(conn, _map_view_name(name))

@@ -516,7 +516,7 @@ Calls in `mcp_server.py` that resolve to no single route, and so are not in the 
 | `GET` | `/api/map` | token | — | `CollectionMap` | Where every paper sits on the Atlas plate, and on what basis. |
 | `GET` | `/api/map/facets` | token | — | `MapFacets` | What the map's filters and colors read about every paper: its source, |
 | `GET` | `/api/map/find` | token | — | `MapFind` | The papers whose title or authors contain `q`, newest first, for |
-| `GET` | `/api/map/views/{name}` | token | — | `MapView` | The filters and colors a map was last left with: Today's (`today`), |
+| `GET` | `/api/map/views/{name}` | token | — | `MapView` | The filters and colors a map was last left with, and how the list |
 | `PUT` | `/api/map/views/{name}` | token | — | `MapView` | *Put Map View* |
 
 ## J48 — Today: the papers since you last looked

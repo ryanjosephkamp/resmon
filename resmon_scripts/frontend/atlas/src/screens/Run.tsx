@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
+import { breakable } from '../shell/breakable';
 import { SAVED_KEY, savedFromRun } from './collection/savedSearches';
 import { duration, when } from './today/format';
 import {
@@ -242,7 +243,7 @@ export function Run() {
       <header className="run-head">
         <Link to="/search/ask" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">
-          <h1 className={watch ? 'run-name it' : 'run-name'}>{title}</h1>
+          <h1 className={watch ? 'run-name it' : 'run-name'}>{breakable(title)}</h1>
           <div className="run-actions">
             {running && (
               <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping}>

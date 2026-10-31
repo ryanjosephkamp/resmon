@@ -60,14 +60,16 @@ interface Props {
   onToggleSave: (paper: IndexPaper) => void;
   onMarkRead: () => void;
   footer: React.ReactNode;
+  /** How the list is grouped, as Today's view remembers it in the engine. */
+  by: 'watch' | 'region';
+  onBy: (by: 'watch' | 'region') => void;
 }
 
 export function TodayIndex(props: Props) {
   const {
     papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, opening, selected, now, saved, lifecycle,
-    marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer,
+    marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy,
   } = props;
-  const [by, setBy] = useState<'watch' | 'region'>('watch');
   const scroller = useRef<HTMLDivElement>(null);
 
   const groups = useMemo<Group[]>(() => {

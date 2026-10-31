@@ -306,6 +306,18 @@ def codex_cli_path(settings: dict) -> str:
     return ""
 
 
+def claude_cli_path(settings: dict) -> str:
+    """The path Ask's Claude Code connection is told about, or ``""`` to search.
+
+    The other half of :func:`codex_cli_path`: ``ai_cli_path`` names Claude Code
+    unless summaries use Codex, when it is Codex's path. Handed to Claude Code
+    then, Ask ran the ``codex`` binary with Claude's arguments.
+    """
+    if str(settings.get("ai_provider") or "").strip().lower() == "codex":
+        return ""
+    return str(settings.get("ai_cli_path") or "").strip()
+
+
 class AssistantRuntime:
     """What every runtime must provide. One implementation today."""
 
@@ -1971,7 +1983,7 @@ def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> Assist
             backend_port=backend_port,
         )
     return ClaudeCliRuntime(
-        cli_path=settings.get("ai_cli_path") or "",
+        cli_path=claude_cli_path(settings),
         model=settings.get("assistant_model") or "",
         effort=settings.get("assistant_effort") or "",
         backend_port=backend_port,
@@ -1998,7 +2010,7 @@ def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[i
         runtime.resolved_binary = status.path
         runtime.admitted_status = status
     else:
-        runtime = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path'), model=binding['requested_model'],
+        runtime = ClaudeCliRuntime(cli_path=claude_cli_path(settings), model=binding['requested_model'],
                                    effort=binding['requested_effort'], backend_port=backend_port, profile=profile)
         status = runtime.status()
         runtime.resolved_binary = status.path
@@ -2031,7 +2043,7 @@ def runtime_status(settings: dict, *, backend_port: Optional[int] = None) -> dic
         if kind == runtime.kind:
             continue
         if kind == "claude_cli":
-            other = ClaudeCliRuntime(cli_path=settings.get("ai_cli_path") or "").status()
+            other = ClaudeCliRuntime(cli_path=claude_cli_path(settings)).status()
             reason = other.reason
         elif kind == "codex_cli":
             other = CodexCliRuntime(cli_path=codex_cli_path(settings)).status()

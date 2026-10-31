@@ -83,7 +83,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await expect(win.locator('[data-library="parent"]')).toHaveText(parent, { timeout: 30_000 });
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT or MD');
+    const importer = win.getByLabel('Import PDF, TXT, or MD');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['unicode.txt', 'two-pages.pdf', 'image-only.pdf'].map((n) => path.join(FIXTURES, n)));
     await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused.', { timeout: 60_000 });
@@ -120,6 +120,10 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     // The engine's canonical text for a TXT file: every CRLF and CR read as LF, nothing else changed.
     await expect(pane).toHaveValue(text.replace(/\r\n/g, '\n').replace(/\r/g, '\n'), { timeout: 60_000 });
     await expect(reader.locator('[data-evidence="examined"]')).toContainText('Page 1 of 1, read by text extraction.');
+    // ⌘F from the file's own button in the project's list, as from the reader, goes to the text's find.
+    await win.locator('.ev-members button.library-file', { hasText: 'unicode.txt' }).focus();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(reader.getByLabel('Find on this page’s text')).toBeFocused();
     await reader.getByLabel('Find on this page’s text').fill('needle');
     await reader.getByRole('button', { name: 'Find', exact: true }).click();
     await expect(reader.locator('[data-evidence="found"]')).toHaveText('2 literal matches on this page’s text only.');
@@ -238,7 +242,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     // — reopened, and resolved against the same page ------------------------------------
     await panel.locator('ol.ev-saved > li[data-kind="passage"]').getByRole('button', { name: 'Reopen the passage' }).click();
     await expect(reader.locator('[data-evidence="resolution"]')).toHaveText(
-      'Saved passage resolved against this exact version, extraction contract, text hash and codepoint range.', { timeout: 60_000 });
+      'Saved passage resolved against this exact version, extraction contract, text hash, and codepoint range.', { timeout: 60_000 });
     expect(await pane.evaluate((el) => {
       const t = el as HTMLTextAreaElement;
       return t.value.slice(t.selectionStart, t.selectionEnd);

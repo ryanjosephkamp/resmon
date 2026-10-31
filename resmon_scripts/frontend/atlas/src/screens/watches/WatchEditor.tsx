@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { systemName } from '../../bridge';
 import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { commandEnter } from '../../shell/shortcuts';
 import { SAVED_KEY } from '../collection/savedSearches';
@@ -198,7 +199,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
     <div className="search watch-editor">
       <form className="ask editor" {...commandEnter()} onSubmit={submit} aria-label={existing ? `Change ${existing.name}` : 'A new watch'}>
         <Link to={back} className="back"><Icon name="back" size={14} />{existing ? existing.name : 'Watches'}</Link>
-        <h1 className="page-title editor-title">{existing ? `Change ${existing.name}` : 'A new watch'}</h1>
+        <h1 className="page-title editor-title">{existing ? <>Change {breakable(existing.name)}</> : 'A new watch'}</h1>
         <p className="page-lede">
           A watch asks the same question on a schedule and keeps every paper it finds, with a record of what each source did.
         </p>
@@ -366,7 +367,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           <div className="editor-delete">
             <button type="button" className="btn quiet" data-editor="delete" disabled={remove.isPending}
               onClick={() => {
-                if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
+                if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations, and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
                   remove.mutate(existing);
                 }
               }}>

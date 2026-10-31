@@ -5,16 +5,31 @@ import { historyScale, instant } from './model';
 
 type RunRow = components['schemas']['RunRow'];
 
-/** The strip's line where no run brought in a new paper, so there is no tallest bar to state. */
-function flatLine(runs: number, recorded: number): string {
+/**
+ * The strip's line where no finished run brought in a new paper, so there is
+ * no tallest bar to state. A run still going is not counted: its count so far
+ * is not what it brought in, and is said when it ends.
+ */
+function flatLine(runs: number, recorded: number, going: number): string {
+  if (runs === 0) return 'This run is still going: what it brought in is said when it ends.';
+  const later = going ? ' The run still going is counted when it ends.' : '';
   if (recorded === 0) {
-    return runs === 1 ? 'This run did not record how many papers were new.' : `None of these ${number(runs)} runs recorded how many papers were new.`;
+    return (runs === 1 ? `The ${going ? 'finished ' : ''}run did not record how many papers were new.`
+      : `None of ${going ? 'the' : 'these'} ${number(runs)} ${going ? 'finished ' : ''}runs recorded how many papers were new.`) + later;
   }
   if (recorded < runs) {
-    return recorded === 1 ? 'The one run that recorded a count brought in no new paper.'
-      : `None of the ${number(recorded)} runs that recorded a count brought in a new paper.`;
+    return (recorded === 1 ? 'The one run that recorded a count brought in no new paper.'
+      : `None of the ${number(recorded)} runs that recorded a count brought in a new paper.`) + later;
+  }
+  if (going) {
+    return (runs === 1 ? 'The finished run brought in no new paper.' : `None of the ${number(runs)} finished runs brought in a new paper.`) + later;
   }
   return runs === 1 ? 'This run brought in no new paper.' : `None of these ${number(runs)} runs brought in a new paper.`;
+}
+
+/** A run still going: its counts so far are not what it brought in. */
+function going(run: RunRow): boolean {
+  return run.status === 'running';
 }
 
 /** Runs drawn in the strip; the list below names every one read. */
@@ -38,9 +53,10 @@ export function RunHistory({ runs, now, names }: {
   runs: readonly RunRow[] | null; now: Date; names: ReadonlyMap<string, string>;
 }) {
   const strip = (runs ?? []).slice(0, STRIP).reverse();
-  const scale = historyScale(strip.map((run) => run.new_result_count));
-  const cut = scale === null ? [] : strip.filter((run) => (run.new_result_count ?? 0) > scale);
-  const recorded = strip.filter((run) => run.new_result_count !== null).length;
+  const finished = strip.filter((run) => !going(run));
+  const scale = historyScale(finished.map((run) => run.new_result_count));
+  const cut = scale === null ? [] : finished.filter((run) => (run.new_result_count ?? 0) > scale);
+  const recorded = finished.filter((run) => run.new_result_count !== null).length;
   return (
     <section className="nights" aria-label="Runs">
       <h2 className="nights-title">Runs</h2>
@@ -50,11 +66,11 @@ export function RunHistory({ runs, now, names }: {
         <div className="night-strip" aria-hidden="true">
           {strip.map((run) => {
             const missing = run.source_outcomes?.could_not_answer ?? 0;
-            const found = run.new_result_count;
+            const found = going(run) ? null : run.new_result_count;
             return (
               <span key={run.id} className="night-bar" data-status={run.status}
                 data-cut={scale !== null && found !== null && found > scale ? 'true' : undefined}
-                title={`Run ${run.id}: ${found === null ? 'count not recorded' : `${number(found)} new`}`}>
+                title={`Run ${run.id}: ${going(run) ? 'still going' : found === null ? 'count not recorded' : `${number(found)} new`}`}>
                 <span className="night-amount"
                   style={{ height: `${found === null ? 0 : Math.max(4, scale === null ? 0 : Math.min(1, found / scale) * 100)}%` }} />
                 <span className={missing ? 'night-fault' : 'night-ok'} />
@@ -66,8 +82,11 @@ export function RunHistory({ runs, now, names }: {
       {strip.length > 0 && (
         <p className="night-scale" data-scale={scale ?? 'none'}>
           {scale !== null
-            ? <>Papers new in each run, oldest at the left; the tallest bar is {count(scale, 'paper')}.</>
-            : flatLine(strip.length, recorded)}
+            ? <>
+              Papers new in each run, oldest at the left; the tallest bar is {count(scale, 'paper')}.
+              {finished.length < strip.length && ' The run still going is counted when it ends.'}
+            </>
+            : flatLine(finished.length, recorded, strip.length - finished.length)}
           {cut.length > 0 && ` ${cut.map((run) => `${when(instant(run.start_time)?.toISOString(), now)} (${number(run.new_result_count ?? 0)})`).join(', ')} ${cut.length === 1 ? 'is' : 'are'} drawn cut off.`}
         </p>
       )}
@@ -82,8 +101,12 @@ export function RunHistory({ runs, now, names }: {
                 {run.status}
               </span>
               <span className="night-count num">
-                {run.new_result_count === null ? 'not recorded' : `${number(run.new_result_count)} new`}
-                {run.result_count !== null && ` of ${number(run.result_count)}`}
+                {going(run) ? 'counted when it ends' : (
+                  <>
+                    {run.new_result_count === null ? 'not recorded' : `${number(run.new_result_count)} new`}
+                    {run.result_count !== null && ` of ${number(run.result_count)}`}
+                  </>
+                )}
               </span>
               {silent.length > 0 && (
                 <span className="night-silent">

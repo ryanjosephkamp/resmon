@@ -84,6 +84,6 @@ export function useMapLook(name: 'today' | 'run', sky: Sky | null, names: (slug:
 function pick(view: MapView): MapView {
   return {
     color: view.color, watches: view.watches, sources: view.sources, dates: view.dates,
-    date_from: view.date_from, date_to: view.date_to, state: view.state,
+    date_from: view.date_from, date_to: view.date_to, state: view.state, list_by: view.list_by,
   };
 }

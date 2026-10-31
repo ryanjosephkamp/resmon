@@ -85,7 +85,7 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await expect(win.locator('[data-library="parent"]')).toHaveText(parent);
     await create.click();
-    const importer = win.getByLabel('Import PDF, TXT or MD');
+    const importer = win.getByLabel('Import PDF, TXT, or MD');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     const made = fs.readdirSync(parent).filter((name) => name.startsWith('resmon-library-'));
     expect(made).toHaveLength(1);

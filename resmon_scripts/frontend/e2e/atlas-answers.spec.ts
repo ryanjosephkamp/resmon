@@ -79,7 +79,7 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     await win.evaluate(() => { window.location.hash = '#/library/files'; });
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT or MD');
+    const importer = win.getByLabel('Import PDF, TXT, or MD');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['two-pages.pdf', 'unicode.txt'].map((n) => path.join(FIXTURES, n)));
     await expect(win.locator('[data-library="imported"]')).toHaveText('2 retained, 0 exact duplicates reused.', { timeout: 60_000 });

@@ -1,8 +1,10 @@
 /**
  * Atlas: what happens to runs, in the real app. How many run at once, set in
- * Settings › In the background and then met by a search; and the run log's
+ * Settings › In the background and then met by a search; the run log's
  * selection, bundled and deleted, with a run still going left alone, and a
- * run deleted from its own page; and the log read a page at a time.
+ * run deleted from its own page; the log read a page at a time; and a
+ * watch's Run now queued behind the one run allowed, whose page says when the
+ * queued run starts and ends.
  *
  * arXiv is a loopback server in this spec. It answers each query with one
  * authored paper named for the query, and holds a query for "slow" open until
@@ -260,6 +262,33 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     await expect(win.locator('.runlog .index-empty')).toContainText('No runs yet.');
     expect((await engine(win, `/api/executions/${slow}`)).status).toBe(404);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runlog-deleted.png') });
+
+    // — A watch's Run now, queued behind the one run allowed: its page says when it starts and ends,
+    // on its own, without being left and opened again ---------------------------------------------
+    holding = true;
+    const blocking = await dive('slow');
+    await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+    const watch = await engine<{ id: number }>(win, '/api/routines', 'POST', {
+      name: 'Queued behind a search', schedule_cron: '0 9 * * *', is_active: false,
+      parameters: { repositories: ['arxiv'], keywords: ['queued'], query: 'queued', max_results: 5 },
+    });
+    expect(watch.status, JSON.stringify(watch.body)).toBeLessThan(300);
+    await win.evaluate((id) => { window.location.hash = `#/watches/${id}`; }, watch.body.id);
+    const queuedNow = win.waitForResponse((r) => r.url().endsWith(`/api/routines/${watch.body.id}/run`) && r.request().method() === 'POST');
+    await win.getByRole('button', { name: 'Run now', exact: true }).click();
+    expect((await queuedNow).status()).toBe(202);
+    const said = win.locator('.run-now-said');
+    await expect(said).toHaveAttribute('data-run-queued', 'true');
+    await expect(said).toContainText('so this one is queued');
+    release();
+    await expect.poll(async () => (await engine<RunRead>(win, `/api/executions/${blocking}`)).body.status, { timeout: 60_000 }).toBe('completed');
+    await expect(said).toHaveAttribute('data-run-dequeued', 'true', { timeout: 30_000 });
+    await expect(said).toContainText('The queued run started and has ended: completed.', { timeout: 30_000 });
+    const started = Number(await said.getAttribute('data-run-started'));
+    expect(started).toBeGreaterThan(blocking);
+    await expect(said.getByRole('link', { name: `Open run ${started}` })).toHaveAttribute('href', `#/runs/${started}`);
+    await expect(win.locator(`.night[data-run="${started}"]`)).toHaveAttribute('data-status', 'completed');
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-queued-ran.png') });
 
     expect(problems).toEqual([]);
   } finally {

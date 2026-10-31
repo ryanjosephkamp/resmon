@@ -129,7 +129,7 @@ function FilterMenu({ name, view, onView, facts, facetsError, names, count, onWa
         <div className="map-menu-head">
           <p className="facet-caption">Papers the filters leave out are dimmed, not removed, so the map keeps its shape.</p>
           <button type="button" className="btn sm quiet" disabled={count === 0}
-            onClick={() => onView({ ...DEFAULT_VIEW, color: view.color })}>Clear filters</button>
+            onClick={() => onView({ ...DEFAULT_VIEW, color: view.color, list_by: view.list_by })}>Clear filters</button>
         </div>
         {facetsError && <p className="facet-caption facet-problem">The engine did not answer ({facetsError.message}).</p>}
         {!facts && !facetsError && <p className="facet-caption">Reading each paper&rsquo;s watches, source, and dates.</p>}
@@ -285,7 +285,7 @@ export function DimKey({ look, finding, filtered }: { look: Look | null; finding
   const why = finding && filtered ? 'left out by the find or the filters' : finding ? 'not matching the find' : 'left out by the filters';
   return (
     <span className="plate-key-item" data-key="dimmed">
-      <svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="2" fill="var(--ink-3)" opacity="0.45" /></svg>
+      <svg width="10" height="10" aria-hidden="true"><circle cx="5" cy="5" r="2" fill="var(--dim-mark)" /></svg>
       {why}
     </span>
   );

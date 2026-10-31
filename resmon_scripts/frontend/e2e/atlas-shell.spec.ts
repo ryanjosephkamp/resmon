@@ -182,6 +182,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(sheet.locator('[data-shortcut="new-sweep"] kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
     await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Library');
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
+    await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
+    await expect(sheet.locator('[data-shortcut="find"] kbd')).toHaveText(mac ? '⌘F' : 'Ctrl+F');
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-shortcuts.png') });
     // A shortcut pressed in the sheet closes it and does what it says.

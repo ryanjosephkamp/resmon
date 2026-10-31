@@ -141,7 +141,7 @@ def test_find_matches_titles_and_authors_literally_newest_first(client):
 def test_a_view_is_kept_per_map_and_an_unreadable_one_reads_as_the_default(client):
     assert client.get("/api/map/views/today").json() == map_facets.DEFAULT_VIEW
     view = {"color": "watch", "watches": [3, 1], "sources": ["arxiv"], "dates": "published",
-            "date_from": "2024-01-01", "date_to": "2024-12-31", "state": "new"}
+            "date_from": "2024-01-01", "date_to": "2024-12-31", "state": "new", "list_by": "region"}
     stored = client.put("/api/map/views/today", json=view).json()
     assert stored == {**view, "watches": [1, 3]}
     assert client.get("/api/map/views/today").json() == stored
@@ -151,7 +151,7 @@ def test_a_view_is_kept_per_map_and_an_unreadable_one_reads_as_the_default(clien
 
     conn = resmon_mod._get_db()
     try:
-        set_setting(conn, "map_view_run", json.dumps({"color": "plaid", "state": "read", "date_to": "2024-02-30",
+        set_setting(conn, "map_view_run", json.dumps({"color": "plaid", "state": "read", "date_to": "2024-02-30", "list_by": "x",
                                                        "watches": ["x", 2, True], "sources": "arxiv"}))
     finally:
         resmon_mod._close_db(conn)

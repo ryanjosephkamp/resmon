@@ -4,8 +4,9 @@
  * with numbers matching the plate's, a watch names the sources that did not
  * answer on its last run in one line (a withdrawn one by its name, not its
  * key) with each one's reason a click away, the numbers are lit again on
- * coming back to Today, both themes are pictured, and Mark all read starts
- * the next window, as the engine then reports too.
+ * coming back to Today and the list is grouped as it was left, both themes
+ * are pictured, and Mark all read starts the next window, as the engine then
+ * reports too.
  *
  * The collection is written through the engine's own database functions
  * before launch, so the counts asserted here are the ones it was given.
@@ -144,12 +145,21 @@ test('Today lists what is new since the last look, and Mark all read starts the 
 
     // Coming back to Today draws the cached answer and reads it again at once;
     // the opening runs to the end all the same, and no number is left dim.
+    // The list is grouped as it was left, and the engine keeps that.
+    const byRegion = win.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'By region' });
+    await byRegion.click();
+    await expect(byRegion).toHaveAttribute('aria-pressed', 'true');
     const sections = win.getByRole('navigation', { name: 'Sections' });
     await sections.getByRole('link', { name: 'Watches' }).click();
     await expect(win.getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible();
     await sections.getByRole('link', { name: 'Today' }).click();
     await expect(win.locator('.entry .badge')).toHaveCount(counts.new);
     await expect(win.locator('.entry .badge.dim')).toHaveCount(0, { timeout: 10_000 });
+    await expect(byRegion).toHaveAttribute('aria-pressed', 'true');
+    const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort: () => string } }).resmonAPI.getBackendPort());
+    const kept = await (await e2eFetch(`http://127.0.0.1:${port}/api/map/views/today`)).json() as { list_by: string };
+    expect(kept.list_by).toBe('region');
+    await win.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'By watch' }).click();
 
     // The other theme, pictured for review: the night chart.
     const theme = await win.evaluate(() => document.documentElement.dataset.theme);
@@ -165,7 +175,6 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     // Mark all read: the next window starts now, here and in the engine.
     await win.getByRole('button', { name: 'Mark all read' }).click();
     await expect(win.getByText('Nothing new since then.')).toBeVisible();
-    const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort: () => string } }).resmonAPI.getBackendPort());
     const engine = await (await e2eFetch(`http://127.0.0.1:${port}/api/today`)).json() as { window: string; total: number };
     expect(engine).toMatchObject({ window: 'since_last_look', total: 0 });
 

@@ -72,8 +72,26 @@ export function Collection() {
   const filters = useMemo(() => readFilters(params), [params]);
   const filtered = filterCount(filters) > 0;
   const [menu, setMenu] = useState<Menu | null>(null);
-  const [draft, setDraft] = useState('');
-  const [query, setQuery] = useState('');
+  // The words searched for are kept in the address beside the filters (`q`),
+  // replacing the entry rather than adding one, so Back to this page finds
+  // them as they were left. Words that arrive in the address, by Back or a
+  // link, are taken up as if typed.
+  const asked = params.get('q') ?? '';
+  const [draft, setDraft] = useState(asked);
+  const [query, setQuery] = useState(asked.trim());
+  const [arrived, setArrived] = useState(asked);
+  if (asked !== arrived) {
+    setArrived(asked);
+    if (asked.trim() !== query) { setDraft(asked); setQuery(asked.trim()); }
+  }
+  useEffect(() => {
+    if (asked === query) return;
+    setParams((now) => {
+      const next = new URLSearchParams(now);
+      if (query) next.set('q', query); else next.delete('q');
+      return next;
+    }, { replace: true });
+  }, [asked, query, setParams]);
   const [sort, setSort] = useState<Sort>('newest');
   const [fold, setFold] = useState(false);
   // A paper chosen on the map opens in the results' place; the results, and the search box, wait behind it.
@@ -213,7 +231,7 @@ export function Collection() {
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') setQuery(draft.trim()); }}
-              placeholder="Words in a title, an abstract or an author's name"
+              placeholder="Words in a title, an abstract, or an author's name"
               aria-label="Search your collection"
               autoComplete="off"
               spellCheck={false}

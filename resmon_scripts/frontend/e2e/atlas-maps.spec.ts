@@ -78,7 +78,14 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     expect(queue.entries.map((entry) => entry.document_id)).toContain(chosen);
 
     // Escape is the way back, and Back is too; the map's choice goes with it.
-    await panel.getByRole('button', { name: 'Mark read' }).focus();
+    // The keyboard is given on to the next reading-queue button when the one
+    // that had it is replaced, so Escape still returns after each of them.
+    await expect(panel.getByRole('button', { name: 'Mark read' })).toBeFocused();
+    await win.keyboard.press('Enter');
+    await expect(panel.locator('.queue-state')).toHaveText('In the reading queue · Read');
+    await expect(panel.getByRole('button', { name: 'Mark unread' })).toBeFocused();
+    await panel.getByRole('button', { name: 'Remove' }).click();
+    await expect(panel.getByRole('button', { name: 'Save to read' })).toBeFocused();
     await win.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
     await expect(win.getByRole('heading', { name: /^New since yesterday/ })).toBeVisible();

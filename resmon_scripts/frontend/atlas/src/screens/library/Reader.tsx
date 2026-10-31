@@ -3,7 +3,7 @@ import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
 import { isMac } from '../../bridge';
 import { Icon } from '../../shell/Icon';
-import { blockingDialogOpen, keysText, pressed } from '../../shell/shortcuts';
+import { blockingDialogOpen, FIND_CHORD, isTyping, keysText, pressed } from '../../shell/shortcuts';
 import { count, number } from '../today/format';
 import { evidence, readerBusy, type Anchor, type FileRecord, type PageText, type Project } from './evidenceApi';
 import { PAGE_STATUS, examinedWords, matches, resolutionWords, selectionAnchor, utf16Range, type Pin } from './evidenceModel';
@@ -185,8 +185,10 @@ export function Reader({
     return () => { document.removeEventListener('keydown', onKey); undo(); };
   }, [focus, focusScope]);
 
-  // ⌘F (Ctrl+F off macOS) while the keyboard is in the reader, or in focus mode: find in the
-  // document, or in a text file's page text. Anywhere else it is left alone, as it was.
+  // ⌘F (Ctrl+F off macOS) while the keyboard is in the reader, on a control of the project
+  // around it (the file list's button for the file shown, say) or on none, or in focus mode:
+  // find in the document, or in a text file's page text. Anywhere else, a field beside the
+  // reader included, it is left alone, as it was.
   const mac = isMac();
   const openFind = useCallback(() => {
     if (!session) {
@@ -213,15 +215,18 @@ export function Reader({
   }, [finding]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.isComposing || !pressed({ key: 'f', command: true }, event, mac)) return;
-      const inside = focus || (!!section.current && section.current.contains(document.activeElement));
+      if (event.defaultPrevented || event.isComposing || !pressed(FIND_CHORD, event, mac)) return;
+      const active = document.activeElement;
+      const scope = focusScope?.current ?? section.current;
+      const inside = focus || !active || active === document.body || !!section.current?.contains(active)
+        || (!!scope && scope.contains(active) && !isTyping(active));
       if (!inside || blockingDialogOpen(document)) return;
       event.preventDefault();
       openFind();
     };
     document.addEventListener('keydown', onKey, true);
     return () => document.removeEventListener('keydown', onKey, true);
-  }, [mac, focus, openFind]);
+  }, [mac, focus, openFind, focusScope]);
 
   // A gallery closed without choosing a page gives the keyboard back to its button.
   const galleryWas = useRef(false);
@@ -319,7 +324,7 @@ export function Reader({
             </button>
           </div>
           <button type="button" className="btn sm quiet ev-icon" aria-pressed={finding} aria-keyshortcuts={mac ? 'Meta+F' : 'Control+F'}
-            aria-label="Find in the document" title={`Find in the document (${keysText({ key: 'f', command: true }, mac)})`}
+            aria-label="Find in the document" title={`Find in the document (${keysText(FIND_CHORD, mac)})`}
             onClick={() => (finding ? closeFind() : openFind())}>
             <Icon name="search" />
           </button>

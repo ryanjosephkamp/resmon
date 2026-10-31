@@ -240,7 +240,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Your files' }).click();
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT or MD');
+    const importer = win.getByLabel('Import PDF, TXT, or MD');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles([notes]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('1 retained, 0 exact duplicates reused.', { timeout: 60_000 });
