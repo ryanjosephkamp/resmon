@@ -348,6 +348,51 @@ def test_biorxiv_uses_documented_thirty_record_cursor_pages(monkeypatch):
                for call in calls)
 
 
+@pytest.mark.parametrize(("server", "date_from", "date_to", "window"), [
+    # Only an end date: the range starts where the archive does. It began at
+    # 2020-01-01 for both servers, silently skipping six years of bioRxiv.
+    ("biorxiv", None, "2024-01-31", "2013-11-01/2024-01-31"),
+    ("medrxiv", None, "2024-01-31", "2019-06-01/2024-01-31"),
+    ("biorxiv", None, None, "2013-11-01/2099-12-31"),
+    ("biorxiv", "2024-01-01", None, "2024-01-01/2099-12-31"),
+    ("medrxiv", "2024-01-01", "2024-01-07", "2024-01-01/2024-01-07"),
+])
+def test_an_open_start_asks_from_the_first_month_of_the_archive(
+    monkeypatch, server, date_from, date_to, window,
+):
+    calls = _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(server))])
+
+    api_biorxiv.BiorxivClient(server).search(
+        query="climate", date_from=date_from, date_to=date_to, max_results=1)
+
+    assert calls[0]["url"] == (
+        f"https://api.biorxiv.org/details/{server}/{window}/0")
+
+
+def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
+    """A search with no start date reads from 2013 forward, oldest first, and
+    can run out of time long before the end of its range. The run says so."""
+    from implementation_scripts import zero_reason  # noqa: PLC0415
+
+    expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=300000)),
+        expired, expired,
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_to="2024-01-31", max_results=100)
+    snapshot = api_base.search_outcome().snapshot()
+
+    assert len(results) == 30
+    reason, detail = zero_reason.terminal_issue(snapshot)
+    assert (reason, detail["detail"]) == ("upstream_failure", "operation_deadline")
+    assert zero_reason.partial_sentence("bioRxiv", reason, detail, len(results)) == (
+        "bioRxiv returned 30 usable records before the search operation budget "
+        "expired. The retained set may be incomplete.")
+
+
 def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
     unreadable = FakeResponse(json_error=json.JSONDecodeError("empty", "", 0))
     _recording_sequence(monkeypatch, api_biorxiv, [

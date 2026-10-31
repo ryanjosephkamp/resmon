@@ -592,9 +592,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`: `search()` pages through the `/details` "
-            "date-range endpoint with no sort parameter (from 2020-01-01 when "
-            "no start date is set) and matches the terms itself; nothing in the "
-            "client establishes the order within the range."
+            "date-range endpoint with no sort parameter (from the archive's "
+            "first month when no start date is set) and matches the terms "
+            "itself; nothing in the client establishes the order within the "
+            "range."
         ),
         constraints=_constraints(
             keyword_search="client_side",
@@ -617,10 +618,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 ),
                 _notice(
                     "applied_default",
-                    "With no start date, resmon asks bioRxiv from January 1, "
-                    "2020. Nothing posted before that is retrieved.",
-                    "`api_biorxiv.py`: the `2020-01-01` fallback for "
-                    "`d_from` in `search()`.",
+                    "With no start date, resmon asks bioRxiv for everything "
+                    "since its first preprints in November 2013. bioRxiv lists "
+                    "a range oldest first, so the run reads forward from 2013 "
+                    "and stops at your cap or after 45 seconds of asking, and "
+                    "does not reach recent preprints. Set a start date to "
+                    "search recent ones.",
+                    "`api_biorxiv.py`: the `_FIRST_MONTH` fallback for "
+                    "`d_from` in `search()`, and `_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
                 ),
             ),
@@ -1220,9 +1225,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`, as for bioRxiv: the `/details` date-range "
-            "endpoint with no sort parameter (from 2020-01-01 when no start "
-            "date is set), the terms matched by resmon; nothing establishes the "
-            "order within the range."
+            "endpoint with no sort parameter (from the archive's first month "
+            "when no start date is set), the terms matched by resmon; nothing "
+            "establishes the order within the range."
         ),
         constraints=_constraints(
             keyword_search="client_side",
@@ -1245,10 +1250,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 ),
                 _notice(
                     "applied_default",
-                    "With no start date, resmon asks medRxiv from January 1, "
-                    "2020. Nothing posted before that is retrieved.",
-                    "`api_biorxiv.py`: the `2020-01-01` fallback for "
-                    "`d_from` in `search()`.",
+                    "With no start date, resmon asks medRxiv for everything "
+                    "since its first preprints in June 2019. medRxiv lists a "
+                    "range oldest first, so the run reads forward from 2019 "
+                    "and stops at your cap or after 45 seconds of asking, and "
+                    "does not reach recent preprints. Set a start date to "
+                    "search recent ones.",
+                    "`api_biorxiv.py`: the `_FIRST_MONTH` fallback for "
+                    "`d_from` in `search()`, and `_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
                 ),
             ),
