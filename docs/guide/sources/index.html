@@ -201,7 +201,7 @@ rate-limit waits. Budget exhaustion is recorded as an upstream failure; an empty
 successful response remains distinct. Already normalized records are retained.
 DNS shutdown and blocking CPU work can exceed this budget; see
 <a href="/resmon/hal-reliability/">HAL request reliability</a>.</p>
-<p>Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in <code>.ai:/prep/repos.md</code> and are not queried at runtime.</p>
+<p>Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are not queried at runtime.</p>
 <h3 id="sources-and-their-terms">Sources and their terms</h3>
 <p>resmon queries third-party scholarly APIs. Some are open; some need <strong>your own API key</strong>, which
 you register for yourself and which resmon stores in your operating system’s keyring and sends
