@@ -160,6 +160,14 @@ async function reachable(win: Page, canvas: string, ids: readonly number[], map:
  */
 async function openBeside(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<{ clicked: number; opened: number }> {
   const panel = win.locator('section[data-map-paper]');
+  // Today's title block covers a corner of the plate until the map is moved from
+  // its whole view; in a short window that corner can hold every one of these.
+  // One step in sends it away, as it does for a person exploring.
+  const zoomIn = win.locator(canvas).locator('xpath=ancestor::*[contains(@class,"plate")][1]').getByRole('button', { name: 'Zoom in' });
+  if (await win.locator('.cartouche:not(.away)').count()) {
+    await zoomIn.click();
+    await expect(win.locator('.cartouche:not(.away)')).toHaveCount(0);
+  }
   for (const id of ids) {
     await stillView(win, canvas);
     const clicked = await reachable(win, canvas, [id], map).catch(() => null);
