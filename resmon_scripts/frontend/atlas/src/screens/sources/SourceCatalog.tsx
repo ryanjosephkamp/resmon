@@ -127,7 +127,8 @@ export function TermsField({ id, label, state, className }: {
 }) {
   const { terms, setTerms, draft, setDraft, add } = state;
   const onKey = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
+    // Plain Enter adds the term; ⌘Enter (Ctrl+Enter) is left to the form around the field (`commandEnter`).
+    if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
       event.preventDefault();
       add();
     } else if (event.key === 'Backspace' && !draft && terms.length) {

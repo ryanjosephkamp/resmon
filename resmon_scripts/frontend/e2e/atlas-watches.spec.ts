@@ -232,7 +232,9 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
     await expect(intent).toContainText('results the query produced');
     await expect(page.locator('[data-coverage="cannot-see"]')).toContainText('only compare against papers it already holds');
     await win.getByLabel('What this watch is really looking for').fill('Perovskite films that keep their efficiency.');
-    await page.locator('.intent-form').getByRole('button', { name: 'Save' }).click();
+    await page.locator('.intent-form').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-intent.png') });
+    // ⌘Enter (Ctrl+Enter) in the field saves it, as Save does.
+    await win.getByLabel('What this watch is really looking for').press('ControlOrMeta+Enter');
     await expect(intent).toContainText('the intent written for this watch', { timeout: 30_000 });
     await expect(intent).not.toContainText('results the query produced');
 

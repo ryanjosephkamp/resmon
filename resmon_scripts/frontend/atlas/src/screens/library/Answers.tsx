@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer as answered, engine, EngineError } from '../../api/client';
+import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
+import { commandEnter } from '../../shell/shortcuts';
 import { count, number, when } from '../today/format';
 import {
   answers, citedText, terminal,
@@ -336,7 +338,8 @@ function Composer({ project, members, notes, onClose, onStarted }: {
           </select>
         </div>
         <label htmlFor="ev-instruction" className="form-label">Question or instruction</label>
-        <textarea id="ev-instruction" value={instruction} rows={3} onChange={(e) => { changed(); setInstruction(e.target.value); }} />
+        <textarea id="ev-instruction" value={instruction} rows={3} {...commandEnter('ev-prepare')}
+          onChange={(e) => { changed(); setInstruction(e.target.value); }} />
         <span className="record-cap num">{number(length)} of 4,000 codepoints</span>
       </fieldset>
 
@@ -381,10 +384,12 @@ function Composer({ project, members, notes, onClose, onStarted }: {
       </fieldset>
 
       <div className="ev-use">
-        <button type="button" className="btn sm primary" disabled={!!working || !current || !selections.length || !instruction.trim() || length > 4000}
+        <button type="button" id="ev-prepare" className="btn sm primary" aria-keyshortcuts={commandEnterKeys()}
+          disabled={!!working || !current || !selections.length || !instruction.trim() || length > 4000}
           onClick={() => void prepare()}>
           {working === 'preview' ? 'Checking the exact selection' : 'Show exactly what will be sent'}
         </button>
+        <CommandEnterHint />
       </div>
       {error && <p className="field-error" role="alert">{error}</p>}
       {preview && <Disclosure preview={preview} sending={working === 'send'} onSend={() => void send()} onBack={changed} />}

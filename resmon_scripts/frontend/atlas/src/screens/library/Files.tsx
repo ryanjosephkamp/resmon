@@ -10,6 +10,7 @@ import {
   LIBRARY, LIBRARY_KEY, download, importFile, importWords, kindOf, readable, sizeWords,
   type LibraryFile, type LibraryImported, type LibraryStatus,
 } from './libraryApi';
+import { commandEnter } from '../../shell/shortcuts';
 
 function errorWords(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -304,7 +305,7 @@ function Detail({ vaultId, fileId, onChanged }: { vaultId: string; fileId: strin
             ))}
           </ul>
         )}
-      <form className="lib-link-form" onSubmit={(e) => { e.preventDefault(); if (paperId > 0) link.mutate(paperId); }}>
+      <form className="lib-link-form" {...commandEnter()} onSubmit={(e) => { e.preventDefault(); if (paperId > 0) link.mutate(paperId); }}>
         <label htmlFor="lib-paper">Link to a paper by its number</label>
         <input id="lib-paper" inputMode="numeric" value={paper} onChange={(e) => { setPaper(e.target.value.replace(/[^0-9]/g, '')); link.reset(); }}
           placeholder="Paper number, from its page" autoComplete="off" />

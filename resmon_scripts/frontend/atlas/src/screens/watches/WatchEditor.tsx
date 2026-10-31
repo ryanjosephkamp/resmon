@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { systemName } from '../../bridge';
+import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
 import { Icon } from '../../shell/Icon';
+import { commandEnter } from '../../shell/shortcuts';
 import { SAVED_KEY } from '../collection/savedSearches';
 import { RUNS_KEY } from '../runs/RunLog';
 import type { CatalogEntry } from '../runs/model';
@@ -196,7 +198,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
 
   return (
     <div className="search watch-editor">
-      <form className="ask editor" onSubmit={submit} aria-label={existing ? `Change ${existing.name}` : 'A new watch'}>
+      <form className="ask editor" {...commandEnter()} onSubmit={submit} aria-label={existing ? `Change ${existing.name}` : 'A new watch'}>
         <Link to={back} className="back"><Icon name="back" size={14} />{existing ? existing.name : 'Watches'}</Link>
         <h1 className="page-title editor-title">{existing ? `Change ${existing.name}` : 'A new watch'}</h1>
         <p className="page-lede">
@@ -350,10 +352,12 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
         </fieldset>
 
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}>
+          <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}
+            aria-keyshortcuts={commandEnterKeys()}>
             {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
           </button>
           <Link to={back} className="btn quiet go-cancel">Cancel</Link>
+          <CommandEnterHint />
           <div className="ask-facts" aria-live="polite">
             {missing.map((m) => <p key={m}>{m}</p>)}
             {save.error && <p className="ask-refusal" role="alert" data-editor="refusal">{errorWords(save.error)}</p>}

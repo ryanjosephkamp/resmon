@@ -129,7 +129,8 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
       await composer.getByLabel('Question or instruction').fill('What do these excerpts say?');
       await composer.getByLabel('Connection', { exact: true }).selectOption('api_key:custom');
       await composer.getByLabel('Model', { exact: true }).fill('requested-synthetic-model');
-      await composer.getByRole('button', { name: 'Show exactly what will be sent' }).click();
+      // ⌘Enter (Ctrl+Enter) in the question shows what will be sent, as its button does; it sends nothing.
+      await composer.getByLabel('Question or instruction').press('ControlOrMeta+Enter');
       const disclosure = composer.getByRole('region', { name: 'Exact disclosure' });
       await expect(disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
       return { composer, disclosure };

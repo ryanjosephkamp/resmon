@@ -5,6 +5,7 @@ import { answer, engine, EngineError } from '../../api/client';
 import { platform } from '../../bridge';
 import { WATCHES_KEY } from '../watches/model';
 import { keychainName, type EmailSettings } from './model';
+import { commandEnter } from '../../shell/shortcuts';
 
 const PASSWORD = 'smtp_password';
 
@@ -93,7 +94,7 @@ function EmailForm({ stored }: { stored: EmailSettings }) {
   };
 
   return (
-    <form className="settings-form email-form" onSubmit={submit} aria-label="Email settings">
+    <form className="settings-form email-form" {...commandEnter()} onSubmit={submit} aria-label="Email settings">
       <div className="form-grid">
         {FIELDS.map((f) => (
           <label key={f.key} className="form-field" htmlFor={f.id}>
