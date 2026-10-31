@@ -143,6 +143,14 @@ function isolatedEnv(state: string): Record<string, string> {
     RESMON_E2E: '1',
     RESMON_E2E_WIDTH: '1440',
     RESMON_E2E_HEIGHT: '900',
+    // An AI command only where one is configured. Left to search the
+    // installers' locations and PATH, the engine finds the person's own
+    // signed-in `claude` or `codex`, and Settings › AI and Ask run its sign-in
+    // check whenever they are opened. The seeded corpus names none.
+    RESMON_AI_CLI_DISCOVERY: 'configured-only',
+    // Where the background service's unit would be read, so whether the
+    // person's own resmon service is installed changes nothing on screen.
+    RESMON_SERVICE_UNIT_DIR: path.join(state, 'service-units'),
     // The Atlas interface, which a build from before the switch-over serves
     // only when asked for by name.
     RESMON_UI: 'atlas',
