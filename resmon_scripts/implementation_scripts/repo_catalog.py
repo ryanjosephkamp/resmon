@@ -665,7 +665,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Must register for an API key before use.",
         keyword_combination="Relevance-ranked (Lucene OR default)",
-        keyword_combination_notes="CORE's Solr/Lucene backend defaults to OR between terms; documents matching more terms rank higher but single-term matches still appear.",
+        keyword_combination_notes="CORE's Solr/Lucene backend is documented as OR between terms, with documents matching more terms ranked higher. resmon has not measured it, because asking needs an API key; several Lucene-backed sources measured here join words with AND.",
         result_order="relevance",
         result_order_established=(
             "`api_core.py`: `search()` sends no sort, and CORE's Lucene backend "
@@ -1131,7 +1131,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes; one shared limiter",
         date_granularity="day",
         keyword_combination="Implicit AND",
-        keyword_combination_notes="Spaces imply AND; proper names may become phrases. Explicit Boolean/field syntax is forwarded. https://www.govinfo.gov/help/search-operators",
+        keyword_combination_notes="Spaces imply AND; proper names may become phrases. Explicit Boolean/field syntax is forwarded. As documented at https://www.govinfo.gov/help/search-operators; resmon has not measured it, because asking needs an API key.",
         result_order="relevance",
         result_order_established=(
             "`api_govinfo.py`: `search()` sends `sorts` on `score`, `DESC`."
@@ -1342,7 +1342,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Daily quota (not per-second) is the binding limit.",
         keyword_combination="Implicit OR (Solr default)",
-        keyword_combination_notes="NASA ADS uses Solr-style q parsing; the default operator is OR. resmon asks for the results newest first, not in relevance order.",
+        keyword_combination_notes="NASA ADS uses Solr-style q parsing, documented as OR by default. resmon has not measured it, because asking needs an API key. resmon asks for the results newest first, not in relevance order.",
         result_order="newest_first",
         result_order_established=(
             "`api_nasa_ads.py`: `search()` sends `sort=date desc`."
@@ -1922,7 +1922,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         parallel_safe="Yes",
         notes="Daily quota is the binding limit.",
         keyword_combination="Relevance-ranked (Solr OR default)",
-        keyword_combination_notes="Springer Nature's Meta API ranks by relevance with an OR-based default; documents matching more terms rank higher.",
+        keyword_combination_notes="Springer Nature's Meta API ranks by relevance and is documented with an OR-based default; documents matching more terms rank higher. resmon has not measured it, because asking needs an API key.",
         result_order="relevance",
         result_order_established=(
             "`api_springer.py`: `search()` sends no sort, and Springer Nature "
