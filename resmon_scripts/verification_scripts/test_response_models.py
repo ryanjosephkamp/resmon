@@ -1580,6 +1580,11 @@ def _drive_collection(drive: Drive) -> None:
     assert links["links"], "the link model needs a link to be compared"
     folded = drive("POST", "/api/links/collapse-preview", json={"document_ids": ids})
     assert folded["folded"], "the fold model needs a fold to be compared"
+    # A search page that carries its papers' marks, so the three models are
+    # compared inside the page as well as on their own routes.
+    marked = drive("POST", "/api/explorer/search",
+                   json={"query": "perovskite", "limit": 50, "include": ["links", "matches", "lifecycle"]})
+    assert marked["links"]["links"], "the page's links model needs a link to be compared"
 
     drive("GET", "/api/embeddings/status")
     with EmbeddingServer() as server:
@@ -2360,6 +2365,10 @@ def _lossy_twin(model: type[BaseModel], drop: str) -> type[BaseModel]:
     what a ``BaseModel`` does when nobody says otherwise, and it is exactly the
     mistake ``LosslessModel`` exists to prevent.
     """
+    # The models build on first use (``defer_build``), and a field naming a
+    # model declared further down the module holds a forward reference until
+    # then; rebuilt here, every annotation the twin copies is the real type.
+    model.model_rebuild()
     fields: dict[str, Any] = {}
     for name, field in model.model_fields.items():
         if name == drop:

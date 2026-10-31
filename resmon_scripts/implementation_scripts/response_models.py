@@ -2006,6 +2006,11 @@ class ExplorerPage(LosslessModel):
     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
     why a requested ranking was refused and the page fell back to newest.
     Each of those four is absent when it does not apply.
+
+    ``links``, ``matches`` and ``lifecycle`` are present only when the request's
+    ``include`` named them: what ``/api/links/for-documents``,
+    ``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``
+    answer for this page's papers, so a page and its marks arrive together.
     """
 
     results: list[ExplorerPaper]
@@ -2021,6 +2026,9 @@ class ExplorerPage(LosslessModel):
     unranked_count: Optional[int] = None
     model: Optional[str] = None
     similarity_unavailable: Optional[str] = None
+    links: Optional[PaperLinks] = None
+    matches: Optional[WatchProfileMatchesByDocument] = None
+    lifecycle: Optional[LifecycleForDocuments] = None
 
 
 class Paper(PaperColumns):

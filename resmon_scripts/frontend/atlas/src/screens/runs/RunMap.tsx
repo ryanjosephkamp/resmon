@@ -125,7 +125,6 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             shapes={[]}
             field={field}
             arrivals={[]}
-            lit={0}
             selected={selectedIndex}
             pointed={null}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}

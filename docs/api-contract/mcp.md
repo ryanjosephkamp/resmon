@@ -284,6 +284,21 @@ it the query as sent, and for a keyword run it is the terms as typed, joined int
 which is not what any source received. For a person watch it is each source's author query, as
 its client noted it.
 
+### A field the tool does not send — October 31, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no return shape
+moves, and the contract version does not change.** `search_corpus` reaches `POST
+/api/explorer/search`, and that route has one more optional request field, which the tool does not
+send.
+
+The field is `include`, a list of any of `links`, `matches`, and `lifecycle`. Each one named is
+answered under its own key on the page, as the route of the same purpose answers it for the page's
+papers: `POST /api/links/for-documents`, `POST /api/profiles/matches/for-documents`, and `POST
+/api/lifecycle/for-documents`. Atlas's Search asks for all three, so a page's marks arrive with its
+rows instead of after a second round of requests that waits on the first. An unknown name is
+refused (HTTP 422), and nothing is answered that was not asked for, so `search_corpus`, which sends
+no `include`, gets the page it always got; `test_explorer.py` holds both.
+
 ### An answer, not a version — October 31, 2026
 
 **25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, and the contract

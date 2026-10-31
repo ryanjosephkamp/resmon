@@ -225,9 +225,9 @@ describe('the run\'s log, as the Log tab shows it', () => {
 });
 
 describe('the run log\'s count', () => {
-  test('says the latest 60 when the log holds as many as it reads, and the number when it holds them all', () => {
-    expect(runsCountWords(60)).toBe('the latest 60');
-    expect(runsCountWords(23)).toBe('23');
+  test('says the latest runs while older ones are still to read, and the number when it holds them all', () => {
+    expect(runsCountWords(20, true)).toBe('the latest 20');
+    expect(runsCountWords(23, false)).toBe('23');
   });
 });
 

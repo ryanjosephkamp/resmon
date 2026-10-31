@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { breakable } from '../../shell/breakable';
@@ -16,12 +16,12 @@ import { RestartFacts } from './RestartFacts';
 
 export { RUNS_KEY };
 
-/** How many runs the log reads: the most recent, newest first. */
-export const RUN_LOG_LIMIT = 60;
+/** How many runs the log reads at a time: the newest first, then older ones on request. */
+const RUN_PAGE = 20;
 
-/** What the count beside "Runs" counts: every run, or only the most recent when there may be more. */
-export function runsCountWords(shown: number, limit = RUN_LOG_LIMIT): string {
-  return shown >= limit ? `the latest ${number(limit)}` : number(shown);
+/** What the count beside "Runs" counts: every run, or the most recent ones when older runs are still to read. */
+export function runsCountWords(shown: number, more: boolean): string {
+  return more ? `the latest ${number(shown)}` : number(shown);
 }
 
 /** What a run's own page hands the log when it deleted the run and came back here. */
@@ -53,8 +53,8 @@ function summary(run: RunRow): string {
 }
 
 /**
- * Every run so far, newest first, grouped by day: a manual search by its
- * terms, a watch's run by the watch's name. Selected runs export their papers
+ * The runs, newest first and a page at a time, grouped by day: a manual
+ * search by its terms, a watch's run by the watch's name. Selected runs export their papers
  * together, one entry per paper however many runs found it, or the runs
  * themselves as one bundle, or are deleted, after a question that says what
  * deleting removes and what it leaves. A run that stopped before it finished
@@ -65,14 +65,25 @@ export function RunLog() {
   const navigate = useNavigate();
   const notice = (useLocation().state as RunLogNotice | null)?.deleted ?? null;
   const [now] = useState(() => new Date());
-  const runs = useQuery({
+  // The newest page of runs, and older pages on request: each run on a page
+  // carries its coverage, which the engine works out per run.
+  const pages = useInfiniteQuery({
     queryKey: RUNS_KEY,
-    queryFn: () => answer(engine().GET('/api/executions', { params: { query: { limit: RUN_LOG_LIMIT } } })),
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => answer(engine().GET('/api/executions', { params: { query: { limit: RUN_PAGE, offset: pageParam } } })),
+    getNextPageParam: (last, all) => (last.length === RUN_PAGE ? all.length * RUN_PAGE : undefined),
     // Read again every two seconds while anything runs, so a run's line
     // changes when it finishes; every half minute otherwise, for watch runs.
-    refetchInterval: (query) => (query.state.data?.some((run) => run.status === 'running') ? 2_000 : 30_000),
+    refetchInterval: (query) => (query.state.data?.pages.some((page) => page.some((run) => run.status === 'running'))
+      ? 2_000 : 30_000),
     refetchOnWindowFocus: true,
   });
+  // A run that started while the pages were read again can sit at the edge of
+  // two pages; it is listed once.
+  const listed = useMemo(() => {
+    const seen = new Set<number>();
+    return (pages.data?.pages ?? []).flat().filter((run) => !seen.has(run.id) && seen.add(run.id) !== undefined);
+  }, [pages.data]);
   const routines = useQuery({
     queryKey: ['routine-names'],
     queryFn: () => answer(engine().GET('/api/routines')) as Promise<RoutineName[]>,
@@ -90,7 +101,7 @@ export function RunLog() {
   });
   // The chosen runs as the log now holds them: a run deleted elsewhere, or no
   // longer among the runs read, is not counted, exported, or asked about.
-  const chosen = useMemo(() => (runs.data ?? []).filter((run) => selected.includes(run.id)), [runs.data, selected]);
+  const chosen = useMemo(() => listed.filter((run) => selected.includes(run.id)), [listed, selected]);
   const ids = chosen.map((run) => run.id);
   const exporting = useMutation({
     mutationFn: (format: ReferenceFormat) => exportReferences({ execution_ids: ids }, format, runsFileStem('resmon-references', ids)),
@@ -115,22 +126,22 @@ export function RunLog() {
 
   const groups = useMemo(() => {
     const out: { day: string; runs: RunRow[] }[] = [];
-    for (const run of runs.data ?? []) {
+    for (const run of listed) {
       const day = run.start_time ? dayWord(new Date(run.start_time), now) : 'Date not recorded';
       const last = out[out.length - 1];
       if (last && last.day === day) last.runs.push(run);
       else out.push({ day, runs: [run] });
     }
     return out;
-  }, [runs.data, now]);
+  }, [listed, now]);
 
   const toggle = (id: number) => setSelected((current) => (
     current.includes(id) ? current.filter((x) => x !== id) : [...current, id]));
 
   return (
-    <section className="index runlog" aria-label="Runs" aria-busy={runs.isFetching}>
+    <section className="index runlog" aria-label="Runs" aria-busy={pages.isFetching}>
       <div className="index-bar">
-        <h2>Runs<span data-runs="count">{runs.data ? runsCountWords(runs.data.length) : ''}</span></h2>
+        <h2>Runs<span data-runs="count">{pages.data ? runsCountWords(listed.length, Boolean(pages.hasNextPage)) : ''}</span></h2>
       </div>
       {chosen.length > 0 && (
         <div className="export-bar" role="group" aria-label="The selected runs">
@@ -176,9 +187,9 @@ export function RunLog() {
         </div>
       )}
       <div className="index-scroll">
-        {runs.isPending && <p className="index-cap">Reading the runs.</p>}
-        {runs.isError && <p className="index-cap">The runs could not be read.</p>}
-        {runs.data && !runs.data.length && (
+        {pages.isPending && <p className="index-cap">Reading the runs.</p>}
+        {pages.isError && <p className="index-cap">The runs could not be read.</p>}
+        {pages.data && !listed.length && (
           <p className="index-empty">No runs yet. A search you ask, or a watch that fires, appears here.</p>
         )}
         {groups.map((group) => (
@@ -237,11 +248,11 @@ export function RunLog() {
             })}
           </section>
         ))}
-        {runs.data && runs.data.length >= RUN_LOG_LIMIT && (
-          <p className="index-cap" data-runs="limit">
-            These are the {number(RUN_LOG_LIMIT)} most recent runs. resmon keeps every run until it is deleted; older ones are
-            not listed here.
-          </p>
+        {pages.hasNextPage && (
+          <button type="button" className="btn quiet sm runlog-older" disabled={pages.isFetchingNextPage}
+            onClick={() => void pages.fetchNextPage()}>
+            Older runs
+          </button>
         )}
         {restart.error && (
           <p className="field-error" role="alert">

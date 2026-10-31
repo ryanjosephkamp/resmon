@@ -1,6 +1,7 @@
 """resmon — Research Monitor backend (FastAPI application)."""
 
 import asyncio
+import copy
 import json
 import os
 import queue
@@ -4283,6 +4284,11 @@ class ExplorerSearchBody(ExplorerFilters):
     # answered with the default rather than a 422: a renderer from a newer build
     # talking to an older backend should get papers, not a validation error.
     sort: str = "newest"
+    # What else to answer for this page's papers, in the same reply: their
+    # near-duplicate links, the people they matched, and their lifecycle
+    # notices, each as its own ``/for-documents`` route answers it. Nothing
+    # unless asked, so a caller that does not ask gets the page it always got.
+    include: list[Literal["links", "matches", "lifecycle"]] = Field(default_factory=list, max_length=3)
 
 
 class ExplorerExportBody(ExplorerFilters):
@@ -4352,6 +4358,15 @@ def explorer_search(body: ExplorerSearchBody):
             # the difference between a list a user can trust and a control that
             # appears to do nothing.
             result["similarity_unavailable"] = reason
+        # The page's marks with the page, so a screen draws them without a
+        # second round trip that waits on the first.
+        ids = [int(paper["id"]) for paper in result.get("results", [])]
+        if "links" in body.include:
+            result["links"] = _links_for(conn, ids)
+        if "matches" in body.include:
+            result["matches"] = _profile_matches_for(conn, ids)
+        if "lifecycle" in body.include:
+            result["lifecycle"] = _lifecycle_for(conn, ids)
         return result
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -4517,10 +4532,15 @@ def links_for_documents(body: DocumentIdsBody):
     """
     conn = _get_db()
     try:
-        ids = [int(i) for i in body.document_ids][:500]
-        return {"links": near_duplicates.links_map(conn, ids)}
+        return _links_for(conn, body.document_ids)
     finally:
         _close_db(conn)
+
+
+def _links_for(conn, document_ids) -> dict:
+    """``/api/links/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
+    return {"links": near_duplicates.links_map(conn, ids)}
 
 
 @app.post("/api/links/collapse-preview", response_model=response_models.CollapsePreview,
@@ -4999,49 +5019,54 @@ def lifecycle_for_documents(request: LifecycleForDocumentsRequest):
     Asking per row would be fifty requests to paint one screen; this is one.
     Ids with no events are simply absent from the map.
     """
-    ids = [int(i) for i in request.document_ids][:500]
+    conn = _get_db()
+    try:
+        return _lifecycle_for(conn, request.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _lifecycle_for(conn, document_ids) -> dict:
+    """``/api/lifecycle/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
     if not ids:
         return {"events": {}, "checked": {}}
 
     placeholders = ",".join("?" for _ in ids)
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT * FROM document_lifecycle
-            WHERE document_id IN ({placeholders})
-            ORDER BY CASE severity
-                         WHEN 'critical' THEN 0
-                         WHEN 'caution' THEN 1
-                         ELSE 2
-                     END,
-                     notice_date DESC
-            """,
-            ids,
-        ).fetchall()
-        events: dict[str, list] = {}
-        for row in rows:
-            events.setdefault(str(row["document_id"]), []).append(dict(row))
+    rows = conn.execute(
+        f"""
+        SELECT * FROM document_lifecycle
+        WHERE document_id IN ({placeholders})
+        ORDER BY CASE severity
+                     WHEN 'critical' THEN 0
+                     WHEN 'caution' THEN 1
+                     ELSE 2
+                 END,
+                 notice_date DESC
+        """,
+        ids,
+    ).fetchall()
+    events: dict[str, list] = {}
+    for row in rows:
+        events.setdefault(str(row["document_id"]), []).append(dict(row))
 
-        # Whether each paper has been looked at travels with the events, so the
-        # interface can tell "nothing has happened to this paper" apart from
-        # "nobody has checked this paper" — which look identical otherwise.
-        checked_rows = conn.execute(
-            f"""
-            SELECT document_id, checked_at, status
-            FROM document_lifecycle_checks
-            WHERE document_id IN ({placeholders})
-            """,
-            ids,
-        ).fetchall()
-        checked = {
-            str(r["document_id"]): {"checked_at": r["checked_at"],
-                                    "status": r["status"]}
-            for r in checked_rows
-        }
-        return {"events": events, "checked": checked}
-    finally:
-        _close_db(conn)
+    # Whether each paper has been looked at travels with the events, so the
+    # interface can tell "nothing has happened to this paper" apart from
+    # "nobody has checked this paper" — which look identical otherwise.
+    checked_rows = conn.execute(
+        f"""
+        SELECT document_id, checked_at, status
+        FROM document_lifecycle_checks
+        WHERE document_id IN ({placeholders})
+        """,
+        ids,
+    ).fetchall()
+    checked = {
+        str(r["document_id"]): {"checked_at": r["checked_at"],
+                                "status": r["status"]}
+        for r in checked_rows
+    }
+    return {"events": events, "checked": checked}
 
 
 @app.get("/api/documents/{doc_id}/lifecycle")
@@ -5153,6 +5178,40 @@ def analytics_keyword_contribution(execution_id: Optional[int] = None):
 # ---------------------------------------------------------------------------
 
 
+# The watchdog's report, served again while nothing it reads has changed and
+# for at most ``watchdog.KEEP_SECONDS``: Health and Today ask for it on every
+# visit, and computing it scans every run. The report prunes the mutes whose
+# condition has cleared, so a kept answer skips that prune; it is served only
+# while its findings are the ones the last prune was made against, which is
+# what the fingerprint and the time limit hold it to. The database's path and
+# generation are in the key, so a restore or another database never shares it.
+_watchdog_kept: dict | None = None
+_watchdog_kept_lock = threading.Lock()
+_watchdog_clock = time.monotonic  # a test moves it forward rather than waiting a minute
+
+
+def _forget_watchdog_report() -> None:
+    global _watchdog_kept
+    with _watchdog_kept_lock:
+        _watchdog_kept = None
+
+
+def _kept_watchdog_report(conn) -> dict:
+    global _watchdog_kept
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    now = _watchdog_clock()
+    with _watchdog_kept_lock:
+        kept = _watchdog_kept
+    if kept and kept["key"] == key and now - kept["at"] < watchdog.KEEP_SECONDS:
+        return copy.deepcopy(kept["report"])
+    fresh = watchdog.report(conn)
+    # The prune may have written, so what it read is read again for the key.
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    with _watchdog_kept_lock:
+        _watchdog_kept = {"key": key, "at": now, "report": copy.deepcopy(fresh)}
+    return fresh
+
+
 class WatchdogMuteRequest(BaseModel):
     finding_key: str = Field(min_length=1, max_length=200)
     note: Optional[str] = Field(default=None, max_length=500)
@@ -5164,11 +5223,7 @@ def watchdog_report():
     """Findings, what could not be judged yet, and the thresholds used."""
     conn = _get_db()
     try:
-        # The watchdog writes when it prunes mutes whose condition resolved, so
-        # it cannot be served from a pure-read cache without that prune being
-        # skipped on every hit. The prune is cheap and the compute is a handful
-        # of indexed queries; correctness wins over the cache here.
-        return watchdog.report(conn)
+        return _kept_watchdog_report(conn)
     finally:
         _close_db(conn)
 
@@ -5185,6 +5240,7 @@ def watchdog_mute(request: WatchdogMuteRequest):
     conn = _get_db()
     try:
         watchdog.mute(conn, request.finding_key, request.note)
+        _forget_watchdog_report()
         return {"status": "muted", "finding_key": request.finding_key}
     finally:
         _close_db(conn)
@@ -5197,6 +5253,7 @@ def watchdog_unmute(request: WatchdogMuteRequest):
     conn = _get_db()
     try:
         watchdog.unmute(conn, request.finding_key)
+        _forget_watchdog_report()
         return {"status": "unmuted", "finding_key": request.finding_key}
     finally:
         _close_db(conn)
@@ -8774,31 +8831,36 @@ def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
     a literal segment after it: ``/api/profiles/starter`` was written below
     ``/api/profiles/{profile_id}`` once and three tests failed on it.
     """
-    ids = [int(i) for i in body.document_ids][:500]
+    conn = _get_db()
+    try:
+        return _profile_matches_for(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _profile_matches_for(conn, document_ids) -> dict:
+    """``/api/profiles/matches/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
     if not ids:
         return {"matches": {}}
     placeholders = ",".join("?" for _ in ids)
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
-            f"       m.evidence, p.display_name "
-            f"  FROM watch_profile_matches m "
-            f"  JOIN watch_profiles p ON p.id = m.profile_id "
-            f" WHERE m.document_id IN ({placeholders}) "
-            f" ORDER BY p.display_name", ids).fetchall()
-        matches: dict[str, list] = {}
-        for row in rows:
-            matches.setdefault(str(row["document_id"]), []).append({
-                "profile_id": row["profile_id"],
-                "display_name": row["display_name"],
-                "basis": row["basis"],
-                "matched_author": row["matched_author"],
-                "evidence": row["evidence"],
-            })
-        return {"matches": matches}
-    finally:
-        _close_db(conn)
+    rows = conn.execute(
+        f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
+        f"       m.evidence, p.display_name "
+        f"  FROM watch_profile_matches m "
+        f"  JOIN watch_profiles p ON p.id = m.profile_id "
+        f" WHERE m.document_id IN ({placeholders}) "
+        f" ORDER BY p.display_name", ids).fetchall()
+    matches: dict[str, list] = {}
+    for row in rows:
+        matches.setdefault(str(row["document_id"]), []).append({
+            "profile_id": row["profile_id"],
+            "display_name": row["display_name"],
+            "basis": row["basis"],
+            "matched_author": row["matched_author"],
+            "evidence": row["evidence"],
+        })
+    return {"matches": matches}
 
 
 @app.get("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,

@@ -6,7 +6,7 @@
  * said in the engine's own words beside the runs that went. What went leaves
  * every list that shows it at once, rather than at the list's next read.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { engine, engineSentence } from '../../api/client';
 import { TODAY_KEY } from '../Today';
 import { RUNS_KEY, type DeleteOutcome, type RunRow } from './model';
@@ -47,7 +47,10 @@ export function useDeleteRuns() {
       await client.cancelQueries({ queryKey: RUNS_KEY });
       await client.cancelQueries({ queryKey: ['routine-runs'] });
       const without = (rows: RunRow[] | undefined) => rows?.filter((row) => !removed.has(row.id));
-      client.setQueryData<RunRow[]>(RUNS_KEY, without);
+      // The run log reads its runs a page at a time; a watch's runs are one list.
+      client.setQueryData<InfiniteData<RunRow[]>>(RUNS_KEY, (data) => data && {
+        ...data, pages: data.pages.map((page) => without(page) ?? []),
+      });
       client.setQueriesData<RunRow[]>({ queryKey: ['routine-runs'] }, without);
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       void client.invalidateQueries({ queryKey: ['routine-runs'] });

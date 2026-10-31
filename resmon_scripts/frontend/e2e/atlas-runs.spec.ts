@@ -2,7 +2,7 @@
  * Atlas: what happens to runs, in the real app. How many run at once, set in
  * Settings › In the background and then met by a search; and the run log's
  * selection, bundled and deleted, with a run still going left alone, and a
- * run deleted from its own page.
+ * run deleted from its own page; and the log read a page at a time.
  *
  * arXiv is a loopback server in this spec. It answers each query with one
  * authored paper named for the query, and holds a query for "slow" open until
@@ -269,6 +269,55 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
     expect(blocked).toBe('');
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('the run log reads its newest page first, and older runs when asked', async () => {
+  test.setTimeout(180_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-runlog-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  // Twenty-three finished runs a person would already have, written before the
+  // app starts: one more page than the log reads at first, and a few over.
+  execFileSync(env.RESMON_PYTHON, ['-c', `
+import json, sys
+sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
+from implementation_scripts import database
+conn = database.get_connection(sys.argv[1])
+database.init_db(conn=conn)
+for i in range(23):
+    run = database.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": json.dumps({"query": f"page {i:02d}", "repositories": ["arxiv"]}),
+        "start_time": f"2026-10-{1 + i // 4:02d}T{8 + i % 4:02d}:00:00Z", "status": "running",
+    })
+    database.update_execution_status(conn, run, "completed", end_time=f"2026-10-{1 + i // 4:02d}T{8 + i % 4:02d}:05:00Z",
+                                     result_count=0, new_result_count=0)
+conn.commit()
+`, env.RESMON_DB_PATH], { env, encoding: 'utf8' });
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
+    const asked: string[] = [];
+    win.on('request', (r) => { if (/\/api\/executions\?/.test(r.url())) asked.push(new URL(r.url()).search); });
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    const log = win.locator('section.runlog');
+    await expect(log.locator('.run-row')).toHaveCount(20, { timeout: 60_000 });
+    expect(asked[0]).toBe('?limit=20&offset=0');
+    // The newest first: the last run written heads the list.
+    await expect(log.locator('.run-row').first()).toContainText('page 22');
+    const older = log.getByRole('button', { name: 'Older runs' });
+    await older.click();
+    await expect(log.locator('.run-row')).toHaveCount(23);
+    await expect(log.locator('.run-row').last()).toContainText('page 00');
+    await expect(older).toHaveCount(0);
+    expect(asked).toContain('?limit=20&offset=20');
+  } finally {
+    await app.close();
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
