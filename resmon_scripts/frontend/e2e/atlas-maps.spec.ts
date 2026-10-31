@@ -101,6 +101,20 @@ async function engine<T>(win: Page, route: string, method = 'GET', body?: unknow
   }, [route, method, body] as const) as Promise<T>;
 }
 
+/**
+ * Wait for the plate to hold still. It eases into its view as it opens, and on a
+ * slow machine a position read mid-ease puts the click where a dot used to be.
+ */
+async function stillView(win: Page, canvas: string): Promise<void> {
+  let last = '';
+  await expect.poll(async () => {
+    const view = (await win.locator(canvas).getAttribute('data-view')) ?? '';
+    const held = view !== '' && view === last;
+    last = view;
+    return held;
+  }, { intervals: [400], timeout: 20_000 }).toBe(true);
+}
+
 /** Click a paper's dot: where the plate's drawing puts it, read from the plate's own view. */
 async function clickPaper(win: Page, canvas: string, id: number, map: MapBody): Promise<void> {
   const at = map.points.id.indexOf(id);
@@ -147,10 +161,11 @@ async function reachable(win: Page, canvas: string, ids: readonly number[], map:
 async function openBeside(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<{ clicked: number; opened: number }> {
   const panel = win.locator('section[data-map-paper]');
   for (const id of ids) {
+    await stillView(win, canvas);
     const clicked = await reachable(win, canvas, [id], map).catch(() => null);
     if (clicked === null) continue;
     await clickPaper(win, canvas, clicked, map);
-    if (await panel.waitFor({ timeout: 3_000 }).then(() => true, () => false)) {
+    if (await panel.waitFor({ timeout: 10_000 }).then(() => true, () => false)) {
       const opened = Number(await panel.getAttribute('data-map-paper'));
       if (ids.includes(opened)) return { clicked, opened };
     }
@@ -314,6 +329,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect.poll(() => win.locator(runCanvas).getAttribute('data-view')).not.toBeNull();
     await expect(runMap.getByRole('group', { name: 'Find and filter on the map' }).getByRole('status'))
       .toHaveText('All 15 papers shown');
+    await stillView(win, runCanvas);
     const inRun = await reachable(win, runCanvas, seed.quantum.slice(4, 15), map);
     await clickPaper(win, runCanvas, inRun, map);
     const runPanel = runMap.locator(`section[data-map-paper="${inRun}"]`);
@@ -348,7 +364,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
       await win.reload();
       await win.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
-      await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
+      await stillView(win, canvas);
       await clickPaper(win, canvas, here, now);
       await shot(win, `today-${theme}-${width}`);
       await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, seed.sweep);
