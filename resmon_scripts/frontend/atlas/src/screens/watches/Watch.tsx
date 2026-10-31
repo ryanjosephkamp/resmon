@@ -260,7 +260,7 @@ function SkippedFires({ routine, now, onOpen }: { routine: Routine; now: Date; o
   return (
     <p className="run-note watch-skipped" role="status" data-watch="skipped-fires" data-skipped={skipped}>
       {skipped === 1 ? 'One scheduled run' : `${number(skipped)} scheduled runs`} did not happen because the run before
-      was still going{at ? `; the last was due ${when(at.toISOString(), now)}` : ''}. resmon does not run a skipped
+      was still going{at ? `; ${skipped === 1 ? 'it' : 'the last'} was due ${when(at.toISOString(), now)}` : ''}. resmon does not run a skipped
       fire later, so this watch runs less often than its schedule says.{' '}
       <button type="button" className="watch-skipped-open" onClick={onOpen}>See its schedule</button>
     </p>
