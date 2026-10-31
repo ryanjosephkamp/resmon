@@ -1,11 +1,11 @@
-"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 23.
+"""The whole walk at once: a v2.1.0 database (schema 13) upgraded to schema 24.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
-16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23. Ten
+16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24. Eleven
 steps, green one at a time, and none of them is the journey a user takes. A
 user who has been on v2.1.0 since it shipped launches the next release once and
-their database crosses **all ten** steps in one `init_db` call, with the rows
+their database crosses **all eleven** steps in one `init_db` call, with the rows
 v2.1.0 wrote still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
@@ -33,8 +33,8 @@ What each test establishes is written on it. The short version:
     produces, regenerated out of process against a worktree of its tag (P1)
   * and every released fixture is walked by today's code. Where the schema a
     fixture was written at is still the one this code ships, that walk must
-    change nothing at all; where steps have been added past it -- 13 -> 23,
-    18 -> 23 and 21 -> 23 today -- the walk is what a user of that release takes on their
+    change nothing at all; where steps have been added past it -- 13 -> 24,
+    18 -> 24 and 21 -> 24 today -- the walk is what a user of that release takes on their
     next launch, and every row of it has to come out the other side (P9).
 
 `RELEASED` near the bottom is the list both of those last two are parametrised
@@ -103,7 +103,7 @@ GENERATOR = Path(__file__).parent / "fixtures/v2.1.0/generate_corpus.py"
 
 # The version the fixture was written at, and the version it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 23
+TARGET_SCHEMA_VERSION = 24
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_v210_database_from_13_to_23(walked):
+def test_one_init_db_takes_a_v210_database_from_13_to_24(walked):
     """The upgrade a user's first v2.2.0 launch performs, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -1109,7 +1109,7 @@ def test_one_init_db_over_the_newest_releases_fixture_keeps_every_row(
 
     While a released fixture is at the schema this code still ships, its walk is
     a no-op and the whole fingerprint has to come back identical. Where a step
-    has been added past it -- 13 -> 23, 18 -> 23 and 21 -> 23 today -- the
+    has been added past it -- 13 -> 24, 18 -> 24 and 21 -> 24 today -- the
     fingerprint legitimately changes: `executions` is rebuilt with a wider
     `status` CHECK and six new columns, five tables and an index arrive, and the
     schema marker moves.

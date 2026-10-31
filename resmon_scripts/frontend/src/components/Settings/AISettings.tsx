@@ -850,11 +850,13 @@ const AISettings: React.FC = () => {
                   stay on screen; the assistant can no longer see them.
                 </p>
                 <p>
-                  <strong>Codex is not offered here.</strong> resmon can give a
-                  Codex session its own tools but cannot take away Codex's shell,
-                  and <code>codex exec</code> has no way for you to approve a
-                  command before it runs. Codex is still a summarisation lane,
-                  where it is given no tools at all.
+                  <strong>Codex is offered read-only.</strong>{' '}
+                  <code>codex exec</code> has no way for you to approve a command
+                  before it runs, so a Codex conversation gets only resmon&apos;s read
+                  tools, with its shell, the web, and its other tools switched off,
+                  and resmon stops a turn that reaches for any other tool. Changes
+                  wait for your approval in Ask on Claude Code. Codex also summarizes
+                  papers, with no tools at all.
                 </p>
               </>
             ),

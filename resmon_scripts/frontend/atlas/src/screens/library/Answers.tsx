@@ -355,7 +355,8 @@ function Composer({ project, members, notes, onClose, onStarted }: {
                 const c = choices.connections.find((x) => connectionKey(x) === e.target.value);
                 if (c?.runtime) setChoice({ version: 1, runtime: c.runtime as Choice['runtime'], provider: c.provider, model: null, effort: null });
               }}>
-                {choices.connections.map((c) => (
+                {/* An answer from selected evidence runs on Claude Code or an API key; Codex is Ask's only. */}
+                {choices.connections.filter((c) => c.runtime !== 'codex_cli').map((c) => (
                   <option key={connectionKey(c)} value={connectionKey(c)} disabled={!c.implemented || !c.available || !c.runtime}>
                     {c.label}{c.available ? '' : ' (unavailable)'}
                   </option>

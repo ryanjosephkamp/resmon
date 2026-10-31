@@ -587,9 +587,9 @@ export interface paths {
          * Assistant Status
          * @description Whether the assistant can run, and if not, the reason in one sentence.
          *
-         *     Codex is reported as unavailable *with its reason* rather than omitted: a
-         *     user who has Codex installed and sees no mention of it would reasonably
-         *     conclude resmon had not noticed it.
+         *     Every runtime is reported, Codex included, with its reason: a user who has
+         *     Codex installed and sees no mention of it would reasonably conclude resmon
+         *     had not noticed it.
          */
         get: operations["assistant_status_api_assistant_status_get"];
         put?: never;
@@ -3726,6 +3726,8 @@ export interface components {
             key?: string | null;
             /** Provider */
             provider: string;
+            /** Purpose */
+            purpose?: string | null;
         };
         /**
          * ActiveRuns
@@ -4132,7 +4134,7 @@ export interface components {
          * @description One connection the composer can offer.
          *
          *     ``runtime`` is ``None``, and ``implemented`` false, for a provider resmon
-         *     lists but has no assistant for (Ollama, Codex). ``family`` is the request
+         *     lists but has no assistant for (Ollama). ``family`` is the request
          *     shape resmon's own loop builds and is present only on API-key
          *     connections. ``available`` checks local prerequisites only, an executable
          *     found or a key stored, never sign-in or whether a model is accepted.

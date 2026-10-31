@@ -4,7 +4,10 @@ import { Link } from 'react-router-dom';
 import { commandEnter } from '../../shell/shortcuts';
 import { download } from '../library/libraryApi';
 import { CliSignIn } from '../settings/CliSignIn';
+import { listFor, useModelList } from '../settings/ModelField';
 import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from '../settings/modelWords';
+import { refusal } from '../settings/ProviderKey';
+import { effortsFor } from '../settings/summaryLanes';
 import { ask, type Bound, type ChoiceRequest, type Choices, type Detail, type Message, type TurnChoices, type TurnFailure } from './askApi';
 import {
   answerFooterWords, answeredWords, basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall,
@@ -246,6 +249,7 @@ function Saved({ detail }: { detail: Detail }) {
             {turn && <TurnDisclosure turn={turn} />}
             {turn?.failure && (
               <FailedTurn failure={turn.failure} retry={message.id === lastUser && !answering ? message.content : null}
+                provider={signInProvider(turn.requested)}
                 fresh={failure?.session === detail.session.id && failure.turn === message.id} />
             )}
           </li>
@@ -267,9 +271,14 @@ function SavedMessage({ message, turn }: { message: Message; turn?: TurnChoices 
       {message.tool_results !== null && message.tool_results !== undefined && (
         <details className="conv-raw"><summary>Saved tool results</summary><pre>{JSON.stringify(message.tool_results, null, 2)}</pre></details>
       )}
-      {message.role === 'assistant' && <p className="conv-quiet conv-cost">{answerFooterWords(turn, message.cost_usd)}</p>}
+      {message.role === 'assistant' && <p className="conv-quiet conv-cost">{answerFooterWords(turn, message.cost_usd, message)}</p>}
     </>
   );
+}
+
+/** The command whose sign-in a failed turn offers: the one the turn asked for. */
+function signInProvider(requested: TurnChoices['requested']): string {
+  return requested && 'provider' in requested && requested.provider === 'codex' ? 'codex' : 'claude_code';
 }
 
 /**
@@ -278,9 +287,11 @@ function SavedMessage({ message, turn }: { message: Message; turn?: TurnChoices 
  * cost is shown only where the runtime reported one; and what the turn wrote
  * or called before it ended is there to read, under its own name.
  */
-function FailedTurn({ failure, retry, fresh }: {
+function FailedTurn({ failure, retry, provider, fresh }: {
   failure: TurnFailure;
   retry: string | null;
+  /** `claude_code` or `codex`: the command the turn ran on. */
+  provider: string;
   /** The turn that has just ended here, whose failure is announced as it arrives; an old one is not. */
   fresh: boolean;
 }) {
@@ -294,7 +305,7 @@ function FailedTurn({ failure, retry, fresh }: {
     <div className="conv-failed" role="group" aria-label="This turn got no answer" data-code={failure.code}>
       <p className="conv-failed-title">{failureTitle(failure.code)}</p>
       <p className="conv-failed-message" role={fresh ? 'alert' : undefined}>{failure.message}</p>
-      {failure.code === 'cli_auth' && <CliSignIn provider="claude_code" purpose="ask" checkOnOpen={false} />}
+      {failure.code === 'cli_auth' && <CliSignIn provider={provider} purpose="ask" checkOnOpen={false} />}
       {failure.cost_usd !== null && failure.cost_usd !== undefined && (
         <p className="conv-quiet">{costWords(failure.cost_usd)}</p>
       )}
@@ -459,7 +470,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
               model_basis: 'explicit', effort_basis: 'explicit', binding_basis: 'legacy_confirmed' } as unknown as Bound)} from now on.
             {draft.runtime === 'api_key'
               ? ` The saved text of your messages and its answers will be sent to ${providerWords(draft.provider)}; saved tool results are not.`
-              : ' A new Claude session starts: it receives your new message, not the earlier conversation.'}
+              : ` A new ${providerWords(draft.provider)} session starts: it receives your new message, not the earlier conversation.`}
           </p>
           <button type="button" className="btn primary sm" onClick={() => submit()}>Confirm and send</button>
           <button type="button" className="btn quiet sm" onClick={() => setAdopting(false)}>Not now</button>
@@ -498,9 +509,19 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
   const connection = connectionOf(choices, value);
   const api = value?.runtime === 'api_key';
   const cli = value?.runtime === 'claude_cli';
+  const codex = value?.runtime === 'codex_cli';
   // Which model each alias last resolved to, from answers already kept.
-  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: cli, refetchOnMount: 'always' });
-  const modelWords = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
+  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: cli || codex, refetchOnMount: 'always' });
+  const command = codex ? 'codex' : 'claude_code';
+  const modelWords = (model: string) => modelOptionWords(command, model, lastFor(last.data, command, model), choices.claude_aliases);
+  // Codex lists its own models, and each one's effort levels, when asked
+  // (`codex debug models`, run by the engine). Asked on Load models, never on
+  // its own: it starts a process.
+  const catalog = useModelList();
+  const listed = codex ? listFor(catalog, 'codex') : null;
+  const efforts = codex
+    ? [...new Set([...effortsFor(listed, value?.model ?? '', []), ...(value?.effort ? [value.effort] : [])])]
+    : choices.claude_efforts;
   return (
     <fieldset className="conv-choices">
       <legend className="conv-label">{legacy ? 'Choices from now on' : 'Choices for this conversation'}</legend>
@@ -513,9 +534,10 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
             const next = choices.connections.find((c) => connectionKey(c) === e.target.value);
             if (!next?.runtime || !next.implemented) return;
             const runtime = next.runtime as ChoiceRequest['runtime'];
+            const same = runtime === value?.runtime;
             onChange({ version: 1, runtime, provider: next.provider,
-              model: runtime === value?.runtime ? value.model : null,
-              effort: runtime === 'claude_cli' && value?.runtime === 'claude_cli' ? value.effort : null });
+              model: same ? value.model : null,
+              effort: same && runtime !== 'api_key' ? value.effort : null });
           }}
         >
           <option value="" disabled>Choose a connection</option>
@@ -531,42 +553,72 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
         <div className="conv-choice">
           <label htmlFor="conv-model">Model</label>
           <input
-            id="conv-model" list={api ? undefined : 'conv-claude-aliases'} maxLength={512} value={value.model ?? ''}
+            id="conv-model" list={api ? undefined : codex ? 'conv-codex-models' : 'conv-claude-aliases'} maxLength={512}
+            value={value.model ?? ''} spellCheck={false} autoComplete="off"
             placeholder={api ? 'A model ID is required' : 'Blank: the CLI’s default'}
             onChange={(e) => onChange({ ...value, model: e.target.value || null })}
           />
-          {!api && (
+          {cli && (
             <datalist id="conv-claude-aliases">
               {choices.claude_aliases.map((a) => <option key={a} value={a} label={modelWords(a)} />)}
             </datalist>
           )}
+          {codex && (
+            <datalist id="conv-codex-models">
+              {(listed?.models ?? []).map((m) => <option key={m} value={m} label={modelWords(m)} />)}
+            </datalist>
+          )}
         </div>
+      )}
+      {value && codex && connection?.available && (
+        <button type="button" className="btn sm conv-load-models" data-ask="load-models" disabled={catalog.isPending}
+          onClick={() => catalog.mutate({ provider: 'codex', purpose: 'ask' })}>
+          {catalog.isPending ? 'Loading' : listed ? 'Load again' : 'Load models'}
+        </button>
       )}
       {value && !api && (
         <div className="conv-choice">
           <label htmlFor="conv-effort">Effort</label>
           <select id="conv-effort" value={value.effort ?? ''} onChange={(e) => onChange({ ...value, effort: e.target.value || null })}>
             <option value="">The CLI’s default</option>
-            {choices.claude_efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+            {efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
           </select>
         </div>
       )}
       {value && api && <p className="conv-quiet conv-no-effort">Effort: not supported by this connection.</p>}
-      {value && cli && (
+      {/* For Codex only where it says more than the field does: the default, or what a model last answered as. */}
+      {value && (cli || (codex && modelWords(value.model ?? '') !== value.model)) && (
         <p className="conv-quiet conv-model-words" data-ask="model-words">Model: {modelWords(value.model ?? '')}.</p>
       )}
+      {codex && catalog.error && (
+        <p className="field-error" role="alert" data-ask="model-list-error">{refusal(catalog.error)}</p>
+      )}
+      {codex && connection?.available && !listed && !catalog.error && (
+        <p className="conv-quiet" data-ask="model-list">
+          Load models to choose from what Codex lists, with each model’s effort levels.
+        </p>
+      )}
+      {codex && listed && (
+        <p className="conv-quiet" data-ask="model-list" data-count={listed.models.length}>
+          {listed.models.length
+            ? `${listed.provenance || 'Listed by Codex.'} Type another to send it as written.`
+            : 'Codex listed no models. Type a model’s ID instead.'}
+        </p>
+      )}
       {/* An unavailable connection's reason is said once, below, beside the way to Settings › AI. For
-          Claude Code the command itself is asked whether it is signed in, which says more than the
-          engine's "sign-in unverified" can; model acceptance is in the limits below. */}
-      {connection?.available && !cli && <p className="conv-quiet conv-reason">{connection.reason}</p>}
-      {cli && connection?.available && <CliSignIn provider="claude_code" purpose="ask" checkOnOpen />}
+          a command, the command itself is asked whether it is signed in, which says more than the
+          engine's "sign-in unverified" can; model acceptance is in the limits below. Codex's reason
+          also says what it is given: resmon's read-only tools only. */}
+      {connection?.available && !cli && <p className="conv-quiet conv-reason" data-ask="connection-reason">{connection.reason}</p>}
+      {(cli || codex) && connection?.available && <CliSignIn key={command} provider={command} purpose="ask" checkOnOpen />}
       {!value && choices.default_error && <p className="conv-quiet">{choices.default_error}</p>}
       <details className="conv-limits">
         <summary>What these choices establish</summary>
         <p>{choices.limitations}</p>
         <p>
-          A model is sent as typed. The Claude names offered are aliases, not a list of what an account can use.
-          These choices are fixed when the first message is sent, and change no default.
+          A model is sent as typed. The Claude names offered are aliases, not a list of what an account can use;
+          Codex’s are what its own catalog lists when loaded. These choices are fixed when the first message is
+          sent, and change no default.
         </p>
       </details>
     </fieldset>

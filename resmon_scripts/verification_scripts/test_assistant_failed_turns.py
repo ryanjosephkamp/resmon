@@ -286,7 +286,6 @@ def test_sign_in_opens_the_commands_own_login_and_check_again_sees_it(backend, s
 
 
 def test_a_purpose_or_provider_resmon_does_not_offer_is_refused(backend):
-    for params in ({"provider": "gemini"}, {"provider": "codex", "purpose": "ask"},
-                   {"provider": "claude_code", "purpose": "elsewhere"}):
+    for params in ({"provider": "gemini"}, {"provider": "claude_code", "purpose": "elsewhere"}):
         assert _API.get(f"{backend.base}/api/ai/cli/sign-in", params=params,
                         timeout=20).status_code == 400

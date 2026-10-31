@@ -14,6 +14,11 @@ mode is a resume that silently starts a fresh conversation the user believes is
 their old one. ``cli_session_id`` is nullable because "this runtime cannot
 resume" is a real state the panel reports rather than papers over.
 
+Codex is the exception, because it cannot take an id: ``codex exec`` mints its
+thread id and reports it in ``thread.started``. Its column starts empty and
+holds the id Codex reported once a turn has started, and the runtime checks the
+id a resumed turn reports against the one it asked for.
+
 **Tool results are stored exactly as returned.** Tools do not expose credential
 fields, but saved messages and tool data can themselves contain sensitive text.
 A requested transcript export preserves that text; review before sharing.
@@ -378,7 +383,7 @@ def admit_turn(conn: sqlite3.Connection, session_id: int, text: str, binding: di
         if session is None:
             raise ValueError('That conversation does not exist.')
         current = get_choices(conn, session_id)
-        route_settings = dict(conn.execute("SELECT key,value FROM app_settings WHERE key IN ('ai_cli_path','ai_custom_base_url')"))
+        route_settings = dict(conn.execute("SELECT key,value FROM app_settings WHERE key IN ('ai_cli_path','ai_custom_base_url','ai_provider')"))
         if choices.route_digest(route_settings, binding['runtime'], binding['provider']) != binding['route_digest']:
             raise ValueError('This connection configuration changed. Start a new conversation.')
         if legacy:
@@ -388,7 +393,7 @@ def admit_turn(conn: sqlite3.Connection, session_id: int, text: str, binding: di
         elif current != binding:
             raise ValueError('Conversation choices changed. Reopen the conversation.')
         history = list_messages(conn, session_id)
-        native = session['cli_session_id'] if binding['runtime'] == 'claude_cli' and not legacy else None
+        native = session['cli_session_id'] if binding['runtime'] in ('claude_cli', 'codex_cli') and not legacy else None
         # Resumed only once an earlier turn was answered. A conversation whose
         # every turn failed or was stopped has nothing in the CLI worth going
         # back to, and the session a failed first turn may have half-started

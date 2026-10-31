@@ -35,7 +35,7 @@ def shape(conn):
 # and five nullable columns, and the columns it keeps move to new positions.
 # The two helpers below hold this file's claim -- no value rewritten, no row or
 # column lost -- without it having to be edited again for the next such step.
-REBUILT={'executions'}
+REBUILT={'executions','assistant_session_choices'}  # 19 and 24 rebuild these on purpose
 
 
 def widths(before):
@@ -133,7 +133,7 @@ def test_schema18_restart_refuses_corruption_without_repair(legacy17,fault):
     else:conn.execute('ALTER TABLE evidence_answers ADD COLUMN unapproved TEXT')
     conn.commit();before=objects(conn);rows=contents(conn)
     with pytest.raises(sqlite3.DatabaseError):db.init_db(conn=conn)
-    assert objects(conn)==before and contents(conn)==rows and db.get_schema_version(conn)==23
+    assert objects(conn)==before and contents(conn)==rows and db.get_schema_version(conn)==24
 
 # Independent approved DDL oracle, copied from the frozen owner-reviewed SQL.
 APPROVED_SQL = "-- PROPOSED schema 18. Preparation only; not executed.\n-- One table and one explicit index; UNIQUE creates its ordinary implicit indexes.\nCREATE TABLE evidence_answers (\n id INTEGER PRIMARY KEY AUTOINCREMENT,\n answer_id TEXT NOT NULL UNIQUE,\n preview_id TEXT NOT NULL UNIQUE,\n vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,\n project_id TEXT NOT NULL REFERENCES evidence_projects(project_id) ON DELETE RESTRICT,\n project_revision INTEGER NOT NULL CHECK(project_revision >= 1),\n mode TEXT NOT NULL CHECK(mode IN ('question', 'briefing')),\n state TEXT NOT NULL CHECK(state IN ('admitted', 'running', 'succeeded', 'refused', 'failed', 'cancelled', 'interrupted')),\n request_json TEXT NOT NULL CHECK(length(CAST(request_json AS BLOB)) <= 262144),\n request_sha256 TEXT NOT NULL CHECK(length(request_sha256) = 64 AND request_sha256 NOT GLOB '*[^0-9a-f]*'),\n private_binding_json TEXT NOT NULL CHECK(length(CAST(private_binding_json AS BLOB)) <= 4096),\n private_native_session_id TEXT,\n owner_runtime_id TEXT NOT NULL,\n partial_text TEXT NOT NULL DEFAULT '' CHECK(length(CAST(partial_text AS BLOB)) <= 65536),\n result_json TEXT CHECK(result_json IS NULL OR length(CAST(result_json AS BLOB)) <= 65536),\n reports_json TEXT NOT NULL DEFAULT '[]' CHECK(length(CAST(reports_json AS BLOB)) <= 16384),\n usage_json TEXT CHECK(usage_json IS NULL OR length(CAST(usage_json AS BLOB)) <= 4096),\n error_code TEXT CHECK(error_code IS NULL OR length(error_code) <= 80),\n error_message TEXT CHECK(error_message IS NULL OR length(error_message) <= 1000),\n cleanup_state TEXT NOT NULL CHECK(cleanup_state IN ('not_started', 'pending', 'confirmed', 'unknown')),\n created_at_utc TEXT NOT NULL,\n started_at_utc TEXT,\n finished_at_utc TEXT,\n CHECK((state IN ('admitted','running') AND finished_at_utc IS NULL)\n       OR (state IN ('succeeded','refused','failed','cancelled','interrupted') AND finished_at_utc IS NOT NULL)),\n CHECK(result_json IS NULL OR state IN ('succeeded','refused'))\n);\nCREATE INDEX idx_evidence_answers_project_order ON evidence_answers(project_id, id);\n"

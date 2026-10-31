@@ -487,6 +487,10 @@ class AIModelsRequest(BaseModel):
     # 1.8.5, subscription lanes only — the full path to the agent CLI, when the
     # user has set one. Never a credential: it is a path to a binary.
     binary_path: Optional[str] = None
+    # ``ask`` finds the command the way Ask's connection does
+    # (``assistant_runtime.codex_cli_path``) when no path is given; anything
+    # else, or nothing, finds it the way a summary lane does.
+    purpose: Optional[str] = None
 
 class ConfigExport(BaseModel):
     ids: list[int]
@@ -5577,15 +5581,17 @@ def _sign_in_binary(provider: str, purpose: str, binary_path: Optional[str]) -> 
         raise HTTPException(400, "Sign-in is checked for Claude Code and Codex only.")
     if purpose not in ("summaries", "ask"):
         raise HTTPException(400, "Purpose is summaries or ask.")
-    if purpose == "ask" and provider != "claude_code":
-        raise HTTPException(400, "Ask runs on Claude Code, not Codex.")
     conn = _get_db()
     try:
         settings = _get_settings_group(conn, "ai")
     finally:
         _close_db(conn)
     configured = str(settings.get("ai_cli_path") or "").strip() or None
-    if purpose == "ask":
+    if purpose == "ask" and provider == "codex":
+        # Ask's Codex connection finds its command by its own rule
+        # (``assistant_runtime.codex_cli_path``), and the check asks that one.
+        explicit = assistant_runtime.codex_cli_path(settings) or None
+    elif purpose == "ask":
         # The assistant reads ``ai_cli_path`` whichever provider summaries use
         # (``_assistant_settings``), so the check does the same.
         explicit = configured
@@ -6882,9 +6888,17 @@ def list_ai_models(body: AIModelsRequest):
     # no models command and offers documented aliases, codex reports a real
     # catalog through `codex debug models`.
     if provider in SUBSCRIPTION_PROVIDERS:
-        catalog = list_subscription_catalog(
-            provider, (body.binary_path or "").strip() or None,
-        )
+        binary = (body.binary_path or "").strip() or None
+        if binary is None and body.purpose == "ask" and provider == "codex":
+            # The composer holds no path: a conversation is fixed to a
+            # connection, not to a locator. The engine knows which command
+            # Ask's Codex runs, so it asks that one.
+            conn = _get_db()
+            try:
+                binary = assistant_runtime.codex_cli_path(_assistant_settings(conn)) or None
+            finally:
+                _close_db(conn)
+        catalog = list_subscription_catalog(provider, binary)
         if catalog.error:
             raise HTTPException(400, catalog.error)
         return catalog.to_dict()
@@ -8138,9 +8152,9 @@ def update_assistant_settings(body: SettingsBody):
 def assistant_status():
     """Whether the assistant can run, and if not, the reason in one sentence.
 
-    Codex is reported as unavailable *with its reason* rather than omitted: a
-    user who has Codex installed and sees no mention of it would reasonably
-    conclude resmon had not noticed it.
+    Every runtime is reported, Codex included, with its reason: a user who has
+    Codex installed and sees no mention of it would reasonably conclude resmon
+    had not noticed it.
     """
     conn = _get_db()
     try:

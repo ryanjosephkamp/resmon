@@ -11,6 +11,8 @@ export interface ModelQuery {
   base_url?: string;
   endpoint?: string;
   binary_path?: string;
+  /** `ask`: the command Ask's connection runs, where no path is given. */
+  purpose?: 'ask' | 'summaries';
 }
 
 /**

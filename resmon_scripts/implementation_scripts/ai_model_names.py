@@ -103,11 +103,15 @@ def model_display_name(model_id: Any) -> str:
 # models that were actually billed for the turn, the first being the one that
 # wrote the most. The two API sources are the provider's own reply. The init
 # message is last because it is what the CLI announced before it answered,
-# which is a report of intent rather than of the answer.
+# which is a report of intent rather than of the answer. Codex names its model
+# in its event stream where a version does, or in the header it prints as it
+# starts; either is what the command said about the turn it ran.
 ANSWER_SOURCES = (
     "claude_result_model_usage",
     "api_response_model",
     "google_response_modelVersion",
+    "codex_event_model",
+    "codex_header_model",
     "claude_system_init_model",
 )
 

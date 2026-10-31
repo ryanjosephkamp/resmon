@@ -3528,7 +3528,7 @@ class AssistantConnection(LosslessModel):
     """One connection the composer can offer.
 
     ``runtime`` is ``None``, and ``implemented`` false, for a provider resmon
-    lists but has no assistant for (Ollama, Codex). ``family`` is the request
+    lists but has no assistant for (Ollama). ``family`` is the request
     shape resmon's own loop builds and is present only on API-key
     connections. ``available`` checks local prerequisites only, an executable
     found or a key stored, never sign-in or whether a model is accepted.

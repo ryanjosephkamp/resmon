@@ -326,7 +326,7 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
             for name in ("create_vault", "Import", "retained", "checked_vault"):
                 scoped.setattr(library, name, forbidden_io)
             db.init_db(conn=conn)
-        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 23
+        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 24
         # ``routine_missed_fires`` is schema 20's, and empty: this file's claim
         # is that schema 17 changed nothing it owned, not that no later schema
         # ever added a table.
@@ -358,13 +358,15 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
                 continue
             assert after_rows[table] == before_rows[table], table
         assert after_rows["app_settings"]["columns"] == before_rows["app_settings"]["columns"]
-        # ``executions`` is the one object a later schema rebuilds on purpose
-        # (19, the widened status CHECK). Asserted on rather than excused: it
-        # must gain the new vocabulary and keep every column it had.
-        rebuilt = {"executions"}
+        # ``executions`` and ``assistant_session_choices`` are the objects later
+        # schemas rebuild on purpose (19, the widened status CHECK; 24, the
+        # Codex runtime). Asserted on rather than excused: each must gain its
+        # new vocabulary and keep every column it had.
+        rebuilt = {"executions", "assistant_session_choices"}
         assert {n: objects(conn)[n] for n in before_objects if n not in rebuilt} == {
             n: v for n, v in before_objects.items() if n not in rebuilt}
         assert "'interrupted'" in objects(conn)["executions"][2]
+        assert "'codex_cli'" in objects(conn)["assistant_session_choices"][2]
         assert {c[1] for c in before_rows["executions"]["columns"]} <= {
             r[1] for r in conn.execute("PRAGMA table_xinfo(\"executions\")")}
         for table in TABLES:
@@ -396,7 +398,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
         assert evidence_shape(fresh) == expected_shape
         assert all(fresh.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                    for table in (*LIBRARY_TABLES, *TABLES))
-        assert db.get_schema_version(fresh) == 23
+        assert db.get_schema_version(fresh) == 24
         assert len(table_names(fresh)) == 42
     finally:
         fresh.close()
@@ -408,7 +410,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
             assert contents(reopened) == expected_rows
             assert objects(reopened) == expected_objects
             assert evidence_shape(reopened) == expected_shape
-            assert db.get_schema_version(reopened) == 23
+            assert db.get_schema_version(reopened) == 24
         finally:
             reopened.close()
     assert file_census(legacy.roots) == expected_files
@@ -472,7 +474,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         conn.execute("DROP INDEX idx_evidence_notes_order")
     conn.commit()
     db.init_db(conn=conn)
-    assert db.get_schema_version(conn) == 23
+    assert db.get_schema_version(conn) == 24
     assert_approved_shape(conn)
 
 

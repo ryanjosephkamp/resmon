@@ -18,7 +18,7 @@ starts with no copied messages or native session. Global Settings remain default
 future chats, and changing them cannot retarget an existing conversation or active turn.
 Claude suggestions are aliases, not an account-verified compatibility list. Blank CLI
 model/effort omits that flag and leaves the native default unknown. API effort is not
-supported by the current adapter. Codex and Ollama assistant adapters are unavailable.
+supported by the current adapter. The Ollama assistant adapter is unavailable.
 Readiness describes local prerequisites; authentication and model acceptance are checked
 only when you send. A refusal does not switch to another model or connection.</p>
 <p>Older chats have unknown historical choices. Their first continuation asks for explicit
@@ -65,10 +65,13 @@ If the CLI itself has lost a conversation — you cleared its history, or restor
 database onto another machine — the next thing you send is answered in a fresh session and
 the panel says so in place; your earlier messages stay on screen, and the assistant can no
 longer see them.</p>
-<p>Codex is <strong>not</strong> offered for the assistant: resmon can give a Codex session its own tools
-but cannot take away Codex’s shell, and there is no way for you to approve a command
-before it runs. Codex remains available for summarising papers, where it is given no
-tools at all.</p>
+<p>Codex is offered for the assistant <strong>read-only</strong>. <code>codex exec</code> has no way for you to approve
+a command before it runs, so a Codex conversation gets only resmon’s read tools: it can read
+your watches, runs, papers, sources, and settings, and cannot create, run, or change
+anything. Its shell, the web, the browser, and its other tools are switched off, it runs in a
+read-only sandbox in an empty folder, and resmon stops a turn the moment Codex reaches for
+any tool but resmon’s. Changes are made in resmon itself, or in Ask on Claude Code, where
+each one waits for your approval. Codex also writes paper summaries, with no tools at all.</p>
 <p><strong>No CLI? Use a key instead.</strong> Under Settings → AI → Assistant you can run the assistant on
 an API key of your own — Anthropic, OpenAI, Google, xAI, Together, DeepSeek, Alibaba, or a
 custom OpenAI-compatible endpoint. It is the same panel, the same tools, the same

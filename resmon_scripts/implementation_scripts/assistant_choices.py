@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import unicodedata
 from datetime import datetime, timezone
 from typing import Optional
@@ -17,10 +18,18 @@ from .assistant_tool_calling import PROVIDER_TOOL_CALLING
 REQUEST_FIELDS = ('version', 'runtime', 'provider', 'requested_model',
                   'requested_effort', 'model_basis', 'effort_basis', 'binding_basis')
 REPORT_SOURCES = ('claude_system_init_model', 'api_response_model',
-                  'google_response_modelVersion', 'claude_result_model_usage')
+                  'google_response_modelVersion', 'claude_result_model_usage',
+                  'codex_event_model', 'codex_header_model')
+RUNTIMES = ('claude_cli', 'codex_cli', 'api_key')
+# Codex lists each model's levels in its own catalog (``codex debug models``),
+# so its effort is held to the shape of a level rather than to a fixed set; the
+# command refuses one its model does not take when it runs. Schema 24's CHECK
+# holds the database to the same shape.
+_CODEX_EFFORT = re.compile(r'[a-z][a-z0-9_-]{0,31}')
 LIMITS = (
     'Local prerequisites are not authentication or account/model compatibility. '
     'Claude suggestions are aliases; the CLI checks model/effort acceptance at use time. '
+    'Codex models and efforts are what its own catalog lists, and Codex checks them at use time. '
     'An omitted CLI flag leaves its native default unknown. '
     'A saved connection does not pin an account, executable build or alias resolution.'
 )
@@ -36,11 +45,14 @@ def validate(value: object) -> dict:
     if type(value['version']) is not int or value['version'] != 1:
         raise ValueError('Unsupported choices version.')
     runtime, provider, model, effort = (value[k] for k in ('runtime', 'provider', 'model', 'effort'))
-    if runtime not in ('claude_cli', 'api_key') or not isinstance(provider, str):
+    if runtime not in RUNTIMES or not isinstance(provider, str):
         raise ValueError('Unknown assistant connection.')
     if runtime == 'claude_cli':
         if provider != 'claude_code':
             raise ValueError('The Claude CLI connection requires claude_code.')
+    elif runtime == 'codex_cli':
+        if provider != 'codex':
+            raise ValueError('The Codex connection requires codex.')
     elif provider not in PROVIDER_TOOL_CALLING or not PROVIDER_TOOL_CALLING[provider].offered:
         raise ValueError('This API provider has no assistant adapter.')
     if model is not None and (not isinstance(model, str) or not model.strip() or len(model) > 512
@@ -48,7 +60,10 @@ def validate(value: object) -> dict:
         raise ValueError('Model must be a nonempty ID of at most 512 characters without controls.')
     if runtime == 'api_key' and model is None:
         raise ValueError('An API connection needs an explicit model ID.')
-    if effort is not None and (not isinstance(effort, str) or effort not in CLAUDE_EFFORT_LEVELS):
+    if effort is not None and runtime == 'codex_cli':
+        if not isinstance(effort, str) or not _CODEX_EFFORT.fullmatch(effort):
+            raise ValueError('A Codex effort is one lowercase level, such as medium.')
+    elif effort is not None and (not isinstance(effort, str) or effort not in CLAUDE_EFFORT_LEVELS):
         raise ValueError('Unsupported requested effort.')
     if runtime == 'api_key' and effort is not None:
         raise ValueError('Effort is not supported by this API adapter.')
@@ -59,15 +74,20 @@ def defaults(settings: dict) -> dict:
     from .assistant_runtime import assistant_provider
 
     runtime = settings.get('assistant_runtime') or 'claude_cli'
-    return validate({'version': 1, 'runtime': runtime,
-                     'provider': 'claude_code' if runtime == 'claude_cli' else assistant_provider(settings),
+    provider = {'claude_cli': 'claude_code', 'codex_cli': 'codex'}.get(runtime) or assistant_provider(settings)
+    return validate({'version': 1, 'runtime': runtime, 'provider': provider,
                      'model': settings.get('assistant_model') or None,
-                     'effort': (settings.get('assistant_effort') or None) if runtime == 'claude_cli' else None})
+                     'effort': (settings.get('assistant_effort') or None) if runtime != 'api_key' else None})
 
 
 def route_digest(settings: dict, runtime: str, provider: str) -> str:
     if runtime == 'claude_cli':
         locator = ['configured_cli', settings.get('ai_cli_path') or '', 'auto' if not settings.get('ai_cli_path') else 'explicit']
+    elif runtime == 'codex_cli':
+        from .assistant_runtime import codex_cli_path
+
+        path = codex_cli_path(settings)
+        locator = ['configured_cli', path, 'explicit' if path else 'auto']
     elif provider == 'custom':
         locator = ['custom_endpoint', settings.get('ai_custom_base_url') or '']
     else:
@@ -113,7 +133,7 @@ def report(model: object, source: str) -> Optional[dict]:
 
 
 def descriptor(settings: dict, *, backend_port: Optional[int] = None) -> dict:
-    from .assistant_runtime import ClaudeCliRuntime
+    from .assistant_runtime import ClaudeCliRuntime, CodexCliRuntime, codex_cli_path, codex_connection_reason
     from .assistant_api_runtime import ApiKeyRuntime
 
     try:
@@ -121,9 +141,17 @@ def descriptor(settings: dict, *, backend_port: Optional[int] = None) -> dict:
     except ValueError as exc:
         default, default_error = None, str(exc)
     cli = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path')).status()
+    codex = CodexCliRuntime(cli_path=codex_cli_path(settings)).status()
+    # The two commands first, Claude Code then Codex; the API keys after them.
     connections = [{'runtime': 'claude_cli', 'provider': 'claude_code', 'label': 'Claude Code',
                     'implemented': True, 'available': cli.available,
                     'reason': 'CLI executable found; sign-in and model acceptance are unverified.' if cli.available else 'Claude CLI executable not found. Configure it in Settings → AI.',
+                    'effort_supported': True},
+                   {'runtime': 'codex_cli', 'provider': 'codex', 'label': 'Codex',
+                    'implemented': True, 'available': codex.available,
+                    'reason': codex_connection_reason() if codex.available else (
+                        'Codex executable not found. If it is installed where resmon does not look, '
+                        'choose Codex for summaries in Settings → AI and set its path there.'),
                     'effort_supported': True}]
     for provider, capability in PROVIDER_TOOL_CALLING.items():
         if capability.offered:
@@ -136,7 +164,7 @@ def descriptor(settings: dict, *, backend_port: Optional[int] = None) -> dict:
                                 'reason': 'Key configured; authentication and model acceptance are unverified.' if state.available else state.reason,
                                 'effort_supported': False, 'family': capability.family})
         elif capability.assistant == 'no':
-            connections.append({'runtime': None, 'provider': provider, 'label': 'Ollama' if provider == 'local' else 'Codex',
+            connections.append({'runtime': None, 'provider': provider, 'label': 'Ollama' if provider == 'local' else provider,
                                 'implemented': False, 'available': False,
                                 'reason': capability.assistant_reason, 'effort_supported': False})
     return {'version': 1, 'default_request': default, 'default_error': default_error,

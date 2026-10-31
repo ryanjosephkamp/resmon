@@ -170,6 +170,39 @@ def test_tools_list_matches_the_contract():
     assert mcp.CONTRACT_VERSION == "2.4"
 
 
+def test_a_read_only_server_lists_the_reads_and_nothing_else(monkeypatch):
+    """``RESMON_MCP_READ_ONLY=1``: the list a client sees is ``READ_TOOLS`` exactly."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, "1")
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    listed = {t["name"] for t in resp["result"]["tools"]}
+    assert listed == set(mcp.READ_TOOLS)
+    assert not listed & mcp.WRITE_TOOLS
+    assert all(t["requires_confirmation"] is False for t in resp["result"]["tools"])
+
+
+@pytest.mark.parametrize("value", ["", "0", "true", "yes"])
+def test_only_the_exact_switch_narrows_the_list(monkeypatch, value):
+    """Anything but ``1`` leaves the full surface, so a typo cannot half-apply."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, value)
+    resp = mcp.handle_message({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
+    assert len(resp["result"]["tools"]) == len(mcp.TOOLS)
+
+
+def test_a_read_only_server_refuses_a_write_before_the_backend(monkeypatch):
+    """A guessed write name is refused in the server; nothing is sent anywhere."""
+    monkeypatch.setenv(mcp.READ_ONLY_ENV, "1")
+    sent: list = []
+    monkeypatch.setattr(mcp.backend, "request", lambda *a, **k: sent.append(a) or {})
+    for name in sorted(mcp.WRITE_TOOLS):
+        result = mcp.call_tool(name, {"routine_id": 1, "name": "x"})
+        assert result["isError"] is True
+        payload = json.loads(result["content"][0]["text"])
+        assert payload["error"] == "invalid_argument"
+        assert payload["detail"] == {"read_only": True}
+        assert "Nothing was changed" in payload["message"]
+    assert sent == []
+
+
 def test_every_tool_declares_whether_it_needs_confirmation():
     """The flag is emitted for every tool, true *and* false.
 

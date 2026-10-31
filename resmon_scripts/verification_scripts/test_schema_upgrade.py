@@ -288,3 +288,84 @@ def test_choices_actual_sql_authorizer_failure_rolls_back(tmp_path, stage):
     database.init_db(conn=c)
     assert database.get_schema_version(c) == database.SCHEMA_VERSION
     c.close()
+
+
+# ---------------------------------------------------------------------------
+# Schema 24: a conversation can be fixed to Codex
+# ---------------------------------------------------------------------------
+
+def _schema_23(path):
+    """A database in schema 23's shape, with one Claude Code binding and one API one.
+
+    Built by initializing today's schema and putting the schema-15 table back,
+    because schema 23 differs from 24 in that one table and nothing else.
+    """
+    from implementation_scripts import database
+    c = sqlite3.connect(path)
+    database.init_db(conn=c)
+    c.execute('DROP TABLE assistant_session_choices')
+    c.execute(database._ASSISTANT_CHOICES_DDL['assistant_session_choices'])
+    c.execute("UPDATE app_settings SET value='23' WHERE key='schema_version'")
+    c.executemany("INSERT INTO assistant_sessions(id, runtime, title) VALUES (?, ?, ?)",
+                  [(1, 'claude_cli', 'kept'), (2, 'api_key', 'also kept')])
+    c.executemany(
+        'INSERT INTO assistant_session_choices VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [(1, 1, 'claude_cli', 'claude_code', 'haiku', 'high', 'explicit', 'explicit', 'd1', 'new', '2026-10-01T00:00:00+00:00'),
+         (2, 1, 'api_key', 'openai', 'gpt-5.5', None, 'explicit', 'not_supported', 'd2', 'new', '2026-10-02T00:00:00+00:00')])
+    c.commit()
+    return c
+
+
+def test_schema_24_keeps_every_binding_and_admits_codex(tmp_path):
+    from implementation_scripts import database
+    c = _schema_23(tmp_path / 'v23.db')
+    before = [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')]
+    columns = [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')]
+    database.init_db(conn=c)
+    assert database.get_schema_version(c) == 24
+    assert [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')] == before
+    assert [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')] == columns
+    assert c.execute('PRAGMA foreign_key_check').fetchall() == []
+    fresh = sqlite3.connect(tmp_path / 'fresh.db')
+    database.init_db(conn=fresh)
+    shape = "SELECT sql FROM sqlite_master WHERE name='assistant_session_choices'"
+    assert c.execute(shape).fetchone() == fresh.execute(shape).fetchone()
+
+    def insert(runtime, effort):
+        c.execute('SAVEPOINT probe')
+        try:
+            c.execute("INSERT INTO assistant_sessions(id, runtime) VALUES (9, ?)", (runtime,))
+            c.execute('INSERT INTO assistant_session_choices VALUES (9,1,?,?,NULL,?,?,?,?,?,?)',
+                      (runtime, 'codex' if runtime == 'codex_cli' else 'claude_code', effort,
+                       'runtime_default', 'explicit' if effort else 'runtime_default', 'd', 'new', '2026-10-30T00:00:00+00:00'))
+            return True
+        except sqlite3.IntegrityError:
+            return False
+        finally:
+            c.execute('ROLLBACK TO probe')
+            c.execute('RELEASE probe')
+
+    # Codex takes its own levels, held to the shape of a level.
+    assert insert('codex_cli', None) and insert('codex_cli', 'minimal') and insert('codex_cli', 'xhigh')
+    assert not insert('codex_cli', 'High') and not insert('codex_cli', 'a b') and not insert('codex_cli', 'x' * 33)
+    # Claude Code keeps exactly the five it had.
+    assert insert('claude_cli', 'max') and not insert('claude_cli', 'minimal')
+    assert not insert('gemini_cli', None)
+    # A second and third launch change nothing.
+    sql = c.execute(shape).fetchone()
+    database.init_db(conn=c)
+    database.init_db(conn=c)
+    assert c.execute(shape).fetchone() == sql
+    assert [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')] == before
+    c.close(); fresh.close()
+
+
+def test_schema_24_refuses_a_binding_table_it_does_not_recognize(tmp_path):
+    from implementation_scripts import database
+    c = _schema_23(tmp_path / 'odd.db')
+    c.execute('ALTER TABLE assistant_session_choices ADD COLUMN unapproved TEXT')
+    c.commit()
+    with pytest.raises(sqlite3.DatabaseError, match='Conflicting schema-15 object'):
+        database.init_db(conn=c)
+    assert database.get_schema_version(c) == 23
+    c.close()
