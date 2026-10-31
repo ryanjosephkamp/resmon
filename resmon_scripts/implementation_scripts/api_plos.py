@@ -4,7 +4,7 @@
 import logging
 
 from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter,
-                       read_json_body, safe_request)
+                       read_json_body, safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,8 @@ def _publication_date_range(date_from: str | None, date_to: str | None) -> str:
 
 class PlosClient(BaseAPIClient):
     """PLOS repository API client (Tier 2)."""
+
+    describe_request = staticmethod(sent_params("q", "sort"))
 
     def get_name(self) -> str:
         return "PLOS"

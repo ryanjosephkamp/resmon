@@ -18,6 +18,7 @@ from .api_base import (
     note_parse_failure_unless_transport,
     note_unanswerable,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -225,6 +226,8 @@ ORDER BY DESC(?year) ?publication ?authorName"""
 
 class DblpClient(BaseAPIClient):
     """DBLP repository API client."""
+
+    describe_request = staticmethod(sent_params("q", url=_DBLP_API_URL))
 
     def get_name(self) -> str:
         return "DBLP"

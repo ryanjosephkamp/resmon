@@ -12,6 +12,7 @@ from .api_base import (
     note_parse_failure,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +75,8 @@ def _total_hits(value: object) -> int | None:
 
 class ZenodoClient(BaseAPIClient):
     """Zenodo published-record search client."""
+
+    describe_request = staticmethod(sent_params("q", "sort"))
 
     def get_name(self) -> str:
         return "Zenodo"

@@ -12,6 +12,7 @@ import re
 from .api_base import (
     BaseAPIClient, NormalizedResult, RateLimiter, note_filtered,
     note_parse_failure, note_parse_failure_unless_transport, safe_request,
+    sent_params,
 )
 from .api_openlibrary import _date_interval
 from .credential_manager import get_credential_for
@@ -28,6 +29,8 @@ _ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._~-]*$")
 
 class GovinfoClient(BaseAPIClient):
     """Query with the user's API.data.gov key through the execution key scope."""
+
+    describe_request = staticmethod(sent_params("query"))
 
     def get_name(self) -> str:
         return "GovInfo"

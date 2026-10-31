@@ -34,6 +34,8 @@ export interface ProgressEvent {
   repository?: string;
   result_count?: number | null;
   zero_reason?: string | null;
+  /** The facts the reason's sentence was built from; a search that read part of a window says how far. */
+  zero_detail?: Record<string, unknown> | null;
   zero_message?: string | null;
   credential_name?: string | null;
   error?: string | null;
@@ -68,6 +70,8 @@ export interface LiveSource {
   count: number | null;
   /** The recorded zero reason, when the source's event carried one. */
   reason: string | null;
+  /** A search that stopped part-way through a window it reads in order (`zero_reason.read_in_part`). */
+  readInPart?: boolean;
   /** The engine's own sentence for a zero, or the error; empty when there is none. */
   note: string;
 }
@@ -99,6 +103,12 @@ export const ZERO_LABELS: Readonly<Record<string, string>> = {
 };
 
 const KNOWN_REASONS: ReadonlySet<string> = new Set(ZERO_REASONS);
+
+/** Whether a zero's detail says the search read some of the window before it stopped. */
+function readInPart(detail: Record<string, unknown> | null | undefined): boolean {
+  const read = detail?.read;
+  return !!read && typeof read === 'object' && Number((read as Record<string, unknown>).records) > 0;
+}
 
 /** `answered`, `non_answer` or `unknown` for a source that reported `ok` with this count and reason. */
 export function outcomeOf(count: number | null | undefined, reason: string | null | undefined): 'answered' | 'non_answer' | 'unknown' {
@@ -143,6 +153,7 @@ export function liveSources(selected: readonly string[], events: readonly Progre
         const outcome = outcomeOf(event.result_count, event.zero_reason);
         source.count = typeof event.result_count === 'number' ? event.result_count : null;
         source.reason = event.zero_reason ?? null;
+        source.readInPart = readInPart(event.zero_detail);
         source.state = outcome === 'answered' ? 'answered'
           : outcome === 'unknown' ? 'not_recorded'
             : event.zero_reason === 'missing_key' ? 'not_queried' : 'no_answer';
@@ -195,7 +206,11 @@ export function liveLabel(source: LiveSource): string {
       return source.count && source.count > 0
         ? `${source.count.toLocaleString('en-US')} found`
         : ZERO_LABELS[source.reason ?? ''] ?? 'answered, zero';
-    case 'no_answer': return ZERO_LABELS[source.reason ?? ''] ?? 'did not answer';
+    case 'no_answer':
+      // As the recorded coverage says it: the source answered every page it
+      // was asked for, and the search stopped before the end of the window.
+      if (source.reason === 'upstream_failure' && source.readInPart) return 'read part of the window';
+      return ZERO_LABELS[source.reason ?? ''] ?? 'did not answer';
     case 'not_queried': return 'no API key configured';
     case 'not_recorded':
       return source.count === 0 && (!source.reason || source.reason === 'not_recorded')
@@ -279,6 +294,87 @@ export function reportInLocalTime(text: string): string {
 export function eventTime(iso: string | null | undefined): string {
   const at = storedInstant(iso);
   return at ? SECONDS.format(at) : '';
+}
+
+/** A source's recorded outcome, as much of it as the log needs. */
+type LoggedSource = Pick<CoverageSource, 'source' | 'label'>;
+
+const LOG_START = /^Start Time: (\S+)$/m;
+const LOG_LINE = /^\[(\d\d):(\d\d):(\d\d)\] (.*)$/;
+const LOG_SOURCE = /^(\s+)([a-z][a-z0-9_]*): (.*)$/;
+const LOG_ZERO = /^0 results$/;
+const LOG_NO_KEY = /; this repository will return 0 results$/;
+
+/**
+ * A run's log as the Log tab shows it, and the line that says how it differs
+ * from the file.
+ *
+ * The engine writes the log in UTC, with each source by its id, and the file
+ * stays that way: it is what a bundle carries and what a person greps. The
+ * tab says each time in the reader's own time zone, the date taken from the
+ * log's own start (a line after midnight UTC is the next day), and each source
+ * by the name it is shown under everywhere else.
+ *
+ * A log written before a zero was logged in the words of its reason says
+ * `dblp: 0 results` for a source that did not answer. The tab reads that line
+ * from the run's recorded coverage instead, as the report and the run's
+ * sources do, so the log never states a count for a source that gave none.
+ */
+export function logForReading(
+  text: string,
+  nameOf: (slug: string) => string,
+  sources: readonly LoggedSource[],
+): { text: string; note: string } {
+  const startStamp = LOG_START.exec(text)?.[1];
+  const start = startStamp ? storedInstant(startStamp) : null;
+  const known = new Set(sources.map((source) => source.source));
+  const outcome = new Map(sources.map((source) => [source.source, source.label]));
+  let previous: Date | null = start;
+  const named = (slug: string) => nameOf(slug);
+  const lines = text.split('\n').map((line) => {
+    const stamp = /^(Start|End) Time: (\S+)$/.exec(line);
+    if (stamp) {
+      const at = storedInstant(stamp[2]);
+      return at ? `${stamp[1]} Time: ${DAY.format(at)} at ${SECONDS.format(at)}` : line;
+    }
+    const kind = /^Operation Type: (\S+)$/.exec(line);
+    if (kind?.[1]) return `Operation Type: ${runKind(kind[1])}`;
+    if (line.startsWith('Parameters: ')) {
+      return line.replace(/repositories=\[([^\]]*)\]/, (_all, list: string) => `repositories=[${list
+        .split(',').map((item) => item.trim().replace(/^'(.*)'$/, '$1')).filter(Boolean)
+        .map((slug) => `'${named(slug)}'`).join(', ')}]`);
+    }
+    const entry = LOG_LINE.exec(line);
+    if (!entry) return line;
+    const [, hh, mm, ss, body = ''] = entry;
+    let clock = `[${hh}:${mm}:${ss}]`;
+    if (start && previous) {
+      const at = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate(),
+        Number(hh), Number(mm), Number(ss)));
+      while (at.getTime() < previous.getTime() - 1000) at.setUTCDate(at.getUTCDate() + 1);
+      previous = at;
+      clock = `[${SECONDS.format(at)}]`;
+    }
+    let said = body.replace(/^Querying repository: (\S+)$/, (_all, slug: string) => `Querying repository: ${named(slug)}`);
+    const source = LOG_SOURCE.exec(said);
+    if (source) {
+      const [, indent = '', slug = '', rest = ''] = source;
+      if (known.has(slug) || named(slug) !== slug) {
+        let words = rest;
+        const label = outcome.get(slug);
+        if (LOG_ZERO.test(rest) && label) words = label;
+        words = words.replace(LOG_NO_KEY, '; it is recorded as not asked');
+        said = `${indent}${named(slug)}: ${words}`;
+      }
+    }
+    return `${clock} ${said}`;
+  });
+  return {
+    text: lines.join('\n'),
+    note: start
+      ? 'Times are in this computer’s time zone, and sources are named. The log file keeps its times in UTC and each source by its id.'
+      : 'Times in brackets are in UTC, as the log file keeps them.',
+  };
 }
 
 /** Why an interrupted run stopped, as a sentence, from the stored token. */

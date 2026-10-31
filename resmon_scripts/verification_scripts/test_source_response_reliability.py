@@ -388,9 +388,47 @@ def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
     assert len(results) == 30
     reason, detail = zero_reason.terminal_issue(snapshot)
     assert (reason, detail["detail"]) == ("upstream_failure", "operation_deadline")
+    # How far it read is said with it: the records read, of how many the
+    # window holds, and the dates among them.
+    assert detail["read"] == {"records": 30, "total": 300000,
+                              "first_date": "2024-01-02", "last_date": "2024-01-02"}
     assert zero_reason.partial_sentence("bioRxiv", reason, detail, len(results)) == (
         "bioRxiv returned 30 usable records before the search operation budget "
-        "expired. The retained set may be incomplete.")
+        "expired. It had read the first 30 of the 300,000 records bioRxiv lists "
+        "for the window, posted on January 2, 2024. The retained set may be "
+        "incomplete.")
+
+
+def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
+    """No start date, and a word nothing in the first pages has: the run read
+    part of the window and none of it matched. That is neither an answered
+    zero nor a source that did not answer, and the record says which it is."""
+    from implementation_scripts import source_coverage, zero_reason  # noqa: PLC0415
+
+    page = _preprint_payload(count=30, total=262104)
+    for record in page["collection"]:
+        record["date"] = "2013-12-01"
+    page["collection"][0]["date"] = "2013-11-07"
+    page["collection"][-1]["date"] = "2014-01-20"
+    expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
+    _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(page), expired, expired])
+
+    results = api_biorxiv.BiorxivClient().search(query="nowhereword", max_results=2)
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+
+    assert results == []
+    assert reason == "upstream_failure"
+    assert zero_reason.sentence("bioRxiv", reason, detail) == (
+        "bioRxiv answered, and resmon stopped before the end of your window: the "
+        "search operation budget expired after 3 attempts. It had read the first "
+        "30 of the 262,104 records bioRxiv lists for the window, posted between "
+        "November 7, 2013 and January 20, 2014, and none of them matched. The "
+        "rest were not read, so this is not a zero for your window.")
+    outcome = source_coverage.outcome({
+        "source": "biorxiv", "status": "ok", "result_count": 0,
+        "zero_reason": reason, "zero_detail": json.dumps(detail)})
+    assert (outcome["category"], outcome["label"]) == ("non_answer", "read part of the window")
+    assert zero_reason.label(reason, detail) == "read part of the window"
 
 
 def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):

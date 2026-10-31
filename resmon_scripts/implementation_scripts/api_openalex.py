@@ -4,7 +4,7 @@
 import logging
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request)
+                       bare_orcid, read_json_body, safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,8 @@ _MAILTO = "resmon@example.com"
 
 class OpenAlexClient(BaseAPIClient):
     """OpenAlex repository API client."""
+
+    describe_request = staticmethod(sent_params("search", "filter"))
 
     def __init__(self, mailto: str | None = None):
         self._mailto = mailto or _MAILTO

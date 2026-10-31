@@ -4,7 +4,7 @@
 import logging
 
 from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter,
-                       read_json_body, safe_request)
+                       read_json_body, safe_request, sent_params)
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,8 @@ _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
 
 class SpringerClient(BaseAPIClient):
     """Springer Nature repository API client (Tier 2, requires API key)."""
+
+    describe_request = staticmethod(sent_params("q"))
 
     def get_name(self) -> str:
         return "Springer Nature"

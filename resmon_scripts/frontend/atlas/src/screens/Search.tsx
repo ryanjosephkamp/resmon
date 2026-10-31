@@ -10,7 +10,7 @@ import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
-import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
+import { coarseFor, coarseSentence, formNotices, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
@@ -204,6 +204,7 @@ export function Search() {
   // The two facts derived from the catalog for this selection.
   const pace = useMemo(() => paceOf(picked), [picked]);
   const coarse = useMemo(() => coarseFor(picked, dates.from, dates.to), [picked, dates]);
+  const notices = useMemo(() => formNotices(picked, { start: !!dates.from, cap }), [picked, dates, cap]);
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
     ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
@@ -319,6 +320,7 @@ export function Search() {
               </p>
             )}
             {coarse.length > 0 && <p>{coarseSentence(coarse)}</p>}
+            {notices.map((notice) => <p key={`${notice.slug}:${notice.effect}`} data-ask="notice">{notice.effect}</p>)}
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}

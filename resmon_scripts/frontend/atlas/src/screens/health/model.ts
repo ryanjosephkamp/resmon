@@ -119,6 +119,7 @@ export const SEVERITY_WORDS: Record<string, string> = {
   broken: 'Broken',
   unusual: 'Looks unusual',
   advice: 'Advice',
+  withdrawn: 'Withdrawn',
 };
 
 /**
@@ -129,7 +130,8 @@ export const SEVERITY_WORDS: Record<string, string> = {
 export const SEVERITY_MEANING: Record<string, string> = {
   broken: 'resmon recorded this happening. It is not an inference.',
   unusual: 'A departure from your own history. There may be an innocent reason.',
-  advice: 'Nothing is wrong. Worth considering.',
+  advice: 'Not an alarm. Something resmon measured, and what the measurement does not show.',
+  withdrawn: 'resmon stopped asking this source, by decision. Not a fault, and not an alarm.',
 };
 
 /**
@@ -176,12 +178,14 @@ export interface FindingWords {
  * its key stands as a word of its own: never inside an address or a longer
  * name (`export.arxiv.org`, `arxiv_id`).
  */
-export function findingWords(finding: Pick<WatchdogFinding, 'scope' | 'kind' | 'title' | 'detail' | 'what_to_do' | 'evidence'>,
+export function findingWords(finding: Pick<WatchdogFinding, 'scope' | 'kind' | 'title' | 'detail' | 'what_to_do' | 'evidence'>
+  & { severity?: string },
   names: ReadonlyMap<string, string>): FindingWords {
   const scope = finding.scope as Record<string, unknown>;
   const slug = scope.type === 'source' ? String(scope.id ?? '') : '';
   const withdrawn = !!slug && finding.kind === 'source_errors'
-    && (slug in RETIRED_NAMES || (finding.evidence as Record<string, unknown>).last_zero_reason === 'retired');
+    && (finding.severity === 'withdrawn' || slug in RETIRED_NAMES
+      || (finding.evidence as Record<string, unknown>).last_zero_reason === 'retired');
   const name = slug ? sourceName(slug, names) : '';
   if (!slug || name === slug) return { title: finding.title, detail: finding.detail, what_to_do: finding.what_to_do, withdrawn };
   const key = new RegExp(`(?<![\\w./-])${slug.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w/-]|\\.\\w)`, 'g');

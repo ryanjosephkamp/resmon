@@ -12,7 +12,7 @@ import functools
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Callable, Mapping, Optional
 
 import httpx
 
@@ -196,6 +196,14 @@ class BaseAPIClient(ABC):
     # execution context, in which case credential lookup falls back to the
     # persisted keyring.
     _exec_id: int | None = None
+
+    # How a request this client sends is named in the run's record: a
+    # function of the request's address, query parameters, and JSON body that
+    # returns the part carrying the search, or ``None`` for a request that
+    # carries none (``sent_params`` builds the usual one). A client that sets
+    # none is recorded as not saying what it sent, never as having sent the
+    # words typed.
+    describe_request: Optional[Callable[[str, Optional[Mapping], Optional[Mapping]], Optional[str]]] = None
 
     @abstractmethod
     def search(
@@ -566,6 +574,10 @@ def retry_with_backoff(
 # so a truncated history never reads as a complete one.
 _FAILURE_HISTORY_LIMIT = 8
 
+# How many distinct queries one search's record keeps. A source asked once per
+# date slice (NDL Search) sends many; past this the rest are counted.
+_QUERIES_SENT_LIMIT = 12
+
 
 class SourceRefused(RuntimeError):
     """The source answered that it would not run the request.
@@ -639,6 +651,17 @@ class SearchOutcome:
     # Seconds a client's own retry ladder waited between attempts; see
     # ``note_retry_wait``. Waits inside ``safe_request`` are not counted here.
     waited_seconds: float = 0.0
+    # How this search's client describes a request it sends (its
+    # ``describe_request``), set by the engine before the search. ``None`` is a
+    # client that does not say, and then nothing below is recorded.
+    describe_request: Optional[Callable[[str, Optional[Mapping], Optional[Mapping]], Optional[str]]] = None
+    # Each distinct query this search sent, in the order sent; see
+    # ``note_sent``. Pages of one query are one entry.
+    queries_sent: list[str] = field(default_factory=list)
+    queries_sent_omitted: int = 0
+    # How far a source that is read in order got before the search stopped;
+    # see ``note_read``.
+    read: dict | None = None
 
     def reset(self) -> None:
         self.attempts = 0
@@ -653,8 +676,38 @@ class SearchOutcome:
         self.failure_history_omitted = 0
         self.author_query = None
         self.waited_seconds = 0.0
+        self.describe_request = None
+        self.queries_sent = []
+        self.queries_sent_omitted = 0
+        self.read = None
 
     # -- written by safe_request ------------------------------------------
+
+    def note_sent(self, url: str, params: Optional[Mapping], body: Optional[Mapping]) -> None:
+        """Record the query a request that went out carried, in the client's words.
+
+        The client's ``describe_request`` picks the parts of the request that
+        make up the search (the terms, the window, the order asked for) and
+        leaves out paging, the fields asked back, contact addresses, and keys,
+        so nothing here can put a credential or an address into a record.
+        """
+        if self.describe_request is None:
+            return
+        try:
+            text = self.describe_request(
+                url,
+                params if isinstance(params, Mapping) else None,
+                body if isinstance(body, Mapping) else None,
+            )
+        except Exception:  # pragma: no cover - a describer must never fail a search
+            logger.exception("Could not describe a request that was sent")
+            return
+        if not text or text in self.queries_sent:
+            return
+        if len(self.queries_sent) >= _QUERIES_SENT_LIMIT:
+            self.queries_sent_omitted += 1
+            return
+        self.queries_sent.append(text)
 
     def note_attempt(self) -> None:
         self.attempts += 1
@@ -758,6 +811,12 @@ class SearchOutcome:
             "failure_history_omitted": self.failure_history_omitted,
             "author_query": dict(self.author_query) if self.author_query else None,
             "waited_seconds": self.waited_seconds,
+            # ``None`` when the client does not describe its requests, which is
+            # a different fact from a client that does and sent nothing.
+            "queries_sent": (list(self.queries_sent)
+                             if self.describe_request is not None else None),
+            "queries_sent_omitted": self.queries_sent_omitted,
+            "read": dict(self.read) if self.read else None,
         }
 
 
@@ -808,6 +867,50 @@ def note_author_query(kind: str, value: str) -> None:
 
 def note_unanswerable(why: str, **counts) -> None:
     search_outcome().note_unanswerable(why, **counts)
+
+
+def sent_params(*keys: str, url: str | None = None):
+    """A ``describe_request`` that names a request by the parameters carrying its search.
+
+    ``keys`` are the query-string (or JSON body) parameters that say what is
+    asked: the terms, the window, and the order. Paging, the fields asked
+    back, contact addresses, and keys are never among them, so they are never
+    recorded. With ``url``, only requests to that address are described: a
+    source that fetches records in a second request (PubMed) or looks up an
+    author first (Semantic Scholar) is described by its search alone.
+    """
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        if url is not None and request_url.split("?", 1)[0] != url:
+            return None
+        source = params if params is not None else body
+        if not source:
+            return None
+        parts = [
+            f"{key}={source[key]}" for key in keys
+            if isinstance(source.get(key), (str, int, float)) and str(source[key]) != ""
+        ]
+        return " & ".join(parts) or None
+    return describe
+
+
+def note_read(*, records: int, total: int | None = None,
+              first_date: str | None = None, last_date: str | None = None) -> None:
+    """Record how far a search read through a source it reads in order.
+
+    For a source resmon cannot ask for words (bioRxiv, medRxiv): it lists a
+    date range in order and resmon reads it page by page. When the search
+    stops before the end of the range, this is what was covered: how many
+    records were read, of how many the source said the range holds, and the
+    earliest and latest dates among those read.
+    """
+    read = {"records": int(records)}
+    if total is not None:
+        read["total"] = int(total)
+    if first_date:
+        read["first_date"] = str(first_date)
+    if last_date:
+        read["last_date"] = str(last_date)
+    search_outcome().read = read
 
 
 def note_retry_wait(seconds: float) -> None:
@@ -1029,15 +1132,22 @@ def safe_request(
             # earlier retryable response. Keep the old status only when the
             # limiter itself blocks this attempt before transport.
             pending_transient_status = None
-            if deadline is None:
-                outcome.note_attempt()
-                with httpx.Client(timeout=timeout, follow_redirects=True) as client:
-                    response = client.request(method, url, headers=headers, **kwargs)
-            else:
-                response = _request_before_deadline(
-                    method, url, headers=headers, timeout=timeout,
-                    deadline=deadline, **kwargs,
-                )
+            attempts_before = outcome.attempts
+            try:
+                if deadline is None:
+                    outcome.note_attempt()
+                    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+                        response = client.request(method, url, headers=headers, **kwargs)
+                else:
+                    response = _request_before_deadline(
+                        method, url, headers=headers, timeout=timeout,
+                        deadline=deadline, **kwargs,
+                    )
+            finally:
+                # Only a request that went out says what was sent; one stopped
+                # by the deadline or the limiter before transport sent nothing.
+                if outcome.attempts > attempts_before:
+                    outcome.note_sent(url, kwargs.get("params"), kwargs.get("json"))
 
             retry_after = (
                 _retry_after_seconds(response)

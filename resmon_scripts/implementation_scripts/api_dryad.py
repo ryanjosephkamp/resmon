@@ -11,6 +11,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,8 @@ def _strip_html(value: str | None) -> str | None:
 
 class DryadClient(BaseAPIClient):
     """Dryad published-dataset search client."""
+
+    describe_request = staticmethod(sent_params("q", "author", "publishedSince", "publishedBefore"))
 
     def get_name(self) -> str:
         return "Dryad"

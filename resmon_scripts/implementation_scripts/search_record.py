@@ -64,6 +64,7 @@ from datetime import datetime, timezone
 from . import zero_reason as zero_reason_module
 from . import source_coverage
 from .config import APP_NAME, APP_VERSION
+from .api_registry import RETIRED_NAMES
 from .database import get_execution_sources
 from .repo_catalog import REPOSITORY_CATALOG
 
@@ -104,15 +105,75 @@ _AUTHOR_QUERY_WORDS = {
 }
 
 
-def _query_as_sent(params: dict) -> str | None:
-    """What the run sent, as one line.
+def _selection_order(params: dict, recorded: dict) -> list[str]:
+    """The sources a record names, in the order the run selected them."""
+    selected = params.get("repositories")
+    order = [s for s in selected if isinstance(s, str)] if isinstance(selected, list) else []
+    return order + sorted(s for s in recorded if s not in order)
 
-    A keyword run sends its query string. A person watch sends no query
-    string: each source's client builds its own author query from the profile,
-    and the engine records what each one put into its request. Those are
-    listed by source in selection order. A watch run from before that record
-    existed has none, and reads as not recorded rather than as a guess from
-    the profile.
+
+def _nothing_sent(source: dict | None) -> str:
+    """Why a source whose requests are described was sent nothing, from its outcome."""
+    if source is None:
+        return "Nothing was sent."
+    outcome = source_coverage.outcome(source)
+    if source.get("status") == "cancelled":
+        return "Nothing was sent before the run was cancelled."
+    if source.get("status") == "skipped_missing_key" or source.get("zero_reason") == "missing_key":
+        return "Nothing was sent: no API key is configured for it."
+    if outcome["category"] == "non_answer":
+        return f"Nothing was sent: {outcome['label']}."
+    return "Nothing was sent."
+
+
+def _queries_as_sent(params: dict, sources: list[dict]) -> list[dict] | None:
+    """Each source's query as its requests carried it, by source in selection order.
+
+    Every client puts the run's words into a query of its own: arXiv sends
+    each word as an ``all:`` term joined with AND and adds a submission-date
+    window, and Crossref takes ``query`` and a ``filter``. The engine records
+    what each request that went out carried, in the client's own description
+    of its requests (paging, the fields asked back, contact addresses, and keys
+    are never part of it). ``None`` is a run from before that record existed,
+    which says nothing about what was sent rather than repeating the words
+    typed as if they had been.
+    """
+    recorded = params.get("queries_sent")
+    if not isinstance(recorded, dict):
+        return None
+    rows = {s["source"]: s for s in sources}
+    out: list[dict] = []
+    for slug in _selection_order(params, recorded):
+        entry = recorded.get(slug, ...)
+        row = {"source": slug, "name": _display_name(slug), "sent": [], "omitted": 0, "note": None}
+        if entry is ...:
+            row["note"] = "Not recorded: the run kept no account of this source's requests."
+        elif entry is None:
+            row["note"] = "Not recorded: this source's client does not say what its requests carry."
+        else:
+            sent = entry.get("sent") if isinstance(entry, dict) else None
+            row["sent"] = [str(q) for q in sent] if isinstance(sent, list) else []
+            row["omitted"] = int(entry.get("omitted") or 0) if isinstance(entry, dict) else 0
+            if not row["sent"]:
+                row["note"] = _nothing_sent(rows.get(slug))
+        out.append(row)
+    return out
+
+
+def _query_as_sent(params: dict) -> str | None:
+    """The run's query, as one line. Its value is what it always was.
+
+    A keyword run gives the terms as typed, joined into one string. That is
+    **not** what went over the wire: each source's client turns the terms into
+    a query of its own, and those are ``queries_as_sent``. The field keeps its
+    name and its value because callers read it as a string; the record's
+    readers label it as the terms typed.
+
+    A person watch sends no query string: each source's client builds its own
+    author query from the profile, and the engine records what each one put
+    into its request. Those are listed by source in selection order. A watch
+    run from before that record existed has none, and reads as not recorded
+    rather than as a guess from the profile.
     """
     if params.get("entity_profile") is None and not params.get("entity_mode"):
         return params.get("query")
@@ -183,6 +244,7 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
     ]
 
     dedup = _dedup_block(execution)
+    queries = _queries_as_sent(params, sources)
 
     return {
         "record_type": "resmon_search_record",
@@ -202,6 +264,9 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
             "status": execution["status"],
             "keywords": _keywords(params),
             "query_as_sent": _query_as_sent(params),
+            # What each source's requests carried, one row a source; None for
+            # a run from before the record of it.
+            "queries_as_sent": queries,
             "date_from": params.get("date_from"),
             "date_to": params.get("date_to"),
             # How a watch's moving window reached these dates, when it moves:
@@ -233,7 +298,8 @@ def build(conn: sqlite3.Connection, execution_id: int) -> dict:
 
 
 def _display_name(slug: str) -> str:
-    return _CATALOG_NAMES.get(slug, slug)
+    """A source by the name it is shown under, a withdrawn one included."""
+    return _CATALOG_NAMES.get(slug) or RETIRED_NAMES.get(slug) or slug
 
 
 def _zero_detail(source: dict) -> dict:
@@ -381,7 +447,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
         ))
     unproductive = [s for s in sources if s["status"] != "ok"]
     if unproductive:
-        names = ", ".join(s["source"] for s in unproductive)
+        names = ", ".join(_display_name(s["source"]) for s in unproductive)
         caveats.append(
             f"{len(unproductive)} of the {len(sources)} recorded sources did not "
             f"contribute records ({names}). A search strategy that lists them as "
@@ -401,7 +467,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
         and s["zero_reason"] != "not_recorded"
     ]
     if could_not_answer:
-        names = ", ".join(s["source"] for s in could_not_answer)
+        names = ", ".join(_display_name(s["source"]) for s in could_not_answer)
         one = len(could_not_answer) == 1
         caveats.append(
             f"{len(could_not_answer)} of the {len(sources)} recorded sources "
@@ -412,7 +478,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
 
     partial = [s for s in sources if s.get("coverage", {}).get("partial")]
     if partial:
-        names = ", ".join(s["source"] for s in partial)
+        names = ", ".join(_display_name(s["source"]) for s in partial)
         caveats.append(
             f"{len(partial)} of the {len(sources)} recorded sources contributed "
             f"records but may be incomplete ({names}). Their notes below say why."
@@ -427,7 +493,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
         s for s in sources if s["zero_reason"] == "not_recorded" and s["status"] == "ok"
     ]
     if unrecorded:
-        names = ", ".join(s["source"] for s in unrecorded)
+        names = ", ".join(_display_name(s["source"]) for s in unrecorded)
         caveats.append(
             f"resmon did not record why {len(unrecorded)} of the "
             f"{len(sources)} sources returned nothing ({names}). Runs from "
@@ -485,6 +551,11 @@ def _text(value: object) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;")
 
 
+def _code(value: object) -> str:
+    """Text for inside a Markdown code span in a table cell: one line, no backticks or pipes."""
+    return " ".join(str(value).split()).replace("`", "'").replace("|", "\\|")
+
+
 def to_markdown(record: dict) -> str:
     """The record as a methods-section-shaped document.
 
@@ -529,8 +600,23 @@ def to_markdown(record: dict) -> str:
     lines.append(
         f"| Search terms | {', '.join(f'`{k}`' for k in keywords) if keywords else '—'} |"
     )
-    if search.get("query_as_sent"):
-        lines.append(f"| Query as sent | `{search['query_as_sent']}` |")
+    queries = search.get("queries_as_sent")
+    person = search.get("query_as_sent") and not search.get("keywords")
+    if queries:
+        for row in queries:
+            said = (" ".join(f"`{_code(q)}`" for q in row["sent"]) if row["sent"]
+                    else _text(row["note"]))
+            if row["omitted"]:
+                said += f" and {row['omitted']} more"
+            lines.append(f"| Query as sent to {_text(row['name'])} | {said} |")
+    elif person:
+        # A person watch's author queries, as each client noted what it put
+        # into its request.
+        lines.append(f"| Query as sent | `{_code(search['query_as_sent'])}` |")
+    else:
+        # The terms typed are under Search terms; they are not the query any
+        # source was sent.
+        lines.append("| Query as sent | not recorded for this run |")
     start, end = search.get("date_from"), search.get("date_to")
     # One bound is said as one bound: a start date alone would read as a day.
     window = (f"{start} to {end}" if start and end else
@@ -553,6 +639,11 @@ def to_markdown(record: dict) -> str:
     lines.append(f"| Software | {record['software']['citation']} |")
     lines.append(f"| resmon execution id | {search['execution_id']} |")
     lines.append("")
+    if queries:
+        lines.append(
+            "Each query as sent is the source's request as resmon sent it, "
+            "without its paging, contact address, or key.")
+        lines.append("")
 
     lines.append("## Records identified, by database")
     lines.append("")

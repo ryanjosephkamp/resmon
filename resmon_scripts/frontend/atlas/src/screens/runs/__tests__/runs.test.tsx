@@ -13,8 +13,10 @@ import { duration, when } from '../../today/format';
 import { Markdown } from '../markdown';
 import {
   absentRecordWords, deletedSentence, deleteQuestion, eventTime, interruptedSentence, liveLabel, liveSources, localStamp,
-  outcomeOf, reportInLocalTime, restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS, type ProgressEvent,
+  logForReading, outcomeOf, reportInLocalTime, restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS,
+  type ProgressEvent,
 } from '../model';
+import { runsCountWords } from '../RunLog';
 
 describe("a source's outcome from its count and reason", () => {
   test.each([
@@ -110,11 +112,25 @@ describe('the live panel, folded from the run\'s events', () => {
   });
 
   test('the live panel\'s words for a zero are the recorded coverage\'s words, so the two never drift apart', () => {
-    const coverage = fs.readFileSync(path.resolve(__dirname, '../../../../../../implementation_scripts/source_coverage.py'), 'utf8');
+    // `zero_reason.label`, which the recorded coverage and the run's log both use.
+    const words = fs.readFileSync(path.resolve(__dirname, '../../../../../../implementation_scripts/zero_reason.py'), 'utf8');
     for (const [reason, label] of Object.entries(ZERO_LABELS)) {
-      const answered = reason === 'answered_empty' || reason === 'rights_filtered' || reason === 'records_unusable';
-      expect(coverage).toContain(answered ? `"${label}"` : `"${reason}": "${label}"`);
+      expect(words).toContain(`"${reason}": "${label}"`);
     }
+    expect(words).toContain('return "read part of the window"');
+  });
+
+  test('a search that read part of a window before it stopped is not said to have had no answer', () => {
+    const [source] = liveSources(['biorxiv'], [{
+      type: 'repo_done', repository: 'biorxiv', result_count: 0, zero_reason: 'upstream_failure',
+      zero_detail: { detail: 'operation_deadline', attempts: 41, read: { records: 1200, total: 262104 } },
+    }]);
+    expect(liveLabel(source!)).toBe('read part of the window');
+    const [nothing] = liveSources(['biorxiv'], [{
+      type: 'repo_done', repository: 'biorxiv', result_count: 0, zero_reason: 'upstream_failure',
+      zero_detail: { detail: 'operation_deadline', attempts: 1 },
+    }]);
+    expect(liveLabel(nothing!)).toBe('did not answer');
   });
 });
 
@@ -149,6 +165,69 @@ describe('times, in the reader\'s own time zone', () => {
     expect(when('2026-10-30T15:38:27Z', now)).toBe('today at 11:38 AM');
     expect(when('2026-10-30T08:00:00-04:00', now)).toBe('today at 8:00 AM');
     expect(duration('2026-10-30 15:38:27', '2026-10-30T15:39:08Z')).toBe('41 s');
+  });
+});
+
+describe('the run\'s log, as the Log tab shows it', () => {
+  // A sweep's log as the engine wrote it before a zero was logged in its
+  // reason's words: UTC, every source by its id, and DBLP's non-answer as a count.
+  const written = [
+    '=== resmon Task Log ===',
+    'Operation Type: deep_sweep',
+    'Execution ID: 153',
+    'Start Time: 2026-10-31T23:59:58Z',
+    "Parameters: query=agent, keywords=['agent'], date_from=2026-10-01, date_to=2026-10-31, max_results=2, repositories=['crossref', 'dblp', 'hal']",
+    '[23:59:58] Querying repository: crossref',
+    '[23:59:58] Querying repository: dblp',
+    '[23:59:59]   dblp: 0 results',
+    '[23:59:59]     DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered.',
+    '[00:00:01]   crossref: 2 results',
+    "[00:00:01]   core: WARNING — no API key configured (credential 'core_api_key'); this repository will return 0 results",
+    '[00:00:01]   ieee: ERROR - ieee is no longer available.',
+    '[00:00:02] Total raw results: 2',
+    '',
+    'End Time: 2026-11-01T00:00:02Z',
+    'Status: COMPLETED',
+  ].join('\n');
+  const names = new Map([['crossref', 'CrossRef'], ['dblp', 'DBLP'], ['hal', 'HAL'], ['core', 'CORE'], ['ieee', 'IEEE Xplore']]);
+  const coverage = [
+    { source: 'crossref', label: 'answered' },
+    { source: 'dblp', label: 'could not answer this window' },
+    { source: 'hal', label: 'answered' },
+  ];
+  const read = logForReading(written, (slug) => names.get(slug) ?? slug, coverage);
+  const lines = read.text.split('\n');
+
+  test('every time is local, the date carried over midnight UTC from the log\'s own start', () => {
+    expect(lines[3]).toBe('Start Time: October 31, 2026 at 7:59:58 PM');
+    expect(lines[5]).toBe('[7:59:58 PM] Querying repository: CrossRef');
+    expect(lines[9]).toBe('[8:00:01 PM]   CrossRef: 2 results');
+    expect(lines[14]).toBe('End Time: October 31, 2026 at 8:00:02 PM');
+    expect(read.text).not.toMatch(/\d{4}-\d\d-\d\dT/);
+    expect(read.note).toContain('The log file keeps its times in UTC');
+  });
+
+  test('sources by name, and a source that did not answer never with a count', () => {
+    expect(lines[1]).toBe('Operation Type: Deep Sweep');
+    expect(lines[4]).toContain("repositories=['CrossRef', 'DBLP', 'HAL']");
+    expect(lines[7]).toBe('[7:59:59 PM]   DBLP: could not answer this window');
+    expect(lines[8]).toBe('[7:59:59 PM]     DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered.');
+    expect(lines[10]).toBe("[8:00:01 PM]   CORE: WARNING — no API key configured (credential 'core_api_key'); it is recorded as not asked");
+    expect(lines[11]).toBe('[8:00:01 PM]   IEEE Xplore: ERROR - ieee is no longer available.');
+    expect(read.text).not.toContain('0 results');
+  });
+
+  test('a log with no start time keeps its times, and says they are UTC', () => {
+    const bare = logForReading('[18:40:46] Querying repository: hal', (slug) => names.get(slug) ?? slug, []);
+    expect(bare.text).toBe('[18:40:46] Querying repository: HAL');
+    expect(bare.note).toBe('Times in brackets are in UTC, as the log file keeps them.');
+  });
+});
+
+describe('the run log\'s count', () => {
+  test('says the latest runs while older ones are still to read, and the number when it holds them all', () => {
+    expect(runsCountWords(20, true)).toBe('the latest 20');
+    expect(runsCountWords(23, false)).toBe('23');
   });
 });
 

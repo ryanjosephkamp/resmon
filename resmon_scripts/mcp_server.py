@@ -1684,9 +1684,10 @@ TOOLS: list[dict] = [
          "window": {"type": "string"}}}},
 
     {"name": "get_watchdog_findings", "fn": t_get_watchdog_findings,
-     "description": ("Silent-failure findings, each labeled broken (a recorded fact) or "
-                     "unusual (an inference), with the thresholds used and what the "
-                     "watchdog cannot judge."),
+     "description": ("Silent-failure findings, each labeled broken (a recorded fact), "
+                     "unusual (an inference), advice (a measured pattern, never an "
+                     "alarm), or withdrawn (a source resmon no longer asks, never an "
+                     "alarm), with the thresholds used and what the watchdog cannot judge."),
      "schema": {"type": "object", "properties": {
          "include_muted": {"type": "boolean"}}}},
 

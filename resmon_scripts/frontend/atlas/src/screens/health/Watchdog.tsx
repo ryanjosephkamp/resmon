@@ -19,7 +19,7 @@ import {
 const EVIDENCE: Record<string, string> = {
   consecutive_errors: 'Failed runs in a row',
   last_error: 'Most recent error',
-  last_success_at: 'Last successful run',
+  last_success_at: 'Last answer on record',
   runs_recorded: 'Runs on record',
   credential_name: 'Credential needed',
   last_run_at: 'Last run',
@@ -34,6 +34,13 @@ const EVIDENCE: Record<string, string> = {
   runs_without_new_results: 'Runs with nothing new',
   last_new_result_at: 'Last new paper found',
   cadence_days: 'Runs about every (days)',
+  skipped_fires: 'Fires skipped',
+  last_skipped_due_at_utc: 'Last skipped fire was due',
+};
+
+/** What an evidence key with no value means, where "—" would not say it. */
+const NONE: Record<string, string> = {
+  last_success_at: 'None on record',
 };
 
 /**
@@ -47,8 +54,8 @@ const WITHDRAWN: Record<string, string | null> = {
   last_error: null,
 };
 
-function evidenceWords(value: unknown, now: Date): string {
-  if (value === null || value === undefined) return '—';
+function evidenceWords(key: string, value: unknown, now: Date): string {
+  if (value === null || value === undefined) return NONE[key] ?? '—';
   // A timestamp the engine stored reads as a time, not as ISO.
   if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(value)) {
     const at = instantOf(value);
@@ -65,7 +72,8 @@ function evidenceWords(value: unknown, now: Date): string {
  * cannot judge yet.
  *
  * Broken is a thing resmon recorded happening; looks unusual is a departure
- * from your own history; advice is never an alarm. With no history, the
+ * from your own history; advice is never an alarm, and neither is a source
+ * resmon withdrew, which is listed apart. With no history, the
  * screen says there is nothing to check yet rather than that all is well. A
  * muted finding stays on the screen, in its own section, and goes when its
  * reason goes, so a recurrence is reported afresh.
@@ -97,6 +105,7 @@ export function Watchdog() {
   const verdict = data ? watchdogVerdict(data) : null;
   const alarms = (data?.findings ?? []).filter((f) => !f.muted && (f.severity === 'broken' || f.severity === 'unusual'));
   const advice = (data?.findings ?? []).filter((f) => !f.muted && f.severity === 'advice');
+  const withdrawn = (data?.findings ?? []).filter((f) => !f.muted && f.severity === 'withdrawn');
   const muted = (data?.findings ?? []).filter((f) => f.muted);
   const checked = instantOf(data?.checked_at);
 
@@ -132,6 +141,12 @@ export function Watchdog() {
           )}
           {advice.length > 0 && (
             <FindingGroup title="Worth considering" findings={advice} names={names} now={now}
+              busy={mute.isPending} onMute={(f) => mute.mutate({ finding: f, muted: false })} />
+          )}
+          {withdrawn.length > 0 && (
+            <FindingGroup title="Withdrawn from resmon"
+              lede="Sources resmon no longer asks. Runs from before still name them; nothing about them can be checked or fixed."
+              findings={withdrawn} names={names} now={now}
               busy={mute.isPending} onMute={(f) => mute.mutate({ finding: f, muted: false })} />
           )}
           {muted.length > 0 && (
@@ -206,7 +221,7 @@ function Evidence({ evidence, now, withdrawn }: { evidence: Record<string, unkno
   return (
     <dl className="finding-evidence">
       {rows.map(([key, value]) => (
-        <div key={key}><dt>{label(key)}</dt><dd>{evidenceWords(value, now)}</dd></div>
+        <div key={key}><dt>{label(key)}</dt><dd>{evidenceWords(key, value, now)}</dd></div>
       ))}
     </dl>
   );

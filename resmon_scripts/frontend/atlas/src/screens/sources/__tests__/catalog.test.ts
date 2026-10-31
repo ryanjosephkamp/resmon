@@ -1,7 +1,9 @@
 import type { CatalogEntry } from '../../runs/model';
 import { webhookTarget } from '../../watches/Destinations';
 import { webhookUrl } from '../../watches/model';
-import { coarseFor, coarseSentence, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond } from '../catalog';
+import {
+  coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond,
+} from '../catalog';
 
 const entry = (slug: string, patch: Partial<CatalogEntry> & { author?: string } = {}): CatalogEntry => ({
   slug, name: slug, rate_limit: '1 req/s', date_granularity: 'day',
@@ -41,6 +43,31 @@ test('a source that dates papers coarsely is named only for a window too short f
   expect(coarseFor([yearly, monthly], '2026-08-01', '2026-10-15').map((e) => e.slug)).toEqual(['dblp']);
   expect(coarseFor([yearly], '', '')).toEqual([]);
   expect(coarseSentence([yearly])).toBe('dblp dates papers only to the year; a window this short may come back as one it could not answer.');
+});
+
+test('a source\'s notice is shown before asking only in the state of the form it is true in', () => {
+  const constraints = (notices: { applies_when: string; effect: string }[], perRequest: number | null = null) => ({
+    constraints: { notices: notices.map((n) => ({ kind: 'applied_default', established: '', ...n })), records_per_request: perRequest },
+  });
+  const biorxiv = entry('biorxiv', constraints([
+    { applies_when: 'always', effect: 'bioRxiv cannot be asked for keywords.' },
+    { applies_when: 'without_start_date', effect: 'With no start date, resmon asks bioRxiv for everything since 2013.' },
+  ]) as Partial<CatalogEntry>);
+  const ndl = entry('ndl_search', constraints([
+    { applies_when: 'above_record_cap', effect: 'resmon splits your date range.' },
+  ], 500) as Partial<CatalogEntry>);
+  const arxiv = entry('arxiv', constraints([
+    { applies_when: 'with_date_window', effect: 'arXiv dates by submission.' },
+  ]) as Partial<CatalogEntry>);
+
+  // "Any time": bioRxiv's archive is read from its first month, and it says so before the run.
+  expect(formNotices([biorxiv, ndl, arxiv], { start: false, cap: 100 })).toEqual([
+    { slug: 'biorxiv', effect: 'With no start date, resmon asks bioRxiv for everything since 2013.' },
+  ]);
+  // A start date set: nothing about what resmon would have put there.
+  expect(formNotices([biorxiv, ndl, arxiv], { start: true, cap: 100 })).toEqual([]);
+  expect(formNotices([ndl], { start: true, cap: 600 }).map((n) => n.slug)).toEqual(['ndl_search']);
+  expect(formNotices([ndl], { start: true, cap: 500 })).toEqual([]);
 });
 
 test('a watch on a person is warned only when no chosen source can be asked about one', () => {

@@ -187,6 +187,13 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     await expect(withdrawn.locator('.finding-evidence')).toContainText('Runs in a row with nothing from it');
     await expect(withdrawn.locator('.finding-evidence')).not.toContainText('Most recent error');
     await expect(withdrawn.locator('.finding-detail')).toContainText('the terms they accepted at registration.');
+    // Labeled for what it is, apart from the alarms, and not counted among them.
+    await expect(withdrawn.locator('.finding-severity')).toHaveText('Withdrawn');
+    await expect(win.locator('.watchdog-group', { has: withdrawn }).locator('h2')).toHaveText('Withdrawn from resmon');
+    expect(report.findings.find((f) => f.key === 'source_errors:ieee')?.severity).toBe('withdrawn');
+    // It never answered a run on record, and the card says so rather than naming a day.
+    await expect(withdrawn.locator('.finding-evidence')).toContainText('Last answer on record');
+    await expect(withdrawn.locator('.finding-evidence')).toContainText('None on record');
     await withdrawn.scrollIntoViewIfNeeded();
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-health-withdrawn.png') });
 

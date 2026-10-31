@@ -165,11 +165,11 @@ called out explicitly.
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count, `interrupted_reason`, `restarted_from` | `GET /api/executions` |
 | `get_execution` | `exec_id` | status, per-source counts, timings, AI lane used | `GET /api/executions/{id}` |
 | `get_execution_results` | `exec_id`, `limit=25`, `offset=0` | the papers that run found, with existing corpus `id` usable by `explain_match` | `GET /api/executions/{id}/references?format=json&include_ids=true` |
-| `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record | `GET /api/executions/{id}/search-record` |
+| `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record: `search.queries_as_sent` is what each source's requests carried, and `search.query_as_sent` the terms as typed | `GET /api/executions/{id}/search-record` |
 | `explain_match` | `doc_id` | which keywords matched, in which field, and what resmon cannot verify | `GET /api/documents/{doc_id}/why` |
 | `get_paper_lifecycle` | `doc_id` | retraction, preprint→published, version changes, each with its notice link | `GET /api/documents/{doc_id}/lifecycle` |
 | `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
-| `get_watchdog_findings` | `include_muted?` | findings, each labeled `broken` or `unusual`, with what-to-do and the thresholds used | `GET /api/watchdog` |
+| `get_watchdog_findings` | `include_muted?` | findings, each labeled `broken`, `unusual`, `advice`, or `withdrawn`, with what-to-do and the thresholds used | `GET /api/watchdog` |
 | `export_references` | `exec_id` or `doc_ids`, `format` (bibtex \| ris \| csv \| json) | the exported text | `POST /api/export/references` |
 | `list_watch_profiles` | `kind?` | id, kind, name, aliases, identifier schemes, ORCID, affiliations, and `basis_warning` where the profile has none | `GET /api/profiles` |
 | `get_watch_profile` | `profile_id` | the full profile, plus its match total and a per-basis count | `GET /api/profiles/{id}` + `GET /api/profiles/{id}/matches?limit=1` |
@@ -257,6 +257,32 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### Two reads say more, not a version — October 31, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no field is
+removed or changes type, and the contract version does not change.** Two reads say more than
+they did.
+
+`get_watchdog_findings` can return a fourth `severity`, **`withdrawn`**, beside `broken`,
+`unusual`, and `advice`. It marks a source resmon no longer asks, by decision, that recent runs
+still named (IEEE Xplore is one); until now that finding arrived as `broken` while its own advice
+said nothing needed changing. It keeps its key, so a mute already set still holds, and it is
+counted in neither `counts.broken` nor `counts.alarms`. A caller that switches on `severity`
+should read a value it does not know as not an alarm. In the same findings,
+`evidence.last_success_at` is the last run in which the source is recorded as answering: a zero
+with no reason on record no longer counts, so a source with no recorded answer has `null` where
+it had the date of that zero. A skipped fire's `detail` no longer prints the time it was due in
+UTC; `evidence.last_skipped_due_at_utc` carries it, as it did.
+
+`get_search_record` gains `search.queries_as_sent`: one row a selected source, in the order the
+run selected them, each with `source`, `name`, `sent` (the queries its requests carried, in its
+client's own words, with no paging, contact address, or key), `omitted` (how many more like
+them were sent), and `note` (why `sent` is empty, when it is). It is `null` for a run from before
+resmon kept that record. `search.query_as_sent` keeps its type and its value; its row here called
+it the query as sent, and for a keyword run it is the terms as typed, joined into one string,
+which is not what any source received. For a person watch it is each source's author query, as
+its client noted it.
 
 ### A field the tool does not send — October 31, 2026
 

@@ -96,6 +96,21 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await terms.press('Enter');
     await win.getByRole('button', { name: 'Any time', exact: true }).click();
     await expect(win.locator('.ask-facts')).toContainText('Springer Nature has no API key here');
+    // bioRxiv with no start date is read from its first month forward, and the
+    // form says so before the run rather than after it fails; with a start
+    // date set, it does not.
+    const biorxiv = win.locator('.source[data-source="biorxiv"] input');
+    await biorxiv.check();
+    const notice = win.locator('.ask-facts [data-ask="notice"]');
+    await expect(notice).toHaveCount(1);
+    await expect(notice).toContainText('With no start date, resmon asks bioRxiv for everything since its first preprints');
+    await win.getByRole('button', { name: '30 days', exact: true }).click();
+    await expect(notice).toHaveCount(0);
+    await win.getByRole('button', { name: 'Any time', exact: true }).click();
+    await expect(notice).toHaveCount(1);
+    await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-notice.png') });
+    await biorxiv.uncheck();
+    await expect(notice).toHaveCount(0);
     const started = win.waitForResponse((r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST');
     await win.getByRole('button', { name: 'Ask 2 sources' }).click();
     const { execution_id: runId } = await (await started).json() as { execution_id: number };
@@ -146,10 +161,50 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.locator('[data-record="save-report"]').click();
     await expect.poll(() => contents(reportFile), { timeout: 30_000 }).toContain(TITLE);
     await win.getByRole('tab', { name: 'Search record' }).click();
+    // Each source's query as its request carried it, never the words typed
+    // under that label; the run's kind and dates in words; no ISO stamp.
+    const facts = win.locator('[data-record="search"]');
+    await expect(facts.locator('div', { has: win.locator('dt', { hasText: /^Kind$/ }) }).locator('dd')).toHaveText('Deep Sweep');
+    const sent = facts.locator('.queries-sent');
+    await expect(sent.locator('li[data-source="arxiv"] code'))
+      .toHaveText('search_query=all:graph AND all:learning & sortBy=submittedDate & sortOrder=descending');
+    await expect(sent.locator('li[data-source="springer"]')).toContainText('Nothing was sent: no API key is configured for it.');
+    await expect(facts.locator('div', { has: win.locator('dt', { hasText: /^Dates$/ }) }).locator('dd'))
+      .toHaveText('No date limit: each source was asked with no dates.');
+    await expect(win.locator('.search-record')).not.toContainText(/\d{4}-\d\d-\d\d|deep_sweep|not recorded/);
+    await win.locator('.search-record').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-run-search-record.png') });
     const recordFile = path.join(stateDir, 'atlas-search-record.md');
     await downloadTo(recordFile);
     await win.locator('[data-record="save-search-record"]').click();
     await expect.poll(() => contents(recordFile), { timeout: 30_000 }).toMatch(/^# Search record/);
+    expect(contents(recordFile)).toContain('| Query as sent to arXiv | `search_query=all:graph AND all:learning');
+
+    // The log: local times, sources by name, and Springer Nature's non-answer
+    // in its own words rather than as a count. The file keeps UTC and ids.
+    await win.getByRole('tab', { name: 'Log' }).click();
+    const log = win.locator('.record-text.is-log');
+    await expect(log).toContainText('Operation Type: Deep Sweep');
+    await expect(log).toContainText('Springer Nature: no API key configured');
+    await expect(log).toContainText('arXiv: 1 result');
+    // The file paths it names keep the engine's names for the files; nothing else does.
+    await expect(log).not.toContainText(/0 results|\d{4}-\d\d-\d\dT|\bspringer\b|: deep_sweep/);
+    await expect(log).toContainText(/^\[\d{1,2}:\d{2}:\d{2}\s(AM|PM)\] Querying repository: arXiv$/m);
+    await expect(win.locator('[data-record="log-note"]')).toContainText('The log file keeps its times in UTC');
+    await win.locator('.run-panel').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-run-log.png') });
+
+    // Metadata: every field, each under a label a person reads.
+    await win.getByRole('tab', { name: 'Metadata' }).click();
+    const metadata = win.locator('.run-panel > .record-dl');
+    const field = (label: string) => metadata.locator(':scope > div', { has: win.locator(':scope > dt', { hasText: new RegExp(`^${label}$`) }) })
+      .locator(':scope > dd');
+    await expect(field('Kind')).toHaveText('Deep Sweep');
+    await expect(field('Sources')).toHaveText('arXiv, Springer Nature');
+    // A search asked by hand belongs to no watch: that is a fact, not a gap in the record.
+    await expect(field('Watch id')).toHaveText('none');
+    await expect(field('Start time')).toHaveText(/^[A-Z][a-z]+ \d{1,2}, \d{4} at \d{1,2}:\d{2} (AM|PM)$/);
+    // The file paths keep the engine's names for the files; nothing else does.
+    await expect(metadata).not.toContainText(/Last seen at utc|"repositories"|\['arxiv'/);
+    await win.locator('.run-panel').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-run-metadata.png') });
 
     // The bundle is built by the engine and saved like the rest: a download,
     // never a path the engine chose. Read with the backend's own interpreter.

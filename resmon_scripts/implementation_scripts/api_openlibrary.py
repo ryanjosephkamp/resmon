@@ -12,6 +12,7 @@ from .api_base import (
     note_parse_failure_unless_transport,
     note_unanswerable,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,8 @@ def _normalized_publication_year(value: object) -> str | None:
 
 class OpenLibraryClient(BaseAPIClient):
     """Search Open Library work metadata without authentication."""
+
+    describe_request = staticmethod(sent_params("q", "author"))
 
     def get_name(self) -> str:
         return "Open Library"

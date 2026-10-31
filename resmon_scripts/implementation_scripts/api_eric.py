@@ -16,6 +16,7 @@ from .api_base import (
     note_parse_failure_unless_transport,
     note_unanswerable,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -217,6 +218,8 @@ def _doi_from_url(value: object) -> str | None:
 
 class EricClient(BaseAPIClient):
     """Search public ERIC metadata without authentication."""
+
+    describe_request = staticmethod(sent_params("search"))
 
     def get_name(self) -> str:
         return "ERIC"

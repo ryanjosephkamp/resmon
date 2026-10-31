@@ -6,7 +6,7 @@ import time
 from datetime import date, datetime, timezone
 
 from .api_base import (BaseAPIClient, NormalizedResult, RateLimiter, SourceRefused,
-                       note_parse_failure, safe_request, search_outcome)
+                       note_parse_failure, safe_request, search_outcome, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +69,8 @@ def _refusal_message(data) -> str | None:
 
 class HalClient(BaseAPIClient):
     """HAL repository API client (Tier 2)."""
+
+    describe_request = staticmethod(sent_params("q", "fq", "sort"))
 
     def get_name(self) -> str:
         return "HAL"

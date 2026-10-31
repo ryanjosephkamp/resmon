@@ -4,7 +4,7 @@
 import logging
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request)
+                       bare_orcid, read_json_body, safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -16,6 +16,8 @@ _RATE_LIMITER = RateLimiter(requests_per_second=5.0)
 
 class EuropepmcClient(BaseAPIClient):
     """EuropePMC repository API client."""
+
+    describe_request = staticmethod(sent_params("query"))
 
     def get_name(self) -> str:
         return "EuropePMC"

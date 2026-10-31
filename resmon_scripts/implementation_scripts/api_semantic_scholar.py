@@ -4,7 +4,7 @@
 import logging
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request)
+                       bare_orcid, read_json_body, safe_request, sent_params)
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
@@ -19,6 +19,8 @@ _FIELDS = "paperId,externalIds,title,authors,abstract,publicationDate,url,fields
 
 class SemanticScholarClient(BaseAPIClient):
     """Semantic Scholar repository API client."""
+
+    describe_request = staticmethod(sent_params("query", "year", url=_S2_API_URL))
 
     def get_name(self) -> str:
         return "Semantic Scholar"

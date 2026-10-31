@@ -19,6 +19,11 @@ export { RUNS_KEY };
 /** How many runs the log reads at a time: the newest first, then older ones on request. */
 const RUN_PAGE = 20;
 
+/** What the count beside "Runs" counts: every run, or the most recent ones when older runs are still to read. */
+export function runsCountWords(shown: number, more: boolean): string {
+  return more ? `the latest ${number(shown)}` : number(shown);
+}
+
 /** What a run's own page hands the log when it deleted the run and came back here. */
 export interface RunLogNotice { deleted?: string }
 
@@ -136,7 +141,7 @@ export function RunLog() {
   return (
     <section className="index runlog" aria-label="Runs" aria-busy={pages.isFetching}>
       <div className="index-bar">
-        <h2>Runs<span>{pages.data ? number(listed.length) : ''}</span></h2>
+        <h2>Runs<span data-runs="count">{pages.data ? runsCountWords(listed.length, Boolean(pages.hasNextPage)) : ''}</span></h2>
       </div>
       {chosen.length > 0 && (
         <div className="export-bar" role="group" aria-label="The selected runs">

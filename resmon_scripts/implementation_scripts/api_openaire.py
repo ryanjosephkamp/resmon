@@ -10,6 +10,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -34,6 +35,8 @@ def _as_list(node: object) -> list[object]:
 
 class OpenAireClient(BaseAPIClient):
     """OpenAIRE publication Search API client."""
+
+    describe_request = staticmethod(sent_params("keywords", "author", "fromDateAccepted", "toDateAccepted"))
 
     def get_name(self) -> str:
         return "OpenAIRE"
