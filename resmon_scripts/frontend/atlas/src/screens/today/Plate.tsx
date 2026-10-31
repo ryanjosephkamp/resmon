@@ -1,11 +1,23 @@
 import {
-  forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState,
-  type KeyboardEvent, type PointerEvent, type ReactNode, type WheelEvent,
+  forwardRef, useCallback, useEffect, useId, useImperativeHandle, useMemo, useRef, useState,
+  type KeyboardEvent, type PointerEvent, type ReactNode,
 } from 'react';
 import { Icon } from '../../shell/Icon';
 import {
   GRID, GRID_LETTERS, RAMP_DAYS, gridCell, placeName, type Box, type Field, type MapRegion, type Sky, type WatchShape,
 } from './model';
+
+/** Which papers are lit, and the color each lit one wears; see `sky/look.ts`. */
+export interface PlateLook {
+  /** 1 where lit; null when every paper is. */
+  lit: Uint8Array | null;
+  /** An index into `colors` per paper; null when every lit paper wears the ink. */
+  group: Uint8Array | null;
+  /** CSS colors, `var(--token)` or literal, read once per theme. */
+  colors: readonly string[];
+  /** The find's matches, ringed; at most `FOUND_RINGS` of them. */
+  found: Int32Array;
+}
 
 /** Where the plate is looking: a plate-space center and pixels per plate unit. */
 interface View { cx: number; cy: number; scale: number }
@@ -13,9 +25,12 @@ interface View { cx: number; cy: number; scale: number }
 export interface PlateHandle {
   /** Fly to a plate-space box, or home when none is given. */
   flyTo: (box?: { x: number; y: number; r: number }) => void;
+  /** Give the plate the keyboard, as a way back from beside it lands. */
+  focus: () => void;
 }
 
-export interface PlateHover { index: number; screenX: number; screenY: number }
+/** The paper under the pointer, where it is on the plate, and the plate's size, so a tip can stay inside it. */
+export interface PlateHover { index: number; screenX: number; screenY: number; width?: number; height?: number }
 
 interface Props {
   sky: Sky;
@@ -29,7 +44,10 @@ interface Props {
   selected: number | null;
   /** A paper hovered in the index, ringed here too. */
   pointed: number | null;
-  onSelect: (index: number | null) => void;
+  /** A paper chosen, or the choice cleared: by a click, or from the keyboard (Enter, Shift and an arrow, Escape). */
+  onSelect: (index: number | null, via: 'pointer' | 'keyboard') => void;
+  /** Enter on the paper already chosen: where a page opens papers elsewhere, it opens it. */
+  onOpen?: (index: number) => void;
   onHover: (hover: PlateHover | null) => void;
   /** Read when the theme or accent changes, so the canvas redraws in it. */
   paletteKey: string;
@@ -38,6 +56,16 @@ interface Props {
   onAway: (away: boolean) => void;
   /** The zoom buttons' corner: bottom left, unless the title block is there. */
   toolsAt?: 'left' | 'right';
+  /** Filters, colors, and the find's matches. Without one, every paper is lit in the ink. */
+  look?: PlateLook | null;
+  /** What the whole plate is, for the button and the keys that return to it: "the whole collection". */
+  whole?: string;
+  /**
+   * What the wheel does over the plate. `zoom` where the plate is the page
+   * (Today, a run's map tab); `page` where it sits in a page that scrolls,
+   * where the wheel scrolls the page, a pinch zooms, and a sideways swipe pans.
+   */
+  wheel?: 'zoom' | 'page';
 }
 
 const MARGIN = 26;
@@ -49,6 +77,14 @@ const MARGIN = 26;
 const NAME_COVER = 0.35;
 const RAMP_RADIUS = [2.3, 1.8, 1.4, 1.1, 0.85];
 const RAMP_ALPHA = [1, 0.86, 0.66, 0.46, 0.32];
+/** A paper the filters leave out: still drawn, so the collection keeps its shape, but faint. */
+const DIM_ALPHA = 0.2;
+/** A lit paper wearing a color is drawn at least this opaque, so its color can be read at any age. */
+const COLOR_ALPHA = 0.8;
+/** The most round dots drawn as one path; see the draw loop. */
+const PATH_DOTS = 512;
+/** Past this many, the find's matches are lit but not each ringed: rings that many overlap into a texture. */
+const FOUND_RINGS = 400;
 
 interface Palette {
   plate: string; ink: string; ink2: string; ink3: string; grid: string; frame: string;
@@ -65,8 +101,62 @@ function readPalette(element: HTMLElement): Palette {
   };
 }
 
+/** A color as the canvas takes it: a `var(--token)` read from the element, anything else as written. */
+function resolveColor(element: HTMLElement, color: string): string {
+  const token = /^var\((--[\w-]+)\)$/.exec(color);
+  return token?.[1] ? getComputedStyle(element).getPropertyValue(token[1]).trim() : color;
+}
+
+/** One run of the draw order that shares a size, a color, and an opacity. */
+interface Span { start: number; end: number; cls: number; group: number; dim: boolean }
+
+/**
+ * The order papers are drawn in, as runs that share a style: the dimmed first
+ * (beneath), then the lit, oldest class first so the newest sit on top, by
+ * color within a class. A counting sort, once per look, so a frame is one pass
+ * over the papers however many colors there are.
+ */
+export function paintOrder(sky: Sky, lit: Uint8Array | null, group: Uint8Array | null, groups: number) {
+  const classes = RAMP_RADIUS.length;
+  const g = Math.max(1, groups);
+  const keys = classes + classes * g;
+  const keyOf = (i: number) => {
+    const age = classes - 1 - (sky.ramp[i] ?? 0);
+    if (lit && !lit[i]) return age;
+    return classes + age * g + Math.min(g - 1, group ? group[i] ?? 0 : 0);
+  };
+  const counts = new Uint32Array(keys + 1);
+  for (let i = 0; i < sky.count; i++) counts[keyOf(i) + 1]! += 1;
+  for (let k = 0; k < keys; k++) counts[k + 1]! += counts[k]!;
+  const starts = counts.slice(0, keys);
+  const order = new Uint32Array(sky.count);
+  const next = counts.slice(0, keys);
+  for (let i = 0; i < sky.count; i++) order[next[keyOf(i)]!++] = i;
+  const spans: Span[] = [];
+  for (let k = 0; k < keys; k++) {
+    const start = starts[k]!, end = k + 1 < keys ? starts[k + 1]! : sky.count;
+    if (end <= start) continue;
+    const dim = k < classes;
+    const cls = dim ? classes - 1 - k : classes - 1 - Math.floor((k - classes) / g);
+    spans.push({ start, end, cls, group: dim ? -1 : (k - classes) % g, dim });
+  }
+  return { order, spans };
+}
+
+// One per sky, however many plates draw it.
+const hashes = new WeakMap<Sky, ReturnType<typeof makeHash>>();
+
 /** A spatial hash over plate space, for finding the paper under the pointer. */
-function buildHash(sky: Sky, cells = 192) {
+function buildHash(sky: Sky) {
+  let hash = hashes.get(sky);
+  if (!hash) {
+    hash = makeHash(sky);
+    hashes.set(sky, hash);
+  }
+  return hash;
+}
+
+function makeHash(sky: Sky, cells = 192) {
   const { minX, minY, size } = sky.bounds;
   const buckets = new Map<number, number[]>();
   for (let i = 0; i < sky.count; i++) {
@@ -104,8 +194,9 @@ function shadingImage(field: Field, ink: string): HTMLCanvasElement {
 export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const {
     sky, regions, shapes, field, arrivals, lit, selected, pointed, onSelect, onHover, paletteKey,
-    label, children, onAway, toolsAt = 'left',
+    label, children, onAway, toolsAt = 'left', look = null, whole = 'the whole collection', onOpen, wheel: wheelMode = 'zoom',
   } = props;
+  const keysId = useId();
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -122,6 +213,11 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const shading = useRef<HTMLCanvasElement | null>(null);
   const reduced = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
   const hash = useMemo(() => buildHash(sky), [sky]);
+  const paint = useMemo(
+    () => paintOrder(sky, look?.lit ?? null, look?.group ?? null, look?.colors.length ?? 0),
+    [sky, look],
+  );
+  const groupColors = useRef<string[]>([]);
   // The plate area the papers actually occupy (their regions' discs), for
   // working out how much screen each paper has at a given zoom.
   const occupied = useMemo(() => Math.max(0.05, regions.reduce((sum, r) => sum + Math.PI * r.r * r.r, 0)), [regions]);
@@ -264,23 +360,53 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     const cap = Math.max(0.55, spacing * 0.42);
     const crowding = Math.min(1, 0.35 + spacing / 6);
     const pad = 4;
-    for (let cls = RAMP_RADIUS.length - 1; cls >= 0; cls--) {
-      const r = Math.min((RAMP_RADIUS[cls] ?? 1) * boost, cap);
-      ctx.globalAlpha = (RAMP_ALPHA[cls] ?? 0.5) * crowding;
-      ctx.fillStyle = p.ink;
+    // One pass in the look's order: dimmed papers first, faint and in the
+    // third ink, then the lit ones by class and color (see `paintOrder`).
+    const { order, spans } = paint;
+    const colors = groupColors.current;
+    for (const span of spans) {
+      const base = (RAMP_RADIUS[span.cls] ?? 1) * boost;
+      const r = span.dim ? Math.min(base * 0.8, cap) : Math.min(base, cap);
+      const color = span.dim ? undefined : colors[span.group];
+      const alpha = RAMP_ALPHA[span.cls] ?? 0.5;
+      ctx.globalAlpha = (span.dim ? DIM_ALPHA : color ? Math.max(COLOR_ALPHA, alpha) : alpha) * crowding;
+      ctx.fillStyle = span.dim ? p.ink3 : (color || p.ink);
       const round = r >= 1.15;
+      // Round dots go into paths of at most PATH_DOTS circles each: one path of
+      // tens of thousands of circles took Chromium seconds to build on a new
+      // canvas, where a few hundred short paths take milliseconds.
+      let inPath = 0;
       if (round) ctx.beginPath();
-      for (let i = 0; i < s.count; i++) {
-        if (s.ramp[i] !== cls) continue;
+      for (let k = span.start; k < span.end; k++) {
+        const i = order[k] ?? 0;
         const sx = ((s.x[i] ?? 0) - v.cx) * v.scale + size.w / 2;
         const sy = size.h / 2 - ((s.y[i] ?? 0) - v.cy) * v.scale;
         if (sx < inner.x - pad || sx > inner.x + inner.w + pad || sy < inner.y - pad || sy > inner.y + inner.h + pad) continue;
-        if (round) { ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2); }
-        else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        if (round) {
+          ctx.moveTo(sx + r, sy);
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          if (++inPath === PATH_DOTS) { ctx.fill(); ctx.beginPath(); inPath = 0; }
+        } else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
       }
-      if (round) ctx.fill();
+      if (round && inPath > 0) ctx.fill();
     }
     ctx.globalAlpha = 1;
+
+    // The find's matches, ringed in the accent while there are few enough to
+    // read as rings; past that, being lit is what marks them.
+    const matches = latest.current.look?.found;
+    if (matches && matches.length > 0 && matches.length <= FOUND_RINGS) {
+      ctx.strokeStyle = p.mark;
+      ctx.lineWidth = 1.25;
+      ctx.beginPath();
+      for (const i of matches) {
+        const [sx, sy] = toScreen(s.x[i] ?? 0, s.y[i] ?? 0, v);
+        if (sx < inner.x - 8 || sx > inner.x + inner.w + 8 || sy < inner.y - 8 || sy > inner.y + inner.h + 8) continue;
+        ctx.moveTo(sx + 4.5, sy);
+        ctx.arc(sx, sy, 4.5, 0, Math.PI * 2);
+      }
+      ctx.stroke();
+    }
 
     // Region names, largest first, only where the region is big enough on
     // screen to own one, and never over another name.
@@ -378,6 +504,8 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       const [sx, sy] = toScreen(s.x[i] ?? 0, s.y[i] ?? 0, v);
       if (sx < inner.x - 10 || sx > inner.x + inner.w + 10 || sy < inner.y - 10 || sy > inner.y + inner.h + 10) continue;
       const chosen = i === sel;
+      // A new paper the filters or the find leave out keeps its ring and number, faint.
+      ctx.globalAlpha = chosen || !latest.current.look?.lit || latest.current.look.lit[i] ? 1 : 0.28;
       ctx.beginPath();
       ctx.arc(sx, sy, chosen ? 7 : ring, 0, Math.PI * 2);
       if (chosen) { ctx.fillStyle = p.fill; ctx.fill(); }
@@ -399,6 +527,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         ctx.fillText(text, sx + 7, sy - 9);
       }
     }
+    ctx.globalAlpha = 1;
 
     // The paper under the pointer, or pointed at from the index.
     for (const i of [hoverIndex.current, pt]) {
@@ -467,10 +596,11 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         ctx.fillText(String(k + 1), size.w - MARGIN / 2, gy);
       }
     }
-    // How long this frame took to draw, where a test or a person can read it.
+    // How long this frame took to draw, and where it looks, where a test or a person can read them.
     node.dataset.frameMs = (performance.now() - started).toFixed(1);
+    node.dataset.view = `${v.cx} ${v.cy} ${v.scale}`;
     if (glide.current) frame.current = requestAnimationFrame(() => drawRef.current());
-  }, [size, toScreen, arrivalRank, occupied, papersUnder]);
+  }, [size, toScreen, arrivalRank, occupied, papersUnder, paint]);
   useEffect(() => { drawRef.current = draw; }, [draw]);
 
   const schedule = useCallback(() => {
@@ -499,7 +629,13 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     schedule();
   }, [paletteKey, field, schedule]);
 
-  useEffect(() => { schedule(); }, [lit, selected, pointed, shapes, regions, arrivals, schedule]);
+  useEffect(() => {
+    const node = wrap.current;
+    groupColors.current = node ? (look?.colors ?? []).map((color) => resolveColor(node, color)) : [];
+    schedule();
+  }, [paletteKey, look, schedule]);
+
+  useEffect(() => { schedule(); }, [lit, selected, pointed, shapes, regions, arrivals, paint, schedule]);
 
   const reportAway = useCallback(() => {
     const v = view.current, h = home.current;
@@ -519,6 +655,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       const fit = Math.min(size.w - MARGIN * 2, size.h - MARGIN * 2) / (box.r * 2 * 1.35);
       go({ cx: box.x, cy: box.y, scale: Math.max(home.current.scale, Math.min(fit, home.current.scale * 40)) });
     },
+    focus: () => canvas.current?.focus(),
   }), [go, size]);
 
   const zoomAt = (factor: number, sx: number, sy: number) => {
@@ -544,7 +681,11 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       for (let c = c0; c <= c1; c++) {
         for (const i of buckets.get(r * cells + c) ?? []) {
           // New papers win ties: their rings are what a pointer is aimed at.
-          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1);
+          // A paper the filters dimmed can still be chosen, but a lit one near it wins.
+          // Papers drawn on the same spot tie at any distance; there the lit one wins too.
+          const out = look?.lit && !look.lit[i];
+          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1) * (out ? 1.6 : 1)
+            + (out ? 1e-9 : 0);
           if (d < reach && d < bestD) { best = i; bestD = d; }
         }
       }
@@ -582,7 +723,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       if (hit === null) onHover(null);
       else {
         const [sx, sy] = toScreen(sky.x[hit] ?? 0, sky.y[hit] ?? 0);
-        onHover({ index: hit, screenX: sx, screenY: sy });
+        onHover({ index: hit, screenX: sx, screenY: sy, width: size.w, height: size.h });
       }
       schedule();
     }
@@ -592,19 +733,103 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     drag.current = null;
     if (d && d.moved) { reportAway(); return; }
     const [x, y] = local(event);
-    onSelect(nearest(x, y));
+    onSelect(nearest(x, y), 'pointer');
   };
   const onPointerLeave = () => {
     if (hoverIndex.current !== null) { hoverIndex.current = null; onHover(null); schedule(); }
   };
-  const onWheel = (event: WheelEvent<HTMLCanvasElement>) => {
-    const [x, y] = local(event);
-    zoomAt(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0018)), x, y);
+  // The wheel zooms the plate and nothing else: listened to directly, not
+  // passively, so a plate inside a page that scrolls does not scroll it too.
+  // A plate set in a scrolling page leaves the page its scroll: there a pinch
+  // (which arrives as a wheel with Control held) zooms, and a sideways swipe
+  // pans, as the swipe rule for a map that pans expects (`SwipeNavigation`).
+  const wheel = useRef<(event: globalThis.WheelEvent) => void>(() => undefined);
+  useEffect(() => {
+    wheel.current = (event) => {
+      if (wheelMode === 'page' && !event.ctrlKey) {
+        if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+        event.preventDefault();
+        const v = view.current;
+        view.current = { ...v, cx: v.cx + event.deltaX / v.scale };
+        glide.current = null;
+        schedule();
+        reportAway();
+        return;
+      }
+      event.preventDefault();
+      const [x, y] = local(event);
+      zoomAt(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0018)), x, y);
+    };
+  });
+  useEffect(() => {
+    const node = canvas.current;
+    if (!node) return undefined;
+    const listener = (event: globalThis.WheelEvent) => wheel.current(event);
+    node.addEventListener('wheel', listener, { passive: false });
+    return () => node.removeEventListener('wheel', listener);
+  }, []);
+
+  const isLit = (i: number) => !look?.lit || look.lit[i] === 1;
+
+  /** Choose a paper from the keyboard, and keep it on the screen. */
+  const choose = (i: number | null) => {
+    if (i === null) return;
+    onSelect(i, 'keyboard');
+    const [sx, sy] = toScreen(sky.x[i] ?? 0, sky.y[i] ?? 0);
+    const edge = MARGIN + 30;
+    if (sx < edge || sx > size.w - edge || sy < edge || sy > size.h - edge) {
+      go({ ...view.current, cx: sky.x[i] ?? 0, cy: sky.y[i] ?? 0 });
+    }
   };
+
+  /** The lit paper nearest the middle of the plate as it is shown. */
+  const nearestMiddle = (): number | null => {
+    const [px, py] = toPlate(size.w / 2, size.h / 2);
+    let best: number | null = null, bestD = Infinity;
+    for (let i = 0; i < sky.count; i++) {
+      if (!isLit(i)) continue;
+      const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py);
+      if (d < bestD) { best = i; bestD = d; }
+    }
+    return best;
+  };
+
+  /**
+   * The lit paper nearest the chosen one in a direction: within 60 degrees of
+   * it, nearer the line counting for more than nearer the paper.
+   */
+  const nearestToward = (from: number, dx: number, dy: number): number | null => {
+    const x0 = sky.x[from] ?? 0, y0 = sky.y[from] ?? 0;
+    let best: number | null = null, bestScore = Infinity;
+    for (let i = 0; i < sky.count; i++) {
+      if (i === from || !isLit(i)) continue;
+      const ex = (sky.x[i] ?? 0) - x0, ey = (sky.y[i] ?? 0) - y0;
+      const along = ex * dx + ey * dy;
+      if (along <= 0) continue;
+      const across = Math.abs(ex * dy - ey * dx);
+      if (across > along * Math.tan(Math.PI / 3)) continue;
+      const score = along + across * 2;
+      if (score < bestScore) { best = i; bestScore = score; }
+    }
+    return best;
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLCanvasElement>) => {
     const v = view.current;
     const step = 60 / v.scale;
+    if (event.shiftKey && event.key.startsWith('Arrow')) {
+      const ways: Record<string, [number, number]> = {
+        ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, 1], ArrowDown: [0, -1],
+      };
+      const way = ways[event.key];
+      if (way) {
+        event.preventDefault();
+        choose(selected === null ? nearestMiddle() : nearestToward(selected, way[0], way[1]));
+      }
+      return;
+    }
     const moves: Record<string, () => void> = {
+      Enter: () => { if (selected === null) choose(nearestMiddle()); else onOpen?.(selected); },
       '+': () => zoomAt(1.5, size.w / 2, size.h / 2),
       '=': () => zoomAt(1.5, size.w / 2, size.h / 2),
       '-': () => zoomAt(1 / 1.5, size.w / 2, size.h / 2),
@@ -613,7 +838,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ArrowRight: () => go({ ...v, cx: v.cx + step }),
       ArrowUp: () => go({ ...v, cy: v.cy + step }),
       ArrowDown: () => go({ ...v, cy: v.cy - step }),
-      Escape: () => onSelect(null),
+      Escape: () => onSelect(null, 'keyboard'),
     };
     const move = moves[event.key];
     if (move) { event.preventDefault(); move(); }
@@ -628,18 +853,19 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         tabIndex={0}
         role="img"
         aria-label={label}
-        aria-describedby="plate-keys"
+        aria-describedby={keysId}
+        data-selected={selected !== null ? sky.ids[selected] : undefined}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
-        onWheel={onWheel}
         onDoubleClick={(event) => { const [x, y] = local(event); zoomAt(2, x, y); }}
         onKeyDown={onKeyDown}
       />
-      <p id="plate-keys" className="sr-only">
-        Plus and minus zoom, the arrow keys move, zero returns to the whole collection, Escape clears the selection.
-        Every paper on the map is listed beside it.
+      <p id={keysId} className="sr-only">
+        Plus and minus zoom, the arrow keys move, zero returns to {whole}. Enter chooses the paper nearest the
+        middle, Shift and an arrow key choose the nearest paper that way, and Escape clears the choice. A chosen
+        paper opens beside the map.
       </p>
       <div className={`plate-tools ${toolsAt}`} role="group" aria-label="Map zoom">
         <button type="button" aria-label="Zoom in" onClick={() => zoomAt(1.6, size.w / 2, size.h / 2)}>
@@ -648,7 +874,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         <button type="button" aria-label="Zoom out" onClick={() => zoomAt(1 / 1.6, size.w / 2, size.h / 2)}>
           <Icon name="minus" size={14} />
         </button>
-        <button type="button" aria-label="Show the whole collection" onClick={() => go({ ...home.current })}>
+        <button type="button" aria-label={`Show ${whole}`} title={`Show ${whole}`} onClick={() => go({ ...home.current })}>
           <Icon name="fit" size={14} />
         </button>
       </div>
@@ -657,25 +883,35 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   );
 });
 
-/** The plate's legend, in its own strip under it. */
-export function PlateKey({ newLabel, showWatches }: { newLabel: string; showWatches: boolean }) {
+/**
+ * The plate's legend, in its own strip under it. With the papers colored, the
+ * colors' key (`colors`) takes the place of the sizes' days, which it repeats
+ * or would crowd.
+ */
+export function PlateKey({ newLabel, showWatches, colors, extra }: {
+  newLabel?: string; showWatches: boolean; colors?: ReactNode; extra?: ReactNode;
+}) {
   return (
     <div className="plate-key" aria-label="Map key">
-      <span className="plate-key-ramp">
-        {RAMP_DAYS.map((days, cls) => (
-          <span key={days}>
-            <svg width="8" height="8" aria-hidden="true">
-              <circle cx="4" cy="4" r={(RAMP_RADIUS[cls] ?? 1) * 1.2} fill="currentColor" opacity={RAMP_ALPHA[cls]} />
-            </svg>
-            {days}
-          </span>
-        ))}
-        <span className="plate-key-unit">days since collected</span>
-      </span>
-      <span className="plate-key-item">
-        <svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--accent-mark)" strokeWidth="1.25" /><circle cx="7" cy="7" r="1.5" fill="currentColor" /></svg>
-        {newLabel}
-      </span>
+      {colors ?? (
+        <span className="plate-key-ramp">
+          {RAMP_DAYS.map((days, cls) => (
+            <span key={days}>
+              <svg width="8" height="8" aria-hidden="true">
+                <circle cx="4" cy="4" r={(RAMP_RADIUS[cls] ?? 1) * 1.2} fill="currentColor" opacity={RAMP_ALPHA[cls]} />
+              </svg>
+              {days}
+            </span>
+          ))}
+          <span className="plate-key-unit">days since collected</span>
+        </span>
+      )}
+      {newLabel && (
+        <span className="plate-key-item">
+          <svg width="14" height="14" aria-hidden="true"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--accent-mark)" strokeWidth="1.25" /><circle cx="7" cy="7" r="1.5" fill="currentColor" /></svg>
+          {newLabel}
+        </span>
+      )}
       {showWatches && (
         <span className="plate-key-item">
           <svg width="22" height="8" aria-hidden="true"><path d="M1 4h20" stroke="var(--bound)" strokeDasharray="3 3.5" /></svg>
@@ -686,6 +922,7 @@ export function PlateKey({ newLabel, showWatches }: { newLabel: string; showWatc
         <svg width="14" height="10" aria-hidden="true"><rect width="14" height="10" rx="2" fill="currentColor" opacity="0.12" /></svg>
         more papers nearby
       </span>
+      {extra}
     </div>
   );
 }

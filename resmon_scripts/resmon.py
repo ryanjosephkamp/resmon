@@ -106,7 +106,7 @@ from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, collection_map,
-    coverage_audit, date_window, embedding_job, today,
+    coverage_audit, date_window, embedding_job, map_facets, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, response_models, search_record, source_coverage,
     source_wall, vector_index, watch_profiles,
@@ -3109,6 +3109,28 @@ def get_execution_progress_events(exec_id: int, response: Response):
     return get_progress_events(conn, exec_id)
 
 
+@app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,
+         response_model_exclude_unset=True)
+def get_execution_document_ids(exec_id: int):
+    """Every paper this run stored that is still in the collection, by id.
+
+    The run's map needs all of them and nothing else about them: the map
+    already holds their positions. The papers themselves are paged by
+    ``/documents``; ids alone are a few bytes each, so they come whole.
+    """
+    conn = _get_db()
+    try:
+        if get_execution_by_id(conn, exec_id) is None:
+            raise HTTPException(404, "Execution not found")
+        rows = conn.execute(
+            "SELECT DISTINCT ed.document_id FROM execution_documents ed "
+            "JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ? "
+            "ORDER BY ed.document_id", (exec_id,))
+        return {"ids": [int(r[0]) for r in rows]}
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/executions/{exec_id}/documents", response_model=response_models.RunPapersPage,
          response_model_exclude_unset=True)
 def get_execution_papers(
@@ -5708,6 +5730,71 @@ def get_collection_map():
     try:
         lane = _current_embedding_lane(conn)
         return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/map/facets", response_model=response_models.MapFacets,
+         response_model_exclude_unset=True)
+def get_map_facets():
+    """What the map's filters and colors read about every paper: its source,
+    its dates, its place in the reading queue, whether it is new on Today, and
+    the watches that found it. See ``map_facets`` for what each says."""
+    conn = _get_db()
+    try:
+        return map_facets.facets(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/map/find", response_model=response_models.MapFind,
+         response_model_exclude_unset=True)
+def find_on_map(q: str = Query("", max_length=200)):
+    """The papers whose title or authors contain ``q``, newest first, for
+    lighting them on a map. Fewer than two characters find nothing."""
+    conn = _get_db()
+    try:
+        return {"query": q, "ids": map_facets.find(conn, q)}
+    finally:
+        _close_db(conn)
+
+
+class MapViewBody(BaseModel):
+    """A map's whole view, every time: a PUT replaces it."""
+
+    color: Literal["region", "watch", "source", "age"]
+    watches: list[int] = Field(default_factory=list, max_length=500)
+    sources: list[str] = Field(default_factory=list, max_length=200)
+    dates: Literal["found", "published"] = "found"
+    date_from: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    date_to: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    state: Literal["any", "saved", "to_read", "read", "new"] = "any"
+
+
+def _map_view_name(name: str) -> str:
+    if name not in map_facets.VIEW_NAMES:
+        raise HTTPException(404, f"There is no map named {name!r}; the maps are {', '.join(map_facets.VIEW_NAMES)}.")
+    return name
+
+
+@app.get("/api/map/views/{name}", response_model=response_models.MapView,
+         response_model_exclude_unset=True)
+def get_map_view(name: str):
+    """The filters and colors a map was last left with: Today's (``today``),
+    or every run's map (``run``)."""
+    conn = _get_db()
+    try:
+        return map_facets.read_view(conn, _map_view_name(name))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/map/views/{name}", response_model=response_models.MapView,
+         response_model_exclude_unset=True)
+def put_map_view(name: str, body: MapViewBody):
+    conn = _get_db()
+    try:
+        return map_facets.write_view(conn, _map_view_name(name), body.model_dump())
     finally:
         _close_db(conn)
 

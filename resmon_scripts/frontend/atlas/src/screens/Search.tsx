@@ -7,6 +7,7 @@ import { commandEnter } from '../shell/shortcuts';
 import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
 import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
+import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
@@ -124,6 +125,7 @@ export function Search() {
     }
   }
   useEffect(() => { if (focusAsked) focusTerms(); }, [focusAsked]);
+  useFocusOnArrival('ask-terms');
 
   const allTerms = terms.all;
   // In the order they were chosen, which is the order the run asks and records them.

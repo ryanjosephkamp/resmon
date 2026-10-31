@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
-import { PaperSky, basisWords } from '../sky/PaperSky';
+import { MapPaper } from '../sky/MapPaper';
+import { PaperSky, basisWords, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { RUNS_KEY } from '../runs/RunLog';
 import { choiceOf, stateSentence } from '../settings/summaryChoice';
 import { AI_KEY } from '../settings/summaryLanes';
@@ -85,6 +86,10 @@ function WatchPage({ raw }: { raw: string }) {
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
+  const ringed = useMemo(() => (latestPapers.data?.papers ?? []).map((p) => p.id), [latestPapers.data]);
+  // A paper chosen on the map opens in the run history's place, beside the map.
+  const [opened, setOpened] = useState<SkyChoice | null>(null);
+  const sky = useRef<PaperSkyHandle>(null);
 
   const changed = () => {
     void client.invalidateQueries({ queryKey: ['routine', id] });
@@ -135,7 +140,6 @@ function WatchPage({ raw }: { raw: string }) {
   const asks = watchAsks(data.parameters);
   const words = scheduleText(data.schedule_cron, data.parameters);
   const fires = promisedFires(calendar.data ?? [], id, now);
-  const ringed = (latestPapers.data?.papers ?? []).map((p) => p.id);
   const sourceNames = asks.sources.map((s) => names.get(s) ?? s);
   const firing: Firing = data.is_active ? firingOf(status.data, id) : undefined;
   const due = data.is_active ? nextWords(firing, fires[0] ? when(fires[0].start, now) : null) : null;
@@ -209,9 +213,13 @@ function WatchPage({ raw }: { raw: string }) {
 
       <div className="run-main watch-main">
         <PaperSky
+          ref={sky}
           marked={papers.data?.document_ids ?? []}
           bright={ringed}
-          outline
+          outline={data.name}
+          chosen={opened?.id ?? null}
+          onChoose={setOpened}
+          sourceName={(slug) => names.get(slug) ?? slug}
           label={`Where ${data.name}'s papers sit in the collection`}
           caption={({ placed, ready, basis }) => {
             if (!papers.data) return 'Reading this watch\'s papers.';
@@ -224,7 +232,19 @@ function WatchPage({ raw }: { raw: string }) {
             return `Its papers: ${share}.${night}`;
           }}
         />
-        <RunHistory runs={history.data ?? null} now={now} names={names} />
+        {opened ? (
+          <MapPaper
+            key={opened.id}
+            id={opened.id}
+            cell={opened.cell}
+            region={opened.region}
+            sourceName={(slug) => names.get(slug) ?? slug}
+            backLabel="Back to the runs"
+            inline
+            onBack={() => { setOpened(null); sky.current?.focus(); }}
+            onShow={() => sky.current?.show(opened.id)}
+          />
+        ) : <RunHistory runs={history.data ?? null} now={now} names={names} />}
       </div>
 
       <section className="run-record" aria-label="The watch's record">

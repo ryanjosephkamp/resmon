@@ -1734,6 +1734,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions/{exec_id}/document-ids": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Execution Document Ids
+         * @description Every paper this run stored that is still in the collection, by id.
+         *
+         *     The run's map needs all of them and nothing else about them: the map
+         *     already holds their positions. The papers themselves are paged by
+         *     ``/documents``; ids alone are a few bytes each, so they come whole.
+         */
+        get: operations["get_execution_document_ids_api_executions__exec_id__document_ids_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions/{exec_id}/documents": {
         parameters: {
             query?: never;
@@ -2413,6 +2437,71 @@ export interface paths {
          */
         get: operations["get_collection_map_api_map_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/map/facets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Map Facets
+         * @description What the map's filters and colors read about every paper: its source,
+         *     its dates, its place in the reading queue, whether it is new on Today, and
+         *     the watches that found it. See ``map_facets`` for what each says.
+         */
+        get: operations["get_map_facets_api_map_facets_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/map/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find On Map
+         * @description The papers whose title or authors contain ``q``, newest first, for
+         *     lighting them on a map. Fewer than two characters find nothing.
+         */
+        get: operations["find_on_map_api_map_find_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/map/views/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Map View
+         * @description The filters and colors a map was last left with: Today's (``today``),
+         *     or every run's map (``run``).
+         */
+        get: operations["get_map_view_api_map_views__name__get"];
+        /** Put Map View */
+        put: operations["put_map_view_api_map_views__name__put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -7462,6 +7551,75 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * MapFacetWatch
+         * @description A watch, and every paper its runs have ever returned.
+         */
+        MapFacetWatch: {
+            /** Id */
+            id: number;
+            /** Is Active */
+            is_active: boolean;
+            /** Members */
+            members: number[];
+            /** Name */
+            name: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MapFacets
+         * @description ``GET /api/map/facets``: what the map's filters and colors read, per paper.
+         *
+         *     Columns in id order, one entry per paper in ``ids``. ``source`` indexes
+         *     ``sources`` (slugs). ``published_day`` is days since 1970-01-01 of the first
+         *     day the stored publication date names (a year alone counts from January 1),
+         *     or null where it is not a date. ``found_at`` is when resmon first collected
+         *     the paper, in Unix seconds. ``saved`` and ``read`` are the reading queue's
+         *     papers by status; ``new`` the papers first collected after ``since``, which
+         *     is Today's window (``window`` as Today words it).
+         */
+        MapFacets: {
+            /** Found At */
+            found_at: (number | null)[];
+            /** Ids */
+            ids: number[];
+            /** New */
+            new: number[];
+            /** Published Day */
+            published_day: (number | null)[];
+            /** Read */
+            read: number[];
+            /** Saved */
+            saved: number[];
+            /** Since */
+            since: string | null;
+            /** Source */
+            source: number[];
+            /** Sources */
+            sources: string[];
+            /** Watches */
+            watches: components["schemas"]["MapFacetWatch"][];
+            /**
+             * Window
+             * @enum {string}
+             */
+            window: "since_last_look" | "first_look";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MapFind
+         * @description ``GET /api/map/find``: the papers whose title or authors contain the query, newest first.
+         */
+        MapFind: {
+            /** Ids */
+            ids: number[];
+            /** Query */
+            query: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * MapPoints
          * @description Every paper on the plate, one entry per paper in each list, in id order.
          *
@@ -7518,6 +7676,73 @@ export interface components {
             not_embedded: number;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * MapView
+         * @description ``GET`` and ``PUT /api/map/views/{name}``: a map's remembered filters and colors.
+         *
+         *     Empty ``watches`` or ``sources`` filter nothing. ``dates`` says which date
+         *     ``date_from`` and ``date_to`` (inclusive, ``YYYY-MM-DD``, either may be
+         *     null) are read against. The PUT answers what it stored, after anything it
+         *     did not recognize fell back to the default.
+         */
+        MapView: {
+            /**
+             * Color
+             * @enum {string}
+             */
+            color: "region" | "watch" | "source" | "age";
+            /** Date From */
+            date_from: string | null;
+            /** Date To */
+            date_to: string | null;
+            /**
+             * Dates
+             * @enum {string}
+             */
+            dates: "found" | "published";
+            /** Sources */
+            sources: string[];
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "any" | "saved" | "to_read" | "read" | "new";
+            /** Watches */
+            watches: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * MapViewBody
+         * @description A map's whole view, every time: a PUT replaces it.
+         */
+        MapViewBody: {
+            /**
+             * Color
+             * @enum {string}
+             */
+            color: "region" | "watch" | "source" | "age";
+            /** Date From */
+            date_from?: string | null;
+            /** Date To */
+            date_to?: string | null;
+            /**
+             * Dates
+             * @default found
+             * @enum {string}
+             */
+            dates: "found" | "published";
+            /** Sources */
+            sources?: string[];
+            /**
+             * State
+             * @default any
+             * @enum {string}
+             */
+            state: "any" | "saved" | "to_read" | "read" | "new";
+            /** Watches */
+            watches?: number[];
         };
         /**
          * MissedFire
@@ -9200,6 +9425,17 @@ export interface components {
             status: string | null;
             /** Zero Reason */
             zero_reason: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunDocumentIds
+         * @description ``GET /api/executions/{exec_id}/document-ids``: every paper the run
+         *     stored that is still in the collection, by id, for the run's map.
+         */
+        RunDocumentIds: {
+            /** Ids */
+            ids: number[];
         } & {
             [key: string]: unknown;
         };
@@ -14426,6 +14662,37 @@ export interface operations {
             };
         };
     };
+    get_execution_document_ids_api_executions__exec_id__document_ids_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunDocumentIds"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_execution_papers_api_executions__exec_id__documents_get: {
         parameters: {
             query?: {
@@ -15460,6 +15727,123 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectionMap"];
+                };
+            };
+        };
+    };
+    get_map_facets_api_map_facets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapFacets"];
+                };
+            };
+        };
+    };
+    find_on_map_api_map_find_get: {
+        parameters: {
+            query?: {
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapFind"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_map_view_api_map_views__name__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_map_view_api_map_views__name__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MapViewBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MapView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

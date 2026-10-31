@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
@@ -12,12 +12,13 @@ import {
   type Run,
 } from './model';
 import { LivePanel } from './LivePanel';
+import { RunMap } from './RunMap';
 
 /** One of a run's papers, with its place in the reading queue. */
 export type RunPaper = components['schemas']['RunPaper'];
 
-const TABS = ['Papers', 'Report', 'Search record', 'Log', 'Metadata', 'Progress'] as const;
-type Tab = typeof TABS[number];
+export const TABS = ['Papers', 'Map', 'Report', 'Search record', 'Log', 'Metadata', 'Progress'] as const;
+export type Tab = typeof TABS[number];
 
 interface Props {
   run: Run;
@@ -26,13 +27,23 @@ interface Props {
   events: ProgressEvent[];
   papers: { papers: RunPaper[]; total: number } | null;
   running: boolean;
+  /** The open tab, held by the page so its sky can open the map. */
+  tab: Tab;
+  onTab: (tab: Tab) => void;
 }
 
-/** The run's own record, one tab at a time, each read only when it is opened. */
-export function RunTabs({ run, live, names, events, papers, running }: Props) {
-  const [tab, setTab] = useState<Tab>('Papers');
+/**
+ * The run's own record, one tab at a time, each read only when it is opened.
+ *
+ * The run's map is a tab rather than a section of the page: exploring a map
+ * needs a fixed frame (the wheel zooms it, so it cannot sit in a page the
+ * wheel scrolls past) and a column beside it for the paper chosen, which the
+ * page's own side column, under 400 pixels, cannot hold. As a tab it has the
+ * record's full width, and nothing of it is drawn until it is opened.
+ */
+export function RunTabs({ run, live, names, events, papers, running, tab, onTab }: Props) {
   return (
-    <section className="run-record" aria-label="The run's record">
+    <section className="run-record" id="run-record" aria-label="The run's record">
       <div className="run-tabs" role="tablist" aria-label="Record">
         {TABS.map((name) => (
           <button
@@ -42,7 +53,7 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
             id={`run-tab-${name}`}
             aria-selected={tab === name}
             aria-controls="run-tab-panel"
-            onClick={() => setTab(name)}
+            onClick={() => onTab(name)}
           >
             {name}
             {name === 'Progress' && running && <i className="live-dot" aria-label="live" />}
@@ -51,6 +62,8 @@ export function RunTabs({ run, live, names, events, papers, running }: Props) {
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
         {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
+        {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status}
+          endedAt={running ? null : run.end_time ?? null} names={names} />}
         {tab === 'Report' && <TextRecord run={run} kind="report" running={running} />}
         {tab === 'Log' && <TextRecord run={run} kind="log" running={running} />}
         {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}

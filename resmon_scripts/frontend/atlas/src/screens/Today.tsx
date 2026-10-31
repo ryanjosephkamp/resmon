@@ -9,7 +9,12 @@ import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plat
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
 import { useLifecycleFor } from './lifecycle/LifecycleMarks';
-import { buildSky, density, emptiestCorner, epochDay, gridCell, watchShape } from './today/model';
+import { emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './today/model';
+import { collectionSky } from './sky/collectionSky';
+import { ColorKey, DimKey, MapBar } from './sky/MapControls';
+import { MapPaper } from './sky/MapPaper';
+import { filterCount } from './sky/look';
+import { FACETS_KEY, useMapLook } from './sky/useMapLook';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
@@ -64,7 +69,9 @@ export function Today() {
   // New papers mean new stars: when Today's count moves, the map is asked again.
   const total = today.data?.total;
   useEffect(() => {
-    if (total !== undefined) void client.invalidateQueries({ queryKey: MAP_KEY });
+    if (total === undefined) return;
+    void client.invalidateQueries({ queryKey: MAP_KEY });
+    void client.invalidateQueries({ queryKey: FACETS_KEY });
   }, [total, client]);
   const plate = useRef<PlateHandle>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -77,8 +84,10 @@ export function Today() {
   const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
 
   const ready = map.data?.state === 'ready' ? map.data : null;
-  const sky = useMemo(() => (ready ? buildSky(ready.points, ready.regions, epochDay(now)) : null), [ready, now]);
-  const field = useMemo(() => (sky ? density(sky, 160, 2) : null), [sky]);
+  // Built once for every page that draws the whole collection.
+  const built = useMemo(() => (ready ? collectionSky(ready, epochDay(now)) : null), [ready, now]);
+  const sky = built?.sky ?? null;
+  const field = built?.field ?? null;
   const corner = useMemo(() => (sky ? emptiestCorner(sky) : 'tr'), [sky]);
   const shapes = useMemo(() => {
     if (!sky || !ready || !today.data) return [];
@@ -88,6 +97,7 @@ export function Today() {
     () => new Map<number, Region>((ready?.regions ?? []).map((r) => [r.id, { id: r.id, label: r.label }])),
     [ready],
   );
+  const mapLook = useMapLook('today', sky, sourceName);
 
   // Numbers follow the order papers were collected: 1 is the first to arrive.
   const papers = useMemo<IndexPaper[]>(() => {
@@ -168,6 +178,16 @@ export function Today() {
     }
   }, [sky, ready, shapes]);
 
+  // Enter in the find steps through its matches, each chosen and flown to as a click on it would be.
+  const step = (direction: 1 | -1) => {
+    const found = mapLook.look?.found;
+    if (!sky || !found || found.length === 0) return;
+    const at = selectedId !== null ? found.indexOf(sky.indexOf.get(selectedId) ?? -1) : -1;
+    const next = at < 0 ? (direction === 1 ? 0 : found.length - 1) : (at + direction + found.length) % found.length;
+    const id = sky.ids[found[next] ?? 0];
+    if (id !== undefined) zoomTo({ paperId: id });
+  };
+
   if (map.isError || today.isError) {
     return (
       <section className="page page-narrow" aria-labelledby="page-title">
@@ -186,10 +206,18 @@ export function Today() {
   const pointedIndex = pointedId !== null ? sky?.indexOf.get(pointedId) ?? null : null;
   const basis = basisSentence(ready, map.data);
   const fires = new Map((status.data?.routines ?? []).map((r) => [r.id, r.will_fire]));
+  // A paper chosen on the map that the list does not hold opens beside it, in the list's place.
+  const opened = selectedId !== null && !listed.has(selectedId) ? selectedId : null;
+  const look = mapLook.look;
 
   return (
     <section className="today" aria-label="Today">
       <div className="today-plate">
+        {sky && ready && (
+          <MapBar name="today" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
+            facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+        )}
         {sky && field && ready ? (
           <Plate
             ref={plate}
@@ -204,9 +232,10 @@ export function Today() {
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
-            label={`Map of your ${number(sky.count)} papers in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. The list beside it has every new paper.`}
+            label={`Map of your ${number(sky.count)} papers in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
             onAway={setAway}
             toolsAt={corner === 'bl' ? 'right' : 'left'}
+            look={mapLook.plateLook}
           >
             {data && (
               <Cartouche data={data} now={now} away={away} corner={corner} basis={basis} skyCount={sky.count}
@@ -224,10 +253,23 @@ export function Today() {
             <FirstRun />
           </div>
         )}
-        <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0} />
+        <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0}
+          colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}
+          extra={<DimKey look={look} finding={mapLook.find.finding} filtered={filterCount(mapLook.view) > 0} />} />
       </div>
 
-      {data ? (
+      {opened !== null && sky ? (
+        <MapPaper
+          key={opened}
+          id={opened}
+          cell={placeOf(sky, opened)}
+          region={regionsById.get(sky.region[sky.indexOf.get(opened) ?? -1] ?? -1)?.label || null}
+          sourceName={sourceName}
+          backLabel="Back to the list"
+          onBack={() => { setSelectedId(null); plate.current?.focus(); }}
+          onShow={() => zoomTo({ paperId: opened })}
+        />
+      ) : data ? (
         <TodayIndex
           papers={papers}
           total={data.total}
@@ -257,6 +299,19 @@ export function Today() {
       )}
     </section>
   );
+}
+
+/** "B3", the grid cell a paper sits in, or null when the map has not placed it. */
+function placeOf(sky: Sky, id: number): string | null {
+  const at = sky.indexOf.get(id);
+  return at === undefined ? null : gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds);
+}
+
+/** Where the chosen paper falls among the find's matches, counting from 1; 0 when it is not one. */
+export function findPosition(sky: Sky, found: Int32Array | undefined, selectedId: number | null): number {
+  if (!found || selectedId === null) return 0;
+  const at = sky.indexOf.get(selectedId);
+  return at === undefined ? 0 : found.indexOf(at) + 1;
 }
 
 function basisSentence(ready: CollectionMap | null, map: CollectionMap | undefined): string {
@@ -309,14 +364,26 @@ function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWo
   );
 }
 
-function Tip({ hover, paper, brief, now, cell, sourceName }: {
+/** The most room a tip takes: its CSS's widest, and three lines of it. */
+const TIP_WIDTH = 300;
+const TIP_HEIGHT = 96;
+
+/** What the pointer is over on a map: the paper's line, or its grid cell while that is read. */
+export function Tip({ hover, paper, brief, now, cell, sourceName }: {
   hover: PlateHover; paper?: IndexPaper; brief?: Brief; now: Date; cell: string;
   sourceName: (slug: string) => string;
 }) {
   const info = paper ?? brief;
   const ago = daysAgo(info?.first_seen_at, now);
+  // Beside the paper, below and to the right, unless that runs off a small plate's edge.
+  const flipX = hover.width !== undefined && hover.screenX + 14 + TIP_WIDTH > hover.width;
+  const flipY = hover.height !== undefined && hover.screenY + 14 + TIP_HEIGHT > hover.height;
+  const place = {
+    ...(flipX ? { right: (hover.width ?? 0) - hover.screenX + 14 } : { left: hover.screenX + 14 }),
+    ...(flipY ? { bottom: (hover.height ?? 0) - hover.screenY + 14 } : { top: hover.screenY + 14 }),
+  };
   return (
-    <div className="tip" style={{ left: hover.screenX + 14, top: hover.screenY + 14 }} role="tooltip">
+    <div className="tip" style={place} role="tooltip">
       {info ? (
         <>
           <b>{paper ? `${paper.n}. ` : ''}{info.title}</b>
