@@ -1,9 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
-import { PaperSky, basisWords } from '../sky/PaperSky';
+import { MapPaper } from '../sky/MapPaper';
+import { PaperSky, basisWords, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import type { CatalogEntry } from '../runs/model';
 import { count, number, when } from '../today/format';
 import {
@@ -69,13 +70,23 @@ export function Watches() {
   const litName = list.find((r) => r.id === shown)?.name ?? '';
   const active = list.filter((r) => r.is_active).length;
   const notice = status.data ? firingNotice(status.data) : null;
+  // A paper chosen on the map opens in the list's place; the list waits behind it.
+  const [opened, setOpened] = useState<SkyChoice | null>(null);
+  const sky = useRef<PaperSkyHandle>(null);
+  const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
+  const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   return (
     <div className="collection watches">
       <PaperSky
+        ref={sky}
         marked={papers.data?.document_ids ?? []}
-        outline
+        outline={litName || null}
         shape="tall"
+        wheel="zoom"
+        chosen={opened?.id ?? null}
+        onChoose={setOpened}
+        sourceName={nameOf}
         label={litName ? `Where ${litName}'s papers sit in the collection` : 'The collection'}
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; a watch\'s papers are marked once it is.';
@@ -84,11 +95,23 @@ export function Watches() {
           const { total, document_ids: ids } = papers.data;
           if (!total) return `${litName} has not collected any papers yet.`;
           const of = ids.length < total ? `the latest ${number(ids.length)} of its ${count(total, 'paper')}` : count(total, 'paper');
-          if (placed === ids.length) return `${litName}: ${of}, ${basisWords(basis)}. Dashed lines go around each close group.`;
+          if (placed === ids.length) return `${litName}: ${of}, ${basisWords(basis)}, with the dashed line Today draws around them.`;
           return `${litName}: ${number(placed ?? 0)} of ${of} are on the map; the rest are not placed yet.`;
         }}
       />
-      <section className="index watch-index" aria-label="Watches" aria-busy={routines.isFetching}>
+      {opened && (
+        <MapPaper
+          key={opened.id}
+          id={opened.id}
+          cell={opened.cell}
+          region={opened.region}
+          sourceName={nameOf}
+          backLabel="Back to the watches"
+          onBack={() => { setOpened(null); sky.current?.focus(); }}
+          onShow={() => sky.current?.show(opened.id)}
+        />
+      )}
+      <section className="index watch-index" aria-label="Watches" aria-busy={routines.isFetching} hidden={opened !== null}>
         <div className="results-head">
           <WatchTabs />
           <div className="watches-head">

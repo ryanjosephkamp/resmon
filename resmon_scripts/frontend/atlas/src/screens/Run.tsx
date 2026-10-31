@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
@@ -15,6 +15,8 @@ import { RestartFacts } from './runs/RestartFacts';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
 import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
 import { RunSky } from './runs/RunSky';
+import { MapPaper } from './sky/MapPaper';
+import type { PaperSkyHandle, SkyChoice } from './sky/PaperSky';
 import { LivePanel } from './runs/LivePanel';
 import { RunTabs, type RunPaper, type Tab } from './runs/RunTabs';
 import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
@@ -193,6 +195,11 @@ export function Run() {
     () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
     [run.data, events.data],
   );
+  const paperIds = useMemo(() => (papers.data?.papers ?? []).map((paper) => paper.id), [papers.data]);
+  // A paper chosen on the run's small map opens in the sources' place, beside it, for this run only.
+  const [opened, setOpened] = useState<{ runId: number; choice: SkyChoice } | null>(null);
+  const onMap = opened?.runId === id ? opened.choice : null;
+  const sky = useRef<PaperSkyHandle>(null);
 
   if (run.isPending) return <div className="page"><p className="page-lede">Reading run {raw}.</p></div>;
   if (run.isError || !run.data) {
@@ -356,7 +363,20 @@ export function Run() {
       </header>
 
       <div className="run-main">
-        <section className="run-sources" aria-label="Sources">
+        {onMap && (
+          <MapPaper
+            key={onMap.id}
+            id={onMap.id}
+            cell={onMap.cell}
+            region={onMap.region}
+            sourceName={(slug) => names.get(slug) ?? slug}
+            backLabel="Back to the sources"
+            inline
+            onBack={() => { setOpened(null); sky.current?.focus(); }}
+            onShow={() => sky.current?.show(onMap.id)}
+          />
+        )}
+        <section className="run-sources" aria-label="Sources" hidden={onMap !== null}>
           {running ? (
             <>
               <p className="coverage-sentence">
@@ -384,8 +404,10 @@ export function Run() {
             </>
           )}
         </section>
-        <RunSky paperIds={(papers.data?.papers ?? []).map((paper) => paper.id)} endedAt={running ? null : data.end_time ?? null}
-          onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined} />
+        <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null}
+          onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined}
+          chosen={onMap?.id ?? null} onChoose={(next) => setOpened(next ? { runId: id, choice: next } : null)}
+          sourceName={(slug) => names.get(slug) ?? slug} />
       </div>
 
       <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running}

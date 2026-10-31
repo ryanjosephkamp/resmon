@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, type EngineError } from '../../api/client';
@@ -7,7 +7,8 @@ import { isMac } from '../../bridge';
 import { Icon } from '../../shell/Icon';
 import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
-import { basisWords, PaperSky } from '../sky/PaperSky';
+import { MapPaper } from '../sky/MapPaper';
+import { basisWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
 import { capWords } from './countCap';
@@ -65,6 +66,9 @@ export function Collection() {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<Sort>('newest');
   const [fold, setFold] = useState(false);
+  // A paper chosen on the map opens in the results' place; the results, and the search box, wait behind it.
+  const [opened, setOpened] = useState<SkyChoice | null>(null);
+  const sky = useRef<PaperSkyHandle>(null);
   useEffect(() => {
     const settle = setTimeout(() => setQuery(draft.trim()), SETTLE_MS);
     return () => clearTimeout(settle);
@@ -147,8 +151,13 @@ export function Collection() {
   return (
     <div className="collection">
       <PaperSky
+        ref={sky}
         marked={query || filtered ? ids : []}
         shape="tall"
+        wheel="zoom"
+        chosen={opened?.id ?? null}
+        onChoose={setOpened}
+        sourceName={nameOf}
         label="Where the matches sit in the collection"
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
@@ -161,7 +170,19 @@ export function Collection() {
           return `Marked: ${number(placed ?? 0)} of ${listed}; the map has not placed the rest yet.`;
         }}
       />
-      <section className="index results" aria-label="Your collection" aria-busy={busy}
+      {opened && (
+        <MapPaper
+          key={opened.id}
+          id={opened.id}
+          cell={opened.cell}
+          region={opened.region}
+          sourceName={nameOf}
+          backLabel="Back to the results"
+          onBack={() => { setOpened(null); sky.current?.focus(); }}
+          onShow={() => sky.current?.show(opened.id)}
+        />
+      )}
+      <section className="index results" aria-label="Your collection" aria-busy={busy} hidden={opened !== null}
         data-capability={status.isSuccess ? (canRank ? 'available' : 'unavailable') : 'unknown'}>
         <div className="results-head">
           <SearchTabs />

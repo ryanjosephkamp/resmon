@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
@@ -41,6 +41,8 @@ interface Props {
   sourceName: (slug: string) => string;
   /** The words on the way back: "Back to the list". */
   backLabel: string;
+  /** Set in a page that scrolls, beside its map, rather than as a column the window's height. */
+  inline?: boolean;
   onBack: () => void;
   onShow: () => void;
 }
@@ -50,7 +52,7 @@ interface Props {
  * that found it, its links, and what can be done with it here. The same facts
  * and the same actions as its own page (`/papers/:id`), which is one click on.
  */
-export function MapPaper({ id, cell, region, sourceName, backLabel, onBack, onShow }: Props) {
+export function MapPaper({ id, cell, region, sourceName, backLabel, inline = false, onBack, onShow }: Props) {
   const client = useQueryClient();
   const [now] = useState(() => new Date());
   const paper = useQuery({
@@ -86,6 +88,16 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, onBack, onSh
   });
 
   const runs = useMemo(() => why.data?.runs ?? [], [why.data]);
+  // Set in a page whose columns have stacked (a narrow window), the paper opens below its map: brought into view.
+  const own = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const node = own.current;
+    if (!inline || !node) return;
+    const { top } = node.getBoundingClientRect();
+    if (top < 0 || top > window.innerHeight * 0.6) {
+      node.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+    }
+  }, [inline]);
   const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key !== 'Escape' || event.defaultPrevented) return;
     event.preventDefault();
@@ -104,7 +116,8 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, onBack, onSh
   const source = data ? sourceName(data.source_repository) : '';
 
   return (
-    <section className="index map-paper" aria-labelledby="map-paper-title" data-map-paper={id} onKeyDown={onKeyDown}>
+    <section ref={own} className={inline ? 'index map-paper inline' : 'index map-paper'} aria-labelledby="map-paper-title"
+      data-map-paper={id} onKeyDown={onKeyDown}>
       <header className="index-bar">
         <button type="button" className="btn sm quiet map-paper-back" onClick={onBack} aria-keyshortcuts="Escape">
           <Icon name="back" size={14} />{backLabel}

@@ -228,6 +228,7 @@ export function Paper() {
         <PaperSky
           marked={nearest}
           focus={id}
+          sourceName={(slug) => catalog.data?.find((entry) => entry.slug === slug)?.name ?? slug}
           label="Where this paper sits, among its nearest neighbors on the map"
           caption={({ ready, basis }) => {
             if (!ready) return 'The collection map is not ready yet.';

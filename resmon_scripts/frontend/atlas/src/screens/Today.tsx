@@ -9,7 +9,8 @@ import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plat
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
 import { useLifecycleFor } from './lifecycle/LifecycleMarks';
-import { buildSky, density, emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './today/model';
+import { emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './today/model';
+import { collectionSky } from './sky/collectionSky';
 import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
 import { filterCount } from './sky/look';
@@ -83,8 +84,10 @@ export function Today() {
   const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
 
   const ready = map.data?.state === 'ready' ? map.data : null;
-  const sky = useMemo(() => (ready ? buildSky(ready.points, ready.regions, epochDay(now)) : null), [ready, now]);
-  const field = useMemo(() => (sky ? density(sky, 160, 2) : null), [sky]);
+  // Built once for every page that draws the whole collection.
+  const built = useMemo(() => (ready ? collectionSky(ready, epochDay(now)) : null), [ready, now]);
+  const sky = built?.sky ?? null;
+  const field = built?.field ?? null;
   const corner = useMemo(() => (sky ? emptiestCorner(sky) : 'tr'), [sky]);
   const shapes = useMemo(() => {
     if (!sky || !ready || !today.data) return [];
@@ -361,6 +364,10 @@ function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWo
   );
 }
 
+/** The most room a tip takes: its CSS's widest, and three lines of it. */
+const TIP_WIDTH = 300;
+const TIP_HEIGHT = 96;
+
 /** What the pointer is over on a map: the paper's line, or its grid cell while that is read. */
 export function Tip({ hover, paper, brief, now, cell, sourceName }: {
   hover: PlateHover; paper?: IndexPaper; brief?: Brief; now: Date; cell: string;
@@ -368,8 +375,15 @@ export function Tip({ hover, paper, brief, now, cell, sourceName }: {
 }) {
   const info = paper ?? brief;
   const ago = daysAgo(info?.first_seen_at, now);
+  // Beside the paper, below and to the right, unless that runs off a small plate's edge.
+  const flipX = hover.width !== undefined && hover.screenX + 14 + TIP_WIDTH > hover.width;
+  const flipY = hover.height !== undefined && hover.screenY + 14 + TIP_HEIGHT > hover.height;
+  const place = {
+    ...(flipX ? { right: (hover.width ?? 0) - hover.screenX + 14 } : { left: hover.screenX + 14 }),
+    ...(flipY ? { bottom: (hover.height ?? 0) - hover.screenY + 14 } : { top: hover.screenY + 14 }),
+  };
   return (
-    <div className="tip" style={{ left: hover.screenX + 14, top: hover.screenY + 14 }} role="tooltip">
+    <div className="tip" style={place} role="tooltip">
       {info ? (
         <>
           <b>{paper ? `${paper.n}. ` : ''}{info.title}</b>
