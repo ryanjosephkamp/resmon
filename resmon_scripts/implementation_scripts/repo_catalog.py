@@ -1127,7 +1127,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         registration_url=None,
         upstream_policy="No published rate; courtesy use expected",
         parallel_safe="Yes",
-        notes="",
+        notes=(
+            "With no end date, resmon asks HAL for records dated up to the end of "
+            "today (UTC). HAL holds records dated in the future, and newest first "
+            "they came before every current paper: on October 30, 2026, 93 of the "
+            "375 records for `climate` since October 1 were dated after that day. "
+            "A record dated ahead is found by a run made after its date."
+        ),
         keyword_combination="Implicit OR (Solr default)",
         keyword_combination_notes="HAL's Solr endpoint defaults to OR between terms unless the query parses as a phrase. resmon asks for the results newest first, not in relevance order.",
         result_order="newest_first",
@@ -1139,8 +1145,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://doc.hal.science/en/legal-aspects/',
         constraints=_constraints(
             established=(
-                "`api_hal.py`: `search()` sends `producedDate_tdate` built "
-                "from the two bounds as typed."),
+                "`api_hal.py`: `_produced_date_range` builds the "
+                "`producedDate_tdate` range from the two bounds as typed, and "
+                "ends an open end at `_utc_today`."),
         ),
         entity_search=_entity(
             "field", author_syntax='authFullName_s:"{name}"',
