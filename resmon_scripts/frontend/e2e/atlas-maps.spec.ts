@@ -19,12 +19,14 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
-import { SEED, clickPaper, engine, openBeside, reachable, resize, stillView, type MapBody, type Seeded } from './fixtures/maps';
+import {
+  SEED, clearFind, clickCenter, engine, findAndOpen, mapsEnv, resize, stillView, throttle, uniqueTitle, type MapBody, type Seeded,
+} from './fixtures/maps';
 
 test('the maps: any paper beside the map, a run\'s own map, and filters, colors, and find', async () => {
   test.setTimeout(300_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-maps-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env = mapsEnv(launchEnv(stateDir, true));
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')],
     { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
@@ -39,6 +41,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
   const shot = (win: Page, name: string) => win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-maps-${name}.png`) });
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
+    await throttle(win);
     const problems: string[] = [];
     win.on('console', (m) => { if (m.type() === 'error') problems.push(m.text()); });
     win.on('pageerror', (e) => problems.push(e.message));
@@ -51,11 +54,11 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     const placed = map.points.id.length;
     expect(placed).toBe(60);
 
-    // 1. A paper that is not among the new ones opens beside the map, in the list's place.
-    // These papers share most of their words, so their dots can fall on one
-    // another: a click opens the nearest, which is whichever of them it is.
-    // Each of them meets the checks below.
-    const { clicked: target, opened: chosen } = await openBeside(win, canvas, seed.old_protein.slice(3), map);
+    // 1. A paper that is not among the new ones opens beside the map, in the list's place:
+    // found by its title, which flies the map to it and opens it.
+    const today = win.locator('.today-plate');
+    const { id: chosen, title: chosenTitle } = await uniqueTitle(win, seed.old_protein.slice(3));
+    expect(await findAndOpen(win, today, canvas, chosenTitle)).toBe(chosen);
     const panel = win.locator(`section[data-map-paper="${chosen}"]`);
     await expect(panel).toBeVisible();
     await expect(win.locator(canvas)).toHaveAttribute('data-selected', String(chosen));
@@ -80,13 +83,16 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect(panel).toHaveCount(0);
     await expect(win.getByRole('heading', { name: /^New since yesterday/ })).toBeVisible();
     await expect(win.locator(canvas)).not.toHaveAttribute('data-selected', /.+/);
-    await clickPaper(win, canvas, target, map);
+    // A click on its dot, which the find left in the middle of the map, opens it again.
+    await clickCenter(win, canvas);
     await expect(panel).toBeVisible();
     await panel.getByRole('button', { name: 'Back to the list' }).click();
     await expect(panel).toHaveCount(0);
     await expect(win.locator(canvas)).toBeFocused();
+    await clearFind(today);
 
     // The keyboard chooses too, and the panel follows the map's choice.
+    await win.locator(canvas).focus();
     await win.keyboard.press('Enter');
     await expect(win.locator(canvas)).toHaveAttribute('data-selected', /^\d+$/);
     const first = Number(await win.locator(canvas).getAttribute('data-selected'));
@@ -142,6 +148,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     const view = await engine<{ color: string; watches: number[] }>(win, '/api/map/views/today');
     expect(view).toMatchObject({ color: 'source', watches: [] });
     await win.reload();
+    await throttle(win);
     await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
     await expect(win.getByRole('group', { name: 'Find and filter on the map' }).getByRole('button', { name: /^Color/ }))
       .toContainText('Source');
@@ -167,13 +174,13 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect.poll(() => win.locator(runCanvas).getAttribute('data-view')).not.toBeNull();
     await expect(runMap.getByRole('group', { name: 'Find and filter on the map' }).getByRole('status'))
       .toHaveText('All 15 papers shown');
-    await stillView(win, runCanvas);
-    const inRun = await reachable(win, runCanvas, seed.quantum.slice(4, 15), map);
-    await clickPaper(win, runCanvas, inRun, map);
+    const { id: inRun, title: inRunTitle } = await uniqueTitle(win, seed.quantum.slice(4, 15));
+    expect(await findAndOpen(win, runMap, runCanvas, inRunTitle)).toBe(inRun);
     const runPanel = runMap.locator(`section[data-map-paper="${inRun}"]`);
     await expect(runPanel).toBeVisible();
     await expect(runPanel.getByRole('region', { name: 'Found by' })).toContainText('Deep Sweep');
     await shot(win, 'run-map-paper');
+    await runPanel.getByRole('button', { name: "Back to the run's map" }).focus();
     await win.keyboard.press('Escape');
     await expect(runPanel).toHaveCount(0);
     await expect(runMap.getByRole('heading', { name: 'This run on the map' })).toBeVisible();
@@ -184,27 +191,28 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     const other = theme === 'dark' ? 'light' : 'dark';
     await engine(win, '/api/appearance', 'PUT', { theme: other, accent: null });
     await win.reload();
+    await throttle(win);
     await win.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
     await expect.poll(() => win.evaluate(() => document.documentElement.dataset.theme)).toBe(other);
     await win.getByRole('tab', { name: 'Map' }).click();
     await expect.poll(() => win.locator(runCanvas).getAttribute('data-view')).not.toBeNull();
-    await clickPaper(win, runCanvas, inRun, map);
+    expect(await findAndOpen(win, runMap, runCanvas, inRunTitle)).toBe(inRun);
     await shot(win, `run-map-${other}`);
-    // CI's macOS job runs in a 1024 by 768 window; the owner's is 1728 wide.
+    // CI's macOS job runs in a 1024 by 684 window; the owner's is 1728 wide.
     for (const [width, height] of [[1024, 768], [1280, 800], [1728, 1080], [1920, 1080]] as const) {
       await resize(app, width, height);
       await win.evaluate(() => { window.location.hash = '#/'; });
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
       await expect.poll(() => win.locator(canvas).getAttribute('data-view')).not.toBeNull();
-      const now = await engine<MapBody>(win, '/api/map');
-      const { clicked: here } = await openBeside(win, canvas, [chosen, ...seed.old_protein], now);
+      expect(await findAndOpen(win, today, canvas, chosenTitle)).toBe(chosen);
       await shot(win, `today-${other}-${width}`);
       await engine(win, '/api/appearance', 'PUT', { theme: theme ?? 'dark', accent: null });
       await win.reload();
+      await throttle(win);
       await win.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
       await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });
       await stillView(win, canvas);
-      await clickPaper(win, canvas, here, now);
+      expect(await findAndOpen(win, today, canvas, chosenTitle)).toBe(chosen);
       await shot(win, `today-${theme}-${width}`);
       await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, seed.sweep);
       await win.getByRole('tab', { name: 'Map' }).click();
@@ -212,6 +220,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
       await shot(win, `run-map-${theme}-${width}`);
       await engine(win, '/api/appearance', 'PUT', { theme: other, accent: null });
       await win.reload();
+      await throttle(win);
       await win.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
     }
 

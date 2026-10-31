@@ -682,8 +682,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         for (const i of buckets.get(r * cells + c) ?? []) {
           // New papers win ties: their rings are what a pointer is aimed at.
           // A paper the filters dimmed can still be chosen, but a lit one near it wins.
-          const dimmed = look?.lit && !look.lit[i] ? 1.6 : 1;
-          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1) * dimmed;
+          // Papers drawn on the same spot tie at any distance; there the lit one wins too.
+          const out = look?.lit && !look.lit[i];
+          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1) * (out ? 1.6 : 1)
+            + (out ? 1e-9 : 0);
           if (d < reach && d < bestD) { best = i; bestD = d; }
         }
       }

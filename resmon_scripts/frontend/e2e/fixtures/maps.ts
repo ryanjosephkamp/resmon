@@ -1,9 +1,12 @@
 /**
  * The collection the maps specs draw, written through the engine's own
  * database functions before launch, and the ways they reach the engine and a
- * paper's dot.
+ * paper on a map: by its title in the map's find, or from the keyboard, never
+ * by computing where its dot is drawn. Positions computed from a plate's view
+ * missed on a slow runner in a short window four ways (a view read mid-ease, a
+ * title block over the dot, a newer dot drawn over it, a click intercepted).
  */
-import { expect, type ElectronApplication, type Page } from '@playwright/test';
+import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 
 export const SEED = String.raw`
 import json, os, sys
@@ -101,75 +104,102 @@ export async function stillView(win: Page, canvas: string): Promise<void> {
   }, { intervals: [400], timeout: 20_000 }).toBe(true);
 }
 
-/** Click a paper's dot: where the plate's drawing puts it, read from the plate's own view. */
-export async function clickPaper(win: Page, canvas: string, id: number, map: MapBody): Promise<void> {
-  const at = map.points.id.indexOf(id);
-  expect(at, `paper ${id} is on the map`).toBeGreaterThanOrEqual(0);
-  const node = win.locator(canvas);
-  const [cx, cy, scale] = ((await node.getAttribute('data-view')) ?? '').split(' ').map(Number);
-  const box = await node.boundingBox();
-  if (!box || cx === undefined || cy === undefined || scale === undefined) throw new Error('the plate has no view');
-  const x = ((map.points.x[at] ?? 0) - cx) * scale + box.width / 2;
-  const y = box.height / 2 - ((map.points.y[at] ?? 0) - cy) * scale;
-  await node.click({ position: { x, y } });
+/** The map's own find bar, in *scope* (Today's plate column, or a run's map). */
+function findBar(scope: Locator): { bar: Locator; find: Locator } {
+  const bar = scope.getByRole('group', { name: 'Find and filter on the map' });
+  return { bar, find: bar.getByRole('searchbox', { name: /Find on the map/ }) };
 }
 
 /**
- * The first of *ids* whose dot a click can reach. Today's title block sits over
- * a corner of the plate, and how much it covers depends on the window's size,
- * which a CI runner's screen decides; any of these papers serves the step.
+ * The first of *ids* whose whole title the map's find matches in no other
+ * paper, with that title: a paper the find can step to and nothing else.
  */
-export async function reachable(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<number> {
-  const node = win.locator(canvas);
-  const [cx, cy, scale] = ((await node.getAttribute('data-view')) ?? '').split(' ').map(Number);
-  const box = await node.boundingBox();
-  if (!box || cx === undefined || cy === undefined || scale === undefined) throw new Error('the plate has no view');
+export async function uniqueTitle(win: Page, ids: readonly number[]): Promise<{ id: number; title: string }> {
   for (const id of ids) {
-    const at = map.points.id.indexOf(id);
-    if (at < 0) continue;
-    const x = box.x + ((map.points.x[at] ?? 0) - cx) * scale + box.width / 2;
-    const y = box.y + box.height / 2 - ((map.points.y[at] ?? 0) - cy) * scale;
-    const hit = await node.evaluate((el, [px, py]) => {
-      const top = document.elementFromPoint(px, py);
-      return top === el;
-    }, [x, y] as const);
-    if (hit) return id;
+    const { title } = await engine<{ title: string }>(win, `/api/documents/${id}`);
+    const found = await engine<{ ids: number[] }>(win, `/api/map/find?q=${encodeURIComponent(title)}`);
+    if (found.ids.length === 1 && found.ids[0] === id) return { id, title };
   }
-  throw new Error(`none of papers ${ids.join(', ')} can be clicked on ${canvas}`);
+  throw new Error(`each of papers ${ids.join(', ')} shares its title with another`);
 }
 
 /**
- * Click papers among *ids* until one of them opens beside the map: the dot
- * clicked and the paper it opened. A click opens the nearest paper, and on a
- * small plate that can be another paper's dot drawn over this one, a new one
- * that the list shows instead.
+ * Open a paper the way a person finds one: its title typed into the map's
+ * find, and Enter, which flies the map to it, chooses it, and opens it beside
+ * the map. Returns the paper opened, once the map has stopped moving.
  */
-export async function openBeside(win: Page, canvas: string, ids: readonly number[], map: MapBody): Promise<{ clicked: number; opened: number }> {
+export async function findAndOpen(win: Page, scope: Locator, canvas: string, title: string): Promise<number> {
+  const { bar, find } = findBar(scope);
+  await find.fill(title);
+  await expect(bar.getByRole('status')).toHaveText('1 paper matches', { timeout: 30_000 });
+  await find.press('Enter');
   const panel = win.locator('section[data-map-paper]');
-  // Today's title block covers a corner of the plate until the map is moved from
-  // its whole view; in a short window that corner can hold every one of these.
-  // One step in sends it away, as it does for a person exploring.
-  const zoomIn = win.locator(canvas).locator('xpath=ancestor::*[contains(@class,"plate")][1]').getByRole('button', { name: 'Zoom in' });
-  if (await win.locator('.cartouche:not(.away)').count()) {
-    await zoomIn.click();
-    await expect(win.locator('.cartouche:not(.away)')).toHaveCount(0);
+  await expect(panel).toBeVisible({ timeout: 30_000 });
+  await stillView(win, canvas);
+  return Number(await panel.getAttribute('data-map-paper'));
+}
+
+/** Clear the map's find, so every paper is lit again. */
+export async function clearFind(scope: Locator): Promise<void> {
+  const { bar, find } = findBar(scope);
+  await find.fill('');
+  await expect(bar.getByRole('status')).toHaveText(/ shown$/, { timeout: 30_000 });
+}
+
+/**
+ * Click the middle of a plate, once it holds still: where a find or "Show it
+ * on the map" has just put a paper. The one place a click is aimed, so the
+ * spec never computes where a dot is drawn.
+ */
+export async function clickCenter(win: Page, canvas: string): Promise<void> {
+  await stillView(win, canvas);
+  const box = await win.locator(canvas).boundingBox();
+  if (!box) throw new Error(`${canvas} has no box`);
+  await win.locator(canvas).click({ position: { x: box.width / 2, y: box.height / 2 } });
+}
+
+/** Choose a paper from the keyboard: the plate focused, and Enter, which chooses the lit paper nearest its middle. */
+export async function chooseByKeyboard(win: Page, canvas: string): Promise<void> {
+  await stillView(win, canvas);
+  await win.locator(canvas).focus();
+  await win.keyboard.press('Enter');
+}
+
+/**
+ * The screen a run is held to, as CI's macOS runner holds the window to its
+ * own (1024 by 684 there): `RESMON_E2E_SCREEN=1024x684`. No window, at launch
+ * or resized, outgrows it.
+ */
+function screen(): [number, number] | null {
+  const match = /^(\d+)x(\d+)$/.exec(process.env.RESMON_E2E_SCREEN ?? '');
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/** The maps specs' launch environment: Atlas, and the window no larger than the screen a run is held to. */
+export function mapsEnv(base: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = { ...base, RESMON_UI: 'atlas' };
+  const held = screen();
+  if (held) {
+    env.RESMON_E2E_WIDTH = String(Math.min(Number(env.RESMON_E2E_WIDTH) || 1440, held[0]));
+    env.RESMON_E2E_HEIGHT = String(Math.min(Number(env.RESMON_E2E_HEIGHT) || 900, held[1]));
   }
-  for (const id of ids) {
-    await stillView(win, canvas);
-    const clicked = await reachable(win, canvas, [id], map).catch(() => null);
-    if (clicked === null) continue;
-    await clickPaper(win, canvas, clicked, map);
-    if (await panel.waitFor({ timeout: 10_000 }).then(() => true, () => false)) {
-      const opened = Number(await panel.getAttribute('data-map-paper'));
-      if (ids.includes(opened)) return { clicked, opened };
-    }
-    await win.keyboard.press('Escape');
-    await expect(panel).toHaveCount(0);
-  }
-  throw new Error(`none of papers ${ids.join(', ')} opened beside ${canvas}`);
+  return env;
+}
+
+/**
+ * Slow the renderer down as a slow runner is, when `RESMON_E2E_CPU_THROTTLE`
+ * names a rate (4 is four times slower). Asked again after each reload.
+ */
+export async function throttle(win: Page): Promise<void> {
+  const rate = Number(process.env.RESMON_E2E_CPU_THROTTLE);
+  if (!rate || rate <= 1) return;
+  const cdp = await win.context().newCDPSession(win);
+  await cdp.send('Emulation.setCPUThrottlingRate', { rate });
 }
 
 export async function resize(app: ElectronApplication, width: number, height: number): Promise<void> {
+  const held = screen();
+  if (held) { width = Math.min(width, held[0]); height = Math.min(height, held[1]); }
   await app.evaluate(({ BrowserWindow }, [w, h]) => {
     const win = BrowserWindow.getAllWindows()[0];
     win?.unmaximize();
