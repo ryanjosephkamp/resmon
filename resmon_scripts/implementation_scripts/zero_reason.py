@@ -112,6 +112,28 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
         return str(detail.get("detail") or f"{source} is no longer available.")
 
     if reason == "window_unanswerable":
+        # Two windows NDL Search cannot answer at the size asked for. It returns
+        # at most a fixed number of records a request, and resmon gets more by
+        # splitting the date range, which an open start or one crowded day
+        # defeats. Every other window_unanswerable is a year-only source.
+        why = str(detail.get("detail") or "")
+        limit = int(detail.get("records_per_request") or 0)
+        if why == "needs_start_date" and limit:
+            return (
+                f"{source} returns at most {limit} records a request, and "
+                "resmon asks for more by splitting the date range, which needs "
+                f"a start date. This run asked for more than {limit} with no "
+                f"start date, so resmon did not ask {source}. Set a start date, "
+                f"or ask for {limit} or fewer."
+            )
+        if why == "day_over_record_cap" and limit:
+            matched = int(detail.get("matched") or 0)
+            return (
+                f"{source} has {matched} records for this search on a single "
+                f"day, more than the {limit} it returns in one request, and "
+                "resmon cannot split a day. resmon kept none of the window "
+                f"rather than an arbitrary {limit}."
+            )
         return (
             f"{source} filters by publication year only, so a window shorter "
             "than one whole calendar year cannot be answered. resmon did not "

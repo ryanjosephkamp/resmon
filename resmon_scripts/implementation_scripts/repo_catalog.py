@@ -1367,11 +1367,14 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "result_cap",
                     "You have asked for more records than NDL Search returns "
                     "in one request, so resmon splits your date range into "
-                    "smaller ones — which needs both a start and an end date. "
-                    "Without both it returns nothing rather than a silently "
-                    "truncated set.",
-                    "`api_ndl_search.py`: `_MAX_RECORDS`, and the "
-                    "`_collect_partitions` branch in `search()`.",
+                    "smaller ones, earliest first, until it has enough. That "
+                    "needs a start date: with no end date the range ends "
+                    "today, and with no start date NDL Search is not asked "
+                    "and the run says why. A single day holding more than "
+                    "500 matches cannot be split, and the run says that too.",
+                    "`api_ndl_search.py`: `_MAX_RECORDS`, the "
+                    "`_collect_partitions` branch in `search()`, `_utc_today`, "
+                    "and the `note_unanswerable` calls.",
                     applies_when="above_record_cap",
                 ),
                 _notice(

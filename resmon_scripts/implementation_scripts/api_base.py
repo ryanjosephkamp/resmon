@@ -717,10 +717,17 @@ class SearchOutcome:
         self.explicit_reason = "entity_unsupported"
         self.explicit_detail = {"detail": why}
 
-    def note_unanswerable(self, why: str) -> None:
-        """The source cannot answer this window at all, and was not asked."""
+    def note_unanswerable(self, why: str, **counts) -> None:
+        """The source cannot answer this window at all, and was not asked.
+
+        ``counts`` are the numbers the sentence states, such as the most
+        records a source returns in one request: integers only, as for
+        ``note_filtered``.
+        """
         self.explicit_reason = "window_unanswerable"
-        self.explicit_detail = {"detail": why}
+        detail = {"detail": why}
+        detail.update({k: int(v) for k, v in counts.items()})
+        self.explicit_detail = detail
 
     def note_parse_failure(self, why: str = "parse_error") -> None:
         """The source answered and resmon could not read the reply."""
@@ -799,8 +806,8 @@ def note_author_query(kind: str, value: str) -> None:
     search_outcome().author_query = {"kind": kind, "value": str(value)}
 
 
-def note_unanswerable(why: str) -> None:
-    search_outcome().note_unanswerable(why)
+def note_unanswerable(why: str, **counts) -> None:
+    search_outcome().note_unanswerable(why, **counts)
 
 
 def note_retry_wait(seconds: float) -> None:
