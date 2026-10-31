@@ -81,6 +81,8 @@ const RAMP_ALPHA = [1, 0.86, 0.66, 0.46, 0.32];
 const DIM_ALPHA = 0.2;
 /** A lit paper wearing a color is drawn at least this opaque, so its color can be read at any age. */
 const COLOR_ALPHA = 0.8;
+/** The most round dots drawn as one path; see the draw loop. */
+const PATH_DOTS = 512;
 /** Past this many, the find's matches are lit but not each ringed: rings that many overlap into a texture. */
 const FOUND_RINGS = 400;
 
@@ -370,16 +372,23 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ctx.globalAlpha = (span.dim ? DIM_ALPHA : color ? Math.max(COLOR_ALPHA, alpha) : alpha) * crowding;
       ctx.fillStyle = span.dim ? p.ink3 : (color || p.ink);
       const round = r >= 1.15;
+      // Round dots go into paths of at most PATH_DOTS circles each: one path of
+      // tens of thousands of circles took Chromium seconds to build on a new
+      // canvas, where a few hundred short paths take milliseconds.
+      let inPath = 0;
       if (round) ctx.beginPath();
       for (let k = span.start; k < span.end; k++) {
         const i = order[k] ?? 0;
         const sx = ((s.x[i] ?? 0) - v.cx) * v.scale + size.w / 2;
         const sy = size.h / 2 - ((s.y[i] ?? 0) - v.cy) * v.scale;
         if (sx < inner.x - pad || sx > inner.x + inner.w + pad || sy < inner.y - pad || sy > inner.y + inner.h + pad) continue;
-        if (round) { ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2); }
-        else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        if (round) {
+          ctx.moveTo(sx + r, sy);
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          if (++inPath === PATH_DOTS) { ctx.fill(); ctx.beginPath(); inPath = 0; }
+        } else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
       }
-      if (round) ctx.fill();
+      if (round && inPath > 0) ctx.fill();
     }
     ctx.globalAlpha = 1;
 
