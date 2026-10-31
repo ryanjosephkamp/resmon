@@ -728,6 +728,11 @@ export interface JourneyDriver {
   framesHere(): Promise<number>;
   /** Every external link this place offers, with where it points. */
   readExternalLinks(): Promise<{ text: string; href: string }[]>;
+  /**
+   * Every recording this place shows that ships with the app: its name, whether
+   * its picture came from the app's own origin, and whether it was drawn.
+   */
+  readTheRecordingsHere(): Promise<{ title: string; fromTheApp: boolean; drawn: boolean }[]>;
 
   /**
    * Run one of the repository's own gates as a subprocess, under the

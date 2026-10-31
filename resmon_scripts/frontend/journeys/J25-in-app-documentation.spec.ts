@@ -1,12 +1,15 @@
 /**
  * J25 In-app documentation — the tutorials embed nothing, each walk-through is
- * a link out, and a page's own help names the page.
+ * a link out or a recording that ships with the app, and a page's own help
+ * names the page.
  *
  * The register's invariant here is a privacy one that is easy to lose by
  * accident: the tutorials used to be seventeen embedded players, and an embed
  * is a request to a third party made by opening a tab. So the first assertion
- * is a count of frames, which is zero, and the second is that the walk-throughs
- * are ordinary links a person chooses to follow.
+ * is a count of frames, which is zero, and the second is that every
+ * walk-through either is an ordinary link a person chooses to follow or is
+ * drawn from the app's own files. The classic renderer links to its videos;
+ * Atlas bundles its recordings.
  *
  * The third is the help block. "Its text names the page" is the difference
  * between help that was written for this screen and help that was pasted.
@@ -14,7 +17,7 @@
 import { expect, journey } from './driver';
 
 journey.describe('J25 In-app documentation', () => {
-  journey('the tutorials embed nothing, the walk-throughs are links out, and a page help names its page', async ({ resmon }) => {
+  journey('the tutorials embed nothing, the walk-throughs are links out or the app\'s own recordings, and a page help names its page', async ({ resmon }) => {
     await resmon.open('Tutorials');
     const tabs = await resmon.readTabsHere();
     expect(tabs, 'About resmon no longer offers a Tutorials tab').toContain('Tutorials');
@@ -27,10 +30,16 @@ journey.describe('J25 In-app documentation', () => {
 
     const links = await resmon.readExternalLinks();
     const watch = links.filter((link) => link.text === 'Watch on YouTube');
-    console.log(`[J25] ${watch.length} of ${links.length} external links are "Watch on YouTube".`);
-    expect(watch.length, 'no walk-through is offered as a link').toBeGreaterThan(0);
+    const recordings = await resmon.readTheRecordingsHere();
+    console.log(`[J25] ${watch.length} of ${links.length} external links are "Watch on YouTube"; `
+      + `${recordings.length} recordings ship with the app.`);
+    expect(watch.length + recordings.length, 'no walk-through is offered').toBeGreaterThan(0);
     for (const link of watch) {
       expect(link.href, `"${link.text}" points somewhere unexpected`).toMatch(/^https:\/\/www\.youtube\.com\//);
+    }
+    for (const recording of recordings) {
+      expect(recording.fromTheApp, `the recording "${recording.title}" is not one of the app's own files`).toBe(true);
+      expect(recording.drawn, `the recording "${recording.title}" was not drawn`).toBe(true);
     }
 
     // A page's own help block, on a page that is not this one. Naming the page

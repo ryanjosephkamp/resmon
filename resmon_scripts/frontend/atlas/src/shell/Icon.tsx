@@ -23,6 +23,8 @@ const PATHS = {
   fault: <><circle cx="8" cy="8" r="5.75" /><path d="M4 12 12 4" /></>,
   close: <path d="M4 4l8 8M12 4l-8 8" />,
   stop: <rect x="3.75" y="3.75" width="8.5" height="8.5" rx="1.5" />,
+  play: <path d="M5 3.25v9.5L12.5 8Z" />,
+  pause: <path d="M5.75 3.5v9M10.25 3.5v9" />,
   back: <path d="M13 8H3M7 4 3 8l4 4" />,
   download: <><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7" /><path d="M2.75 13.25h10.5" /></>,
   chevron: <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />,

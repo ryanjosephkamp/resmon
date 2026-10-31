@@ -28,7 +28,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 /** Every TypeScript file this config walks, named once. */
-const TYPESCRIPT = ['src/**/*.{ts,tsx}', 'atlas/**/*.{ts,tsx}', 'electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts'];
+const TYPESCRIPT = ['src/**/*.{ts,tsx}', 'atlas/**/*.{ts,tsx}', 'electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'];
 
 /**
  * The react-hooks half of the backlog.
@@ -102,6 +102,7 @@ export default tseslint.config(
       'vendor/**',
       'e2e/screenshots/**',
       'perf/test-results/**',
+      'demos/test-results/**',
     ],
   },
 
@@ -134,7 +135,7 @@ export default tseslint.config(
 
   // ---- the Electron main process, the suites and the build scripts -------
   {
-    files: ['electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts'],
+    files: ['electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },

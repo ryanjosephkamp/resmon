@@ -239,3 +239,6 @@ resmon_scripts/frontend/test-results/
 
 # The performance harness writes Playwright output here (frontend/perf/).
 resmon_scripts/frontend/perf/test-results/
+
+# And the demo recorder (frontend/demos/), whose takes go outside the repository.
+resmon_scripts/frontend/demos/test-results/
