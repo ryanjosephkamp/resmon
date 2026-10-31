@@ -57,7 +57,7 @@ test('the pages are drawn in a worker of their own, with every active part of a 
   const page = read('PdfPage.tsx');
   expect(page).toContain("getAnnotations({ intent: 'display' })");
   expect(page).toContain('linkTarget(annotation, session.api.AnnotationType.LINK)');
-  for (const name of ['pdfDocument.ts', 'PdfPage.tsx', 'PdfView.tsx', 'PdfGallery.tsx', 'readerModel.ts']) {
+  for (const name of ['pdfDocument.ts', 'PdfPage.tsx', 'PdfView.tsx', 'PdfGallery.tsx', 'PdfFind.tsx', 'readerModel.ts', 'findModel.ts']) {
     expect(read(name)).not.toMatch(/AnnotationLayer|getJSActions|getAttachments|isEvalSupported|unsafeUrl|renderForms|enableScripting/);
   }
 });

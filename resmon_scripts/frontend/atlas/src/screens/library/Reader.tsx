@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
+import { isMac } from '../../bridge';
 import { Icon } from '../../shell/Icon';
+import { blockingDialogOpen, keysText, pressed } from '../../shell/shortcuts';
 import { count, number } from '../today/format';
 import { evidence, readerBusy, type Anchor, type FileRecord, type PageText, type Project } from './evidenceApi';
 import { PAGE_STATUS, examinedWords, matches, resolutionWords, selectionAnchor, utf16Range, type Pin } from './evidenceModel';
@@ -78,6 +80,12 @@ export function Reader({
   const [attempt, setAttempt] = useState(0);
   const [bridge, setBridge] = useState<string | null>(null);
   const [ownFocus, setOwnFocus] = useState(false);
+  /** Find in the document: open or not, and the query kept between openings. */
+  const [finding, setFinding] = useState(false);
+  const [findQuery, setFindQuery] = useState('');
+  const findInput = useRef<HTMLInputElement>(null);
+  /** Where the keyboard was when find opened, to go back to when it closes. */
+  const findFrom = useRef<Element | null>(null);
   const setFocus = onFocus ?? setOwnFocus;
   const section = useRef<HTMLElement>(null);
   const pane = useRef<HTMLTextAreaElement>(null);
@@ -166,6 +174,44 @@ export function Reader({
     document.addEventListener('keydown', onKey);
     return () => { document.removeEventListener('keydown', onKey); undo(); };
   }, [focus, focusScope]);
+
+  // ⌘F (Ctrl+F off macOS) while the keyboard is in the reader, or in focus mode: find in the
+  // document, or in a text file's page text. Anywhere else it is left alone, as it was.
+  const mac = isMac();
+  const openFind = useCallback(() => {
+    if (!session) {
+      const field = section.current?.querySelector<HTMLInputElement>(`input[id="${ids}-find"]`);
+      field?.focus();
+      field?.select();
+      return;
+    }
+    if (!finding) findFrom.current = document.activeElement;
+    setGallery(false);
+    setFinding(true);
+    findInput.current?.focus();
+    findInput.current?.select();
+  }, [session, finding, ids]);
+  const closeFind = useCallback(() => {
+    setFinding(false);
+    const back = findFrom.current;
+    findFrom.current = null;
+    if (back instanceof HTMLElement && back.isConnected && !back.closest('[inert]') && back !== document.body) back.focus();
+    else view.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (finding) { findInput.current?.focus(); findInput.current?.select(); }
+  }, [finding]);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || !pressed({ key: 'f', command: true }, event, mac)) return;
+      const inside = focus || (!!section.current && section.current.contains(document.activeElement));
+      if (!inside || blockingDialogOpen(document)) return;
+      event.preventDefault();
+      openFind();
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, [mac, focus, openFind]);
 
   // A gallery closed without choosing a page gives the keyboard back to its button.
   const galleryWas = useRef(false);
@@ -262,6 +308,11 @@ export function Reader({
               <Icon name="plus" />
             </button>
           </div>
+          <button type="button" className="btn sm quiet ev-icon" aria-pressed={finding} aria-keyshortcuts={mac ? 'Meta+F' : 'Control+F'}
+            aria-label="Find in the document" title={`Find in the document (${keysText({ key: 'f', command: true }, mac)})`}
+            onClick={() => (finding ? closeFind() : openFind())}>
+            <Icon name="search" />
+          </button>
           <button type="button" className="btn sm" ref={galleryButton} aria-pressed={gallery} onClick={() => setGallery((g) => !g)}>All pages</button>
           {focus
             ? (
@@ -323,6 +374,7 @@ export function Reader({
           {session && (
             <PdfView ref={view} session={session} zoom={zoom} start={page} label={file.original_name}
               gallery={gallery} onGallery={setGallery} onPage={onPage} onScale={setScale}
+              find={finding ? { input: findInput, query: findQuery, onQuery: setFindQuery, onClose: closeFind } : null}
               onSelect={canKeep ? passageFrom : undefined} />
           )}
           <p className="form-hint ev-pdf-hint">
