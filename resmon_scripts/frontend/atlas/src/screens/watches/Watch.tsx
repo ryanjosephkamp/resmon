@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import { RUNS_KEY } from '../runs/RunLog';
@@ -146,7 +147,7 @@ function WatchPage({ raw }: { raw: string }) {
       <header className="run-head">
         <Link to="/watches" className="back"><Icon name="back" size={14} />Watches</Link>
         <div className="run-headline">
-          <h1 className="run-name it">{data.name}</h1>
+          <h1 className="run-name it">{breakable(data.name)}</h1>
           <div className="run-actions">
             <button type="button" className="btn primary" onClick={() => runNow.mutate()} disabled={runNow.isPending}>
               <Icon name="arrow" size={14} />Run now

@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { PaperSky, basisWords } from '../sky/PaperSky';
 import type { CatalogEntry } from '../runs/model';
@@ -182,7 +183,7 @@ function WatchRow({ routine, now, next, firing, lit, onLight, catalog }: {
       onMouseEnter={onLight}
       onFocus={onLight}
     >
-      <Link to={`/watches/${routine.id}`} className="watch-name it">{routine.name}</Link>
+      <Link to={`/watches/${routine.id}`} className="watch-name it">{breakable(routine.name)}</Link>
       <div className="meta">
         <span className="watch-state" data-active={routine.is_active ? 'true' : 'false'}>
           {routine.is_active ? 'Watching' : 'Paused'}

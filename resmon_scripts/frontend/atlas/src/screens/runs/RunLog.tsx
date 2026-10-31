@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { clock, count, dayWord, number } from '../today/format';
 import { saveRunsBundle } from './downloads';
@@ -187,7 +188,7 @@ export function RunLog() {
                   />
                   <div className="run-body">
                     <Link to={`/runs/${run.id}`} className={watch ? 'run-title it' : 'run-title'}>
-                      {runTitle(run, watch)}
+                      {breakable(runTitle(run, watch))}
                     </Link>
                     <div className="meta">
                       <span>{run.start_time ? clock(run.start_time) : 'time not recorded'}</span>

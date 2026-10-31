@@ -123,7 +123,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
 
     // The watch the earlier interface saved: no words, and a window that ended.
     const old = win.locator(`.watch[data-routine="${stale}"]`);
-    await expect(old.locator('[data-warning="no_terms"]')).toContainText('every run sends its sources an empty query');
+    await expect(old.locator('[data-warning="no_terms"]')).toContainText('every run sends its sources an empty search');
     await expect(old.locator('[data-warning="window_ended"]'))
       .toContainText('Every run asks for papers published from May 3, 2026 to May 4, 2026');
     await expect(old.locator('[data-warning="window_ended"]').getByRole('link', { name: 'Change' }))
