@@ -7,8 +7,8 @@ the Anthropic SDK when a summary runs on an Anthropic key, and SQLAlchemy only
 in the process that runs the scheduler. Each was once imported at start; this
 holds the engine to importing them where they are used.
 
-The engine is built in a child interpreter, because this one has already
-imported everything the rest of the suite needed.
+The engine is built and started in a child interpreter, because this one has
+already imported everything the rest of the suite needed.
 """
 
 from __future__ import annotations
@@ -23,19 +23,21 @@ SCRIPTS = Path(__file__).resolve().parent.parent
 
 DEFERRED = ("numpy", "anthropic", "sqlalchemy")
 
-BUILD_THE_ENGINE = r"""
+BUILD_AND_START_THE_ENGINE = r"""
 import importlib.util, json, sys
 spec = importlib.util.spec_from_file_location("resmon_app", "resmon.py")
 module = importlib.util.module_from_spec(spec)
 sys.argv = ["resmon.py"]
 spec.loader.exec_module(module)
-assert module.app is not None
+from fastapi.testclient import TestClient
+with TestClient(module.app):  # runs the startup hooks, and the shutdown ones after
+    pass
 deferred = set(json.loads('__DEFERRED__'))
 print(json.dumps(sorted(name for name in sys.modules if name in deferred)))
 """
 
 
-def _loaded_after_building_the_engine(tmp_path: Path) -> list[str]:
+def _loaded_after_starting_the_engine(tmp_path: Path, *, scheduler: bool) -> list[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("RESMON_")}
     env.update({
         "RESMON_STATE_DIR": str(tmp_path),
@@ -45,17 +47,26 @@ def _loaded_after_building_the_engine(tmp_path: Path) -> list[str]:
         "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
         "RESMON_AI_CLI_DISCOVERY": "configured-only",
     })
-    script = BUILD_THE_ENGINE.replace("__DEFERRED__", json.dumps(list(DEFERRED)))
+    if not scheduler:
+        env["RESMON_DISABLE_SCHEDULER"] = "1"
+    script = BUILD_AND_START_THE_ENGINE.replace("__DEFERRED__", json.dumps(list(DEFERRED)))
     done = subprocess.run([sys.executable, "-c", script], cwd=SCRIPTS, env=env,
                           capture_output=True, text=True, timeout=120)
     assert done.returncode == 0, done.stderr[-2000:]
     return json.loads(done.stdout.strip().splitlines()[-1])
 
 
-def test_building_the_engine_imports_no_numpy_anthropic_or_sqlalchemy(tmp_path):
-    loaded = _loaded_after_building_the_engine(tmp_path)
+def test_an_engine_started_as_a_window_starts_it_imports_none_of_them(tmp_path):
+    # A window's own engine runs no scheduler.
+    loaded = _loaded_after_starting_the_engine(tmp_path, scheduler=False)
     assert loaded == [], (
-        f"building the engine imported {loaded}; import it where it is used (see resmon.py's imports)")
+        f"starting the engine imported {loaded}; import it where it is used (see resmon.py's imports)")
+
+
+def test_the_background_service_imports_sqlalchemy_for_its_scheduler_and_nothing_else(tmp_path):
+    loaded = _loaded_after_starting_the_engine(tmp_path, scheduler=True)
+    assert loaded == ["sqlalchemy"], (
+        f"the service imported {loaded} to start; only its scheduler's job store needs SQLAlchemy")
 
 
 def test_the_deferred_libraries_are_still_there_when_used():
