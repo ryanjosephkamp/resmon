@@ -6,8 +6,12 @@ import { Icon } from './Icon';
 import { isTyping } from './shortcuts';
 import { SWIPE, feed, type Direction, type Gesture } from './swipe';
 
-/** What pans or edits under the pointer, and so takes a sideways swipe itself. */
-const TAKES_SWIPES = 'canvas, [data-pans]';
+/**
+ * What pans or edits under the pointer, and so takes a sideways swipe itself:
+ * Today's and a run's plate, not every canvas. A map drawn as a picture, such as
+ * Watches', pans nothing, and over it a swipe goes back or forward.
+ */
+const TAKES_SWIPES = '.plate-canvas, [data-pans]';
 
 /**
  * Whether what is under the pointer takes a swipe this way itself: a text

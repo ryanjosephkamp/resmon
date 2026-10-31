@@ -192,7 +192,7 @@ function WatchRow({ routine, now, next, firing, lit, onLight, catalog }: {
         {due && (<><span className="sep" /><span className="watch-next" data-firing={firingState(firing)}>{due}</span></>)}
       </div>
       <div className="meta">
-        <span>
+        <span className="asks" title={`${asks.person ? 'A person' : asks.query || asks.keywords.join(', ') || 'No keywords'} in ${count(asks.sources.length, 'source')}`}>
           {asks.person ? 'A person' : asks.query || asks.keywords.join(', ') || 'No keywords'}
           {' '}in {count(asks.sources.length, 'source')}
         </span>
