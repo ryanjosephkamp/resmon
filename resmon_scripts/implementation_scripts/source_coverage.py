@@ -1,6 +1,7 @@
 """Read-time coverage over saved facts; never infer a past source selection."""
 from __future__ import annotations
 
+import functools
 import json
 import re
 from . import zero_reason
@@ -36,8 +37,27 @@ def selection(raw: object) -> tuple[list[str] | None, str]:
     return None, "No usable saved source selection; the full selected set is unknown."
 
 
+@functools.lru_cache(maxsize=None)
+def _name(slug: str) -> str:
+    """A source by the name a person knows it by, a withdrawn one included.
+
+    Imported here rather than at the top: the catalog and the registry are
+    read by modules this one is imported from.
+    """
+    from .api_registry import RETIRED_NAMES  # noqa: PLC0415
+    from .repo_catalog import REPOSITORY_CATALOG  # noqa: PLC0415
+
+    for entry in REPOSITORY_CATALOG:
+        if entry.slug == slug:
+            return entry.name
+    return RETIRED_NAMES.get(slug) or slug
+
+
 def outcome(row: dict) -> dict:
     source = row["source"]
+    # The sentences name the source as a person knows it ("DBLP filters by
+    # publication year only"); the row keeps its slug.
+    named = _name(source) if isinstance(source, str) else source
     count, status, reason = row.get("result_count"), row.get("status"), row.get("zero_reason")
     detail = row.get("zero_detail")
     malformed = False
@@ -66,18 +86,18 @@ def outcome(row: dict) -> dict:
                 saved_message = detail.get("message")
                 note = (
                     saved_message if isinstance(saved_message, str) and saved_message
-                    else zero_reason.partial_sentence(source, reason, detail, count)
+                    else zero_reason.partial_sentence(named, reason, detail, count)
                 )
             elif status == "ok" and count == 0:
-                note = zero_reason.sentence(source, reason, detail)
+                note = zero_reason.sentence(named, reason, detail)
             elif status == "error" and reason == "retired":
-                note = zero_reason.sentence(source, reason, detail)
+                note = zero_reason.sentence(named, reason, detail)
             elif status == "error":
                 note = "Recorded query failure: " + str(row.get("error_message") or "unknown error")
             elif status == "cancelled":
                 note = "The run was cancelled while this source was being queried."
             elif status == "skipped_missing_key":
-                note = zero_reason.sentence(source, "missing_key")
+                note = zero_reason.sentence(named, "missing_key")
             else:
                 note = "Recorded returned records; this is not the number newly added to the corpus."
             if zero_reason.answered(status, count, reason):
