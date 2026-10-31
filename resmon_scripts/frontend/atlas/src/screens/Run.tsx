@@ -20,6 +20,7 @@ import { RunTabs, type RunPaper } from './runs/RunTabs';
 import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
 import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
+import { commandEnter } from '../shell/shortcuts';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
@@ -310,13 +311,15 @@ export function Run() {
                 value={naming}
                 placeholder="A name for this search"
                 autoFocus
+                {...commandEnter('run-keep-save')}
                 onChange={(event) => setNaming(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') { event.preventDefault(); saveSearch(naming); }
+                  // Plain Enter saves here; ⌘Enter presses Save too, through the shell.
+                  if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) { event.preventDefault(); saveSearch(naming); }
                   else if (event.key === 'Escape') setNaming(null);
                 }}
               />
-              <button type="button" className="btn" disabled={!naming.trim() || keep.isPending || events.isPending}
+              <button type="button" id="run-keep-save" className="btn" disabled={!naming.trim() || keep.isPending || events.isPending}
                 onClick={() => saveSearch(naming)}>
                 {keep.isPending ? 'Saving' : 'Save'}
               </button>

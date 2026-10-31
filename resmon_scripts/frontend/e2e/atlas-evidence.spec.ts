@@ -193,14 +193,22 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     // — a note, and its body edited -----------------------------------------------------
     await members.filter({ hasText: 'two-pages.pdf' }).click();
     await expect(panel.getByRole('heading', { name: 'New plain note' })).toBeVisible();
-    await panel.getByLabel('Note', { exact: true }).fill('Read both pages.');
-    await panel.getByRole('button', { name: 'Save note' }).click();
+    // Plain Enter is a new line in a note; ⌘Enter (Ctrl+Enter) saves it, as Save note does.
+    const body = panel.getByLabel('Note', { exact: true });
+    await body.fill('Read both pages.');
+    await body.press('Enter');
+    await expect(body).toHaveValue('Read both pages.\n');
+    expect((await notes()).length).toBe(1);
+    await body.fill('Read both pages.');
+    await expect(panel.locator('.ev-note-form .enter-hint')).toHaveText(process.platform === 'darwin' ? '⌘↩' : 'Ctrl+Enter');
+    await panel.locator('.ev-note-form').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-evidence-note-form.png') });
+    await body.press('ControlOrMeta+Enter');
     await expect.poll(async () => (await notes()).length, { timeout: 30_000 }).toBe(2);
     const record = panel.locator('ol.ev-saved > li[data-kind="note"]');
     await record.getByRole('button', { name: 'Edit the body' }).click();
     await expect(panel.getByRole('heading', { name: 'Edit the saved body · two-pages.pdf' })).toBeVisible();
     await panel.getByLabel('Note', { exact: true }).fill('Read both pages, twice.');
-    await panel.getByRole('button', { name: 'Save body' }).click();
+    await panel.getByLabel('Note', { exact: true }).press('ControlOrMeta+Enter');
     await expect.poll(async () => (await notes()).find((n) => n.kind === 'note')?.body, { timeout: 30_000 }).toBe('Read both pages, twice.');
     await expect(record.locator('.ev-body-text')).toHaveText('Read both pages, twice.');
 

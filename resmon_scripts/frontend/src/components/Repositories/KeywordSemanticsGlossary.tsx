@@ -69,14 +69,14 @@ const ENTRIES: Entry[] = [
     category: 'platform',
     short: 'Full-text search library',
     definition:
-      'A widely used full-text search library underpinning many repository APIs. Its default operator is OR; explicit AND, OR, NOT, quoted phrases, and field qualifiers are supported when typed inside a single keyword chip.',
+      'A widely used full-text search library underpinning many repository APIs. The library\u2019s own default operator is OR, but a service built on it can change that, and several here join words with AND; each repository\u2019s row says which. Explicit AND, OR, NOT, quoted phrases, and field qualifiers are supported when typed inside a single keyword chip.',
   },
   {
     term: 'Solr',
     category: 'platform',
     short: 'Lucene over HTTP',
     definition:
-      'A search platform built on Lucene that exposes the same query syntax over HTTP. Repositories backed by Solr (e.g. HAL, NASA ADS, Springer Nature) inherit Lucene\u2019s OR-by-default semantics with relevance ranking.',
+      'A search platform built on Lucene that exposes the same query syntax over HTTP. Each service sets its own default operator, so a repository backed by Solr (e.g. HAL, NASA ADS, Springer Nature) may join words with AND or with OR; each repository\u2019s row says which, and HAL joins them with AND.',
   },
 ];
 

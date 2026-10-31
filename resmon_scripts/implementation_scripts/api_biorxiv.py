@@ -25,6 +25,15 @@ _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 # Conservative: 2 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
 
+# Where a search with no start date begins: the first month each server holds.
+# The /details endpoint needs both ends of a range. This was 2020-01-01 for
+# both servers, so a search with only an end date silently skipped six years
+# of bioRxiv while its window read as everything up to that date. Asking from
+# the start of the archive is the range the person asked for. Measured October
+# 30, 2026: a range from 1900-01-01 is accepted, and the earliest records
+# returned were dated 2013-11-07 (bioRxiv) and 2019-06-25 (medRxiv).
+_FIRST_MONTH = {"biorxiv": "2013-11-01", "medrxiv": "2019-06-01"}
+
 
 def _request_json(url: str, deadline: float) -> dict | None:
     """Read one JSON page, retrying one unusable or transient response.
@@ -110,8 +119,13 @@ class BiorxivClient(BaseAPIClient):
         if max_results <= 0:
             return []
 
-        # bioRxiv API requires date range; default to last 30 days
-        d_from = date_from or "2020-01-01"
+        # The /details endpoint requires both ends of a range. An open start
+        # is the start of the server's archive (`_FIRST_MONTH`), and an open
+        # end a date past anything posted. The endpoint lists a range oldest
+        # first, so a search with no start date reads from the archive's first
+        # month forward and stops at its cap or its time budget; the catalog
+        # says so, and a budget that runs out is recorded on the run.
+        d_from = date_from or _FIRST_MONTH[self._server]
         d_to = date_to or "2099-12-31"
         deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
 

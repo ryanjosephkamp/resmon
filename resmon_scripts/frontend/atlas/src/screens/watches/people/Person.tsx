@@ -5,7 +5,7 @@ import { answer, engine, engineSentence, EngineError } from '../../../api/client
 import { Icon } from '../../../shell/Icon';
 import { saveFile } from '../../runs/downloads';
 import { PaperSky } from '../../sky/PaperSky';
-import { count, number } from '../../today/format';
+import { count, number, publishedWords } from '../../today/format';
 import { PersonEditor } from './PersonEditor';
 import { PersonLifecycle } from './PersonLifecycle';
 import { BASIS_MEANING, PEOPLE_KEY, basisWords, evidenceToShow, profileChip } from './model';
@@ -167,7 +167,7 @@ function PersonPage({ id }: { id: number }) {
                     <span className="match-author">as {row.matched_author}</span>
                     <span className="sep" />
                     <span>{names.get(row.source_repository) ?? row.source_repository}</span>
-                    {row.publication_date && (<><span className="sep" /><span>{row.publication_date}</span></>)}
+                    {row.publication_date && (<><span className="sep" /><span>{publishedWords(row.publication_date)}</span></>)}
                   </div>
                   {evidenceToShow(row.evidence) && <p className="match-evidence">{evidenceToShow(row.evidence)}</p>}
                 </li>

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
-import { count, number, when } from '../today/format';
+import { count, number, publishedWords, when } from '../today/format';
 import { SearchTabs } from './SearchTabs';
 import {
   WORDING_KEY, comparedWords, pairLine, pairParam, percentWords, progressWords, readPair, segments,
@@ -259,7 +259,7 @@ function PairBody({ pair, phraseWords, hover, setHover }: {
               <p className="meta wording-side-meta">
                 <span>Paper {doc.id}</span><span className="sep" />
                 <span>{sourceName(doc.source_repository)}</span><span className="sep" />
-                <span>{doc.publication_date ?? 'No date recorded'}</span>
+                <span>{doc.publication_date ? publishedWords(doc.publication_date) : 'No date recorded'}</span>
               </p>
               <p className="record-cap wording-side-authors">{doc.authors || 'Authors not recorded'}</p>
               <p className="wording-text" data-wording="text">

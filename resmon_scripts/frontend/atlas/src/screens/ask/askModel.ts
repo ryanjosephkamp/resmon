@@ -13,7 +13,7 @@ import type { Bound, ChoiceRequest, Choices, Connection, Message, Requested, Tur
 /** A provider as a person knows it. An unknown one is shown as the engine names it. */
 export const PROVIDER_WORDS: Record<string, string> = {
   claude_code: 'Claude Code', anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google',
-  custom: 'a custom API', local: 'Ollama', codex: 'Codex', xai: 'xAI', meta: 'Meta', deepseek: 'DeepSeek',
+  custom: 'a custom API', local: 'Ollama', codex: 'Codex', xai: 'xAI', meta: 'Meta, through Together AI', deepseek: 'DeepSeek',
   alibaba: 'Alibaba',
 };
 

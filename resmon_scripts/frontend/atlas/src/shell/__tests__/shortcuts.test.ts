@@ -1,8 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  MENU_COMMANDS, SHORTCUTS, ariaKeys, blockingDialogOpen, isMenuCommand, isTyping, keysText, sectionIndex, shortcut,
-  shortcutFor, type KeyPress,
+  COMMAND_ENTER_CHORD, MENU_COMMANDS, SHORTCUTS, ariaKeys, blockingDialogOpen, commandEnter, commandEnterAction, isMenuCommand,
+  isTyping, keysText, pressed, sectionIndex, shortcut, shortcutFor, type KeyPress,
 } from '../shortcuts';
 
 const press = (key: string, held: Partial<Omit<KeyPress, 'key'>> = {}): KeyPress =>
@@ -135,5 +135,78 @@ describe('the app menu carries the same keys and sends the commands the renderer
   test('the History menu\'s keys are the ones the sheet names for back and forward', () => {
     expect(menu).toContain("accelerator: isMac ? 'Cmd+[' : 'Alt+Left'");
     expect(menu).toContain("accelerator: isMac ? 'Cmd+Left' : 'Backspace'");
+  });
+});
+
+describe('⌘Enter does a field\'s primary action, where it opted in', () => {
+  afterEach(() => { document.body.innerHTML = ''; });
+
+  const build = (html: string) => { document.body.innerHTML = html; };
+  const el = (selector: string) => document.querySelector(selector);
+
+  test('the chord: ⌘↩ on macOS, Ctrl+Enter elsewhere; plain Enter, Shift, and Alt are not it', () => {
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter', { metaKey: true }), true)).toBe(true);
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter', { ctrlKey: true }), false)).toBe(true);
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter'), true)).toBe(false);
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter', { metaKey: true, shiftKey: true }), true)).toBe(false);
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter', { metaKey: true, altKey: true }), true)).toBe(false);
+    expect(pressed(COMMAND_ENTER_CHORD, press('Enter', { ctrlKey: true }), true)).toBe(false);
+    expect(keysText(COMMAND_ENTER_CHORD, true)).toBe('⌘↩');
+    expect(keysText(COMMAND_ENTER_CHORD, false)).toBe('Ctrl+Enter');
+    expect(ariaKeys(COMMAND_ENTER_CHORD, true)).toBe('Meta+Enter');
+    // It is no shortcut of the shell's own, so no other key is matched by it.
+    expect(shortcutFor(press('Enter', { metaKey: true }), true)).toBeNull();
+  });
+
+  test('a form that opted in presses its submit button, from any field in it', () => {
+    build('<form data-command-enter=""><textarea id="note"></textarea><input id="title"><button type="submit" id="save">Save</button></form>');
+    const save = el('#save') as HTMLButtonElement;
+    const clicks = jest.fn((event: Event) => event.preventDefault());
+    save.addEventListener('click', clicks);
+    commandEnterAction(el('#note'))?.();
+    commandEnterAction(el('#title'))?.();
+    expect(clicks).toHaveBeenCalledTimes(2);
+    expect(commandEnter()).toEqual({ 'data-command-enter': '' });
+  });
+
+  test('a field that names a button presses that one, wherever it is', () => {
+    build('<textarea id="ask" data-command-enter="prepare"></textarea><div><button type="button" id="prepare">Show</button></div>');
+    const clicks = jest.fn();
+    el('#prepare')!.addEventListener('click', clicks);
+    commandEnterAction(el('#ask'))?.();
+    expect(clicks).toHaveBeenCalledTimes(1);
+  });
+
+  test('the nearest opt-in wins: a named button inside a form that submits', () => {
+    build('<form data-command-enter=""><input id="name" data-command-enter="keep"><button type="button" id="keep">Keep</button>'
+      + '<button type="submit" id="run">Run</button></form>');
+    const kept = jest.fn();
+    const ran = jest.fn((event: Event) => event.preventDefault());
+    el('#keep')!.addEventListener('click', kept);
+    el('#run')!.addEventListener('click', ran);
+    commandEnterAction(el('#name'))?.();
+    expect(kept).toHaveBeenCalledTimes(1);
+    expect(ran).not.toHaveBeenCalled();
+  });
+
+  test('nothing where the button is disabled, inside a disabled fieldset, missing, or the field never opted in', () => {
+    build('<form data-command-enter=""><textarea id="a"></textarea><button type="submit" disabled>Save</button></form>');
+    expect(commandEnterAction(el('#a'))).toBeNull();
+    build('<form data-command-enter=""><fieldset disabled><textarea id="b"></textarea><button type="submit">Save</button></fieldset></form>');
+    expect(commandEnterAction(el('#b'))).toBeNull();
+    build('<textarea id="c" data-command-enter="gone"></textarea>');
+    expect(commandEnterAction(el('#c'))).toBeNull();
+    build('<form><textarea id="d"></textarea><button type="submit">Save</button></form>');
+    expect(commandEnterAction(el('#d'))).toBeNull();
+    expect(commandEnterAction(null)).toBeNull();
+  });
+
+  test('a form with no submit button is submitted as its own submit would be', () => {
+    build('<form data-command-enter=""><textarea id="e"></textarea></form>');
+    const form = el('form') as HTMLFormElement;
+    const submitted = jest.fn((event: Event) => event.preventDefault());
+    form.addEventListener('submit', submitted);
+    commandEnterAction(el('#e'))?.();
+    expect(submitted).toHaveBeenCalledTimes(1);
   });
 });

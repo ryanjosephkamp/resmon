@@ -193,6 +193,17 @@ export function seededForm(seed: WatchSeed | null | undefined): WatchForm {
   };
 }
 
+/**
+ * A stored watch's terms: its keywords, or, for a watch that stored only the
+ * query a run sends (one made through the MCP tools), that query as one term,
+ * not split on spaces, so "machine learning" stays one term.
+ */
+function termsOf(p: Record<string, unknown>): string[] {
+  const keywords = list(p.keywords).filter((k) => k.trim());
+  if (keywords.length) return keywords;
+  return typeof p.query === 'string' && p.query.trim() ? [p.query.trim()] : [];
+}
+
 /** A stored watch as the form shows it. */
 export function formFrom(routine: Routine): WatchForm {
   const p = parametersOf(routine.parameters);
@@ -206,7 +217,7 @@ export function formFrom(routine: Routine): WatchForm {
     name: routine.name,
     follows: mode === 'new_papers' || mode === 'retractions' ? mode : 'words',
     profileId: typeof entity?.profile_id === 'number' ? entity.profile_id : null,
-    keywords: list(p.keywords),
+    keywords: termsOf(p),
     sources,
     schedule: choiceFrom(routine.schedule_cron, p),
     window: window.window,
@@ -324,7 +335,8 @@ export function whatIsMissing(form: WatchForm, knownSources: number): string[] {
   const missing: string[] = [];
   if (!form.name.trim()) missing.push('Give it a name.');
   if (form.follows !== 'words' && form.profileId === null) missing.push('Choose the person it watches for.');
-  if (form.follows === 'words' && !form.keywords.length) missing.push('Add at least one term.');
+  // The engine refuses a watch on words with none, too: every run would send its sources an empty search.
+  if (form.follows === 'words' && !form.keywords.some((k) => k.trim())) missing.push('Add at least one term.');
   if (form.follows !== 'retractions' && knownSources === 0) missing.push('Choose at least one source.');
   if (form.follows !== 'retractions' && form.window === 'between') {
     if (!form.dateFrom && !form.dateTo) missing.push('Set a start date, an end date, or both.');

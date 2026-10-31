@@ -1241,6 +1241,10 @@ def t_run_routine(args: dict) -> Any:
     run that already exists -- which is what the caller wanted a run for. Two
     concurrent sweeps of one routine would write two sets of results for the
     same schedule slot and there is no question either of them answers.
+
+    At resmon's run limit the run is queued rather than refused: the answer
+    carries ``queued: true``, its ``queue_position`` and no ``execution_id``,
+    and the run starts on its own when a slot frees.
     """
     rid = _require_int(args, "routine_id")
     return backend.request("POST", f"/api/routines/{rid}/run")

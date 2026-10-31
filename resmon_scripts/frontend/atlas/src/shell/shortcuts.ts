@@ -104,14 +104,17 @@ export function shortcutFor(event: KeyPress, mac: boolean): Shortcut | null {
   return SHORTCUTS.find((s) => pressed(s.chord, event, mac)) ?? null;
 }
 
-const ARROWS: Record<string, string> = { ArrowLeft: '←', ArrowRight: '→' };
+const NAMED: Record<string, { mac: string; other: string }> = {
+  ArrowLeft: { mac: '←', other: '←' }, ArrowRight: { mac: '→', other: '→' }, Enter: { mac: '↩', other: 'Enter' },
+};
 
 /**
  * The chord as this platform writes it: `⇧⌘D` on macOS, in Apple's modifier
  * order, and `Ctrl+Shift+D` elsewhere.
  */
 export function keysText(chord: Chord, mac: boolean): string {
-  const key = chord.key.length === 1 ? chord.key.toUpperCase() : ARROWS[chord.key] ?? chord.key;
+  const named = NAMED[chord.key];
+  const key = chord.key.length === 1 ? chord.key.toUpperCase() : named ? named[mac ? 'mac' : 'other'] : chord.key;
   if (mac) return `${chord.alt ? '⌥' : ''}${chord.shift ? '⇧' : ''}${chord.command ? '⌘' : ''}${key}`;
   return [chord.command && 'Ctrl', chord.alt && 'Alt', chord.shift && 'Shift', key].filter(Boolean).join('+');
 }
@@ -123,6 +126,46 @@ export function ariaKeys(chord: Chord, mac: boolean): string {
   const key = ARIA_KEYS[chord.key] ?? (chord.key.length === 1 ? chord.key.toUpperCase() : chord.key);
   if (chord.key === '?') return '?';
   return [chord.command && (mac ? 'Meta' : 'Control'), chord.shift && 'Shift', key].filter(Boolean).join('+');
+}
+
+/**
+ * ⌘Enter (Ctrl+Enter off macOS) in a field does its place's primary action:
+ * saves the note, sends the message, saves the watch. A field opts in with
+ * this attribute, or a form does for every field in it. Its value names the
+ * button to press, by id; left empty, the form's own submit button is
+ * pressed, as a click on it would. Nothing happens where that button is
+ * disabled, so the place's own rule for when it can act still holds. Plain
+ * Enter is left to the field.
+ */
+export const COMMAND_ENTER = 'data-command-enter';
+export const COMMAND_ENTER_CHORD: Chord = { key: 'Enter', command: true };
+
+/** A field's or a form's opt-in to ⌘Enter, for spreading onto it: the button to press, or its form's submit. */
+export function commandEnter(button?: string): { 'data-command-enter': string } {
+  return { [COMMAND_ENTER]: button ?? '' } as { 'data-command-enter': string };
+}
+
+/**
+ * What ⌘Enter in this element does: the press of the button its opt-in names,
+ * or of its form's submit button, or the form's submit where it has none.
+ * Null where it has not opted in, or where that button is disabled.
+ */
+export function commandEnterAction(target: EventTarget | null): (() => void) | null {
+  if (!(target instanceof Element)) return null;
+  const holder = target.closest(`[${COMMAND_ENTER}]`);
+  if (!holder) return null;
+  const named = holder.getAttribute(COMMAND_ENTER);
+  const form = holder instanceof HTMLFormElement ? holder
+    : target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement
+      ? target.form ?? holder.closest('form') : holder.closest('form');
+  const button = named
+    ? holder.ownerDocument.getElementById(named)
+    : form?.querySelector<HTMLElement>('button[type="submit"], input[type="submit"]') ?? null;
+  if (button) {
+    if (!(button instanceof HTMLButtonElement || button instanceof HTMLInputElement) || button.matches(':disabled')) return null;
+    return () => button.click();
+  }
+  return !named && form ? () => form.requestSubmit() : null;
 }
 
 /** Where a key is typing: a text field, a text area, a list box, or editable text. */

@@ -1,4 +1,4 @@
-import { listWords, troubleParts } from '../format';
+import { listWords, troubleParts, publishedWords } from '../format';
 import {
   GRID, buildSky, contour, density, emptiestCorner, epochDay, gridCell, labelSpots, placeName, rampClass, spanningTree,
   watchShape, type Box, type MapPoints, type MapRegion,
@@ -198,5 +198,21 @@ describe("a watch's constellation", () => {
     const shape = watchShape(buildSky(map, regions, 100), regions, { id: 1, name: 'W', members: map.id });
     expect(shape.stars).toHaveLength(2);
     expect(shape.lines).toEqual([]);
+  });
+});
+
+describe('a published date in words, as precise as it was stored', () => {
+  test.each([
+    ['2026-04-13', 'April 13, 2026'],
+    ['2026-04', 'April 2026'],
+    ['2026', '2026'],
+    // A calendar day, not an instant: the first of a month stays the first in every zone.
+    ['2026-01-01', 'January 1, 2026'],
+    ['2026-02-30', '2026-02-30'],
+    ['Spring 2026', 'Spring 2026'],
+    ['', ''],
+    [null, ''],
+  ])('%s', (stored, words) => {
+    expect(publishedWords(stored)).toBe(words);
   });
 });

@@ -12,7 +12,8 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
 import {
-  ariaKeys, blockingDialogOpen, isMenuCommand, isTyping, keysText, sectionIndex, shortcut, shortcutFor, type ShortcutId,
+  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionIndex,
+  shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
 
 const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? 'Today';
@@ -109,6 +110,16 @@ export function Shell() {
 
   const onKey = useEffectEvent((event: KeyboardEvent) => {
     if (event.defaultPrevented || event.isComposing) return;
+    // ⌘Enter in a field that opted in: its place's primary action (`commandEnterAction`).
+    if (pressed(COMMAND_ENTER_CHORD, event, mac)) {
+      const act = commandEnterAction(event.target);
+      if (!act) return;
+      event.preventDefault();
+      const inside = event.target instanceof Element && !!event.target.closest('dialog[open]');
+      if (event.repeat || (blockingDialogOpen(document) && !inside)) return;
+      act();
+      return;
+    }
     const found = shortcutFor(event, mac);
     // `?` is a question mark in a text field; the ⌘ shortcuts work in one.
     if (!found || (!found.chord.command && isTyping(event.target))) return;

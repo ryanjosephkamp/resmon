@@ -90,30 +90,58 @@ def test_new_credential_names_accepted(monkeypatch):
     assert cm.get_credential("xai_api_key") is None
 
 
-def test_google_validation_uses_query_param_key():
-    """Google's probe must pass the key as a ``?key=`` query param, not a header."""
-    captured: dict[str, object] = {}
+def test_google_validation_sends_the_key_in_a_header_not_the_url():
+    """Google's probe puts the key in ``x-goog-api-key``, never in ``?key=``.
 
-    def fake_request(method, url, headers=None, params=None):
-        captured["method"] = method
-        captured["url"] = url
-        captured["headers"] = headers
-        captured["params"] = params
-        resp = MagicMock()
-        resp.status_code = 401  # doesn't matter for this assertion
-        return resp
+    Asserted on the request a real ``httpx.Client`` builds over a mock
+    transport, so the URL is the one that would have gone out on the socket.
+    A query string is written to every proxy's access log on the way, and
+    ``httpx`` quotes the URL in its own errors.
+    """
+    key = "AIzaSyCANARY0000000000000000000000000000"
+    recorded: list[httpx.Request] = []
 
-    cm_ctx = MagicMock()
-    cm_ctx.__enter__.return_value.request.side_effect = fake_request
+    def _handle(request: httpx.Request) -> httpx.Response:
+        recorded.append(request)
+        return httpx.Response(200, json={"models": []})
+
+    real_client = httpx.Client
+
+    def _factory(*args, **kwargs):
+        return real_client(*args, transport=httpx.MockTransport(_handle), **kwargs)
+
     with patch(
         "resmon_scripts.implementation_scripts.credential_manager.httpx.Client",
-        return_value=cm_ctx,
+        side_effect=_factory,
     ):
-        cm.validate_api_key("google", "goog-test")
+        assert cm.probe_api_key("google", key)["outcome"] == "accepted"
 
-    assert captured["url"] == "https://generativelanguage.googleapis.com/v1beta/models"
-    assert captured["params"] == {"key": "goog-test"}
-    assert "Authorization" not in (captured["headers"] or {})
+    assert len(recorded) == 1
+    request = recorded[0]
+    assert str(request.url) == "https://generativelanguage.googleapis.com/v1beta/models"
+    assert key not in str(request.url)
+    assert request.headers.get("x-goog-api-key") == key
+    assert request.headers.get("authorization") is None
+
+
+def test_no_validation_probe_but_springer_puts_a_key_in_the_url():
+    """Every probe in the table, read from the module, keeps its key out of the URL.
+
+    Springer Nature is the one exception, named here so it cannot spread: its
+    probe sends ``?api_key=`` because ``api_springer`` asks with it on every
+    search, and a probe that sent the key another way would test it as it is
+    never used.
+    """
+    key = "canary-probe-7d2e-not-a-real-key"
+    for provider, spec in cm._VALIDATION_ENDPOINTS.items():
+        params = spec.get("params_fn", lambda _k: {})(key)
+        url = spec["url"]
+        if provider == "springer":
+            assert params == {"api_key": key}
+            continue
+        assert key not in url, provider
+        assert key not in (params or {}).values(), provider
+        assert key in " ".join(spec["headers_fn"](key).values()), provider
 
 
 # ---------------------------------------------------------------------------

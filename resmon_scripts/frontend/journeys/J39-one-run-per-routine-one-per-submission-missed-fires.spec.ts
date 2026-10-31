@@ -65,9 +65,9 @@ journey.describe('J39 One run per routine, one per submission, missed fires', ()
     expect(second.run, 'a second run was started while the first was still going').toBeNull();
     // The refusal is readable and specific: it names the run that is already
     // going, which is the difference between "no" and "no, because of this".
-    // This route has two different refusals — already running, and resmon is
-    // already running as many executions as it allows — and the sentence is
-    // what tells a person which one they got.
+    // This route has two different refusals — already running, and resmon at
+    // its run limit with its queue full too — and the sentence is what tells a
+    // person which one they got.
     expect(second.refusal.toLowerCase(), 'the refusal does not say the routine is already running')
       .toContain('already running');
     expect(second.refusal, 'the refusal does not name the run that is already going')

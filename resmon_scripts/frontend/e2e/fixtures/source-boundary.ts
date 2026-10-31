@@ -370,6 +370,9 @@ api_openalex._OPENALEX_API_URL = ${JSON.stringify(openAlexEndpoint)}
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';
   env.PYTHON_KEYRING_BACKEND = 'keyring.backends.null.Keyring';
+  // arXiv waits out a 429 or 503 for up to three minutes; this stand-in answers
+  // 503 every time, so a short budget ends the run in seconds.
+  env.RESMON_ARXIV_PATIENCE_SECONDS = '8';
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
   for (const key of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete env[key];
   let app: Awaited<ReturnType<typeof electron.launch>> | undefined;

@@ -101,7 +101,7 @@ def test_plos_writes_an_open_side_of_the_window_as_a_bare_star(monkeypatch, date
     """A time suffix on ``*`` is a range PLOS refuses with HTTP 400, and a watch since its previous run has no end."""
     sent = _capture_plos_queries(monkeypatch)
     assert get_client("plos").search("crispr", date_from, date_to, 3) == []
-    assert sent[0]["q"] == f"crispr AND {window}"
+    assert sent[0]["q"] == f"(crispr) AND {window}"
 
 
 def test_plos_with_no_window_sends_no_date_clause(monkeypatch):
