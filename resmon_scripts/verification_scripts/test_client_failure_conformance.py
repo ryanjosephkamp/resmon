@@ -259,10 +259,14 @@ def test_the_denominator_is_the_registry_and_the_ladders_are_derived(monkeypatch
             # otherwise carry its ladder invisibly.
             ladders.add(slug)
 
-    assert ladders == {"biorxiv", "medrxiv", "dblp", "eric", "inspire_hep"}, (
+    # arXiv's ladder is the patient one: it waits out a 429 or a 503 itself
+    # (``api_arxiv._patient_request``), passing ``retry_statuses`` rather than
+    # ``max_retries=0`` so ``safe_request`` keeps its quick retry for the rest.
+    assert ladders == {"arxiv", "biorxiv", "medrxiv", "dblp", "eric", "inspire_hep"}, (
         f"a client gained or lost its own retry ladder: {sorted(ladders)}. The "
         f"reasoning in zero_reason.terminal_issue's docstring counts these, and "
-        f"`grep -l 'max_retries=0' api_*.py` should agree with this set")
+        f"`grep -lE 'max_retries=0|retry_statuses=' api_*.py` should agree with "
+        f"this set")
 
     # Said out loud because "every registered client" overstates the reach.
     assert silent == {"core", "govinfo", "nasa_ads", "springer"}, (

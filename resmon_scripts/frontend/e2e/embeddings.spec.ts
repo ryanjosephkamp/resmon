@@ -289,7 +289,7 @@ test('the sort control appears, ranks, and says what it ranked against', async (
     for (const request of requests) {
       expect(request.method).toBe('GET');
       expect(request.status).toBe(200);
-      expect(request.params.search_query).toBe('all:graph neural network');
+      expect(request.params.search_query).toBe('all:graph AND all:neural AND all:network');
       expect(Number(request.params.max_results)).toBeLessThanOrEqual(5);
     }
     console.log('EMBEDDING SOURCE REQUESTS', JSON.stringify(requests));
