@@ -1,7 +1,7 @@
 import { frames, type Choices, type TurnEvent } from '../askApi';
 import {
   answerFooterWords, answeredWords, applyEvent, callText, choiceProblem, costWords, describeCall, failureTitle, firstChoice,
-  reportWords, requestedWords, savedCalls, shortToolName, startLive,
+  reportWords, requestedWords, savedCalls, shortToolName, startLive, tokenWords,
 } from '../askModel';
 import type { TurnChoices } from '../askApi';
 
@@ -158,6 +158,23 @@ describe('which model answered, said beside what was asked for', () => {
       .toBe('Haiku 5.5 (claude-haiku-5-5), billed for this answer, as the Claude CLI reported');
     expect(reportWords({ model: 'haiku', source: 'claude_system_init_model', name: 'haiku' }))
       .toBe('haiku, announced by the Claude CLI as it started');
+  });
+
+  test('a Codex answer says the tokens Codex reported, and never a cost', () => {
+    const codex = { ...requested, runtime: 'codex_cli', provider: 'codex', requested_model: 'gpt-5.5-codex' } as TurnChoices['requested'];
+    const answered = turn('GPT-5.5-Codex', { requested: codex });
+    expect(answerFooterWords(answered, null, { input_tokens: 1200, output_tokens: 80 }))
+      .toBe('GPT-5.5-Codex · high effort · 1,200 tokens in, 80 out, as Codex reported');
+    expect(answerFooterWords(answered, null, { input_tokens: null, output_tokens: 80 }))
+      .toBe('GPT-5.5-Codex · high effort · Tokens not reported');
+    expect(answerFooterWords(answered, null)).not.toMatch(/cost/i);
+    expect(tokenWords(0, 0)).toBe('0 tokens in, 0 out, as Codex reported');
+    expect(requestedWords(codex, 'answered by GPT-5.5-Codex'))
+      .toBe('Codex · gpt-5.5-codex (answered by GPT-5.5-Codex) · effort high');
+    expect(reportWords({ model: 'gpt-5.5-codex', source: 'codex_event_model', name: 'GPT-5.5-Codex' }))
+      .toBe('GPT-5.5-Codex (gpt-5.5-codex), named by Codex in its own events');
+    expect(reportWords({ model: 'gpt-5.5', source: 'codex_header_model', name: 'GPT-5.5' }))
+      .toBe('GPT-5.5 (gpt-5.5), named in the header Codex printed as it started');
   });
 
   test('a turn with no answer is headed as that, and a stopped one as stopped', () => {

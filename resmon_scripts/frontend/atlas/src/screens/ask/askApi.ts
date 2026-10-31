@@ -36,7 +36,7 @@ export type Unreadable = components['schemas']['AssistantUnreadable'];
 /** What the composer sends for a new conversation: exactly `assistant_choices.validate`'s five keys. */
 export type ChoiceRequest = {
   version: 1;
-  runtime: 'claude_cli' | 'api_key';
+  runtime: 'claude_cli' | 'codex_cli' | 'api_key';
   provider: string;
   model: string | null;
   effort: string | null;

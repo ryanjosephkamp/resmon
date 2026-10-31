@@ -99,12 +99,12 @@ function Assistant() {
       {status.data && (
         <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
           <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
-            <strong>{status.data.runtime.kind === 'api_key' ? 'An API key' : 'Claude Code'}</strong>{' '}
+            <strong>{routeName(status.data.runtime.kind)}</strong>{' '}
             {routeSentence(status.data.runtime.kind, status.data.available, status.data.reason, true)}
           </li>
           {status.data.others.map((other) => (
             <li key={other.kind} data-available={other.available} data-kind={other.kind}>
-              <strong>{other.kind === 'api_key' ? 'An API key' : other.kind === 'codex_cli' ? 'Codex' : 'Claude Code'}</strong>{' '}
+              <strong>{routeName(other.kind)}</strong>{' '}
               {routeSentence(other.kind, other.available, other.reason, false)}
             </li>
           ))}
@@ -114,6 +114,9 @@ function Assistant() {
   );
 }
 
+
+/** One way the assistant can run, as a person names it. */
+const routeName = (kind: string): string => (kind === 'api_key' ? 'An API key' : kind === 'codex_cli' ? 'Codex' : 'Claude Code');
 
 function AssistantForm({ stored, status }: { stored: AssistantSettings; status: Status }) {
   const client = useQueryClient();
