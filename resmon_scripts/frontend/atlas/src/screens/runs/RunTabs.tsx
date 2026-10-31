@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
-import { authors, number } from '../today/format';
+import { authors, number, publishedWords } from '../today/format';
 import { saveReport, saveSearchRecord } from './downloads';
 import { Markdown } from './markdown';
 import {
@@ -90,7 +90,7 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
                 <span className="meta">
                   <span className="who">{authors(paper.authors)}</span>
                   <span className="sep" /><span>{names.get(paper.source_repository) ?? paper.source_repository}</span>
-                  {paper.publication_date && (<><span className="sep" /><span>{paper.publication_date}</span></>)}
+                  {paper.publication_date && (<><span className="sep" /><span>{publishedWords(paper.publication_date)}</span></>)}
                   {paper.url && (<><span className="sep" /><a href={paper.url} target="_blank" rel="noreferrer">open</a></>)}
                 </span>
               </div>

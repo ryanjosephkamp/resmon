@@ -8,7 +8,7 @@ import { Icon } from '../../shell/Icon';
 import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
 import { basisWords, PaperSky } from '../sky/PaperSky';
-import { authors, count, number } from '../today/format';
+import { authors, count, number, publishedWords } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
 import { capWords } from './countCap';
 import { exportCollection } from './collectionExport';
@@ -297,7 +297,7 @@ export function Collection() {
                     <span className="who">{authors(paper.authors)}</span>
                     <span className="sep" />
                     <span>{names.get(paper.source_repository) ?? paper.source_repository}</span>
-                    {paper.publication_date && (<><span className="sep" /><span>{paper.publication_date}</span></>)}
+                    {paper.publication_date && (<><span className="sep" /><span>{publishedWords(paper.publication_date)}</span></>)}
                     {ranking === 'similarity' && (
                       <span className="result-distance num" title="Distance from the phrase; smaller is closer">
                         {paper.distance === null || paper.distance === undefined ? 'not ranked' : paper.distance.toFixed(3)}
