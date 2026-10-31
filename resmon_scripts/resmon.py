@@ -1,6 +1,7 @@
 """resmon — Research Monitor backend (FastAPI application)."""
 
 import asyncio
+import copy
 import json
 import os
 import queue
@@ -5153,6 +5154,40 @@ def analytics_keyword_contribution(execution_id: Optional[int] = None):
 # ---------------------------------------------------------------------------
 
 
+# The watchdog's report, served again while nothing it reads has changed and
+# for at most ``watchdog.KEEP_SECONDS``: Health and Today ask for it on every
+# visit, and computing it scans every run. The report prunes the mutes whose
+# condition has cleared, so a kept answer skips that prune; it is served only
+# while its findings are the ones the last prune was made against, which is
+# what the fingerprint and the time limit hold it to. The database's path and
+# generation are in the key, so a restore or another database never shares it.
+_watchdog_kept: dict | None = None
+_watchdog_kept_lock = threading.Lock()
+_watchdog_clock = time.monotonic  # a test moves it forward rather than waiting a minute
+
+
+def _forget_watchdog_report() -> None:
+    global _watchdog_kept
+    with _watchdog_kept_lock:
+        _watchdog_kept = None
+
+
+def _kept_watchdog_report(conn) -> dict:
+    global _watchdog_kept
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    now = _watchdog_clock()
+    with _watchdog_kept_lock:
+        kept = _watchdog_kept
+    if kept and kept["key"] == key and now - kept["at"] < watchdog.KEEP_SECONDS:
+        return copy.deepcopy(kept["report"])
+    fresh = watchdog.report(conn)
+    # The prune may have written, so what it read is read again for the key.
+    key = (str(_db_path or ""), _db_generation, watchdog.what_it_reads(conn))
+    with _watchdog_kept_lock:
+        _watchdog_kept = {"key": key, "at": now, "report": copy.deepcopy(fresh)}
+    return fresh
+
+
 class WatchdogMuteRequest(BaseModel):
     finding_key: str = Field(min_length=1, max_length=200)
     note: Optional[str] = Field(default=None, max_length=500)
@@ -5164,11 +5199,7 @@ def watchdog_report():
     """Findings, what could not be judged yet, and the thresholds used."""
     conn = _get_db()
     try:
-        # The watchdog writes when it prunes mutes whose condition resolved, so
-        # it cannot be served from a pure-read cache without that prune being
-        # skipped on every hit. The prune is cheap and the compute is a handful
-        # of indexed queries; correctness wins over the cache here.
-        return watchdog.report(conn)
+        return _kept_watchdog_report(conn)
     finally:
         _close_db(conn)
 
@@ -5185,6 +5216,7 @@ def watchdog_mute(request: WatchdogMuteRequest):
     conn = _get_db()
     try:
         watchdog.mute(conn, request.finding_key, request.note)
+        _forget_watchdog_report()
         return {"status": "muted", "finding_key": request.finding_key}
     finally:
         _close_db(conn)
@@ -5197,6 +5229,7 @@ def watchdog_unmute(request: WatchdogMuteRequest):
     conn = _get_db()
     try:
         watchdog.unmute(conn, request.finding_key)
+        _forget_watchdog_report()
         return {"status": "unmuted", "finding_key": request.finding_key}
     finally:
         _close_db(conn)
