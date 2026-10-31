@@ -98,10 +98,16 @@ def _list_anthropic(key: str) -> list[str]:
 def _list_google(key: str) -> list[str]:
     """Google Generative Language API lists models under ``models[]``
     with ``name`` fields like ``"models/gemini-2.5-flash"``.
+
+    The key rides in ``x-goog-api-key``, the header the API documents for this
+    endpoint, and never in ``?key=``: a query string is written to the access
+    log of every proxy on the way, and ``httpx``'s own ``HTTPStatusError``
+    quotes the URL it requested. ``llm_remote`` and ``assistant_api_runtime``
+    send Google's key the same way.
     """
     url = "https://generativelanguage.googleapis.com/v1beta/models"
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
-        resp = client.get(url, params={"key": key})
+        resp = client.get(url, headers={"x-goog-api-key": key, "Accept": "application/json"})
         resp.raise_for_status()
         payload = resp.json()
     ids: list[str] = []

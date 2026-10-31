@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
 import { commandEnter } from '../../shell/shortcuts';
-import { number } from '../today/format';
+import { number, publishedWords } from '../today/format';
 import { WATCHES_KEY, type Coverage, type Routine } from './model';
 
 type CoveragePaper = Coverage['off_target'][number];
@@ -118,7 +118,7 @@ function CoverageList({ rows }: { rows: readonly CoveragePaper[] }) {
         <li key={row.id}>
           <span className="coverage-distance num" title="Distance from the intent; smaller is closer">{row.distance.toFixed(3)}</span>
           <Link to={`/papers/${row.id}`} className="coverage-title">{row.title}</Link>
-          <span className="coverage-source">{row.source_repository}{row.publication_date ? ` · ${row.publication_date}` : ''}</span>
+          <span className="coverage-source">{row.source_repository}{row.publication_date ? ` · ${publishedWords(row.publication_date)}` : ''}</span>
         </li>
       ))}
     </ol>

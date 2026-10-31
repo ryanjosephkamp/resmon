@@ -25,7 +25,8 @@ export const PROVIDERS: readonly { value: string; label: string }[] = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'google', label: 'Google' },
   { value: 'xai', label: 'xAI' },
-  { value: 'meta', label: 'Meta' },
+  // Meta's models are reached through Together AI, and the text goes there: Settings › About says so too.
+  { value: 'meta', label: 'Meta, through Together AI' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'alibaba', label: 'Alibaba' },
   { value: 'local', label: 'Local (Ollama)' },

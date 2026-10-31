@@ -75,7 +75,7 @@ def test_queue_drains_on_note_finished():
     dispatched: list[tuple[int, str]] = []
     event = threading.Event()
 
-    def dispatcher(routine_id: int, params_json: str) -> None:
+    def dispatcher(routine_id: int, params_json: str, **_context) -> None:
         dispatched.append((routine_id, params_json))
         event.set()
 
@@ -163,7 +163,7 @@ def test_drain_queue_runs_all_available_slots():
     lock = threading.Lock()
     ready = threading.Event()
 
-    def dispatcher(routine_id: int, params_json: str) -> None:
+    def dispatcher(routine_id: int, params_json: str, **_context) -> None:
         with lock:
             dispatched.append(routine_id)
             if len(dispatched) == 2:
@@ -204,7 +204,7 @@ def test_note_finished_is_idempotent_and_drains_once():
     lock = threading.Lock()
     first = threading.Event()
 
-    def dispatcher(routine_id: int, params_json: str) -> None:
+    def dispatcher(routine_id: int, params_json: str, **_context) -> None:
         with lock:
             dispatched.append(routine_id)
         first.set()

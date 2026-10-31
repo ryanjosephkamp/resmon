@@ -1,6 +1,7 @@
 # resmon_scripts/verification_scripts/test_api_tier1.py
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -1125,12 +1126,87 @@ def test_ndl_search_partitions_large_bounded_result_sets_without_overlap_and_ded
     assert 'from = "2024-01-02" AND until = "2024-01-02"' in calls[2][0]
 
 
-def test_ndl_search_refuses_unbounded_large_request_without_calling_upstream(monkeypatch):
+@pytest.mark.parametrize("date_to", [None, "2024-12-31"])
+def test_ndl_search_refuses_a_large_request_with_no_start_date_and_says_why(monkeypatch, date_to):
+    """Refused before any request, and recorded: it used to read as a quiet zero.
+
+    NDL answers only the first 500 records of a query, so more than that needs
+    the date range split, and an open start cannot be split. With nothing on
+    the run, it read "resmon did not record whether NDL Search answered".
+    """
     calls = []
     monkeypatch.setattr(api_ndl_search, "safe_request", lambda *args, **kwargs: calls.append(kwargs))
+    api_base.reset_search_outcome()
 
-    assert api_ndl_search.NDLSearchClient().search(query="history", max_results=501) == []
+    assert api_ndl_search.NDLSearchClient().search(
+        query="history", date_to=date_to, max_results=501) == []
     assert calls == []
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert (reason, detail) == ("window_unanswerable", {
+        "detail": "needs_start_date", "records_per_request": 500})
+    assert zero_reason.sentence("NDL Search", reason, detail) == (
+        "NDL Search returns at most 500 records a request, and resmon asks for "
+        "more by splitting the date range, which needs a start date. This run "
+        "asked for more than 500 with no start date, so resmon did not ask NDL "
+        "Search. Set a start date, or ask for 500 or fewer."
+    )
+    assert not zero_reason.answered("ok", 0, reason)
+
+
+def test_ndl_search_ends_an_open_end_today_and_splits_the_range(monkeypatch):
+    """A watch since its previous run asks for more than 500 and gets them."""
+    monkeypatch.setattr(api_ndl_search, "_utc_today", lambda: date(2026, 10, 30))
+    calls = []
+
+    def _request(*args, **kwargs):
+        cql = kwargs["params"]["query"]
+        calls.append(cql)
+        if 'until = "2026-10-30"' in cql and 'from = "2026-10-01"' in cql:
+            return _ndl_xml_response(["<record/>" for _ in range(500)], total=501)
+        if 'from = "2026-10-01" AND until = "2026-10-15"' in cql:
+            return _ndl_xml_response([_ndl_record("R100000002-I000000020")], total=1)
+        if 'from = "2026-10-16" AND until = "2026-10-30"' in cql:
+            return _ndl_xml_response([_ndl_record("R100000002-I000000021")], total=1)
+        raise AssertionError(cql)
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    results = api_ndl_search.NDLSearchClient().search(
+        query="history", date_from="2026-10-01", max_results=501)
+
+    assert [r.external_id for r in results] == [
+        "R100000002-I000000020", "R100000002-I000000021"]
+    assert len(calls) == 3
+
+
+def test_ndl_search_stops_splitting_once_it_holds_enough(monkeypatch):
+    """Earlier days come first and the run keeps the first records it holds,
+    so a later range it will not keep is never asked for."""
+    held = [_ndl_record(f"R100000002-I{n:09d}") for n in range(501)]
+    calls = []
+
+    def _request(*args, **kwargs):
+        cql = kwargs["params"]["query"]
+        calls.append(cql)
+        if 'from = "2024-01-01" AND until = "2024-01-31"' in cql:
+            return _ndl_xml_response(["<record/>" for _ in range(500)], total=900)
+        if 'from = "2024-01-01" AND until = "2024-01-16"' in cql:
+            # More than one request returns: split again, and the two halves
+            # between them hold the 501 wanted.
+            return _ndl_xml_response(["<record/>" for _ in range(500)], total=700)
+        if 'from = "2024-01-01" AND until = "2024-01-08"' in cql:
+            return _ndl_xml_response(held[:300], total=300)
+        if 'from = "2024-01-09" AND until = "2024-01-16"' in cql:
+            return _ndl_xml_response(held[300:], total=201)
+        raise AssertionError(f"asked for a range it would not keep: {cql}")
+
+    monkeypatch.setattr(api_ndl_search, "safe_request", _request)
+
+    results = api_ndl_search.NDLSearchClient().search(
+        query="history", date_from="2024-01-01", date_to="2024-01-31", max_results=501)
+
+    assert len(results) == 501
+    assert len(calls) == 4
 
 
 def test_ndl_search_fails_closed_when_one_day_still_exceeds_retrieval_ceiling(monkeypatch, caplog):
@@ -1141,11 +1217,23 @@ def test_ndl_search_fails_closed_when_one_day_still_exceeds_retrieval_ceiling(mo
             ["<record/>" for _ in range(500)], total=501,
         ),
     )
+    api_base.reset_search_outcome()
 
     assert api_ndl_search.NDLSearchClient().search(
         query="history", date_from="2024-01-01", date_to="2024-01-01", max_results=501,
     ) == []
     assert "exceeding the documented 500-record ceiling" in caplog.text
+    # Answered, and still not a quiet zero: NDL replied, and the run says why
+    # nothing was kept rather than "NDL Search answered and resmon found no
+    # records".
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert (reason, detail) == ("window_unanswerable", {
+        "detail": "day_over_record_cap", "records_per_request": 500, "matched": 501})
+    assert zero_reason.sentence("NDL Search", reason, detail) == (
+        "NDL Search has 501 records for this search on a single day, more than "
+        "the 500 it returns in one request, and resmon cannot split a day. "
+        "resmon kept none of the window rather than an arbitrary 500."
+    )
 
 
 def test_ndl_search_honors_small_requested_cap_without_partitioning(monkeypatch):
@@ -2862,6 +2950,33 @@ def test_osti_search_returns_empty_on_timeout(monkeypatch):
     monkeypatch.setattr(api_osti, "safe_request", _timeout)
 
     assert api_osti.OstiClient().search(query="energy") == []
+
+
+@pytest.mark.parametrize(("slug", "clause"), [
+    ("europepmc", "FIRST_PDATE:[2024-01-01 TO 2024-01-31]"),
+    ("doaj", "bibjson.year:[2024 TO 2024]"),
+    ("plos", "publication_date:[2024-01-01T00:00:00Z TO 2024-01-31T23:59:59Z]"),
+])
+def test_a_date_clause_is_joined_to_the_whole_query(monkeypatch, slug, clause):
+    """Grouped first, so the dates apply to all of it.
+
+    Appended bare, the clause changed what an explicit OR meant: on October 30,
+    2026, Europe PMC matched 63,394 for `climate OR model AND FIRST_PDATE:[...]`
+    and 66,427 for the grouped query, PLOS 1,316 and 1,339, DOAJ 206,374 and
+    230,717.
+    """
+    module = sys.modules[get_client(slug).__class__.__module__]
+    sent: list[str] = []
+
+    def _request(method, url, **kwargs):
+        params = kwargs.get("params") or {}
+        sent.append(params.get("query") or params.get("q") or str(url).rsplit("/", 1)[-1])
+        return _FakeResponse(payload={})
+
+    monkeypatch.setattr(module, "safe_request", _request)
+    get_client(slug).search("climate OR model", "2024-01-01", "2024-01-31", 3)
+
+    assert sent and sent[0] == f"(climate OR model) AND {clause}"
 
 
 @pytest.mark.live_network

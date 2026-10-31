@@ -332,9 +332,12 @@ def _last_outcome_kind(state: str, row: dict | None) -> str:
 
 
 def _join(names: list[str]) -> str:
+    """"A", "A and B", "A, B, and C": three or more take the serial comma."""
     if len(names) == 1:
         return names[0]
-    return f"{', '.join(names[:-1])} and {names[-1]}"
+    if len(names) == 2:
+        return f"{names[0]} and {names[1]}"
+    return f"{', '.join(names[:-1])}, and {names[-1]}"
 
 
 def _stopped_sentence(kind: str, names: list[str], total: int) -> str:
@@ -365,8 +368,47 @@ def _stopped_sentence(kind: str, names: list[str], total: int) -> str:
     return f"{len(names)} of {total} sources have stopped answering."
 
 
+def _silent_sentence(names: list[str], total: int, run_count: int,
+                     recorded_outcomes: dict[str, int]) -> str:
+    """The sources that answered before this window and not once inside it.
+
+    Counted against the runs that recorded an outcome for them, never against
+    the whole window: a source in two of twelve runs has not failed ten times.
+    """
+    one = len(names) == 1
+    subject = (f"{_join(sorted(names))} {'has' if one else 'have'}" if len(names) <= 3
+               else f"{len(names)} of {total} sources have")
+    runs = f"{run_count} run{'s' if run_count != 1 else ''}"
+    counts = {recorded_outcomes[name] for name in names}
+    if counts == {run_count}:
+        # Every run in the window recorded a non-answer from each of them.
+        return f"{subject} not answered in the last {runs}."
+    pronoun = "it" if one else "them"
+    if len(counts) == 1:
+        (asked,) = counts
+        return (f"{subject} not answered in the last {runs}. Only {asked} of those "
+                f"runs recorded an outcome for {pronoun}, and none was an answer.")
+    return (f"{subject} not answered in the last {runs}. None of the runs that "
+            f"recorded an outcome for {pronoun} got an answer.")
+
+
+def _never_sentence(names: list[str], total: int) -> str:
+    """The sources no run resmon has a record of ever got an answer from.
+
+    Worded apart from "has not answered in the last N runs", which says a
+    source once answered: these never have, which usually means the source
+    cannot be asked as the runs ask it (a key, the query) rather than that it
+    went down.
+    """
+    if len(names) <= 3:
+        verb = "has" if len(names) == 1 else "have"
+        return f"{_join(sorted(names))} {verb} not answered any run resmon has a record of."
+    return f"{len(names)} of {total} sources have not answered any run resmon has a record of."
+
+
 def _verdict(sources: list[dict], run_count: int,
-             last_kinds: dict[str, str] | None = None) -> dict:
+             last_kinds: dict[str, str] | None = None,
+             answered_before: set[str] | None = None) -> dict:
     """The sentence at the top of the wall, built from the cells below it.
 
     It is built here and not in the renderer for the reason
@@ -378,6 +420,12 @@ def _verdict(sources: list[dict], run_count: int,
     ``_last_outcome_kind``), so a source whose last reply could not be read is
     not said to have stopped answering. A source missing from it is worded as
     stopped.
+
+    ``answered_before`` names the sources with no answer in this window that
+    did answer some run before it. A silent source outside it has never
+    answered, and is said to have never answered rather than to have not
+    answered lately; ``None`` means the history was not read, and every silent
+    source is worded by the window alone.
     """
     last_kinds = last_kinds or {}
     if not sources:
@@ -474,31 +522,17 @@ def _verdict(sources: list[dict], run_count: int,
         return {"level": "attention", "headline": headline, "detail": detail}
 
     if silent:
-        counts = {recorded_outcomes[name] for name in silent}
-        if len(silent) <= 3:
-            verb = "has" if len(silent) == 1 else "have"
-            subject = f"{_join(sorted(silent))} {verb}"
-        else:
-            subject = f"{len(silent)} of {total} sources have"
-        pronoun = "it" if len(silent) == 1 else "them"
-        if counts == {run_count}:
-            # Every run in the window recorded a non-answer from each of them.
-            headline = f"{subject} not answered in the last {runs}."
-        elif len(counts) == 1:
-            # "Has not answered in the last 12 runs" said of a source that was
-            # in two of them claimed ten failures nobody recorded. The count is
-            # the runs that recorded an outcome for it, and the sentence says so.
-            (asked,) = counts
-            headline = (
-                f"{subject} not answered in the {asked} of the last {runs} "
-                f"that recorded an outcome for {pronoun}."
-            )
-        else:
-            headline = (
-                f"{subject} not answered in any of the last {runs} that "
-                f"recorded an outcome for {pronoun}."
-            )
-        return {"level": "attention", "headline": headline, "detail": detail}
+        # "Has not answered in the last 12 runs" said of a source that was in
+        # two of them claimed ten failures nobody recorded, and said of a source
+        # that has never answered at all it implied an answer that never came.
+        lapsed = [n for n in silent if answered_before is None or n in answered_before]
+        never = [n for n in silent if n not in lapsed]
+        sentences = []
+        if lapsed:
+            sentences.append(_silent_sentence(lapsed, total, run_count, recorded_outcomes))
+        if never:
+            sentences.append(_never_sentence(never, total))
+        return {"level": "attention", "headline": " ".join(sentences), "detail": detail}
 
     if answering == 0:
         return {
@@ -518,6 +552,43 @@ def _verdict(sources: list[dict], run_count: int,
         ),
         "detail": detail,
     }
+
+
+def _answered_before(conn: sqlite3.Connection, window: list[int],
+                     names_by_slug: dict[str, str]) -> set[str]:
+    """Which of these sources, silent in the window, answered some earlier run.
+
+    Read from every recorded row outside the window and classified the way a
+    cell is (``source_coverage.outcome``, then ``state_for``), so "answered"
+    means here what it means on the wall. Only rows with status ``ok`` are read,
+    because ``zero_reason.answered`` says no other status ever answered. The
+    query is on ``idx_execution_sources_source`` and runs only for sources
+    already silent in the window, which on a working install is none.
+    """
+    if not names_by_slug:
+        return set()
+    slugs = sorted(names_by_slug)
+    params: list[object] = list(slugs)
+    outside = ""
+    if window:
+        outside = f" AND execution_id NOT IN ({','.join('?' for _ in window)})"
+        params.extend(window)
+    found: set[str] = set()
+    for row in conn.execute(
+        f"""
+        SELECT execution_id, source, status, result_count, error_message,
+               zero_reason, zero_detail, recorded_at
+        FROM execution_sources
+        WHERE source IN ({','.join('?' for _ in slugs)}) AND status = 'ok'{outside}
+        """,
+        params,
+    ):
+        slug = str(row["source"])
+        if slug in found:
+            continue
+        if state_for(source_coverage.outcome(dict(row))) in _ANSWERING:
+            found.add(slug)
+    return {names_by_slug[slug] for slug in found}
 
 
 def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
@@ -672,6 +743,13 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
             row = recorded[latest["execution_id"]].get(source["slug"])
             last_kinds[source["name"]] = _last_outcome_kind(latest["state"], row)
 
+    answered_before = _answered_before(
+        conn, exec_ids,
+        {source["slug"]: source["name"] for source in sources
+         if source["latest_known_state"] is not None
+         and not any(cell["state"] in _ANSWERING for cell in source["cells"])},
+    )
+
     notes = [
         "Every cell is one source's recorded answer to one run. Nothing here "
         "is inferred: a run with no row for a source reads as not recorded.",
@@ -700,7 +778,7 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         # takes every word from here.
         "state_legend": [dict(entry) for entry in STATE_LEGEND],
         "totals": totals,
-        "verdict": _verdict(sources, len(runs), last_kinds),
+        "verdict": _verdict(sources, len(runs), last_kinds, answered_before),
         "window": {
             "requested": limit,
             "returned": len(runs),

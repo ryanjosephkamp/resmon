@@ -66,6 +66,9 @@ def _make_routine(is_active: int = 1) -> int:
 def _fresh():
     _reset_state()
     yield
+    # A test that installed the real drain takes it out again, so a queue
+    # another file fills is not drained into this file's routines.
+    admission.set_dispatcher(None)
     resmon_mod.close_db()
 
 
@@ -138,20 +141,115 @@ def test_a_missing_routine_is_a_404(client):
     assert resp.status_code == 404
 
 
-def test_a_declined_admission_is_a_409_that_explains_itself(client):
-    """Not a generic failure: the caller can act on "wait and retry".
+class _Busy:
+    """resmon at its run limit: every slot held by runs outside the test.
 
-    Driven by refusing admission directly rather than by filling the
-    controller, because a routine admission *enqueues* when slots are busy and
-    ``set_max`` clamps to a floor of one -- so there is no honest way to force
-    a refusal from outside. What matters here is the endpoint's branch: when
-    the dispatcher declines to start anything, the caller is told why.
+    ``set_max`` clamps to a floor of one, so the limit is reached by holding
+    that one slot with an id no execution in the test has.
     """
+
+    HELD = 999_999
+
+    def __init__(self, queue_limit: int = 16) -> None:
+        admission.set_max(1)
+        admission.set_queue_limit(queue_limit)
+        with admission._lock:
+            admission._active.add(self.HELD)
+
+    def finish(self) -> None:
+        """The held run ends: the slot frees and the queue drains, as it does in production."""
+        admission.note_finished(self.HELD)
+
+
+def _wait_for(predicate, timeout: float = 10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = predicate()
+        if value:
+            return value
+        time.sleep(0.05)
+    return predicate()
+
+
+def _runs_of(rid: int) -> list:
+    conn = resmon_mod._get_db()
+    return conn.execute("SELECT id FROM executions WHERE routine_id = ?", (rid,)).fetchall()
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_run_now_at_the_limit_is_queued_and_says_it_will_start_on_its_own(client):
+    """The answer used to be a 409 telling the person to wait and try again,
+    while the fire was in fact queued: trying again queued a second one."""
     rid = _make_routine(is_active=1)
-    with patch.object(admission, "try_admit", return_value=False):
-        resp = client.post(f"/api/routines/{rid}/run")
+    _Busy()
+    resp = client.post(f"/api/routines/{rid}/run")
+
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["execution_id"] is None
+    assert body["queued"] is True and body["queue_position"] == 1
+    assert body["detail"].startswith("resmon is already running 1 run, as many as it allows at once, so this one is queued.")
+    assert "starts on its own" in body["detail"]
+    assert "try again" not in body["detail"]
+    assert _runs_of(rid) == []
+
+
+def test_run_now_twice_while_queued_waits_once(client):
+    rid = _make_routine(is_active=1)
+    _Busy()
+    assert client.post(f"/api/routines/{rid}/run").status_code == 202
+    assert client.post(f"/api/routines/{rid}/run").json()["queue_position"] == 1
+    assert admission.queue_depth() == 1
+
+
+def test_run_now_with_the_queue_full_too_is_refused_and_says_it_was_not_queued(client):
+    rid = _make_routine(is_active=1)
+    other = _make_routine(is_active=1)
+    _Busy(queue_limit=1)
+    assert client.post(f"/api/routines/{other}/run").status_code == 202
+
+    resp = client.post(f"/api/routines/{rid}/run")
+
     assert resp.status_code == 409
-    assert "already running" in resp.json()["detail"]
+    assert "This run was not queued" in resp.json()["detail"]
+    assert resp.headers["X-Resmon-Conflict"] == "admission_queue_full"
+    assert admission.queue_depth() == 1
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_queued_run_now_starts_when_a_slot_frees_even_for_a_paused_routine(client):
+    """The queue had no dispatcher in production, so a queued fire never ran.
+
+    Startup installs it now; this drives the real one. A paused routine's
+    queued Run now still runs, because a person asked for it, and stays paused.
+    """
+    resmon_mod._init_admission_on_startup()
+    rid = _make_routine(is_active=0)
+    busy = _Busy()
+    assert client.post(f"/api/routines/{rid}/run").status_code == 202
+
+    busy.finish()
+
+    assert _wait_for(lambda: _runs_of(rid)), "the queued run never started"
+    conn = resmon_mod._get_db()
+    assert not bool(database.get_routine_by_id(conn, rid)["is_active"])
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_queued_scheduled_fire_of_a_paused_routine_does_not_run(client):
+    """Pausing is how a person stops a routine running on its own; a fire that
+    was queued before the pause must not run after it."""
+    resmon_mod._init_admission_on_startup()
+    rid = _make_routine(is_active=0)
+    busy = _Busy()
+    with admission._lock:
+        admission._queue.clear()
+    assert admission.admit_routine(rid, '{"query":"neural","repositories":[]}') == "queued"
+
+    busy.finish()
+    time.sleep(0.5)
+
+    assert _runs_of(rid) == []
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)

@@ -49,7 +49,14 @@ class PlosClient(BaseAPIClient):
             # Build query with optional date filter
             q = query
             if date_from or date_to:
-                q += f" AND publication_date:{_publication_date_range(date_from, date_to)}"
+                # In parentheses, so the date clause applies to the whole query.
+                # Appended bare, it changed what an explicit OR meant: on
+                # October 30, 2026, `climate OR model AND publication_date:
+                # [January 2024]` matched 1,316 where `(climate OR model) AND
+                # ...` matched 1,339.
+                # DataCite, ERIC, Open Library and Zenodo already group theirs.
+                date_clause = f"publication_date:{_publication_date_range(date_from, date_to)}"
+                q = f"({q}) AND {date_clause}" if q.strip() else date_clause
 
             params = {
                 "q": q,

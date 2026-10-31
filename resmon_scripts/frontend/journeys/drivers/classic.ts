@@ -2980,8 +2980,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       // and body, through the app's own transport and the app's own token. The
       // header is read rather than the prose because the app publishes the kind
       // of refusal separately from the sentence, and there are two different
-      // 409s on this route: the routine is already running, and resmon is
-      // already running as many executions as it allows.
+      // 409s on this route: the routine is already running, and resmon is at
+      // its run limit with its queue full too.
       return win().evaluate(async (routineId) => {
         const port = (window as unknown as { resmonAPI: { getBackendPort(): string } })
           .resmonAPI.getBackendPort();

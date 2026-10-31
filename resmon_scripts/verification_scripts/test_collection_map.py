@@ -140,6 +140,47 @@ def test_papers_of_one_topic_share_regions_named_by_its_words(db):
         assert named & set(TOPICS[topic]), (fit.labels[region], topic)
 
 
+def _matrix(rows: list[tuple[int, dict[str, float]]], vocabulary: dict[str, int]):
+    indptr, indices, data = [0], [], []
+    for _, weights in rows:
+        for term, weight in weights.items():
+            indices.append(vocabulary[term])
+            data.append(weight)
+        indptr.append(len(indices))
+    matrix = cm._Csr(np.array(indptr, dtype=np.int64), np.array(indices, dtype=np.int32),
+                     np.array(data, dtype=np.float32), len(vocabulary))
+    return matrix, np.array([region for region, _ in rows])
+
+
+def test_a_region_suffix_never_repeats_a_word_of_the_name():
+    """Two regions both named "dark matter" were told apart as "dark matter ·
+    matter halos". The suffix keeps only the words the name does not have."""
+    vocabulary = {"dark matter": 0, "matter halos": 1, "galaxy rotation": 2, "neutron stars": 3}
+    rows = [
+        (0, {"dark matter": 30, "matter halos": 2}), (0, {"dark matter": 30, "matter halos": 2}),
+        (1, {"dark matter": 30, "galaxy rotation": 2}), (1, {"dark matter": 30, "galaxy rotation": 2}),
+        (2, {"neutron stars": 30}), (2, {"neutron stars": 30}),
+    ]
+    matrix, region = _matrix(rows, vocabulary)
+
+    names, _ = cm._region_names(matrix, region, 3, vocabulary)
+
+    assert names == ["dark matter · halos", "dark matter · galaxy rotation", "neutron stars"]
+    for label in names:
+        name, _, suffix = label.partition(" · ")
+        assert not set(suffix.split()) & set(name.split()), label
+
+
+@pytest.mark.parametrize("terms, used, said", [
+    (["matter halos"], set(), "halos"),
+    (["dark matter", "matter halos"], set(), "halos"),       # nothing new in the first
+    (["matter halos", "cold halos"], {"halos"}, "cold halos"),  # not what another region took
+    (["dark", "matter"], set(), None),                       # nothing that is not the name
+])
+def test_what_tells_a_region_apart(terms, used, said):
+    assert cm._told_apart_by("dark matter", terms, used) == said
+
+
 def test_one_collection_draws_one_map(db):
     _corpus(db, per_topic=40)
     first, second = cm.fit_corpus(db, None), cm.fit_corpus(db, None)

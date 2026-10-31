@@ -171,6 +171,42 @@ def test_a_second_run_while_one_is_going_is_refused_with_the_first_ones_id(clien
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_scheduled_fire_the_claim_refused_is_recorded_not_only_logged(client):
+    """The overlap that happens in production, written down.
+
+    The scheduler's job only starts the run's thread and returns, so
+    APScheduler's ``max_instances`` almost never sees two instances: the fire
+    that comes due while the previous run is going is refused by the routine's
+    claim, and that refusal was an INFO line in the engine log and nothing
+    else. It is now the same ``skipped`` missed fire the APScheduler path
+    writes. A Run now refused the same way is answered with a 409 instead, and
+    is not a scheduled fire, so it writes nothing.
+    """
+    gate = _Gate()
+    rid = _make_routine()
+    with patch("resmon.SweepEngine.run_prepared",
+               lambda self, exec_id: gate.run_prepared(self, exec_id)):
+        assert client.post(f"/api/routines/{rid}/run").status_code == 200
+        assert gate.started.wait(timeout=20)
+
+        assert client.post(f"/api/routines/{rid}/run").status_code == 409
+        conn = resmon_mod._get_db()
+        assert database.get_missed_fires(conn, rid) == []
+
+        # The scheduler's door, and a scheduled fire drained from the queue.
+        assert resmon_mod._dispatch_routine_fire(rid, "{}") is None
+        resmon_mod._dispatch_queued_fire(rid, "{}", queued_at="2026-10-30T08:00:00+00:00")
+        gate.release.set()
+
+    _wait_for_claim_release(rid)
+    rows = database.get_missed_fires(conn, rid)
+    assert [r["disposition"] for r in rows] == ["skipped", "skipped"]
+    assert "2026-10-30T08:00:00+00:00" in {r["due_at_utc"] for r in rows}
+    summary = database.missed_fire_summary(conn, rid)
+    assert summary["overlap_skipped"] == 2
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
 def test_two_threads_firing_the_same_routine_at_once_start_one_run(client):
     """The race itself, not a sequence dressed as one.
 

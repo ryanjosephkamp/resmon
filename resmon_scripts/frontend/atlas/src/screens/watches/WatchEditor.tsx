@@ -42,8 +42,7 @@ function errorWords(error: Error): string {
 }
 
 function quoted(terms: readonly string[]): string {
-  const q = terms.map((t) => `“${t}”`);
-  return q.length > 1 ? `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]}` : q[0] ?? '';
+  return listed(terms.map((t) => `“${t}”`));
 }
 
 /** What a person's matches can rest on, said in the picker. */
@@ -70,8 +69,7 @@ function useEmailAccount(): 'ready' | 'missing' | 'unknown' | null {
 }
 
 function namesOf(entries: readonly CatalogEntry[]): string {
-  const n = entries.map((e) => e.name);
-  return n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n[0] ?? '';
+  return listed(entries.map((e) => e.name));
 }
 
 /**

@@ -9,6 +9,12 @@ Thread-safety: all public methods take ``_lock`` while mutating state.
 Queue drains spawn a fresh daemon thread per dispatch so the call site that
 triggered ``note_finished`` (typically a pipeline thread's ``finally``) is
 never blocked by a second pipeline starting.
+
+A queued fire is handed to the dispatcher as ``dispatcher(routine_id,
+params_json, run_now=..., queued_at=...)``: ``run_now`` says a person asked for
+this run (Run now), so it runs even if the routine is paused, and
+``queued_at`` is when the fire joined the queue, which for a scheduled fire is
+when it came due.
 """
 
 from __future__ import annotations
@@ -16,7 +22,23 @@ from __future__ import annotations
 import logging
 import threading
 from collections import deque
-from typing import Callable, Literal, Optional, Tuple
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable, Literal, Optional
+
+#: What ``admit_routine`` decided: started now, waiting in the queue for a
+#: slot, or turned away because the queue was full too.
+RoutineAdmission = Literal["admitted", "queued", "dropped"]
+
+
+@dataclass
+class _Waiting:
+    """One routine fire in the queue."""
+
+    routine_id: int
+    params_json: str
+    run_now: bool
+    queued_at: str
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +61,9 @@ class ExecutionAdmissionController:
         self._max = self._clamp_max(max_concurrent)
         self._queue_limit = self._clamp_queue_limit(queue_limit)
         self._active: set[int] = set()
-        self._queue: deque[Tuple[int, str]] = deque()
+        self._queue: deque[_Waiting] = deque()
         self._lock = threading.Lock()
-        self._dispatcher: Optional[Callable[[int, str], None]] = None
+        self._dispatcher: Optional[Callable[..., None]] = None
 
     # ------------------------------------------------------------------
     # Configuration
@@ -90,8 +112,13 @@ class ExecutionAdmissionController:
         with self._lock:
             return len(self._queue)
 
-    def set_dispatcher(self, fn: Optional[Callable[[int, str], None]]) -> None:
-        """Install the routine-fire dispatcher used when draining the queue."""
+    def set_dispatcher(self, fn: Optional[Callable[..., None]]) -> None:
+        """Install the routine-fire dispatcher used when draining the queue.
+
+        Until something installs one, a queued fire is never started: the
+        drain in ``note_finished`` needs it. resmon.py installs it at startup
+        in every process, the scheduler's or not, because Run now queues too.
+        """
         with self._lock:
             self._dispatcher = fn
 
@@ -115,41 +142,81 @@ class ExecutionAdmissionController:
         For ``kind="routine"``, returns True iff a slot is free. If no slot
         is free and the queue has room, the fire is enqueued for later drain
         and False is returned. If the queue is also full, the fire is
-        dropped with a warning and False is returned.
+        dropped with a warning and False is returned. ``admit_routine`` says
+        which of the two happened.
 
         When admission succeeds and ``exec_id`` is provided, the id is
         recorded as active immediately. Otherwise the caller is expected to
         call ``note_admitted(exec_id)`` once the id becomes known (e.g.,
         after ``SweepEngine.prepare_execution``).
         """
+        if kind == "routine":
+            return self.admit_routine(
+                -1 if routine_id is None else int(routine_id), params_json or "",
+                exec_id=exec_id,
+            ) == "admitted"
         with self._lock:
             if len(self._active) < self._max:
                 if exec_id is not None:
                     self._active.add(int(exec_id))
                 return True
-
-            if kind == "routine":
-                if len(self._queue) < self._queue_limit:
-                    rid = int(routine_id) if routine_id is not None else -1
-                    self._queue.append((rid, params_json or ""))
-                    logger.info(
-                        "Admission queue full for manual cap; enqueued routine_id=%s (depth=%d)",
-                        rid,
-                        len(self._queue),
-                    )
-                    return False
-                logger.warning(
-                    "Admission queue overflow: dropping routine_id=%s "
-                    "(active=%d, queue=%d/%d)",
-                    routine_id,
-                    len(self._active),
-                    len(self._queue),
-                    self._queue_limit,
-                )
-                return False
-
             # Manual rejection — caller surfaces 429.
             return False
+
+    def admit_routine(
+        self,
+        routine_id: int,
+        params_json: str,
+        *,
+        run_now: bool = False,
+        exec_id: Optional[int] = None,
+    ) -> RoutineAdmission:
+        """Start a routine fire now, queue it for the next free slot, or drop it.
+
+        The answer is the caller's to repeat, and the three are different
+        sentences: a Run now that was queued *will* run, and telling the person
+        to wait and try again (which ``try_admit``'s bare False once became)
+        sends them to start a second one.
+
+        A Run now for a routine already waiting in the queue joins that entry
+        rather than queueing the routine twice, and marks it as asked for, so
+        it runs even if the routine is paused.
+        """
+        rid = int(routine_id)
+        with self._lock:
+            if len(self._active) < self._max:
+                if exec_id is not None:
+                    self._active.add(int(exec_id))
+                return "admitted"
+            if run_now:
+                for waiting in self._queue:
+                    if waiting.routine_id == rid:
+                        waiting.run_now = True
+                        return "queued"
+            if len(self._queue) < self._queue_limit:
+                self._queue.append(_Waiting(
+                    rid, params_json or "", run_now,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                ))
+                logger.info(
+                    "Admission at its cap; queued routine_id=%s (depth=%d)",
+                    rid, len(self._queue),
+                )
+                return "queued"
+            logger.warning(
+                "Admission queue overflow: dropping routine_id=%s "
+                "(active=%d, queue=%d/%d)",
+                rid, len(self._active), len(self._queue), self._queue_limit,
+            )
+            return "dropped"
+
+    def queue_position(self, routine_id: int) -> Optional[int]:
+        """Where a routine's queued fire stands, 1 for next; None when not queued."""
+        with self._lock:
+            for at, waiting in enumerate(self._queue, start=1):
+                if waiting.routine_id == int(routine_id):
+                    return at
+        return None
 
     def note_admitted(self, exec_id: int) -> None:
         """Record a freshly-known exec_id as active. Idempotent."""
@@ -175,8 +242,8 @@ class ExecutionAdmissionController:
         therefore happens only when this call is the one that actually removed
         the id.
         """
-        drained: Optional[Tuple[int, str]] = None
-        dispatcher: Optional[Callable[[int, str], None]] = None
+        drained: Optional[_Waiting] = None
+        dispatcher: Optional[Callable[..., None]] = None
         with self._lock:
             was_active = int(exec_id) in self._active
             self._active.discard(int(exec_id))
@@ -190,24 +257,22 @@ class ExecutionAdmissionController:
                 dispatcher = self._dispatcher
 
         if drained is not None and dispatcher is not None:
-            routine_id, params_json = drained
             threading.Thread(
                 target=self._safe_dispatch,
-                args=(dispatcher, routine_id, params_json),
+                args=(dispatcher, drained),
                 daemon=True,
-                name=f"admission-drain-routine-{routine_id}",
+                name=f"admission-drain-routine-{drained.routine_id}",
             ).start()
 
     @staticmethod
-    def _safe_dispatch(
-        dispatcher: Callable[[int, str], None], routine_id: int, params_json: str
-    ) -> None:
+    def _safe_dispatch(dispatcher: Callable[..., None], waiting: _Waiting) -> None:
         try:
-            dispatcher(routine_id, params_json)
+            dispatcher(waiting.routine_id, waiting.params_json,
+                       run_now=waiting.run_now, queued_at=waiting.queued_at)
         except Exception:
-            logger.exception("Queued routine dispatch raised for routine_id=%s", routine_id)
+            logger.exception("Queued routine dispatch raised for routine_id=%s", waiting.routine_id)
 
-    def drain_queue(self, dispatch_fn: Callable[[int, str], None]) -> None:
+    def drain_queue(self, dispatch_fn: Callable[..., None]) -> None:
         """Synchronously drain every currently-queued fire.
 
         Intended for tests and explicit administrative triggers. Respects
@@ -218,12 +283,12 @@ class ExecutionAdmissionController:
             with self._lock:
                 if not self._queue or len(self._active) >= self._max:
                     return
-                routine_id, params_json = self._queue.popleft()
+                waiting = self._queue.popleft()
             threading.Thread(
                 target=self._safe_dispatch,
-                args=(dispatch_fn, routine_id, params_json),
+                args=(dispatch_fn, waiting),
                 daemon=True,
-                name=f"admission-drain-routine-{routine_id}",
+                name=f"admission-drain-routine-{waiting.routine_id}",
             ).start()
 
 
@@ -244,6 +309,21 @@ class RoutineAlreadyRunning(Exception):
             + (f" as execution {execution_id}." if execution_id is not None
                else ".")
         )
+
+
+class RoutineFireWaiting(Exception):
+    """A fire admission did not start now: ``queued`` for the next free slot,
+    or ``dropped`` because the queue was full too.
+
+    Raised by the dispatcher only for a caller that asked to be told (Run now),
+    because "it is queued and will run" and "it was turned away" ask different
+    things of the person who clicked.
+    """
+
+    def __init__(self, routine_id: int, decision: RoutineAdmission) -> None:
+        self.routine_id = int(routine_id)
+        self.decision = decision
+        super().__init__(f"Routine {routine_id} was {decision}, not started.")
 
 
 class RoutineClaimRegistry:

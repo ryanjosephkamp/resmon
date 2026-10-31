@@ -339,7 +339,9 @@ def _describe_fields(fields: list[str]) -> str:
     labels = [_FIELD_LABELS[f] for f in fields]
     if len(labels) == 1:
         return labels[0]
-    return ", ".join(labels[:-1]) + " and " + labels[-1]
+    if len(labels) == 2:
+        return f"{labels[0]} and {labels[1]}"
+    return ", ".join(labels[:-1]) + ", and " + labels[-1]
 
 
 def _verdict(
@@ -404,7 +406,7 @@ def _join_keywords(keywords: list[str]) -> str:
         return quoted[0]
     if len(quoted) == 2:
         return f"{quoted[0]} and {quoted[1]}"
-    return ", ".join(quoted[:-1]) + f" and {quoted[-1]}"
+    return ", ".join(quoted[:-1]) + f", and {quoted[-1]}"
 
 
 # ---------------------------------------------------------------------------

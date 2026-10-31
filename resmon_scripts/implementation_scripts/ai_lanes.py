@@ -113,7 +113,7 @@ _PROVIDER_DISPLAY = {
     "anthropic": "Anthropic",
     "google": "Google",
     "xai": "xAI",
-    "meta": "Meta (Together)",
+    "meta": "Meta, through Together AI",
     "deepseek": "DeepSeek",
     "alibaba": "Alibaba",
     "custom": "Custom endpoint",
