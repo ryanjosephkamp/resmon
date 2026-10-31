@@ -1417,7 +1417,9 @@ class CodexCliRuntime(AssistantRuntime):
             if parsed.refused is not None:
                 yield _error_event(parsed.refused, detail=f"refused {parsed.refused_kind}")
                 return
-            said = "; ".join(t for t in parsed.failures + parsed.errors if t)
+            # Codex often says one failure twice, as an ``error`` and again in
+            # ``turn.failed``; each sentence is kept once, the first leading.
+            said = "\n".join(dict.fromkeys(t for t in parsed.failures + parsed.errors if t))
             if parsed.completed and parsed.done is not None and not parsed.failures and code == 0:
                 done = parsed.done
                 done["model_reports"] = list(parsed.pending_reports)

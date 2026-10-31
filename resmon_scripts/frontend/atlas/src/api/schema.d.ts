@@ -3722,6 +3722,8 @@ export interface components {
             key?: string | null;
             /** Provider */
             provider: string;
+            /** Purpose */
+            purpose?: string | null;
         };
         /**
          * ActiveRuns

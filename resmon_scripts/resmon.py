@@ -486,6 +486,10 @@ class AIModelsRequest(BaseModel):
     # 1.8.5, subscription lanes only — the full path to the agent CLI, when the
     # user has set one. Never a credential: it is a path to a binary.
     binary_path: Optional[str] = None
+    # ``ask`` finds the command the way Ask's connection does
+    # (``assistant_runtime.codex_cli_path``) when no path is given; anything
+    # else, or nothing, finds it the way a summary lane does.
+    purpose: Optional[str] = None
 
 class ConfigExport(BaseModel):
     ids: list[int]
@@ -6751,9 +6755,17 @@ def list_ai_models(body: AIModelsRequest):
     # no models command and offers documented aliases, codex reports a real
     # catalog through `codex debug models`.
     if provider in SUBSCRIPTION_PROVIDERS:
-        catalog = list_subscription_catalog(
-            provider, (body.binary_path or "").strip() or None,
-        )
+        binary = (body.binary_path or "").strip() or None
+        if binary is None and body.purpose == "ask" and provider == "codex":
+            # The composer holds no path: a conversation is fixed to a
+            # connection, not to a locator. The engine knows which command
+            # Ask's Codex runs, so it asks that one.
+            conn = _get_db()
+            try:
+                binary = assistant_runtime.codex_cli_path(_assistant_settings(conn)) or None
+            finally:
+                _close_db(conn)
+        catalog = list_subscription_catalog(provider, binary)
         if catalog.error:
             raise HTTPException(400, catalog.error)
         return catalog.to_dict()

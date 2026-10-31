@@ -281,6 +281,8 @@ def test_an_expired_sign_in_is_a_sign_in_failure(codex):
     assert len(errors) == 1 and errors[0]["code"] == "cli_auth"
     assert errors[0]["message"].startswith("The Codex command on this computer is not signed in")
     assert "401" in errors[0]["message"]
+    # Said once, though Codex said it twice (``error`` and ``turn.failed``).
+    assert errors[0]["message"].count("Unauthorized") == 1
     assert "done" not in kinds(events) and "text_delta" not in kinds(events)
 
 
@@ -581,3 +583,16 @@ def test_a_codex_conversation_is_fixed_to_codex(backend):
     finally:
         _API.put(f"{backend.base}/api/settings/ai", json={"settings": {"ai_provider": "codex"}},
                  timeout=20).raise_for_status()
+
+
+def test_asks_codex_models_come_from_the_command_ask_runs(backend):
+    """The composer holds no path; ``purpose: ask`` has the engine ask Ask's Codex."""
+    listed = _API.post(f"{backend.base}/api/ai/models", json={"provider": "codex", "purpose": "ask"}, timeout=30)
+    assert listed.status_code == 200, listed.text
+    body = listed.json()
+    assert body["models"] == ["gpt-5.5-codex", "gpt-5.5-mini"]
+    assert body["efforts"]["gpt-5.5-codex"] == ["minimal", "low", "medium", "high"]
+    # Without it the route finds the command the way a summary lane does, which
+    # here, held to configured paths and given none, is not at all.
+    plain = _API.post(f"{backend.base}/api/ai/models", json={"provider": "codex"}, timeout=30)
+    assert plain.status_code == 400

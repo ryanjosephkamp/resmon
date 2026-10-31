@@ -61,6 +61,17 @@
           "provider": {
             "title": "Provider",
             "type": "string"
+          },
+          "purpose": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Purpose"
           }
         },
         "required": [
