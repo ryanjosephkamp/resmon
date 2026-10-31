@@ -164,7 +164,7 @@ function WatchPage({ raw }: { raw: string }) {
           <span title={sourceNames.join(', ')}>
             {asks.person ? 'a person' : (asks.query || asks.keywords.join(', ')) ? `“${asks.query || asks.keywords.join(', ')}”` : 'no words'} in{' '}
             {sourceNames.length > 4
-              ? `${sourceNames.slice(0, 3).join(', ')} and ${sourceNames.length - 3} more`
+              ? `${sourceNames.slice(0, 3).join(', ')}, and ${sourceNames.length - 3} more`
               : sourceNames.join(', ') || 'no sources'}
           </span>
           {running && (
