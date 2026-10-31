@@ -9,7 +9,7 @@
       "website": "https://arxiv.org",
       "api_key_requirement": "none",
       "rate_limit": "0.33 req/s (1 per 3 s)",
-      "keyword_combination": "Implicit AND",
+      "keyword_combination": "Implicit AND (added by resmon)",
       "date_granularity": "day",
       "attribution": "Thank you to arXiv for use of its open access interoperability.",
       "attribution_requirement": "requested",

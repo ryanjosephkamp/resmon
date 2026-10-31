@@ -507,7 +507,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         description="Open-access preprints across physics math CS quant-bio stats EE and economics",
         subject_coverage="Physics / Math / CS / Quant-bio / Stats / EE / Econ",
         endpoint="https://export.arxiv.org/api/query",
-        query_method="GET Atom XML with all:{query} and submittedDate filter",
+        query_method="GET Atom XML: one all: term per word joined with AND, and a submittedDate filter",
         rate_limit="0.33 req/s (1 per 3 s)",
         client_module="api_arxiv.py",
         requirement="none",
@@ -517,8 +517,22 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="\u22653 s between calls; bulk access via OAI-PMH",
         parallel_safe="Yes",
         notes="Conservative by design. Do not drop the delay.",
-        keyword_combination="Implicit AND",
-        keyword_combination_notes="arXiv treats space-separated terms in the all: field as implicit AND across title, abstract, and author.",
+        # arXiv's own default between bare words is OR, measured October 30,
+        # 2026 (`_search_query` in api_arxiv.py has the figures). The AND is
+        # resmon's, which is what the qualifier says.
+        keyword_combination="Implicit AND (added by resmon)",
+        keyword_combination_notes=(
+            "Every word must match. arXiv itself reads bare words as any one of "
+            "them (on October 30, 2026, `all:graph neural` matched 331,422 papers, "
+            "as `all:graph OR all:neural` did, against 21,136 for "
+            "`all:graph AND all:neural`), so resmon sends each word as its own "
+            "all: term joined with AND. A quoted phrase is sent as one exact "
+            "phrase. Common English words such as \"of\" and \"the\" are not "
+            "required: arXiv leaves most of them out of its index, so requiring "
+            "one would empty the search. A query written in "
+            "arXiv's own syntax, with a field such as au: or the operators AND, "
+            "OR, or ANDNOT, is sent as typed."
+        ),
         result_order="newest_first",
         result_order_established=(
             "`api_arxiv.py`: `search()` sends `sortBy=submittedDate` and "
@@ -529,9 +543,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         attribution_source='https://info.arxiv.org/help/api/index.html',
         constraints=_constraints(
             established=(
-                "`api_arxiv.py`: the `submittedDate` clause in `search()` "
-                "pads both bounds to a valid clock time, so the window "
-                "reaches arXiv as typed."),
+                "`api_arxiv.py`: the `submittedDate` clause in "
+                "`_search_query` pads both bounds to a valid clock time, so "
+                "the window reaches arXiv as typed, and binds every word."),
             notices=(
                 _notice(
                     "date_window",

@@ -23,10 +23,98 @@ _ATOM_NS = "{http://www.w3.org/2005/Atom}"
 _FIELD_PREFIXED = re.compile(
     r"^\s*(?:ti|au|abs|co|jr|cat|rn|id|all)\s*:", re.IGNORECASE)
 
+# arXiv's own query syntax anywhere in the string: a field prefix on any term,
+# or one of its Boolean operators. The manual names AND, OR and ANDNOT; NOT
+# is here too because arXiv parses it as ANDNOT (October 30, 2026:
+# `all:graph NOT neural` and `all:graph ANDNOT all:neural` both returned
+# 130,463). A query written in that syntax is sent as typed. The operators
+# are arXiv's only in capitals; a lowercase "and" is a word.
+_FIELD_ANYWHERE = re.compile(
+    r"(?:^|[\s(])(?:ti|au|abs|co|jr|cat|rn|id|all)\s*:", re.IGNORECASE)
+_OPERATOR = re.compile(r"(?<!\S)(?:AND|OR|ANDNOT|NOT)(?!\S)")
+
+# A quoted phrase, or a run of characters with no space and no quote. A stray
+# quote with no partner is dropped rather than sent: arXiv cannot parse one.
+_TERM = re.compile(r'"[^"]*"|[^\s"]+')
+
+# The English stop words of Lucene's default list, which arXiv's index leaves
+# out. Requiring one empties the search: measured October 30, 2026 against
+# `all:graph` (151,599 papers), `all:graph AND all:<word>` returned at most 359
+# for 32 of these 33 words, and 0 for `all:theory AND all:of AND all:mind`
+# where `all:theory AND all:mind` returned 2,013. The 33rd, `a`, is indexed in
+# some records and requiring it cut the same search to 39,726, which is not
+# what anybody typing "a" means either. They are left out of the words that
+# must match; a quoted phrase keeps them, and arXiv matches it as written.
+_STOP_WORDS = frozenset({
+    "a", "an", "and", "are", "as", "at", "be", "but", "by", "for", "if", "in",
+    "into", "is", "it", "no", "not", "of", "on", "or", "such", "that", "the",
+    "their", "then", "there", "these", "they", "this", "to", "was", "will",
+    "with",
+})
+
 _ARXIV_NS = "{http://arxiv.org/schemas/atom}"
 
 # arXiv guideline: 1 request per 3 seconds
 _RATE_LIMITER = RateLimiter(requests_per_second=0.33)
+
+def _search_query(
+    query: str, date_from: str | None = None, date_to: str | None = None,
+) -> str:
+    """The `search_query` arXiv is sent: every plain word must match.
+
+    **arXiv reads several bare words as any one of them.** Measured October 30,
+    2026: `all:graph` matched 151,599 papers, `all:neural` 200,959, and
+    `all:graph neural` 331,422, the same total as `all:graph OR all:neural`;
+    `all:graph AND all:neural` matched 21,136. This client sent `all:{query}`,
+    so every multi-word search and watch over arXiv found papers containing
+    any one of its words while the catalog said all of them.
+
+    It was worse with a date window. `all:graph neural AND submittedDate:[...]`
+    parses as `all:graph OR (neural AND submittedDate:[...])`: for January 2024
+    it matched 152,934 papers where the window held 222 with both words, so
+    the window bound only the last word and a dated search came back with
+    papers from any year.
+
+    So a plain query becomes one `all:` term per word, joined with AND, and a
+    quoted phrase stays one exact phrase. Stop words are left out of the AND
+    (see ``_STOP_WORDS``) unless the query has nothing else. A query written in
+    arXiv's own syntax -- a field prefix or a Boolean operator anywhere -- is
+    sent as typed, because whoever wrote it chose arXiv's meaning: one opening
+    with a field is passed through whole, as the entity search needs (see the
+    comment in ``search``), and any other gets `all:` in front, as before. The
+    date clause is appended last, and a query sent as typed is put in
+    parentheses first so the window binds all of it rather than its last term.
+    """
+    if _FIELD_PREFIXED.match(query):
+        search_query = query
+        typed = True
+    elif _FIELD_ANYWHERE.search(query) or _OPERATOR.search(query):
+        search_query = f"all:{query}"
+        typed = True
+    else:
+        terms = [term for term in _TERM.findall(query) if term != '""']
+        words = [
+            term for term in terms
+            if term.startswith('"') or term.lower() not in _STOP_WORDS
+        ]
+        terms = words or terms
+        search_query = " AND ".join(f"all:{term}" for term in terms) or f"all:{query}"
+        typed = False
+
+    # Date filtering via submittedDate field. arXiv expects the literal
+    # format YYYYMMDDHHMM, where HHMM must be a valid clock time. Padding
+    # the right-hand endpoint with "9999" produces 99 minutes, which arXiv
+    # rejects as an internal error and returns a fake entry titled "Error"
+    # with 0 real results. Pad with valid start/end-of-day times instead.
+    if date_from or date_to:
+        d_from_raw = (date_from or "1900-01-01").replace("-", "")
+        d_to_raw = (date_to or "2099-12-31").replace("-", "")
+        d_from = (d_from_raw + "0000")[:12]   # start of day
+        d_to = (d_to_raw + "2359")[:12]       # end of day
+        if typed and len(search_query.split()) > 1:
+            search_query = f"({search_query})"
+        search_query += f" AND submittedDate:[{d_from} TO {d_to}]"
+    return search_query
 
 
 class ArxivClient(BaseAPIClient):
@@ -60,19 +148,13 @@ class ArxivClient(BaseAPIClient):
         # A query that already opens with one of arXiv's own field prefixes is
         # passed through unwrapped. This also fixes the same query typed into a
         # Deep Dive box, which produced the same 400 for the same reason.
-        search_query = query if _FIELD_PREFIXED.match(query) else f"all:{query}"
-
-        # Date filtering via submittedDate field. arXiv expects the literal
-        # format YYYYMMDDHHMM, where HHMM must be a valid clock time. Padding
-        # the right-hand endpoint with "9999" produces 99 minutes, which arXiv
-        # rejects as an internal error and returns a fake entry titled "Error"
-        # with 0 real results. Pad with valid start/end-of-day times instead.
-        if date_from or date_to:
-            d_from_raw = (date_from or "1900-01-01").replace("-", "")
-            d_to_raw = (date_to or "2099-12-31").replace("-", "")
-            d_from = (d_from_raw + "0000")[:12]   # start of day
-            d_to = (d_to_raw + "2359")[:12]       # end of day
-            search_query += f" AND submittedDate:[{d_from} TO {d_to}]"
+        #
+        # Every other query is built by ``_search_query``, which is where a
+        # watch's keyword list arrives too: every writer of a watch or a
+        # search (both renderers, the MCP server and the command line) joins
+        # the keywords with spaces into ``query``, and the sweep engine hands
+        # that string to ``search()`` unchanged.
+        search_query = _search_query(query, date_from, date_to)
 
         results: list[NormalizedResult] = []
         start = 0
