@@ -91,15 +91,15 @@ of the build, so "the last seven days" shows the same thing on any day.
 |---|---|
 | `launch.cold` | Process start to the first screen *settled*, with a fresh profile and a database the app has not opened. The operating system's file cache is warm; a truly cold disk is not measured. |
 | `launch.warm` | The same, relaunched |
-| `navigation.<route>` | Every route in `src/routes.ts`, hash change to settled |
+| `navigation.<route>` | Every screen in `frontend/atlas/src/screenPaths.ts`, hash change to settled |
 | `memory.app.idle.*`, `cpu.app.idle.*` | Each process role (main, renderer, GPU, backend…) after the app has idled on its first screen |
 
 *Settled* means every request the page started has finished and the DOM has
 not changed for 600 ms; the time reported is the last DOM change, so the wait
 is not counted. The definition knows nothing about either interface's markup,
 which is what lets the same yardstick measure the old interface and the new
-one. The Blog tab's feed is answered from a fixed local feed and every other
-request to the internet is refused, as if the machine were offline.
+one. Every request to the internet is refused, as if the machine were
+offline.
 
 **Size (`size.py`):** the renderer bundle, the installed app and its parts
 (Electron, the bundled Python runtime and its libraries, the backend source),

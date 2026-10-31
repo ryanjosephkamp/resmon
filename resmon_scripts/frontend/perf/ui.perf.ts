@@ -1,10 +1,10 @@
 /**
  * Launch, navigation, memory and idle CPU of the real app.
  *
- * Written to measure any build of resmon -- today's interface and the one that
- * replaces it -- with the same yardstick, so it knows nothing about either
- * one's markup. It knows three things: how to start the app in isolation, the
- * hash of each route, and when a page has *settled*.
+ * Written to measure any build of resmon with the same yardstick, so it knows
+ * nothing about the interface's markup. It knows three things: how to start
+ * the app in isolation, the address of each screen (`atlas/src/screenPaths.ts`),
+ * and when a page has *settled*.
  *
  * **Settled** is: every request the page started since the clock began has
  * finished, and the DOM has not changed for `QUIET_MS`. The time reported is
@@ -23,24 +23,10 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { allRouteHashes } from '../src/routes';
+import { SCREEN_PATHS } from '../atlas/src/screenPaths';
 
 const QUIET_MS = 600;
 
-/** Three entries in the shape of the site's Atom feed, so the Blog tab draws a list without the network. */
-const FIXED_FEED = `<?xml version="1.0" encoding="utf-8"?>
-<feed xmlns="http://www.w3.org/2005/Atom">
-  <title>resmon</title>
-  <updated>2026-10-27T00:00:00Z</updated>
-  <id>https://ryanjosephkamp.github.io/resmon/</id>
-  ${[1, 2, 3].map((n) => `<entry>
-    <title>Update ${n}</title>
-    <link href="https://ryanjosephkamp.github.io/resmon/updates/${n}/"/>
-    <id>https://ryanjosephkamp.github.io/resmon/updates/${n}/</id>
-    <updated>2026-10-2${n}T00:00:00Z</updated>
-    <summary>A fixed entry served by the performance harness.</summary>
-  </entry>`).join('\n')}
-</feed>`;
 const LONG_LIVED_MS = 10_000;
 const SETTLE_TIMEOUT_MS = 90_000;
 const SERVICE_PORT = '8742';
@@ -157,6 +143,9 @@ function isolatedEnv(state: string): Record<string, string> {
     RESMON_E2E: '1',
     RESMON_E2E_WIDTH: '1440',
     RESMON_E2E_HEIGHT: '900',
+    // The Atlas interface, which a build from before the switch-over serves
+    // only when asked for by name.
+    RESMON_UI: 'atlas',
   });
   for (const key of ['RESMON_BACKGROUND_WINDOW', 'RESMON_PYTHON']) {
     const value = process.env[key];
@@ -175,15 +164,10 @@ async function launch(state: string): Promise<{ app: ElectronApplication; win: P
     : await electron.launch({ args: ['.', userData], cwd: frontend, env: isolatedEnv(state), timeout: 180_000 });
   await app.context().addInitScript(INSTRUMENT);
   // Nothing the app's pages ask of the internet is answered by the internet:
-  // the Blog tab's feed gets a fixed local one, and anything else is refused
-  // as if the machine were offline. Only https is routed -- the backend is
-  // plain http on loopback -- so no API call pays for an interception.
-  await app.context().route('https://**', (route) => {
-    if (route.request().url().endsWith('/feed.xml')) {
-      return route.fulfill({ status: 200, contentType: 'application/atom+xml', body: FIXED_FEED });
-    }
-    return route.abort('internetdisconnected');
-  });
+  // every request is refused as if the machine were offline. Only https is
+  // routed -- the backend is plain http on loopback -- so no API call pays for
+  // an interception.
+  await app.context().route('https://**', (route) => route.abort('internetdisconnected'));
   const win = await app.firstWindow({ timeout: 180_000 });
   const firstWindow = Date.now();
   const port = await win.evaluate(async () => {
@@ -265,7 +249,7 @@ test('launch, navigation and resources', async () => {
   const outFile = required('RESMON_PERF_OUT');
   const work = process.env.RESMON_PERF_WORK || fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-perf-'));
   const idleSeconds = Number(process.env.RESMON_PERF_IDLE_SECONDS || '20');
-  const routes = allRouteHashes();
+  const routes = SCREEN_PATHS.map((screen) => ({ hash: screen.path, name: screen.name }));
   const samples: RunSample[] = [];
   const problems: string[] = [];
 
