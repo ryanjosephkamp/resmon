@@ -11,6 +11,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,8 @@ def _authors(value: object) -> list[str]:
 
 class NistRmmClient(BaseAPIClient):
     """Client for the documented RMM envelope and cautious fixture aliases."""
+
+    describe_request = staticmethod(sent_params("searchphrase", "from_date"))
 
     def get_name(self) -> str:
         return "NIST Resource Metadata Management"

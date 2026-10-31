@@ -18,6 +18,7 @@ from .api_base import (
     note_retry_wait,
     retry_after_seconds,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -218,6 +219,8 @@ def _search_query(
 
 class ArxivClient(BaseAPIClient):
     """arXiv repository API client."""
+
+    describe_request = staticmethod(sent_params("search_query", "sortBy", "sortOrder"))
 
     def get_name(self) -> str:
         return "arXiv"

@@ -72,6 +72,10 @@ _SOURCE_CONCURRENCY = 8
 # and how often after that. The cancel flag is read on the same beat.
 _HEARTBEAT_SECONDS = 2.0
 
+# What a run records its sources were sent, under these keys in its stored
+# parameters. A restart copies the parameters and records its own.
+_SENT_QUERY_KEYS = ("author_queries", "queries_sent")
+
 
 class _ExecutionCancelled(Exception):
     """Raised internally when cooperative cancellation is detected mid-query."""
@@ -244,7 +248,8 @@ class SweepEngine:
         query_params.setdefault("repositories", list(repositories))
         # What an earlier run's sources were sent, carried in by a restart that
         # copied that run's parameters. This run records its own.
-        inherited_queries = query_params.pop("author_queries", None) is not None
+        inherited = [query_params.pop(key, None) for key in _SENT_QUERY_KEYS]
+        inherited_queries = any(value is not None for value in inherited)
         params_json = json.dumps(query_params, default=str)
         wall_start = time.monotonic()
 
@@ -256,7 +261,7 @@ class SweepEngine:
                 "start_time": start_time,
             })
         elif inherited_queries:
-            self._record_author_queries(exec_id, None)
+            self._record_sent_queries(exec_id, None, None)
 
         store = progress_store
 
@@ -298,6 +303,10 @@ class SweepEngine:
         source_counts: dict[str, int] = {}
         # A person watch: what each source's author query sent, by slug.
         author_queries: dict[str, dict] = {}
+        # Every run: the queries each source's requests carried, by slug, in
+        # its client's words (``describe_request``); ``None`` for a client
+        # that does not say.
+        queries_sent: dict[str, dict | None] = {}
 
         def cancelled(
             stage: str,
@@ -413,12 +422,19 @@ class SweepEngine:
                 zero_notes=zero_notes,
                 source_counts=source_counts,
                 author_queries=author_queries,
+                queries_sent=queries_sent,
             ):
-                if query_params.get("entity_profile") is not None:
-                    self._record_author_queries(exec_id, author_queries)
+                self._record_sent_queries(
+                    exec_id,
+                    author_queries if query_params.get("entity_profile") is not None else None,
+                    queries_sent,
+                )
                 return cancelled("querying")
-            if query_params.get("entity_profile") is not None:
-                self._record_author_queries(exec_id, author_queries)
+            self._record_sent_queries(
+                exec_id,
+                author_queries if query_params.get("entity_profile") is not None else None,
+                queries_sent,
+            )
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -1146,15 +1162,24 @@ class SweepEngine:
                 "Failed to record dedup figures for exec_id=%s: %s", exec_id, exc,
             )
 
-    def _record_author_queries(self, exec_id: int, queries: Optional[dict]) -> None:
-        """Store what a person watch's sources were sent, beside its request.
+    def _record_sent_queries(
+        self, exec_id: int, author_queries: Optional[dict], queries_sent: Optional[dict],
+    ) -> None:
+        """Store what the run's sources were sent, beside its request.
+
+        Every source's client puts the run's words into a query of its own
+        (arXiv's ``all:`` terms joined with AND and its submission-date window,
+        Crossref's ``query`` and ``filter``), and its requests are described as
+        they go out. Those descriptions are kept in the execution's stored
+        parameters under ``queries_sent``, by source slug, so the search record
+        says what each source was asked rather than the words typed.
 
         A person watch has no query string: each source's client builds its own
         author query from the profile, by name or by an identifier, and notes
-        what it put into the request. Those notes are kept in the execution's
-        stored parameters under ``author_queries``, by source slug, so the
-        search record can say what was asked rather than "not recorded".
-        ``None`` removes the key. Like the other bookkeeping writes here, a
+        what it put into the request. Those notes are kept under
+        ``author_queries``.
+
+        ``None`` removes a key. Like the other bookkeeping writes here, a
         failure is logged and never fails the run.
         """
         try:
@@ -1164,10 +1189,12 @@ class SweepEngine:
             params = json.loads(row[0]) if row and row[0] else {}
             if not isinstance(params, dict):
                 return
-            if queries is None:
-                params.pop("author_queries", None)
-            else:
-                params["author_queries"] = dict(queries)
+            for key, value in (("author_queries", author_queries),
+                               ("queries_sent", queries_sent)):
+                if value is None:
+                    params.pop(key, None)
+                else:
+                    params[key] = dict(value)
             self.db.execute(
                 "UPDATE executions SET parameters = ? WHERE id = ?",
                 (json.dumps(params, default=str), int(exec_id)),
@@ -1612,6 +1639,7 @@ class SweepEngine:
         zero_notes: list[dict],
         source_counts: dict[str, int],
         author_queries: dict[str, dict],
+        queries_sent: dict[str, dict | None],
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
@@ -1713,7 +1741,7 @@ class SweepEngine:
                 missing_key_repos.append(repo_name)
                 task_log.log(
                     f"  {repo_name}: WARNING — no API key configured "
-                    f"(credential '{cred_name}'); this repository will return 0 results"
+                    f"(credential '{cred_name}'); it is recorded as not asked"
                 )
                 store.emit(exec_id, {
                     "type": "repo_skipped_missing_key",
@@ -1774,6 +1802,16 @@ class SweepEngine:
             sent = holder.get("outcome") or {}
             if sent.get("author_query") and int(sent.get("attempts") or 0) >= 1:
                 author_queries[repo_name] = dict(sent["author_query"])
+            # Every query the requests that went out carried; an empty list is
+            # a source that was asked nothing, and ``None`` a client that does
+            # not describe its requests.
+            if "queries_sent" in sent:
+                if sent["queries_sent"] is None:
+                    queries_sent[repo_name] = None
+                else:
+                    queries_sent[repo_name] = {"sent": list(sent["queries_sent"])}
+                    if sent.get("queries_sent_omitted"):
+                        queries_sent[repo_name]["omitted"] = int(sent["queries_sent_omitted"])
             try:
                 if "error" in holder:
                     raise holder["error"]
@@ -1785,7 +1823,14 @@ class SweepEngine:
                     "result_count": len(results),
                     "timestamp": now_iso(),
                 })
-                task_log.log(f"  {repo_name}: {len(results)} results")
+                # A count only for records the source returned. A zero is
+                # logged below, once its reason is known, in the words the
+                # run's coverage uses: a source that did not answer is never
+                # logged as having returned 0 results.
+                returned = len(results)
+                if returned:
+                    task_log.log(
+                        f"  {repo_name}: {returned} result{'s' if returned != 1 else ''}")
 
                 # 2.1 — **local verification, on every candidate.** A
                 # source's author search is a generator, not a verdict:
@@ -1831,6 +1876,10 @@ class SweepEngine:
                         _source_display_name(repo_name),
                         zero_reason_value, zero_detail_value,
                     )
+                    if not returned:
+                        task_log.log(
+                            f"  {repo_name}: "
+                            f"{zero_reason_module.label(zero_reason_value, zero_detail_value)}")
                     task_log.log(f"    {zero_message}")
                     notes_by.setdefault(i, []).append({
                         "source": _source_display_name(repo_name),
@@ -2010,6 +2059,9 @@ class SweepEngine:
         # thread that is ever reused would carry that value in as if it
         # were this source's answer.
         reset_search_outcome()
+        # What each request carried is recorded as it goes out, in this
+        # client's own words for its requests.
+        search_outcome().describe_request = getattr(client, "describe_request", None)
         try:
             # 2.1 — a watch routine asks the source about a *person*, and a
             # source that cannot be asked is not called at all. The zero

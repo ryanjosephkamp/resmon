@@ -101,11 +101,8 @@ def outcome(row: dict) -> dict:
         # useful than collapsing every reason into the same short label.
         if status != "ok":
             label = "withdrawn" if reason == "retired" else status.replace("_", " ")
-        else:
-            label = {"window_unanswerable": "could not answer this window",
-                     "upstream_failure": "did not answer", "parse_failure": "reply unreadable",
-                     "missing_key": "no API key configured", "retired": "withdrawn",
-                     "entity_unsupported": "entity unsupported"}.get(reason, label)
+        elif reason in zero_reason.DID_NOT_ANSWER:
+            label = zero_reason.label(reason, detail)
     return {"source": source, "category": category, "label": label, "note": note,
             "outcome_recorded": True, "status": status, "result_count": count,
             "zero_reason": reason, "recorded_at": row.get("recorded_at"),

@@ -15,6 +15,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 from .config import DEFAULT_BACKOFF_BASE, DEFAULT_MAX_RETRIES
 
@@ -143,6 +144,8 @@ def _request_page(params: dict[str, object]) -> httpx.Response:
 
 class InspireHepClient(BaseAPIClient):
     """INSPIRE-HEP literature search client."""
+
+    describe_request = staticmethod(sent_params("q", "sort"))
 
     def get_name(self) -> str:
         return "INSPIRE-HEP"

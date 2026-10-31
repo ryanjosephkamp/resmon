@@ -3,12 +3,14 @@
 
 import logging
 import time
+from typing import Mapping
 
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
     note_parse_failure_unless_transport,
+    note_read,
     safe_request,
     search_outcome,
 )
@@ -98,8 +100,25 @@ def _request_json(url: str, deadline: float) -> dict | None:
     return None
 
 
+def _describe_request(url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+    """A /details request: a server and a date range, with no terms in it.
+
+    The cursor at the end of the path is paging, and is left out. The terms
+    are not sent at all: resmon matches them in each record it reads.
+    """
+    if not url.startswith(_BIORXIV_API_BASE + "/"):
+        return None
+    server, *dates = url[len(_BIORXIV_API_BASE) + 1:].split("/")[:3]
+    if len(dates) != 2:
+        return None
+    return (f"path /details/{server}/{dates[0]}/{dates[1]} (no terms: resmon "
+            "matches them in each record it reads)")
+
+
 class BiorxivClient(BaseAPIClient):
     """bioRxiv / medRxiv repository API client."""
+
+    describe_request = staticmethod(_describe_request)
 
     def __init__(self, server: str = "biorxiv"):
         """Initialize with server name: 'biorxiv' or 'medrxiv'."""
@@ -131,6 +150,11 @@ class BiorxivClient(BaseAPIClient):
 
         results: list[NormalizedResult] = []
         cursor = 0
+        # How far the reading got, for a search that stops before the end of
+        # the range: the records read and the earliest and latest dates among
+        # them. Said on the run when the time budget runs out part-way.
+        earliest: str | None = None
+        latest: str | None = None
 
         while len(results) < max_results:
             url = f"{_BIORXIV_API_BASE}/{self._server}/{d_from}/{d_to}/{cursor}"
@@ -192,6 +216,10 @@ class BiorxivClient(BaseAPIClient):
                 parsed = self._parse_item(item)
                 if parsed is None:
                     continue
+                posted = parsed.publication_date
+                if posted:
+                    earliest = posted if earliest is None else min(earliest, posted)
+                    latest = posted if latest is None else max(latest, posted)
                 # Client-side keyword filtering (bioRxiv API doesn't support keyword search)
                 if self._matches_query(parsed, query_lower):
                     results.append(parsed)
@@ -209,6 +237,8 @@ class BiorxivClient(BaseAPIClient):
                 logger.error("bioRxiv API response has an invalid total")
                 break
             cursor += len(collection)
+            note_read(records=cursor, total=total or None,
+                      first_date=earliest, last_date=latest)
             if len(collection) < _PAGE_SIZE or cursor >= total:
                 break
 

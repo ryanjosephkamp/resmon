@@ -2,6 +2,8 @@
 """DOAJ API client — JSON, Lucene query syntax, page-based pagination."""
 
 import logging
+from typing import Mapping
+from urllib.parse import urlsplit
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
                        bare_orcid, read_json_body, safe_request)
@@ -33,8 +35,17 @@ def _month_number(month: object) -> str:
     return f"{number:02d}" if number else "01"
 
 
+def _describe_request(url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+    """A DOAJ search carries its query in the request path, not in a parameter."""
+    if not url.startswith(_DOAJ_API_URL + "/"):
+        return None
+    return "path " + urlsplit(url).path
+
+
 class DoajClient(BaseAPIClient):
     """DOAJ repository API client."""
+
+    describe_request = staticmethod(_describe_request)
 
     def get_name(self) -> str:
         return "DOAJ"

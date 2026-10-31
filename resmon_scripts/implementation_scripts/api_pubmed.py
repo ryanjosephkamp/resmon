@@ -13,6 +13,7 @@ from .api_base import (
     note_parse_failure,
     read_json_body,
     safe_request,
+    sent_params,
 )
 from .credential_manager import get_credential_for
 
@@ -27,6 +28,8 @@ _RATE_LIMITER = RateLimiter(requests_per_second=3.0)
 
 class PubmedClient(BaseAPIClient):
     """PubMed / NCBI E-utilities repository API client."""
+
+    describe_request = staticmethod(sent_params("term", "mindate", "maxdate", "datetype", "sort", url=_ESEARCH_URL))
 
     def get_name(self) -> str:
         return "PubMed"

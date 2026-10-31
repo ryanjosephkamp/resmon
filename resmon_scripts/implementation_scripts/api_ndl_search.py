@@ -16,6 +16,7 @@ from .api_base import (
     note_parse_failure,
     note_unanswerable,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -160,6 +161,8 @@ def _books_token(value: str | None) -> tuple[str, str] | None:
 
 class NDLSearchClient(BaseAPIClient):
     """Search per-record validated open NDL Search metadata through SRU."""
+
+    describe_request = staticmethod(sent_params("query"))
 
     def get_name(self) -> str:
         return "NDL Search"

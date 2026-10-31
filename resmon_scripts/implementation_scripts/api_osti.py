@@ -13,6 +13,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -134,6 +135,8 @@ def _normalize_doi(value: object) -> str | None:
 
 class OstiClient(BaseAPIClient):
     """Search public OSTI.GOV metadata without authentication."""
+
+    describe_request = staticmethod(sent_params("q", "author", "publication_date_start", "publication_date_end"))
 
     def get_name(self) -> str:
         return "OSTI.GOV"

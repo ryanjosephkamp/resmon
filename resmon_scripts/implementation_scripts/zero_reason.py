@@ -62,6 +62,41 @@ DID_NOT_ANSWER = frozenset({
 })
 
 
+# The few words for each reason, where a sentence will not fit: a run's log
+# line for the source, the coverage row's label. A source that answered and
+# had nothing, and one that did not answer, are never given the same words.
+_LABELS = {
+    "answered_empty": "answered, zero",
+    "rights_filtered": "answered; nothing storable",
+    "records_unusable": "answered; nothing storable",
+    "window_unanswerable": "could not answer this window",
+    "upstream_failure": "did not answer",
+    "parse_failure": "reply unreadable",
+    "missing_key": "no API key configured",
+    "retired": "withdrawn",
+    "entity_unsupported": "entity unsupported",
+    "not_recorded": "zero, reason not recorded",
+}
+
+
+def read_in_part(detail: dict | None) -> bool:
+    """Did a search read some of a window in order before it stopped (``api_base.note_read``)?"""
+    read = (detail or {}).get("read")
+    return isinstance(read, dict) and int(read.get("records") or 0) > 0
+
+
+def label(reason: str | None, detail: dict | None = None) -> str:
+    """The few words for a zero and its reason.
+
+    A search that read part of a window before it stopped is not said to have
+    had no answer: the source answered every page it was asked for, and what
+    is missing is the rest of the window.
+    """
+    if reason == "upstream_failure" and read_in_part(detail):
+        return "read part of the window"
+    return _LABELS.get(reason or "not_recorded", str(reason).replace("_", " "))
+
+
 def answered(status: str, result_count: int, reason: str | None) -> bool:
     """Did this source reply to the query resmon sent it?
 
@@ -84,6 +119,45 @@ def answered(status: str, result_count: int, reason: str | None) -> bool:
 def _attempts(detail: dict) -> str:
     n = int(detail.get("attempts") or 0)
     return f"{n} attempt{'s' if n != 1 else ''}"
+
+
+_MONTHS = ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December")
+
+
+def _day(iso: object) -> str | None:
+    """``2013-11-07`` as "November 7, 2013"; None for anything that is not a day."""
+    text = str(iso or "")[:10]
+    try:
+        year, month, day = (int(part) for part in text.split("-"))
+        return f"{_MONTHS[month - 1]} {day}, {year}"
+    except (ValueError, IndexError):
+        return None
+
+
+def _read_words(source: str, detail: dict) -> str:
+    """What a search that stopped part-way through a window had read.
+
+    "the first 1,200 of the 262,104 records bioRxiv lists for the window,
+    posted between November 7, 2013 and January 20, 2014". The dates are the
+    earliest and latest among the records read, whatever order the source
+    listed them in.
+    """
+    read = detail.get("read") or {}
+    records = int(read.get("records") or 0)
+    total = read.get("total")
+    head = (
+        f"the first {records:,} of the {int(total):,} records {source} lists "
+        "for the window"
+        if isinstance(total, int) and total >= records
+        else f"the first {records:,} records {source} listed for the window"
+    )
+    first, last = _day(read.get("first_date")), _day(read.get("last_date"))
+    if first and last and first != last:
+        return f"{head}, posted between {first} and {last}"
+    if first:
+        return f"{head}, posted on {first}"
+    return head
 
 
 def sentence(source: str, reason: str | None, detail: dict | None = None) -> str:
@@ -178,6 +252,16 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             what += (
                 f", with {waited} second{'s' if waited != 1 else ''} of waiting "
                 "between them"
+            )
+        if read_in_part(detail):
+            # The source answered every page it was asked for; the search
+            # stopped before the end of the window, and the sentence says how
+            # far it got rather than that the source did not answer.
+            return (
+                f"{source} answered, and resmon stopped before the end of your "
+                f"window: {what}. It had read {_read_words(source, detail)}, "
+                "and none of them matched. The rest were not read, so this is "
+                "not a zero for your window."
             )
         return (
             f"{source} could not be queried: {what}. This is not a zero — the "
@@ -308,6 +392,11 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
         waited = round(float(snapshot.get("waited_seconds") or 0))
         if waited > 0:
             detail["waited_seconds"] = waited
+        # A source read in order (bioRxiv, medRxiv) says how far it got, and
+        # a search that stopped part-way through is recorded with it.
+        read = snapshot.get("read")
+        if isinstance(read, dict) and int(read.get("records") or 0) > 0:
+            detail["read"] = dict(read)
         return "upstream_failure", detail
 
     if snapshot.get("retained_cooldown_status"):
@@ -355,8 +444,12 @@ def partial_sentence(
             ending = f"a later {status_text}request failed" if status else "a later request failed"
     else:
         raise ValueError(f"no partial sentence for reason {reason!r}")
+    read = (
+        f" It had read {_read_words(source, detail)}."
+        if reason == "upstream_failure" and read_in_part(detail) else ""
+    )
     return (
-        f"{source} returned {records} before {ending}. "
+        f"{source} returned {records} before {ending}.{read} "
         "The retained set may be incomplete."
     )
 

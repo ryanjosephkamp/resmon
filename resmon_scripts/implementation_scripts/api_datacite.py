@@ -11,6 +11,7 @@ from .api_base import (
     RateLimiter,
     note_parse_failure_unless_transport,
     safe_request,
+    sent_params,
 )
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,8 @@ def _inside_requested_window(
 
 class DataCiteClient(BaseAPIClient):
     """Search Findable DataCite DOI metadata without authentication."""
+
+    describe_request = staticmethod(sent_params("query", "published", "sort"))
 
     def get_name(self) -> str:
         return "DataCite"

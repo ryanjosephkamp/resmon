@@ -237,11 +237,62 @@ def test_the_exact_query_and_window_are_preserved(conn):
     search = search_record.build(conn, exec_id)["search"]
 
     assert search["keywords"] == ["cardiac", "transformer"]
+    # The terms as typed, as the field has always held them; what each source
+    # was sent is ``queries_as_sent``.
     assert search["query_as_sent"] == "cardiac transformer"
     assert search["date_from"] == "2026-01-01"
     assert search["date_to"] == "2026-06-30"
     assert search["max_results_per_source"] == 100
     assert search["run_at"] == "2026-07-01T09:00:00Z"
+
+
+def test_a_run_with_no_record_of_what_was_sent_never_shows_the_typed_words_as_sent(conn):
+    """The words typed are not the query sent: arXiv is sent each word as its
+    own ``all:`` term joined with AND, with a date clause. A run from before
+    the record of each source's request says it was not recorded."""
+    exec_id = _run(conn, sources=FULL_SOURCES, dedup=FULL_DEDUP)
+    record = search_record.build(conn, exec_id)
+
+    assert record["search"]["queries_as_sent"] is None
+    text = search_record.to_markdown(record)
+    assert "| Query as sent | not recorded for this run |" in text
+    assert "`cardiac transformer`" not in text
+
+
+def test_each_source_query_is_recorded_as_its_requests_carried_it(conn):
+    exec_id = _run(conn, sources=FULL_SOURCES, dedup=FULL_DEDUP)
+    params = json.loads(conn.execute(
+        "SELECT parameters FROM executions WHERE id = ?", (exec_id,)).fetchone()[0])
+    params["queries_sent"] = {
+        "arxiv": {"sent": [
+            "search_query=all:cardiac AND all:transformer AND "
+            "submittedDate:[202601010000 TO 202606302359] & sortBy=submittedDate"]},
+        "nasa_ads": {"sent": []},
+        "core": None,
+    }
+    conn.execute("UPDATE executions SET parameters = ? WHERE id = ?",
+                 (json.dumps(params), exec_id))
+    conn.commit()
+
+    record = search_record.build(conn, exec_id)
+    rows = {row["source"]: row for row in record["search"]["queries_as_sent"]}
+    # In the order the run selected them, every selected source accounted for.
+    assert [row["source"] for row in record["search"]["queries_as_sent"]] == [
+        "arxiv", "pubmed", "nasa_ads", "core"]
+    assert rows["arxiv"]["name"] == "arXiv"
+    assert rows["arxiv"]["sent"][0].startswith("search_query=all:cardiac AND all:transformer")
+    assert rows["arxiv"]["note"] is None
+    # Never the typed words under that label: a source with no account of its
+    # request says which kind of no account it is.
+    assert rows["pubmed"]["sent"] == [] and rows["pubmed"]["note"].startswith("Not recorded")
+    assert rows["nasa_ads"]["note"] == "Nothing was sent: no API key is configured for it."
+    assert "does not say" in rows["core"]["note"]
+    # The one-line field keeps what it held: the terms as typed.
+    assert record["search"]["query_as_sent"] == "cardiac transformer"
+
+    text = search_record.to_markdown(record)
+    assert "| Query as sent to arXiv | `search_query=all:cardiac AND all:transformer" in text
+    assert "| Query as sent to NASA ADS | Nothing was sent: no API key is configured for it\\. |" in text
 
 
 def test_a_routine_run_names_the_routine_and_its_schedule(conn):
@@ -480,7 +531,7 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "http_503", "status": 503, "attempts": 2}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "1 of the 2 recorded sources did not answer, so there is nothing to count (crossref). "
+        "1 of the 2 recorded sources did not answer, so there is nothing to count (CrossRef). "
         "Its note below says why. It did not contribute to this search."
     ) in caveats
     assert not any("nothing to find (crossref)" in c for c in caveats)
@@ -489,7 +540,7 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "parse_error"}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "2 of the 3 recorded sources did not answer, so there is nothing to count (crossref, doaj). "
+        "2 of the 3 recorded sources did not answer, so there is nothing to count (CrossRef, DOAJ). "
         "Their notes below say why. They did not contribute to this search."
     ) in caveats
 
