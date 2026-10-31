@@ -6,6 +6,7 @@ import { Icon } from '../../shell/Icon';
 import {
   GRID, GRID_LETTERS, RAMP_DAYS, gridCell, placeName, type Box, type Field, type MapRegion, type Sky, type WatchShape,
 } from './model';
+import { NO_OPENING, litAt, nextLightAt, type Opening } from './opening';
 
 /** Which papers are lit, and the color each lit one wears; see `sky/look.ts`. */
 export interface PlateLook {
@@ -39,8 +40,8 @@ interface Props {
   field: Field;
   /** Sky indices of the new papers, in the order they were collected: ring 1 first. */
   arrivals: readonly number[];
-  /** How many arrivals are lit; the rest wait for the opening to reach them. */
-  lit: number;
+  /** Today's opening, which lights the arrivals in turn; without one every arrival is lit. */
+  opening?: Opening;
   selected: number | null;
   /** A paper hovered in the index, ringed here too. */
   pointed: number | null;
@@ -193,7 +194,7 @@ function shadingImage(field: Field, ink: string): HTMLCanvasElement {
 
 export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const {
-    sky, regions, shapes, field, arrivals, lit, selected, pointed, onSelect, onHover, paletteKey,
+    sky, regions, shapes, field, arrivals, opening = NO_OPENING, selected, pointed, onSelect, onHover, paletteKey,
     label, children, onAway, toolsAt = 'left', look = null, whole = 'the whole collection', onOpen, wheel: wheelMode = 'zoom',
   } = props;
   const keysId = useId();
@@ -203,6 +204,8 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const view = useRef<View>({ cx: 0, cy: 0, scale: 1 });
   const home = useRef<View>({ cx: 0, cy: 0, scale: 1 });
   const frame = useRef(0);
+  // The next frame the opening needs: when its next paper lights.
+  const wake = useRef(0);
   // The draw loop schedules itself through this, so a frame always runs the
   // newest drawing function rather than the one it was first given.
   const drawRef = useRef<() => void>(() => undefined);
@@ -295,7 +298,9 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     ctx.fillStyle = p.plate;
     ctx.fillRect(0, 0, size.w, size.h);
 
-    const { sky: s, regions: rs, shapes: ws, arrivals: arr, lit: litCount, selected: sel, pointed: pt } = latest.current;
+    const { sky: s, regions: rs, shapes: ws, arrivals: arr, selected: sel, pointed: pt } = latest.current;
+    const turn = latest.current.opening ?? NO_OPENING;
+    const litCount = litAt(turn, arr.length, now);
     const inner = { x: MARGIN, y: MARGIN, w: size.w - MARGIN * 2, h: size.h - MARGIN * 2 };
     const zoom = v.scale / home.current.scale;
 
@@ -596,9 +601,22 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         ctx.fillText(String(k + 1), size.w - MARGIN / 2, gy);
       }
     }
-    // How long this frame took to draw, and where it looks, where a test or a person can read them.
-    node.dataset.frameMs = (performance.now() - started).toFixed(1);
-    node.dataset.view = `${v.cx} ${v.cy} ${v.scale}`;
+    // The opening draws again when its next paper lights, and not before.
+    window.clearTimeout(wake.current);
+    const next = nextLightAt(turn, arr.length, now);
+    if (next !== null) {
+      wake.current = window.setTimeout(() => {
+        if (!frame.current) frame.current = requestAnimationFrame(() => drawRef.current());
+      }, Math.max(0, next - performance.now()));
+    }
+    // How long this frame took to draw, and where it looks, where a test or a
+    // person can read them: written once the plate is at rest, so a glide or
+    // the opening does not change the page on every frame, and a reading is
+    // never taken mid-motion.
+    if (!glide.current && next === null) {
+      node.dataset.frameMs = (performance.now() - started).toFixed(1);
+      node.dataset.view = `${v.cx} ${v.cy} ${v.scale}`;
+    }
     if (glide.current) frame.current = requestAnimationFrame(() => drawRef.current());
   }, [size, toScreen, arrivalRank, occupied, papersUnder, paint]);
   useEffect(() => { drawRef.current = draw; }, [draw]);
@@ -635,7 +653,8 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     schedule();
   }, [paletteKey, look, schedule]);
 
-  useEffect(() => { schedule(); }, [lit, selected, pointed, shapes, regions, arrivals, paint, schedule]);
+  useEffect(() => { schedule(); }, [opening, selected, pointed, shapes, regions, arrivals, paint, schedule]);
+  useEffect(() => () => window.clearTimeout(wake.current), []);
 
   const reportAway = useCallback(() => {
     const v = view.current, h = home.current;

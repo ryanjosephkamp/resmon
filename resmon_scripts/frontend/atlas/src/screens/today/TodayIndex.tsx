@@ -6,6 +6,7 @@ import { Icon } from '../../shell/Icon';
 import { authors, duration, number, troubleParts, when } from './format';
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 import type { LifecycleEvent } from '../lifecycle/model';
+import { FADE_MS, lightsAt, type Opening } from './opening';
 
 type TodayPaper = components['schemas']['TodayPaper'];
 type TodayWatch = components['schemas']['TodayWatch'];
@@ -43,7 +44,8 @@ interface Props {
   regions: ReadonlyMap<number, Region>;
   sourceName: (slug: string) => string;
   heading: string;
-  lit: number;
+  /** Today's opening, which lights the numbers in turn. */
+  opening: Opening;
   selected: number | null;
   now: Date;
   saved: ReadonlyMap<number, boolean>;
@@ -62,7 +64,7 @@ interface Props {
 
 export function TodayIndex(props: Props) {
   const {
-    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, lit, selected, now, saved, lifecycle,
+    papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, opening, selected, now, saved, lifecycle,
     marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer,
   } = props;
   const [by, setBy] = useState<'watch' | 'region'>('watch');
@@ -157,7 +159,8 @@ export function TodayIndex(props: Props) {
               <Entry
                 key={`${group.key}:${paper.id}`}
                 paper={paper}
-                lit={paper.n <= lit}
+                opening={opening}
+                listed={papers.length}
                 selected={paper.id === selected}
                 saved={saved.get(paper.id) ?? paper.queue_status !== null}
                 events={lifecycle?.[String(paper.id)]}
@@ -254,7 +257,7 @@ function SourceTrouble({ run }: { run: TodayRun }) {
 }
 
 function Entry(props: {
-  paper: IndexPaper; lit: boolean; selected: boolean; saved: boolean;
+  paper: IndexPaper; opening: Opening; listed: number; selected: boolean; saved: boolean;
   events?: LifecycleEvent[];
   sourceName: (slug: string) => string;
   onSelect: (id: number) => void;
@@ -262,7 +265,20 @@ function Entry(props: {
   onZoomTo: (target: { paperId: number }) => void;
   onToggleSave: (paper: IndexPaper) => void;
 }) {
-  const { paper, lit, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
+  const { paper, opening, listed, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
+  const badge = useRef<HTMLSpanElement>(null);
+  // The number brightens at its turn in the opening, as an animation of its
+  // own: the page is not changed again as the opening goes, only drawn.
+  useEffect(() => {
+    const node = badge.current;
+    if (opening.state !== 'running' || !node || typeof node.animate !== 'function') return undefined;
+    const delay = lightsAt(paper.n, listed) - (performance.now() - opening.start);
+    if (delay + FADE_MS <= 0) return undefined;
+    const fade = node.animate([{ opacity: 0.18 }, { opacity: 1 }], {
+      duration: FADE_MS, delay: Math.max(0, delay), easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'backwards',
+    });
+    return () => fade.cancel();
+  }, [opening, paper.n, listed]);
   const link = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
   return (
     <article
@@ -271,7 +287,7 @@ function Entry(props: {
       onMouseEnter={() => onPoint(paper.id)}
       onMouseLeave={() => onPoint(null)}
     >
-      <span className={lit ? 'badge' : 'badge dim'} aria-label={`Number ${paper.n}`}>{paper.n}</span>
+      <span ref={badge} className={opening.state === 'waiting' ? 'badge dim' : 'badge'} aria-label={`Number ${paper.n}`}>{paper.n}</span>
       <div className="entry-body">
         <h4>
           <button type="button" className="entry-title" onClick={() => onSelect(paper.id)} aria-pressed={selected}>

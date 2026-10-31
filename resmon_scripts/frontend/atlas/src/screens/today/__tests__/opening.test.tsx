@@ -1,67 +1,71 @@
 import { StrictMode, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
-import { OPENING_MS, useOpening } from '../opening';
+import { OPENING_MS, lightsAt, litAt, nextLightAt, useOpening, type Opening } from '../opening';
 
 const strict = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>;
+const SETTLE = 420;
+const at = (start: number): Opening => ({ state: 'running', start });
 
-describe('Today’s opening lights every new paper, and finishes', () => {
+describe('Today’s opening starts once, when the plate and the papers are in', () => {
   beforeEach(() => { jest.useFakeTimers(); });
   afterEach(() => { jest.useRealTimers(); });
 
-  test('it waits for the plate, then lights one by one to the last', () => {
-    const { result, rerender } = renderHook(({ total, ready }) => useOpening(total, ready, false), {
-      initialProps: { total: 12, ready: false }, wrapper: strict,
+  test('it waits for the plate, then runs from that moment, and once per visit', () => {
+    const { result, rerender } = renderHook(({ ready }) => useOpening(ready, false), {
+      initialProps: { ready: false }, wrapper: strict,
     });
     act(() => { jest.advanceTimersByTime(5_000); });
-    expect(result.current).toBe(0);
-    rerender({ total: 12, ready: true });
-    act(() => { jest.advanceTimersByTime(500); });
-    expect(result.current).toBeGreaterThan(0);
-    expect(result.current).toBeLessThan(12);
-    act(() => { jest.advanceTimersByTime(5_000); });
-    expect(result.current).toBe(12);
+    expect(result.current).toEqual({ state: 'waiting' });
+    rerender({ ready: true });
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(result.current.state).toBe('running');
+    const first = result.current;
+    // The plate going and coming back (a refit) does not start it again.
+    rerender({ ready: false });
+    rerender({ ready: true });
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(result.current).toBe(first);
   });
 
-  test('a read that comes back while it runs does not stop it', () => {
-    // Today's cached answer is drawn on arrival and asked for again at once; a
-    // new answer mid-opening used to leave every number dim for good.
-    const { result, rerender } = renderHook(({ total }) => useOpening(total, true, false), {
-      initialProps: { total: 40 }, wrapper: strict,
-    });
-    act(() => { jest.advanceTimersByTime(600); });
-    rerender({ total: 40 });
-    rerender({ total: 41 });
-    act(() => { jest.advanceTimersByTime(10_000); });
-    expect(result.current).toBe(41);
-    // Papers that arrive after it are lit at once.
-    rerender({ total: 45 });
-    expect(result.current).toBe(45);
+  test('without motion there is no opening: everything is lit from the start', () => {
+    const { result } = renderHook(() => useOpening(false, true), { wrapper: strict });
+    expect(result.current).toEqual({ state: 'none' });
+    expect(litAt(result.current, 9, 0)).toBe(9);
+  });
+});
+
+describe('the schedule: every paper lit within the opening, at any count', () => {
+  test.each([1_000, 10_000])('%i papers: partly lit halfway, all lit at the end, and nothing left to wake for', (total) => {
+    expect(litAt(at(0), total, SETTLE - 1)).toBe(0);
+    const half = litAt(at(0), total, SETTLE + OPENING_MS / 2);
+    expect(half).toBeGreaterThan(0);
+    expect(half).toBeLessThan(total);
+    expect(litAt(at(0), total, SETTLE + OPENING_MS)).toBe(total);
+    expect(nextLightAt(at(0), total, SETTLE + OPENING_MS)).toBeNull();
+    expect(lightsAt(total, total)).toBeLessThanOrEqual(SETTLE + OPENING_MS);
   });
 
-  test.each([1_000, 10_000])('%i papers light in the same time as a hundred, and then nothing is left running', (total) => {
-    const { result } = renderHook(() => useOpening(total, true, false), { wrapper: strict });
-    // The plate's settling pause, then half the lighting: partly lit.
-    act(() => { jest.advanceTimersByTime(420 + OPENING_MS / 2); });
-    expect(result.current).toBeGreaterThan(0);
-    expect(result.current).toBeLessThan(total);
-    // The rest of the lighting and one frame over: all of them, and no timer
-    // left to change the page again.
-    act(() => { jest.advanceTimersByTime(OPENING_MS / 2 + 16); });
-    expect(result.current).toBe(total);
-    expect(jest.getTimerCount()).toBe(0);
+  test('a dozen light one at a time, a pause apart; a hundred and more within the same time', () => {
+    expect(lightsAt(2, 12) - lightsAt(1, 12)).toBe(90);
+    for (const total of [12, 100, 150]) expect(litAt(at(0), total, SETTLE + OPENING_MS)).toBe(total);
   });
 
-  test('a hundred papers or a dozen take no longer than the opening either', () => {
-    for (const total of [12, 100, 150]) {
-      const { result, unmount } = renderHook(() => useOpening(total, true, false), { wrapper: strict });
-      act(() => { jest.advanceTimersByTime(420 + OPENING_MS + 16); });
-      expect(result.current).toBe(total);
-      unmount();
-    }
+  test('the next wake is the next paper’s turn, in order', () => {
+    const start = 1_000;
+    expect(nextLightAt(at(start), 40, start)).toBe(start + lightsAt(1, 40));
+    expect(nextLightAt(at(start), 40, start + lightsAt(1, 40))).toBe(start + lightsAt(2, 40));
   });
 
-  test('without motion everything is lit from the start', () => {
-    const { result } = renderHook(() => useOpening(9, false, true), { wrapper: strict });
-    expect(result.current).toBe(9);
+  test('a read that adds papers while it runs only moves the schedule; it still ends in time', () => {
+    // Today's cached answer is drawn on arrival and asked for again at once.
+    const opening = at(0);
+    expect(litAt(opening, 40, SETTLE + 500)).toBeLessThan(40);
+    expect(litAt(opening, 45, SETTLE + OPENING_MS)).toBe(45);
+  });
+
+  test('before the plate is in, none is lit; without an opening, all are', () => {
+    expect(litAt({ state: 'waiting' }, 30, 10_000)).toBe(0);
+    expect(nextLightAt({ state: 'waiting' }, 30, 0)).toBeNull();
+    expect(litAt({ state: 'none' }, 30, 0)).toBe(30);
   });
 });

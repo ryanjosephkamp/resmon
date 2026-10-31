@@ -197,7 +197,6 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
             shapes={shapes}
             field={built.field}
             arrivals={[]}
-            lit={0}
             selected={selected}
             pointed={null}
             onSelect={onSelect}
