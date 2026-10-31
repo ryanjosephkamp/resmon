@@ -1,11 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, engineSentence, EngineError } from '../../../api/client';
 import { Icon } from '../../../shell/Icon';
 import { saveFile } from '../../runs/downloads';
-import { PaperSky } from '../../sky/PaperSky';
-import { count, number } from '../../today/format';
+import { MapPaper } from '../../sky/MapPaper';
+import { PaperSky, type PaperSkyHandle, type SkyChoice } from '../../sky/PaperSky';
+import { count, number, publishedWords } from '../../today/format';
 import { PersonEditor } from './PersonEditor';
 import { PersonLifecycle } from './PersonLifecycle';
 import { BASIS_MEANING, PEOPLE_KEY, basisWords, evidenceToShow, profileChip } from './model';
@@ -63,6 +64,11 @@ function PersonPage({ id }: { id: number }) {
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
   const names = new Map((catalog.data ?? []).map((e) => [e.slug, e.name]));
+  const nameOf = (slug: string) => names.get(slug) ?? slug;
+  const marked = useMemo(() => (matches.data?.matches ?? []).map((row) => row.document_id), [matches.data]);
+  // A paper chosen on the map opens in the matches' place, beside the map.
+  const [opened, setOpened] = useState<SkyChoice | null>(null);
+  const sky = useRef<PaperSkyHandle>(null);
   const remove = useMutation({
     mutationFn: () => answer(engine().DELETE('/api/profiles/{profile_id}', { params: { path: { profile_id: id } } })),
     onSuccess: (done) => {
@@ -140,7 +146,20 @@ function PersonPage({ id }: { id: number }) {
       {editing && <PersonEditor target={data} onDone={() => setEditing(false)} />}
 
       <div className="run-main">
-        <div className="person-column">
+        {opened && (
+          <MapPaper
+            key={opened.id}
+            id={opened.id}
+            cell={opened.cell}
+            region={opened.region}
+            sourceName={nameOf}
+            backLabel="Back to the matches"
+            inline
+            onBack={() => { setOpened(null); sky.current?.focus(); }}
+            onShow={() => sky.current?.show(opened.id)}
+          />
+        )}
+        <div className="person-column" hidden={opened !== null}>
           <PersonLifecycle id={data.id} name={data.display_name} />
           <section className="person-matches" aria-label="Papers matched">
             <h2 className="nights-title">Papers matched</h2>
@@ -167,7 +186,7 @@ function PersonPage({ id }: { id: number }) {
                     <span className="match-author">as {row.matched_author}</span>
                     <span className="sep" />
                     <span>{names.get(row.source_repository) ?? row.source_repository}</span>
-                    {row.publication_date && (<><span className="sep" /><span>{row.publication_date}</span></>)}
+                    {row.publication_date && (<><span className="sep" /><span>{publishedWords(row.publication_date)}</span></>)}
                   </div>
                   {evidenceToShow(row.evidence) && <p className="match-evidence">{evidenceToShow(row.evidence)}</p>}
                 </li>
@@ -179,8 +198,12 @@ function PersonPage({ id }: { id: number }) {
           </section>
         </div>
         <PaperSky
-          marked={rows.map((row) => row.document_id)}
-          outline
+          ref={sky}
+          marked={marked}
+          outline={data.display_name}
+          chosen={opened?.id ?? null}
+          onChoose={setOpened}
+          sourceName={nameOf}
           label={`Where ${data.display_name}'s matched papers sit in the collection`}
           caption={({ placed, ready }) => {
             if (!rows.length) return 'No papers are matched to mark yet.';

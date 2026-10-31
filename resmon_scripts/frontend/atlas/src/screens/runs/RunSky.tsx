@@ -1,21 +1,30 @@
+import { forwardRef } from 'react';
 import { Icon } from '../../shell/Icon';
 import { count } from '../today/format';
-import { PaperSky } from '../sky/PaperSky';
+import { PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 
 /**
  * Where a run's papers sit in the whole collection. The caption says how many
  * of them the map has placed, and why the rest are not drawn, rather than
  * implying the marks are the run's whole result.
  */
-export function RunSky({ paperIds, onOpenMap, endedAt = null }: {
+export const RunSky = forwardRef<PaperSkyHandle, {
   paperIds: readonly number[];
   onOpenMap?: () => void;
   /** When the run ended: a map read before it lacks the run's papers. */
   endedAt?: string | null;
-}) {
+  /** The paper open beside the map, and how one is opened there. */
+  chosen?: number | null;
+  onChoose?: (choice: SkyChoice | null) => void;
+  sourceName?: (slug: string) => string;
+}>(function RunSky({ paperIds, onOpenMap, endedAt = null, chosen = null, onChoose, sourceName }, ref) {
   return (
     <div className="run-sky">
       <PaperSky
+        ref={ref}
+        chosen={chosen}
+        onChoose={onChoose}
+        sourceName={sourceName}
         marked={paperIds}
         readAfter={endedAt}
         label="Where this run's papers sit in the collection"
@@ -38,4 +47,4 @@ export function RunSky({ paperIds, onOpenMap, endedAt = null }: {
       )}
     </div>
   );
-}
+});

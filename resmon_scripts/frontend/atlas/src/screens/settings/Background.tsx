@@ -5,6 +5,7 @@ import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
 import { clock } from '../today/format';
 import { daemonSentence, daemonState, limitProblem, limitsReach, RUN_LIMITS, unitKind, type DaemonState } from './model';
+import { commandEnter } from '../../shell/shortcuts';
 
 type ExecutionSettings = components['schemas']['ExecutionSettings'];
 
@@ -195,7 +196,7 @@ function RunLimitsForm({ stored }: { stored: ExecutionSettings }) {
   };
 
   return (
-    <form className="settings-form limits-form" onSubmit={submit} aria-label="How many runs at once">
+    <form className="settings-form limits-form" {...commandEnter()} onSubmit={submit} aria-label="How many runs at once">
       <div className="form-grid">
         <label className="form-field" htmlFor="limit-runs">
           <span className="form-label">{RUN_LIMITS.runs.words}</span>

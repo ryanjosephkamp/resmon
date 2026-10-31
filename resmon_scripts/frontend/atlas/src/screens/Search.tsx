@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
+import { CommandEnterHint, commandEnterKeys } from '../shell/CommandEnterHint';
+import { commandEnter } from '../shell/shortcuts';
 import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
 import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
+import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
 import { coarseFor, coarseSentence, paceOf, rateLong } from './sources/catalog';
@@ -122,6 +125,7 @@ export function Search() {
     }
   }
   useEffect(() => { if (focusAsked) focusTerms(); }, [focusAsked]);
+  useFocusOnArrival('ask-terms');
 
   const allTerms = terms.all;
   // In the order they were chosen, which is the order the run asks and records them.
@@ -207,7 +211,7 @@ export function Search() {
 
   return (
     <div className="search">
-      <form className="ask" onSubmit={submit} aria-label="Ask the sources">
+      <form className="ask" {...commandEnter()} onSubmit={submit} aria-label="Ask the sources">
         <SearchTabs />
         <div className="ask-head">
           <h1 className="page-title">Ask the sources</h1>
@@ -299,11 +303,12 @@ export function Search() {
         </div>
 
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={!ready}>
+          <button type="submit" className="btn primary go" disabled={!ready} aria-keyshortcuts={commandEnterKeys()}>
             {start.isPending ? 'Starting'
               : picked.length === 1 ? `Ask ${picked[0]?.name}`
                 : picked.length > 1 ? `Ask ${picked.length} sources` : 'Ask'}
           </button>
+          <CommandEnterHint />
           <div className="ask-facts" aria-live="polite">
             {!allTerms.length && <p>Add at least one term.</p>}
             {summaryProblem && summaryProblem !== 'Reading Settings › AI.' && <p data-ask="summary-problem">{summaryProblem}</p>}
@@ -361,10 +366,11 @@ export function Search() {
                 value={naming}
                 placeholder="A name for this search"
                 autoFocus
+                {...commandEnter('keep-save')}
                 onChange={(event) => setNaming(event.target.value)}
                 onKeyDown={(event) => {
-                  // Enter here saves; it must not reach the form and start a run.
-                  if (event.key === 'Enter') {
+                  // Enter here saves; it must not reach the form and start a run. ⌘Enter presses Save too, through the shell.
+                  if (event.key === 'Enter' && !event.metaKey && !event.ctrlKey) {
                     event.preventDefault();
                     if (naming.trim()) keep.mutate(naming.trim());
                   } else if (event.key === 'Escape') {
@@ -372,7 +378,7 @@ export function Search() {
                   }
                 }}
               />
-              <button type="button" className="btn" disabled={!naming.trim() || keep.isPending} onClick={() => keep.mutate(naming.trim())}>
+              <button type="button" id="keep-save" className="btn" disabled={!naming.trim() || keep.isPending} onClick={() => keep.mutate(naming.trim())}>
                 {keep.isPending ? 'Saving' : 'Save'}
               </button>
               <button type="button" className="btn quiet" onClick={() => setNaming(null)}>Cancel</button>

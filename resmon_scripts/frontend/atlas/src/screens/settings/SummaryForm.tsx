@@ -13,6 +13,7 @@ import {
   storedSummary, summaryChanged, summaryPayload, switchProvider, temperatureProblem, wordingOf,
   type AiSettings, type ChainEntry, type LaneFields, type SummaryForm as SummaryFields, type Wording,
 } from './summaryLanes';
+import { commandEnter } from '../../shell/shortcuts';
 
 export const CLI_KEY = ['ai-cli-status'] as const;
 
@@ -70,7 +71,7 @@ export function SummaryForm({ stored }: { stored: AiSettings }) {
   const moved = !removed && !added && fallbacks.some((f, i) => !same(f, start.fallbacks[i]!));
 
   return (
-    <form className="settings-form" onSubmit={submit} aria-label="Summary settings">
+    <form className="settings-form" {...commandEnter()} onSubmit={submit} aria-label="Summary settings">
       <div className="form-grid">
         <div className="form-field">
           <label className="form-label" htmlFor="ai-provider">Provider</label>
@@ -254,8 +255,8 @@ function WordingFields({ wording, onWord, provider, problem }: {
             : (
               <span className="form-hint" data-ai="temperature-reach">
                 {!sent && `Not sent to ${laneName(provider)}. `}
-                Sent to OpenAI, Google, xAI, Meta, DeepSeek, Alibaba, and a custom endpoint; Anthropic, Ollama, and the two
-                commands use their own.
+                Sent to OpenAI, Google, xAI, Together AI for Meta’s models, DeepSeek, Alibaba, and a custom endpoint;
+                Anthropic, Ollama, and the two commands use their own.
               </span>
             )}
         </label>

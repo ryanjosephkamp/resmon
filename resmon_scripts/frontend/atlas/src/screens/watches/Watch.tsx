@@ -1,9 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
-import { PaperSky, basisWords } from '../sky/PaperSky';
+import { MapPaper } from '../sky/MapPaper';
+import { PaperSky, basisWords, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { RUNS_KEY } from '../runs/RunLog';
 import { choiceOf, stateSentence } from '../settings/summaryChoice';
 import { AI_KEY } from '../settings/summaryLanes';
@@ -19,7 +21,7 @@ import { parametersOf } from './editor';
 import { watchWindowSentence } from './window';
 import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from './Watches';
 import {
-  CALENDAR_KEY, WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
+  CALENDAR_KEY, WATCHES_KEY, instant, missedFireWords, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
 } from './model';
 
 const TABS = ['What it finds', 'Where reports go', 'Schedule'] as const;
@@ -52,7 +54,8 @@ function WatchPage({ raw }: { raw: string }) {
   const client = useQueryClient();
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
-  const [said, setSaid] = useState<{ run: number | null; text: string } | null>(null);
+  /** What Run now came to: a run started, a run queued for the next free slot, or a refusal. */
+  const [said, setSaid] = useState<{ run: number | null; queued: boolean; text: string } | null>(null);
   const saved = (useLocation().state as { said?: string } | null)?.said ?? null;
 
   const routine = useQuery({
@@ -83,6 +86,10 @@ function WatchPage({ raw }: { raw: string }) {
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
+  const ringed = useMemo(() => (latestPapers.data?.papers ?? []).map((p) => p.id), [latestPapers.data]);
+  // A paper chosen on the map opens in the run history's place, beside the map.
+  const [opened, setOpened] = useState<SkyChoice | null>(null);
+  const sky = useRef<PaperSkyHandle>(null);
 
   const changed = () => {
     void client.invalidateQueries({ queryKey: ['routine', id] });
@@ -106,13 +113,14 @@ function WatchPage({ raw }: { raw: string }) {
     mutationFn: () => answer(engine().POST('/api/routines/{routine_id}/run', { params: { path: { routine_id: id } } })),
     onMutate: () => setSaid(null),
     onSuccess: (started) => {
-      setSaid({ run: started.execution_id, text: started.detail });
+      setSaid({ run: started.execution_id ?? null, queued: started.queued === true, text: started.detail });
       void client.invalidateQueries({ queryKey: ['routine-runs', id] });
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       void client.invalidateQueries({ queryKey: WATCHES_KEY });
     },
     onError: (error) => setSaid({
       run: null,
+      queued: false,
       text: error instanceof EngineError && error.detail ? error.detail : error.message,
     }),
   });
@@ -132,7 +140,6 @@ function WatchPage({ raw }: { raw: string }) {
   const asks = watchAsks(data.parameters);
   const words = scheduleText(data.schedule_cron, data.parameters);
   const fires = promisedFires(calendar.data ?? [], id, now);
-  const ringed = (latestPapers.data?.papers ?? []).map((p) => p.id);
   const sourceNames = asks.sources.map((s) => names.get(s) ?? s);
   const firing: Firing = data.is_active ? firingOf(status.data, id) : undefined;
   const due = data.is_active ? nextWords(firing, fires[0] ? when(fires[0].start, now) : null) : null;
@@ -144,7 +151,7 @@ function WatchPage({ raw }: { raw: string }) {
       <header className="run-head">
         <Link to="/watches" className="back"><Icon name="back" size={14} />Watches</Link>
         <div className="run-headline">
-          <h1 className="run-name it">{data.name}</h1>
+          <h1 className="run-name it">{breakable(data.name)}</h1>
           <div className="run-actions">
             <button type="button" className="btn primary" onClick={() => runNow.mutate()} disabled={runNow.isPending}>
               <Icon name="arrow" size={14} />Run now
@@ -164,7 +171,7 @@ function WatchPage({ raw }: { raw: string }) {
           <span title={sourceNames.join(', ')}>
             {asks.person ? 'a person' : (asks.query || asks.keywords.join(', ')) ? `“${asks.query || asks.keywords.join(', ')}”` : 'no words'} in{' '}
             {sourceNames.length > 4
-              ? `${sourceNames.slice(0, 3).join(', ')} and ${sourceNames.length - 3} more`
+              ? `${sourceNames.slice(0, 3).join(', ')}, and ${sourceNames.length - 3} more`
               : sourceNames.join(', ') || 'no sources'}
           </span>
           {running && (
@@ -181,8 +188,16 @@ function WatchPage({ raw }: { raw: string }) {
             ? <p className="run-note run-now-said" data-run-started={said.run}>
               {said.text} <Link to={`/runs/${said.run}`}>Open run {said.run}</Link>
             </p>
-            : <p className="run-note run-now-refusal" role="alert">{said.text}</p>
+            : said.queued
+              // Accepted, not refused: the run starts on its own when a slot frees.
+              ? <p className="run-note run-now-said" role="status" data-run-queued="true">{said.text}</p>
+              : <p className="run-note run-now-refusal" role="alert">{said.text}</p>
         )}
+        <SkippedFires routine={data} now={now} onOpen={() => {
+          setTab('Schedule');
+          // Focus the tab, which brings the record into view for a pointer and a keyboard alike.
+          requestAnimationFrame(() => document.getElementById('watch-tab-Schedule')?.focus());
+        }} />
         {(schedule.error || flip.error) && (
           <p className="field-error" role="alert">{(schedule.error ?? flip.error)?.message}</p>
         )}
@@ -198,9 +213,13 @@ function WatchPage({ raw }: { raw: string }) {
 
       <div className="run-main watch-main">
         <PaperSky
+          ref={sky}
           marked={papers.data?.document_ids ?? []}
           bright={ringed}
-          outline
+          outline={data.name}
+          chosen={opened?.id ?? null}
+          onChoose={setOpened}
+          sourceName={(slug) => names.get(slug) ?? slug}
           label={`Where ${data.name}'s papers sit in the collection`}
           caption={({ placed, ready, basis }) => {
             if (!papers.data) return 'Reading this watch\'s papers.';
@@ -213,7 +232,19 @@ function WatchPage({ raw }: { raw: string }) {
             return `Its papers: ${share}.${night}`;
           }}
         />
-        <RunHistory runs={history.data ?? null} now={now} names={names} />
+        {opened ? (
+          <MapPaper
+            key={opened.id}
+            id={opened.id}
+            cell={opened.cell}
+            region={opened.region}
+            sourceName={(slug) => names.get(slug) ?? slug}
+            backLabel="Back to the runs"
+            inline
+            onBack={() => { setOpened(null); sky.current?.focus(); }}
+            onShow={() => sky.current?.show(opened.id)}
+          />
+        ) : <RunHistory runs={history.data ?? null} now={now} names={names} />}
       </div>
 
       <section className="run-record" aria-label="The watch's record">
@@ -232,6 +263,27 @@ function WatchPage({ raw }: { raw: string }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * Scheduled runs that did not happen because the run before was still going.
+ * Certain, unlike a fire that came due while resmon was closed: the engine
+ * refused each one and does not run it later, so the watch runs less often
+ * than its schedule says. Said on the page, not only on the Schedule tab and
+ * in the engine log.
+ */
+function SkippedFires({ routine, now, onOpen }: { routine: Routine; now: Date; onOpen: () => void }) {
+  const { overlap_skipped: skipped, last_overlap_skipped_due_at_utc: last } = routine.missed_fires;
+  if (!skipped) return null;
+  const at = instant(last);
+  return (
+    <p className="run-note watch-skipped" role="status" data-watch="skipped-fires" data-skipped={skipped}>
+      {skipped === 1 ? 'One scheduled run' : `${number(skipped)} scheduled runs`} did not happen because the run before
+      was still going{at ? `; ${skipped === 1 ? 'it' : 'the last'} was due ${when(at.toISOString(), now)}` : ''}. resmon does not run a skipped
+      fire later, so this watch runs less often than its schedule says.{' '}
+      <button type="button" className="watch-skipped-open" onClick={onOpen}>See its schedule</button>
+    </p>
   );
 }
 
@@ -323,7 +375,7 @@ function ScheduleTab({ routine, fires, now, firing, notice }: {
               <li key={fire.id}>
                 <span>due {when(instant(fire.due_at_utc)?.toISOString(), now)}</span>
                 <span className="sep" />
-                <span>{fire.disposition === 'ran_late' ? 'ran late, when you asked for a run' : (fire.disposition ?? 'not run')}</span>
+                <span data-disposition={fire.disposition ?? undefined}>{missedFireWords(fire.disposition)}</span>
               </li>
             ))}
           </ol>

@@ -238,8 +238,8 @@ export function watchWarnings(
   if (!p.entity && ('keywords' in p || 'query' in p) && !words.length) {
     out.push({
       kind: 'no_terms',
-      text: 'It has no words to look for, so every run sends its sources an empty query. '
-        + 'Add the words it should look for under Change.',
+      text: 'It needs search terms. It has none, so every run sends its sources an empty search, and a source '
+        + 'that refuses one answers HTTP 400. Add the terms it should look for under Change.',
     });
   }
   const from = typeof p.date_from === 'string' ? p.date_from.trim() : '';
@@ -269,6 +269,22 @@ export function watchWarnings(
     }
   }
   return out;
+}
+
+/**
+ * What became of a fire that came due and did not run, in words, from the
+ * engine's `disposition` (`database.MISSED_FIRE_DISPOSITIONS`). `recorded` is
+ * all the startup path can say: the fire was overdue when resmon started.
+ * `skipped` is certain: the run before it was still going, so it was refused
+ * and will not run.
+ */
+export function missedFireWords(disposition: string | null | undefined): string {
+  switch (disposition) {
+    case 'skipped': return 'did not run: the run before it was still going';
+    case 'recorded': return 'came due while resmon was not running';
+    case 'ran_late': return 'ran late, when you asked for a run';
+    default: return 'did not run';
+  }
 }
 
 /**

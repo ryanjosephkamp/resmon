@@ -112,6 +112,28 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
         return str(detail.get("detail") or f"{source} is no longer available.")
 
     if reason == "window_unanswerable":
+        # Two windows NDL Search cannot answer at the size asked for. It returns
+        # at most a fixed number of records a request, and resmon gets more by
+        # splitting the date range, which an open start or one crowded day
+        # defeats. Every other window_unanswerable is a year-only source.
+        why = str(detail.get("detail") or "")
+        limit = int(detail.get("records_per_request") or 0)
+        if why == "needs_start_date" and limit:
+            return (
+                f"{source} returns at most {limit} records a request, and "
+                "resmon asks for more by splitting the date range, which needs "
+                f"a start date. This run asked for more than {limit} with no "
+                f"start date, so resmon did not ask {source}. Set a start date, "
+                f"or ask for {limit} or fewer."
+            )
+        if why == "day_over_record_cap" and limit:
+            matched = int(detail.get("matched") or 0)
+            return (
+                f"{source} has {matched} records for this search on a single "
+                f"day, more than the {limit} it returns in one request, and "
+                "resmon cannot split a day. resmon kept none of the window "
+                f"rather than an arbitrary {limit}."
+            )
         return (
             f"{source} filters by publication year only, so a window shorter "
             "than one whole calendar year cannot be answered. resmon did not "
@@ -150,6 +172,12 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             what = (
                 f"HTTP {status} after {_attempts(detail)}" if status
                 else f"the request failed after {_attempts(detail)}"
+            )
+        waited = int(detail.get("waited_seconds") or 0)
+        if waited > 0:
+            what += (
+                f", with {waited} second{'s' if waited != 1 else ''} of waiting "
+                "between them"
             )
         return (
             f"{source} could not be queried: {what}. This is not a zero — the "
@@ -241,7 +269,10 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     re-issue the **same URL and the same params**. (``inspire_hep`` was missed
     on the first count, which asked for a module constant rather than for the
     behavior; ``test_client_failure_conformance.py`` now derives the set by
-    running the probe, so the next one cannot be missed the same way.) That is a request that recovered, so
+    running the probe, so the next one cannot be missed the same way.)
+    ``arxiv`` joined them on October 30, 2026: it waits out a 429 or a 503
+    itself, minutes rather than seconds, and asks for the same page again.
+    That is a request that recovered, so
     nothing is missing, and calling it partial told the user *"ERIC returned 1
     usable record before a later HTTP 503 request failed"* about a source that
     answered. Meanwhile ``_efetch``'s ``break`` means no client abandons a
@@ -266,11 +297,18 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
         }
 
     if snapshot.get("failures") and snapshot.get("last_call_failed"):
-        return "upstream_failure", {
+        detail = {
             "detail": snapshot.get("last_detail") or "request_error",
             "status": snapshot.get("last_status"),
             "attempts": snapshot.get("attempts") or 0,
         }
+        # Only a client that waits out a 429 or a 503 itself records this
+        # (arXiv), and only then is it said: four attempts in ten seconds and
+        # six over two and a half minutes are different stories.
+        waited = round(float(snapshot.get("waited_seconds") or 0))
+        if waited > 0:
+            detail["waited_seconds"] = waited
+        return "upstream_failure", detail
 
     if snapshot.get("retained_cooldown_status"):
         return "upstream_failure", {

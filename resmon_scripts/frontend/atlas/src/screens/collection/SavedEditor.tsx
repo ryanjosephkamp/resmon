@@ -1,6 +1,8 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError } from '../../api/client';
+import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
+import { commandEnter } from '../../shell/shortcuts';
 import { coarseFor, coarseSentence } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import { SAVED_KEY, editedParameters, savedForm, savedFormProblem, type SavedConfiguration } from './savedSearches';
@@ -61,7 +63,7 @@ export function SavedEditor({ config, onDone }: {
   };
 
   return (
-    <form className="saved-editor" onSubmit={submit} aria-label={`Change the saved search “${config.name}”`} data-saved="editor">
+    <form className="saved-editor" {...commandEnter()} onSubmit={submit} aria-label={`Change the saved search “${config.name}”`} data-saved="editor">
       <div className="form-field saved-editor-name">
         <label className="form-label" htmlFor={`${id}-name`}>Name</label>
         <input id={`${id}-name`} value={name} autoComplete="off" onChange={(event) => setName(event.target.value)} />
@@ -112,10 +114,12 @@ export function SavedEditor({ config, onDone }: {
         )}
       </div>
       <div className="form-actions">
-        <button type="submit" className="btn primary" data-saved="save-changes" disabled={!!problem || save.isPending}>
+        <button type="submit" className="btn primary" data-saved="save-changes" disabled={!!problem || save.isPending}
+          aria-keyshortcuts={commandEnterKeys()}>
           {save.isPending ? 'Saving' : 'Save changes'}
         </button>
         <button type="button" className="btn quiet" disabled={save.isPending} onClick={() => onDone(null)}>Cancel</button>
+        <CommandEnterHint />
         {problem && <p className="form-hint" data-saved="problem">{problem}</p>}
       </div>
       {save.error && (

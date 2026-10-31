@@ -1,5 +1,4 @@
-import { closeGroups, convexHull } from '../../sky/PaperSky';
-import { deliveryWords, instant, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
+import { deliveryWords, instant, missedFireWords, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
 
 describe('scheduleText says only what the scheduler will do', () => {
   test.each([
@@ -64,18 +63,13 @@ describe('a watch, read out of what the engine stores', () => {
   });
 });
 
-describe('the constellation outlines', () => {
-  test('the hull keeps the corners and drops what is inside', () => {
-    const hull = convexHull([[0, 0], [4, 0], [4, 4], [0, 4], [2, 2], [1, 3]]);
-    expect(hull).toHaveLength(4);
-    expect(hull).not.toContainEqual([2, 2]);
-  });
-
-  test('close points chain into one group, a far one stays out, and small groups are dropped', () => {
-    const near: [number, number][] = [[0, 0], [5, 0], [10, 0], [15, 0], [20, 0]];
-    const groups = closeGroups([...near, [200, 200], [205, 200]], 6, 5);
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toHaveLength(5);
-    expect(closeGroups(near, 4, 5)).toHaveLength(0);
+describe('a fire that did not run is said in words', () => {
+  test.each([
+    ['skipped', 'did not run: the run before it was still going'],
+    ['recorded', 'came due while resmon was not running'],
+    ['ran_late', 'ran late, when you asked for a run'],
+    [null, 'did not run'],
+  ])('%s', (disposition, words) => {
+    expect(missedFireWords(disposition)).toBe(words);
   });
 });

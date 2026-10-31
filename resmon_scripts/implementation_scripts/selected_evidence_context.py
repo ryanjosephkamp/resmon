@@ -51,6 +51,11 @@ def validate_input(value: dict) -> dict:
         choices.validate(value['choices'])
     except (ValueError, TypeError):
         se.fail('Supply a complete supported runtime/model/effort choice.')
+    # An answer from selected evidence runs with no tools and a recorded system
+    # inventory, which is Claude Code's or an API key's; Codex is an Ask
+    # connection only.
+    if value['choices']['runtime'] == 'codex_cli':
+        se.fail('Answers from selected evidence run on Claude Code or an API key, not Codex.')
     # The HTTP boundary is smaller; this also bounds direct domain callers.
     if len(se.canonical(value).encode()) > 262144:
         se.fail('The selection exceeds 256 KiB.', 'selection_limit', 413)

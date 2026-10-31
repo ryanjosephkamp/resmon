@@ -13,7 +13,7 @@ import type { Bound, ChoiceRequest, Choices, Connection, Message, Requested, Tur
 /** A provider as a person knows it. An unknown one is shown as the engine names it. */
 export const PROVIDER_WORDS: Record<string, string> = {
   claude_code: 'Claude Code', anthropic: 'Anthropic', openai: 'OpenAI', google: 'Google',
-  custom: 'a custom API', local: 'Ollama', codex: 'Codex', xai: 'xAI', meta: 'Meta', deepseek: 'DeepSeek',
+  custom: 'a custom API', local: 'Ollama', codex: 'Codex', xai: 'xAI', meta: 'Meta, through Together AI', deepseek: 'DeepSeek',
   alibaba: 'Alibaba',
 };
 
@@ -83,18 +83,32 @@ export function answeredWords(turns: readonly TurnChoices[]): string | null {
  * effort that was asked for, and the cost. "Haiku 5.5 · high effort ·
  * Reported cost $0.0123, not an invoice". The effort is the request's: no
  * runtime reports the effort it used.
+ *
+ * Codex reports tokens and never a price, so a Codex answer says its tokens
+ * where another says its cost: "1,200 tokens in, 80 out, as Codex reported".
  */
-export function answerFooterWords(turn: TurnChoices | undefined, cost: number | null | undefined): string {
+export function answerFooterWords(turn: TurnChoices | undefined, cost: number | null | undefined,
+  tokens?: { input_tokens?: number | null; output_tokens?: number | null }): string {
   const parts: string[] = [];
+  const requested = turn?.requested;
   if (turn) {
     parts.push(turn.answered_by ? turn.answered_by.name : 'Model not reported');
-    const requested = turn.requested;
     if (isReadable(requested) && requested.runtime !== 'api_key') {
       parts.push(requested.requested_effort ? `${requested.requested_effort} effort` : 'default effort');
     }
   }
-  parts.push(costWords(cost));
+  parts.push(isReadable(requested) && requested.runtime === 'codex_cli'
+    ? tokenWords(tokens?.input_tokens, tokens?.output_tokens)
+    : costWords(cost));
   return parts.join(' · ');
+}
+
+const COUNT = new Intl.NumberFormat('en-US');
+
+/** Tokens a runtime reported, in and out. Not a cost, and never drawn as one. */
+export function tokenWords(input: number | null | undefined, output: number | null | undefined): string {
+  if (input === null || input === undefined || output === null || output === undefined) return 'Tokens not reported';
+  return `${COUNT.format(input)} tokens in, ${COUNT.format(output)} out, as Codex reported`;
 }
 
 /** The heading of a turn that produced no answer. */
@@ -119,6 +133,8 @@ export function basisWords(choices: Bound | TurnChoices['requested'] | undefined
 const REPORT_SOURCES: Record<string, string> = {
   claude_system_init_model: 'announced by the Claude CLI as it started',
   claude_result_model_usage: 'billed for this answer, as the Claude CLI reported',
+  codex_event_model: 'named by Codex in its own events',
+  codex_header_model: 'named in the header Codex printed as it started',
   api_response_model: 'named in the provider’s reply',
   google_response_modelVersion: 'named in Google’s reply',
 };

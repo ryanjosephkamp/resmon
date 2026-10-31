@@ -399,6 +399,22 @@ def generate_watch_report(profile: dict, findings: dict, check: dict) -> str:
         lines.append(f"{len(errors)} paper(s) could not be checked this run and "
                      f"were left unchecked rather than recorded as clear.")
         lines.append("")
+    # Each service that did not answer, as the corpus check's own summary says
+    # it: a paper a service left unchecked is not a paper found clear, and a
+    # report that dropped the line would read as a check that found nothing.
+    unanswered = check.get("unanswered") or []
+    if unanswered:
+        lines.append("Not every service answered, so these papers were left "
+                     "unchecked this run rather than recorded as clear:")
+        lines.append("")
+        for service in unanswered:
+            papers = int(service.get("papers") or 0)
+            reason = service.get("reason")
+            lines.append(
+                f"- **{service.get('name') or service.get('service')}** did not answer "
+                f"for {papers} paper{'s' if papers != 1 else ''}"
+                + (f": {reason}" if reason else "") + ".")
+        lines.append("")
 
     lines.append("## Findings")
     lines.append("")

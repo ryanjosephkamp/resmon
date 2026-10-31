@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../../api/client';
+import { CommandEnterHint, commandEnterKeys } from '../../../shell/CommandEnterHint';
+import { commandEnter } from '../../../shell/shortcuts';
 import { PEOPLE_KEY, lines, livePreviewWarning, type Profile } from './model';
 
 /**
@@ -55,7 +57,7 @@ export function PersonEditor({ target, onDone }: { target: Profile | null; onDon
   };
 
   return (
-    <form className="person-editor" onSubmit={submit} aria-label={target ? `Change ${target.display_name}` : 'A new person'}>
+    <form className="person-editor" {...commandEnter()} onSubmit={submit} aria-label={target ? `Change ${target.display_name}` : 'A new person'}>
       <div className="person-fields">
         <label htmlFor="person-name">Name, as published <span>the name resmon asks the sources for</span></label>
         <input id="person-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" autoComplete="off" />
@@ -81,10 +83,11 @@ export function PersonEditor({ target, onDone }: { target: Profile | null; onDon
         <p>{warning ?? 'With an ORCID, a paper whose source returns it is matched by identity. A paper without it can still match by name, or by name and affiliation, and its match says which.'}</p>
       </aside>
       <div className="person-actions">
-        <button type="submit" className="btn primary" disabled={!name.trim() || save.isPending}>
+        <button type="submit" className="btn primary" disabled={!name.trim() || save.isPending} aria-keyshortcuts={commandEnterKeys()}>
           {save.isPending ? 'Saving' : target ? 'Save changes' : 'Save person'}
         </button>
         <button type="button" className="btn quiet" onClick={() => onDone(null)}>Cancel</button>
+        <CommandEnterHint />
         {save.error && <p className="field-error" role="alert">{save.error.message}</p>}
       </div>
     </form>

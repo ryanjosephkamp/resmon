@@ -183,7 +183,8 @@ test('P12: a near-duplicate is badged, and collapse hides nothing until asked',
         expect(request.status).toBe(200);
         expect(request.provider === 'arxiv'
           ? request.params.search_query : request.params.search).toBe(
-          request.provider === 'arxiv' ? `all:${query}` : query);
+          // arXiv is asked for every word; OpenAlex takes the words as typed.
+          request.provider === 'arxiv' ? query.split(/\s+/).map((word) => `all:${word}`).join(' AND ') : query);
       }
       console.log('P12 SOURCE REQUESTS', JSON.stringify(requests));
 

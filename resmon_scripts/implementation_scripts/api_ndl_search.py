@@ -2,7 +2,7 @@
 
 import calendar
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 import logging
 import re
 from urllib.parse import urlsplit
@@ -14,6 +14,7 @@ from .api_base import (
     RateLimiter,
     note_filtered,
     note_parse_failure,
+    note_unanswerable,
     safe_request,
 )
 
@@ -82,6 +83,11 @@ def _parse_date_bound(value: str | None) -> _DateBound | None:
 
 def _as_day(value: date) -> str:
     return value.isoformat()
+
+
+def _utc_today() -> date:
+    """Today in UTC. A seam, so a test can fix the day."""
+    return datetime.now(timezone.utc).date()
 
 
 # A CQL index clause, as the catalog's `entity_search.author_syntax` writes one:
@@ -187,14 +193,30 @@ class NDLSearchClient(BaseAPIClient):
                 return []
             return self._deduplicate(fetched[1])[:max_results]
 
-        if not date_from or not date_to:
+        # More than one request returns. NDL answers only the first 500 records
+        # of any query (October 30, 2026: `startRecord=501` was refused as
+        # "illegal startRecord value", and `startRecord=2` with 500 returned
+        # 499), so there is no paging past them; resmon splits the date range
+        # instead, which needs two ends.
+        #
+        # This returned [] with a log line and nothing on the run, for any
+        # open side. With no request made the run read "resmon did not record
+        # whether NDL Search answered", a quiet zero where a search was refused
+        # for a reason resmon knew. An open end is now today, UTC, which is
+        # where a watch "since the previous run" means it to stop. An open start
+        # has no such day: NDL's records reach back centuries, and splitting
+        # them is a request per few hundred records. That one is recorded with
+        # its reason, before any request is sent.
+        if not date_from:
             logger.error(
-                "NDL Search cannot honestly retrieve more than %d results without a bounded date interval",
+                "NDL Search cannot retrieve more than %d results without a start date",
                 _MAX_RECORDS,
             )
+            note_unanswerable("needs_start_date", records_per_request=_MAX_RECORDS)
             return []
 
-        partitioned = self._collect_partitions(query, lower.start, upper.end)
+        last_day = upper.end if date_to else max(_utc_today(), lower.start)
+        partitioned = self._collect_partitions(query, lower.start, last_day, max_results)
         if partitioned is None:
             return []
         return self._deduplicate(partitioned)[:max_results]
@@ -204,8 +226,16 @@ class NDLSearchClient(BaseAPIClient):
         query: str,
         lower: date,
         upper: date,
+        wanted: int,
     ) -> list[NormalizedResult] | None:
-        """Recursively split an inclusive date window when NDL reports >500 hits."""
+        """Recursively split an inclusive date window when NDL reports >500 hits.
+
+        Earlier days first, and it stops once ``wanted`` records are held: the
+        caller keeps the first ``wanted`` in that order, so a range the run
+        will never read is not asked for. Without the stop, a start date years
+        back fetched every record since then, hundreds of requests, to keep a
+        few.
+        """
         fetched = self._fetch(query, _as_day(lower), _as_day(upper), _MAX_RECORDS)
         if fetched is None:
             return None
@@ -217,13 +247,21 @@ class NDLSearchClient(BaseAPIClient):
                 "NDL Search has %d records on %s, exceeding the documented %d-record ceiling",
                 total, lower.isoformat(), _MAX_RECORDS,
             )
+            # Requests were made and answered, so without a reason this zero
+            # would read "NDL Search answered and resmon found no records".
+            note_unanswerable(
+                "day_over_record_cap", records_per_request=_MAX_RECORDS, matched=total)
             return None
 
         midpoint = lower + timedelta(days=(upper - lower).days // 2)
-        left = self._collect_partitions(query, lower, midpoint)
+        left = self._collect_partitions(query, lower, midpoint, wanted)
         if left is None:
             return None
-        right = self._collect_partitions(query, midpoint + timedelta(days=1), upper)
+        held = len(self._deduplicate(left))
+        if held >= wanted:
+            return left
+        right = self._collect_partitions(
+            query, midpoint + timedelta(days=1), upper, wanted - held)
         if right is None:
             return None
         return left + right

@@ -62,7 +62,7 @@ const has = (n: number) => (n === 1 ? 'has' : 'have');
 /** A provider as this list names it. */
 export function providerName(provider: string): string {
   if (provider === 'local') return 'Ollama, on this computer';
-  if (provider === 'meta') return 'Meta, through Together';
+  if (provider === 'meta') return 'Meta, through Together AI';
   if (provider === 'custom') return 'A custom endpoint';
   return providerWords(provider);
 }

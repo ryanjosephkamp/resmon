@@ -310,6 +310,55 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
   }
 });
 
+test('⌘Enter does a field\'s primary action where its button would, and plain Enter is left as it was', async () => {
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('command-enter');
+  try {
+    const started: string[] = [];
+    win.on('request', (r) => { if (/\/api\/search\/(dive|sweep)$/.test(r.url())) started.push(r.url()); });
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    const terms = win.getByLabel('Search terms');
+    await expect(win.locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    // Plain Enter in the terms still adds a term.
+    await terms.fill('perovskite');
+    await terms.press('Enter');
+    await expect(win.locator('.term', { hasText: 'perovskite' })).toBeVisible();
+    // With no source chosen, Ask is disabled, and ⌘Enter does nothing either.
+    const ask = win.locator('.ask-go button[type="submit"]');
+    await expect(ask).toBeDisabled();
+    await terms.fill('tandem');
+    await terms.press('ControlOrMeta+Enter');
+    await win.waitForTimeout(400);
+    await expect(terms).toHaveValue('tandem');
+    expect(started).toEqual([]);
+    await expect(win.locator('.ask-go .enter-hint')).toHaveText(process.platform === 'darwin' ? '⌘↩' : 'Ctrl+Enter');
+    await expect(ask).toHaveAttribute('aria-keyshortcuts', process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.locator('.ask-go').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-command-enter.png') });
+
+    // A saved search's name: ⌘Enter saves it, as Save does, and starts no run, though Ask could.
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await expect(ask).toBeEnabled();
+    await win.locator('[data-saved="keep"]').click();
+    await win.locator('#keep-name').fill('Tandems, by the keyboard');
+    await win.locator('#keep-name').press('ControlOrMeta+Enter');
+    await expect(win.locator('[data-saved="kept"]')).toContainText('Tandems, by the keyboard', { timeout: 30_000 });
+    expect(started, '⌘Enter in the name started a run').toEqual([]);
+    expect(await win.evaluate(() => window.location.hash)).toBe('#/search/ask');
+
+    // The sheet names it.
+    await win.locator('h1').first().click();
+    await win.keyboard.press('Shift+Slash');
+    const sheet = win.getByRole('dialog', { name: 'Keyboard shortcuts' });
+    await expect(sheet.locator('[data-shortcut="command-enter"] dt')).toHaveText('Save or send what you wrote');
+    await expect(sheet.locator('[data-shortcut="command-enter"] kbd')).toHaveText(process.platform === 'darwin' ? '⌘↩' : 'Ctrl+Enter');
+    await win.keyboard.press('Escape');
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
 test('New search: a Deep Dive or a Deep Sweep from any screen, and a search not yet started is kept', async () => {
   test.setTimeout(240_000);
   const { win, problems, done } = await launchAtlas('new-search', 1280);

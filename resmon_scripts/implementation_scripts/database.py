@@ -640,8 +640,9 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # ``documents.metadata_hash``, which every stored result is checked against.
 # 23 adds ``assistant_turn_failures``, so a failed Ask turn is kept as a failure
 # rather than as an answer, and ``execution_ai_models``, the models an agent
-# CLI reported for a run's summaries.
-SCHEMA_VERSION = 23
+# CLI reported for a run's summaries. 24 rebuilds ``assistant_session_choices``
+# so a conversation can be fixed to Codex, with Codex's own effort levels.
+SCHEMA_VERSION = 24
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -729,6 +730,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_delivery(conn)
     _migrate_metadata_hash_index(conn)
     _migrate_answer_records(conn)
+    _migrate_assistant_codex(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
     # Commit before returning. Since BUG-020 each thread holds its own
@@ -1365,7 +1367,12 @@ def _migrate_assistant_choices(conn: sqlite3.Connection) -> None:
             if row is None:
                 conn.execute(ddl)
             row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
-            if not row or ' '.join((row[0] or '').split()) != ' '.join(ddl.split()):
+            # Schema 24 rebuilds the first table in place; that shape is this
+            # one's successor, not a conflict with it.
+            accepted = {' '.join(ddl.split())}
+            if name == "assistant_session_choices":
+                accepted.add(' '.join(_ASSISTANT_CHOICES_V24_DDL.split()))
+            if not row or ' '.join((row[0] or '').split()) not in accepted:
                 raise sqlite3.DatabaseError("Conflicting schema-15 object: " + name)
         conn.execute(
             "INSERT INTO app_settings(key,value) VALUES (?,?) "
@@ -2153,6 +2160,82 @@ def _migrate_answer_records(conn: sqlite3.Connection) -> None:
         conn.execute("ROLLBACK TO answer_records_v23")
         conn.execute("RELEASE answer_records_v23")
         raise
+    conn.commit()
+
+
+# Schema 24. A conversation can be fixed to Codex.
+#
+# Schema 15's ``assistant_session_choices`` named the two runtimes Ask had,
+# and its effort CHECK named Claude Code's five levels. Codex is a third
+# runtime, and its levels come from its own catalog (``codex debug models``
+# lists each model's), so they are not a fixed set resmon can enumerate: a
+# Codex effort is held to the shape of a level -- a short lowercase word --
+# and the command accepts or refuses it when it runs, as the Claude Code
+# command does with its own. Claude Code keeps exactly the five it had.
+#
+# A CHECK cannot be altered in place, so the table is rebuilt, on fresh and
+# upgraded databases alike: schema 15 creates the old shape and this replaces
+# it, so the two paths cannot drift. Rows are copied as they are.
+_ASSISTANT_CHOICES_V24_DDL = """CREATE TABLE "assistant_session_choices" (
+        session_id INTEGER PRIMARY KEY REFERENCES assistant_sessions(id) ON DELETE CASCADE,
+        version INTEGER NOT NULL CHECK(version=1),
+        runtime TEXT NOT NULL CHECK(runtime IN ('claude_cli','codex_cli','api_key')),
+        provider TEXT NOT NULL,
+        requested_model TEXT,
+        requested_effort TEXT CHECK(requested_effort IS NULL OR (length(requested_effort) BETWEEN 1 AND 32 AND requested_effort NOT GLOB '*[^a-z0-9_-]*')),
+        model_basis TEXT NOT NULL CHECK(model_basis IN ('explicit','settings_default','runtime_default')),
+        effort_basis TEXT NOT NULL CHECK(effort_basis IN ('explicit','settings_default','runtime_default','not_supported')),
+        route_digest TEXT NOT NULL,
+        binding_basis TEXT NOT NULL CHECK(binding_basis IN ('new','legacy_confirmed')),
+        created_at_utc TEXT NOT NULL,
+        CHECK(runtime != 'api_key' OR requested_effort IS NULL),
+        CHECK(runtime != 'claude_cli' OR requested_effort IS NULL OR requested_effort IN ('low','medium','high','xhigh','max'))
+    )"""
+
+
+def _migrate_assistant_codex(conn: sqlite3.Connection) -> None:
+    """Rebuild ``assistant_session_choices`` with the schema-24 CHECKs.
+
+    Already in that shape: only the marker moves. In schema 15's shape: the
+    rows are carried into the new table unchanged. Any other shape is a
+    conflict -- ``_migrate_assistant_choices`` has already refused it.
+    """
+    def shape() -> str:
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='assistant_session_choices'"
+        ).fetchone()
+        return " ".join(((row[0] if row else "") or "").split())
+
+    target = " ".join(_ASSISTANT_CHOICES_V24_DDL.split())
+    if shape() != target:
+        if shape() != " ".join(_ASSISTANT_CHOICES_DDL["assistant_session_choices"].split()):
+            raise sqlite3.DatabaseError("Conflicting schema-24 object: assistant_session_choices")
+        # Nothing references this table, and its own reference is to
+        # ``assistant_sessions``, which is not touched; foreign keys stay on.
+        conn.commit()
+        conn.execute("SAVEPOINT assistant_codex_v24")
+        try:
+            conn.execute(_ASSISTANT_CHOICES_V24_DDL.replace(
+                '"assistant_session_choices"', "assistant_session_choices_v24_new", 1))
+            columns = ", ".join(
+                f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(assistant_session_choices)"))
+            conn.execute(f"INSERT INTO assistant_session_choices_v24_new ({columns}) "
+                         f"SELECT {columns} FROM assistant_session_choices")
+            conn.execute("DROP TABLE assistant_session_choices")
+            conn.execute("ALTER TABLE assistant_session_choices_v24_new RENAME TO assistant_session_choices")
+            if shape() != target:
+                raise sqlite3.DatabaseError("Conflicting schema-24 object: assistant_session_choices")
+            conn.execute("RELEASE assistant_codex_v24")
+        except BaseException:
+            conn.execute("ROLLBACK TO assistant_codex_v24")
+            conn.execute("RELEASE assistant_codex_v24")
+            raise
+    conn.execute(
+        "INSERT INTO app_settings(key,value) VALUES (?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+        "WHERE CAST(app_settings.value AS INTEGER)<24",
+        (_SCHEMA_VERSION_KEY, "24"),
+    )
     conn.commit()
 
 
@@ -3182,11 +3265,12 @@ def get_last_answered_models(conn: sqlite3.Connection) -> list[dict]:
             reports = json.loads(row["reported_json"])
         except (TypeError, ValueError):
             continue
-        if not isinstance(requested, dict) or requested.get("runtime") != "claude_cli":
+        if not isinstance(requested, dict) or requested.get("runtime") not in ("claude_cli", "codex_cli"):
             continue
         answer = answered_by(reports)
         if answer:
-            offer("claude_code", str(requested.get("requested_model") or ""), answer["model"],
+            offer("codex" if requested.get("runtime") == "codex_cli" else "claude_code",
+                  str(requested.get("requested_model") or ""), answer["model"],
                   "ask", str(row["created_at_utc"] or ""))
 
     for row in conn.execute(

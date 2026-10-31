@@ -2,7 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
-import { number } from '../today/format';
+import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
+import { commandEnter } from '../../shell/shortcuts';
+import { number, publishedWords } from '../today/format';
 import { WATCHES_KEY, type Coverage, type Routine } from './model';
 
 type CoveragePaper = Coverage['off_target'][number];
@@ -116,7 +118,7 @@ function CoverageList({ rows }: { rows: readonly CoveragePaper[] }) {
         <li key={row.id}>
           <span className="coverage-distance num" title="Distance from the intent; smaller is closer">{row.distance.toFixed(3)}</span>
           <Link to={`/papers/${row.id}`} className="coverage-title">{row.title}</Link>
-          <span className="coverage-source">{row.source_repository}{row.publication_date ? ` · ${row.publication_date}` : ''}</span>
+          <span className="coverage-source">{row.source_repository}{row.publication_date ? ` · ${publishedWords(row.publication_date)}` : ''}</span>
         </li>
       ))}
     </ol>
@@ -141,7 +143,7 @@ function IntentForm({ routineId, stored }: { routineId: number; stored: string }
     save.mutate(draft.trim());
   };
   return (
-    <form className="intent-form" onSubmit={submit}>
+    <form className="intent-form" {...commandEnter()} onSubmit={submit}>
       <label htmlFor="watch-intent" className="record-sub">What this watch is really looking for</label>
       <textarea
         id="watch-intent"
@@ -151,9 +153,10 @@ function IntentForm({ routineId, stored }: { routineId: number; stored: string }
         placeholder="A sentence or two in your own words: what a paper this watch should find is about."
       />
       <div className="intent-actions">
-        <button type="submit" className="btn sm" disabled={save.isPending || draft.trim() === stored}>
+        <button type="submit" className="btn sm" disabled={save.isPending || draft.trim() === stored} aria-keyshortcuts={commandEnterKeys()}>
           {save.isPending ? 'Saving' : 'Save'}
         </button>
+        <CommandEnterHint />
         <span className="record-cap">
           The audit below compares against this. Leave it empty and it falls back to the watch&rsquo;s keywords.
         </span>

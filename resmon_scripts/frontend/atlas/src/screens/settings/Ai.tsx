@@ -12,6 +12,7 @@ import { EMBEDDING_PAGE_KEY, Embeddings, readEmbeddingPage, readEmbeddingStatus 
 import { refusal } from './ProviderKey';
 import { SummaryForm } from './SummaryForm';
 import { AI_KEY, routeSentence } from './summaryLanes';
+import { commandEnter } from '../../shell/shortcuts';
 
 const ASSISTANT_KEY = ['assistant-settings'] as const;
 
@@ -99,12 +100,12 @@ function Assistant() {
       {status.data && (
         <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
           <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
-            <strong>{status.data.runtime.kind === 'api_key' ? 'An API key' : 'Claude Code'}</strong>{' '}
+            <strong>{routeName(status.data.runtime.kind)}</strong>{' '}
             {routeSentence(status.data.runtime.kind, status.data.available, status.data.reason, true)}
           </li>
           {status.data.others.map((other) => (
             <li key={other.kind} data-available={other.available} data-kind={other.kind}>
-              <strong>{other.kind === 'api_key' ? 'An API key' : other.kind === 'codex_cli' ? 'Codex' : 'Claude Code'}</strong>{' '}
+              <strong>{routeName(other.kind)}</strong>{' '}
               {routeSentence(other.kind, other.available, other.reason, false)}
             </li>
           ))}
@@ -114,6 +115,9 @@ function Assistant() {
   );
 }
 
+
+/** One way the assistant can run, as a person names it. */
+const routeName = (kind: string): string => (kind === 'api_key' ? 'An API key' : kind === 'codex_cli' ? 'Codex' : 'Claude Code');
 
 function AssistantForm({ stored, status }: { stored: AssistantSettings; status: Status }) {
   const client = useQueryClient();
@@ -135,7 +139,7 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
   const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: !api, refetchOnMount: 'always' });
   const words = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
   return (
-    <form className="settings-form" aria-label="Assistant settings"
+    <form className="settings-form" {...commandEnter()} aria-label="Assistant settings"
       onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
       <div className="form-grid">
         <label className="form-field" htmlFor="assistant-runtime">

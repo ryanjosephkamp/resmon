@@ -123,7 +123,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
 
     // The watch the earlier interface saved: no words, and a window that ended.
     const old = win.locator(`.watch[data-routine="${stale}"]`);
-    await expect(old.locator('[data-warning="no_terms"]')).toContainText('every run sends its sources an empty query');
+    await expect(old.locator('[data-warning="no_terms"]')).toContainText('every run sends its sources an empty search');
     await expect(old.locator('[data-warning="window_ended"]'))
       .toContainText('Every run asks for papers published from May 3, 2026 to May 4, 2026');
     await expect(old.locator('[data-warning="window_ended"]').getByRole('link', { name: 'Change' }))
@@ -232,7 +232,9 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
     await expect(intent).toContainText('results the query produced');
     await expect(page.locator('[data-coverage="cannot-see"]')).toContainText('only compare against papers it already holds');
     await win.getByLabel('What this watch is really looking for').fill('Perovskite films that keep their efficiency.');
-    await page.locator('.intent-form').getByRole('button', { name: 'Save' }).click();
+    await page.locator('.intent-form').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-intent.png') });
+    // ⌘Enter (Ctrl+Enter) in the field saves it, as Save does.
+    await win.getByLabel('What this watch is really looking for').press('ControlOrMeta+Enter');
     await expect(intent).toContainText('the intent written for this watch', { timeout: 30_000 });
     await expect(intent).not.toContainText('results the query produced');
 

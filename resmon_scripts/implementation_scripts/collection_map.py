@@ -580,9 +580,9 @@ def _region_names(matrix: _Csr, region: np.ndarray, k: int, vocabulary: dict[str
                     break
         names.append(name)
         top_terms.append([t for t in ranked if t != name][:4])
-    # Regions with one name are told apart by their next term that is neither
-    # already a word of the name ("causal inference · causal" says nothing) nor
-    # the term another region of that name was told apart by.
+    # Regions with one name are told apart by their next term, less any word
+    # the name already has, and never by what another region of that name was
+    # told apart by.
     groups: dict[str, list[int]] = {}
     for c, name in enumerate(names):
         if name:
@@ -590,15 +590,29 @@ def _region_names(matrix: _Csr, region: np.ndarray, k: int, vocabulary: dict[str
     for name, members in groups.items():
         if len(members) < 2:
             continue
-        words_in_name = set(name.split(" "))
         used: set[str] = set()
         for c in members:
-            other = next((t for t in top_terms[c]
-                          if not set(t.split(" ")) <= words_in_name and t not in used), None)
+            other = _told_apart_by(name, top_terms[c], used)
             if other:
                 used.add(other)
                 names[c] = f"{name} · {other}"
     return names, top_terms
+
+
+def _told_apart_by(name: str, terms: list[str], used: set[str]) -> Optional[str]:
+    """The suffix that tells a region from others of the same name, or None.
+
+    The words of the first term that are not already words of the name: a
+    suffix never repeats one. "causal inference · causal" says nothing, and
+    "dark matter · matter halos" says "matter" twice where "dark matter · halos"
+    says the same thing once.
+    """
+    words_in_name = set(name.split(" "))
+    for term in terms:
+        suffix = " ".join(w for w in term.split(" ") if w and w not in words_in_name)
+        if suffix and suffix not in used:
+            return suffix
+    return None
 
 
 def _warm_start(previous: Optional[Fit], ids: np.ndarray, region: np.ndarray, centers: np.ndarray

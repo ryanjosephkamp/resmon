@@ -116,6 +116,9 @@ def test_every_runtime_kind_has_a_transmission_test():
 
 _TRANSMISSION_TESTS = {
     "claude_cli": "test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn",
+    # Codex has no system-prompt flag; the constitution is the AGENTS.md in the
+    # turn's working directory, read back from what the double found there.
+    "codex_cli": "test_assistant_codex.py::test_the_constitution_arrives_as_agents_md_and_not_in_the_turn",
     # 2.0b. In ``test_assistant_api_runtime.py``, parametrised over the three
     # request families, against a loopback server that records what was actually
     # sent — the argv equivalent for a runtime that speaks HTTP.
@@ -567,26 +570,24 @@ def test_publishing_to_a_closed_session_is_not_an_error():
 # Codex
 # ---------------------------------------------------------------------------
 
-def test_codex_is_refused_as_a_runtime_with_a_reason_a_person_can_read():
-    """Decision 1's condition, and the answer established against codex 0.153.1.
+def test_codex_is_a_runtime_whose_reason_says_what_it_is_given():
+    """Codex is Ask's second command, offered resmon's read-only tools only.
 
-    ``--strict-config`` rejects ``tools.shell``, ``tools.shell.enabled`` and
-    ``shell_tool`` as unknown fields while accepting ``tools.web_search``, so the
-    check discriminates. ``codex exec`` has no interactive approval, and
-    ``codex mcp-server``'s only control is ``on-request | never`` over shell
-    commands. The shell cannot be taken away, so the condition is not met.
+    ``codex exec`` cannot hold a call for a card, so the reason a person reads
+    says Codex can look things up and cannot change anything, and that finding
+    the command is not a sign-in. The runtime itself is covered in
+    ``test_assistant_codex.py``.
     """
-    assert "claude_cli" in ar.RUNTIME_KINDS
-    assert "codex_cli" not in ar.RUNTIME_KINDS
-    reason = ar.codex_unavailable_reason()
-    assert "shell" in reason.lower()
-    assert "summaris" in reason.lower(), (
-        "the reason must say codex is still fine for the job it does today"
-    )
+    assert ar.RUNTIME_KINDS == ("claude_cli", "codex_cli", "api_key")
+    reason = ar.codex_connection_reason()
+    assert "read-only tools only" in reason
+    assert "unverified" in reason
+    assert "cannot change anything" in reason
 
 
-def test_the_status_reports_codex_even_when_it_is_installed():
+def test_the_status_reports_codex_even_when_it_is_not_found(monkeypatch):
     """Omitting it would read, to a user who has it, as resmon not noticing."""
+    monkeypatch.setenv("RESMON_AI_CLI_DISCOVERY", "configured-only")
     status = ar.runtime_status({})
     others = {entry["kind"]: entry for entry in status["others"]}
     assert others["codex_cli"]["available"] is False

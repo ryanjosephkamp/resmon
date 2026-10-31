@@ -185,3 +185,16 @@ describe('summaries for one run or one watch', () => {
       + 'starts, unless you choose one for this watch.');
   });
 });
+
+describe('Meta is named by where the text goes', () => {
+  // Meta's models are reached through Together AI (`llm_remote`'s spec for `meta`), and Settings › About says so.
+  test('every picker and sentence names Together AI', async () => {
+    const { PROVIDERS, laneName } = await import('../summaryLanes');
+    const { providerWords } = await import('../../ask/askModel');
+    const { providerName } = await import('../embeddingWords');
+    expect(PROVIDERS.find((p) => p.value === 'meta')?.label).toBe('Meta, through Together AI');
+    expect(providerWords('meta')).toBe('Meta, through Together AI');
+    expect(laneName('meta')).toBe('Meta, through Together AI');
+    expect(providerName('meta')).toBe('Meta, through Together AI');
+  });
+});

@@ -773,6 +773,12 @@ it sends no <code>Authorization</code> header and no route is exempt. Symmetrica
 not attach to a backend that published no token file. So a separate MCP checkout is updated
 in the same sitting as the app; running one of each is not a degraded mode, it is no
 service at all.</p>
+<p><strong>A read-only session.</strong> A server started with <code>RESMON_MCP_READ_ONLY=1</code> lists only the
+tools whose <code>requires_confirmation</code> is false, and refuses a call to any other with
+<code>invalid_argument</code> and <code>detail: {"read_only": true}</code> before anything reaches the backend.
+Any other value, or none, leaves the full surface. It is for a client that cannot ask a
+person before a call runs: Ask on Codex starts resmon’s server this way, because <code>codex exec</code> cannot hold a call for the panel’s card. Nothing else about the server changes, and
+the contract version does not move: the default surface is the one above.</p>
 <hr>
 <h2 id="v24--update_settings-admits-a-key-by-name">v2.4 — <code>update_settings</code> admits a key by name</h2>
 <p><strong>Narrowing, not additive.</strong> No tool arrives or leaves and no return shape moves, but a

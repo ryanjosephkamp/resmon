@@ -136,3 +136,36 @@ def test_a_source_still_being_asked_when_the_run_was_cancelled_did_not_fail_to_a
     mixed = project({"repositories": ["hal", "plos"]},
                     [cancelled, row("plos", reason="upstream_failure")], status="cancelled")
     assert "2 recorded non-answers (1 could not answer, 1 cancelled before it answered)" in mixed["summary"]
+
+
+def _refused(source, status=400):
+    return row(source, 0, "upstream_failure", zero_detail=json.dumps({"status": status, "attempts": 1}))
+
+
+def test_a_400_to_a_run_with_no_terms_is_said_to_be_the_empty_search():
+    """A watch saved with no terms sent arXiv, DOAJ, and PLOS an empty search on
+    every run, and each answered HTTP 400. The rows read as sources that could
+    not be queried; the run says why."""
+    built = project({"repositories": ["arxiv", "doaj", "crossref"], "query": "", "keywords": []},
+                    [_refused("arxiv"), _refused("doaj"), _refused("crossref", status=503)])
+    notes = {s["source"]: s["note"] for s in built["sources"]}
+    assert notes["arxiv"].endswith(coverage.NO_TERMS_REFUSAL)
+    assert notes["doaj"].endswith(coverage.NO_TERMS_REFUSAL)
+    # A 503 is the source being down, whatever was asked.
+    assert coverage.NO_TERMS_REFUSAL not in notes["crossref"]
+    assert built["summary"].endswith(
+        "This run had no search terms, so each source was sent an empty search; "
+        "the 2 that answered HTTP 400 refused it for that reason.")
+
+
+@pytest.mark.parametrize("params", [
+    {"repositories": ["arxiv"], "query": "graph", "keywords": []},
+    {"repositories": ["arxiv"], "query": "", "keywords": ["graph"]},
+    {"repositories": ["arxiv"], "query": "", "keywords": [], "entity": {"profile_id": 1, "mode": "new_papers"}},
+    # Saved parameters that record no words say nothing about what was searched.
+    {"repositories": ["arxiv"]},
+])
+def test_a_400_is_not_blamed_on_terms_the_run_had_or_did_not_record(params):
+    built = project(params, [_refused("arxiv")])
+    assert coverage.NO_TERMS_REFUSAL not in built["sources"][0]["note"]
+    assert "no search terms" not in built["summary"]

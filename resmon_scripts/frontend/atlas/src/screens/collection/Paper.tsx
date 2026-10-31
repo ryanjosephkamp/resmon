@@ -6,7 +6,7 @@ import { Icon } from '../../shell/Icon';
 import { MAP_KEY } from '../Today';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
-import { authors } from '../today/format';
+import { authors, publishedWords } from '../today/format';
 import { pairLine, pairLink, pairParam } from './wordingModel';
 
 /** How many of the paper's nearest neighbors on the map are listed. */
@@ -124,7 +124,7 @@ export function Paper() {
           <span className="who">{authors(data.authors)}</span>
           <span className="sep" />
           <span>{source}</span>
-          {data.publication_date && (<><span className="sep" /><span>{data.publication_date}</span></>)}
+          {data.publication_date && (<><span className="sep" /><span>Published {publishedWords(data.publication_date)}</span></>)}
           {data.doi && (<><span className="sep" /><a href={`https://doi.org/${data.doi}`} target="_blank" rel="noreferrer">doi:{data.doi}</a></>)}
           {data.url && (<><span className="sep" /><a href={data.url} target="_blank" rel="noreferrer">open at the source</a></>)}
           {/* The number this collection knows it by: what a file in the Library is linked with. */}
@@ -228,6 +228,7 @@ export function Paper() {
         <PaperSky
           marked={nearest}
           focus={id}
+          sourceName={(slug) => catalog.data?.find((entry) => entry.slug === slug)?.name ?? slug}
           label="Where this paper sits, among its nearest neighbors on the map"
           caption={({ ready, basis }) => {
             if (!ready) return 'The collection map is not ready yet.';

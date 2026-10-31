@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { CommandEnterHint, commandEnterKeys } from '../../shell/CommandEnterHint';
+import { commandEnter } from '../../shell/shortcuts';
 import { count, number } from '../today/format';
 import { Answers } from './Answers';
 import { evidence, evidenceFetch, EvidenceRefusal, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
@@ -73,7 +75,7 @@ function Workspaces({ vault }: { vault: string }) {
   return (
     <div className="evidence-split">
       <nav className="ev-projects" aria-label="Evidence projects" aria-busy={projects.isFetching}>
-        <form className="ev-new" onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(name.trim()); }}>
+        <form className="ev-new" {...commandEnter()} onSubmit={(e) => { e.preventDefault(); if (name.trim()) create.mutate(name.trim()); }}>
           <label htmlFor="ev-new-name" className="sr-only">A name for a new project</label>
           <input id="ev-new-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="A new project’s name" maxLength={120} autoComplete="off" />
           <button type="submit" className="btn sm" disabled={!name.trim() || create.isPending}>Start</button>
@@ -268,7 +270,7 @@ function Rename({ project, onRenamed }: { project: Project; onRenamed: (p: Proje
     );
   }
   return (
-    <form className="ev-title-row" onSubmit={(e) => { e.preventDefault(); if (draft.trim()) rename.mutate(draft.trim()); }}>
+    <form className="ev-title-row" {...commandEnter()} onSubmit={(e) => { e.preventDefault(); if (draft.trim()) rename.mutate(draft.trim()); }}>
       <label htmlFor="ev-rename" className="sr-only">The project’s name</label>
       <input id="ev-rename" value={draft} maxLength={120} autoFocus onChange={(e) => setDraft(e.target.value)} />
       <button type="submit" className="btn sm" disabled={!draft.trim() || rename.isPending}>Save</button>
@@ -350,7 +352,7 @@ function NotesPanel({ project, file, member, anchor, onClose, editing, onEdit, n
         </div>
       )}
       {(file || editing) && (
-        <form className="ev-note-form" onSubmit={(e) => { e.preventDefault(); if (canSave) save.mutate(); }}>
+        <form className="ev-note-form" {...commandEnter()} onSubmit={(e) => { e.preventDefault(); if (canSave) save.mutate(); }}>
           <h3 className="record-sub">{heading}</h3>
           {(editing?.quote ?? (anchor && !editing ? anchor.quote : null)) && (
             <blockquote className="ev-quote" data-evidence="quote">{editing?.quote ?? anchor?.quote}</blockquote>
@@ -359,9 +361,10 @@ function NotesPanel({ project, file, member, anchor, onClose, editing, onEdit, n
           <label htmlFor="ev-body" className="form-label">{anchor && !editing ? 'Your note on it (optional)' : 'Note'}</label>
           <textarea id="ev-body" value={body} rows={4} onChange={(e) => setBody(e.target.value)} />
           <div className="ev-use">
-            <button type="submit" className="btn sm primary" disabled={!canSave}>
+            <button type="submit" className="btn sm primary" disabled={!canSave} aria-keyshortcuts={commandEnterKeys()}>
               {editing ? 'Save body' : anchor ? 'Save passage' : 'Save note'}
             </button>
+            <CommandEnterHint />
             {(anchor || editing) && <button type="button" className="btn sm quiet" onClick={() => { onEdit(null); onClear(); }}>Use plain note</button>}
             <span className="record-cap num">{number(length)} of 20,000 codepoints</span>
           </div>

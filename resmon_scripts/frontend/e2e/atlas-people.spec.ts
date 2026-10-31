@@ -81,7 +81,9 @@ test('People: the warning while typing, a person\'s matches and their bases, and
     await win.locator('#person-orcid').fill('0000-0002-1825-0097');
     await expect(warning).toHaveAttribute('data-state', 'clear');
     await win.locator('#person-orcid').fill('');
-    await win.getByRole('button', { name: 'Save person' }).click();
+    await win.locator('form.person-editor').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-people-editor.png') });
+    // ⌘Enter (Ctrl+Enter) in any of the person's fields saves them, as Save person does.
+    await win.locator('#person-affiliations').press('ControlOrMeta+Enter');
     await expect(win.locator('.person').filter({ hasText: 'Ben Other' }).locator('.basis-chip')).toHaveText('name + affiliation');
 
     // A person's matches, each with the basis it matched on and the author string it matched.

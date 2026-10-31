@@ -52,7 +52,18 @@ class DoajClient(BaseAPIClient):
         if date_from or date_to:
             d_from = date_from or "1900-01-01"
             d_to = date_to or "2099-12-31"
-            search_query += f" AND bibjson.year:[{d_from[:4]} TO {d_to[:4]}]"
+            # In parentheses, so the date clause applies to the whole query.
+            # Appended bare, it changed what an explicit OR meant: on October
+            # 30, 2026, `climate OR model AND bibjson.year:[2024 TO 2024]` matched
+            # 206,374 where `(climate OR model) AND ...` matched 230,717.
+            # DataCite, ERIC, Open Library and Zenodo already group theirs.
+            # Plain words changed too: dated to 2024, `climate model` matched
+            # 9,249 bare and 7,704 grouped.
+            date_clause = f"bibjson.year:[{d_from[:4]} TO {d_to[:4]}]"
+            search_query = (
+                f"({search_query}) AND {date_clause}"
+                if search_query.strip() else date_clause
+            )
 
         results: list[NormalizedResult] = []
         page = 1

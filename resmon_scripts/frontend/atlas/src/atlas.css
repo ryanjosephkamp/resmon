@@ -328,6 +328,8 @@ kbd {
 .keys-list dd { margin: 0; display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .keys-list .keys-words { flex: 0 1 auto; max-width: 180px; font: 400 12.5px/1.35 var(--sans); color: var(--ink-2); text-align: right; }
 .keys-or { font: 400 12px/1 var(--sans); color: var(--ink-3); }
+/* ⌘↩ beside a button that ⌘Enter in its fields presses: quiet, and only where there is room. */
+.enter-hint { flex: none; align-self: center; color: var(--ink-3); background: transparent; }
 .keys-note { margin: 8px 0 0; padding: 12px 22px 18px; border-top: 1px solid var(--rule); font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
 @media (prefers-reduced-motion: reduce) { .keys-sheet[open], .keys-sheet::backdrop { animation: none; } }
 
@@ -493,8 +495,13 @@ kbd {
 .map-paper .paper-section { margin-top: 26px; }
 .map-paper .paper-section h2 { font-size: 14.5px; }
 .map-paper-abstract { font-size: 14px; line-height: 1.6; }
+/* Beside a map in a page that scrolls: a card as tall as the paper, in the column it opened in. */
+.map-paper.inline { align-self: start; min-height: 0; scroll-margin-top: 12px; border: 1px solid var(--rule); border-radius: var(--r-lg); overflow: hidden; }
+.map-paper.inline .index-scroll { flex: none; overflow: visible; padding-bottom: 22px; }
 
 .index { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); border-left: 1px solid var(--rule); }
+/* A list waiting behind a paper opened from the map keeps its scroll and its fields. */
+.index[hidden] { display: none; }
 /* 56 pixels high, level with the map's own bar; in a narrow column its controls wrap to a second line rather than run off the edge. */
 .index-bar { min-height: 56px; flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 10px 22px 10px 28px; border-bottom: 1px solid var(--rule); }
 .index-bar h2 { margin: 0 auto 0 0; font: 600 15px/1 var(--sans); color: var(--ink); white-space: nowrap; }
@@ -507,7 +514,7 @@ kbd {
 
 .group { padding-top: 22px; }
 .ghead { display: flex; align-items: baseline; gap: 10px; padding-bottom: 2px; }
-.ghead h3 { margin: 0; font: italic 400 23px/1.15 var(--serif); color: var(--ink); }
+.ghead h3 { margin: 0; font: italic 400 23px/1.15 var(--serif); color: var(--ink); min-width: 0; overflow-wrap: anywhere; }
 .ghead h3.rg { font: 600 15px/1.25 var(--sans); }
 .ghead .n { font: 500 13px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
 .zoomto { border: 0; background: transparent; padding: 0; font: inherit; color: inherit; cursor: zoom-in; text-align: left; }
@@ -571,7 +578,7 @@ kbd {
 
 .quietgroup { margin-top: 18px; border-top: 1px solid var(--rule); }
 .quietwatch { padding: 8px 0 2px; }
-.quietwatch > .it { font-size: 17px; color: var(--ink-2); }
+.quietwatch > .it { font-size: 17px; color: var(--ink-2); overflow-wrap: anywhere; }
 .quietwatch .gsub { margin: 2px 0 6px; }
 
 .index-foot {
@@ -690,7 +697,7 @@ kbd {
   padding: 12px 0; border-top: 1px solid var(--rule);
 }
 .run-row > input { margin: 4px 0 0; width: 15px; height: 15px; accent-color: var(--accent-fill); }
-.run-title { font: 560 14.5px/1.35 var(--sans); color: var(--ink); text-decoration: none; }
+.run-title { font: 560 14.5px/1.35 var(--sans); color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
 .run-title.it { font: italic 400 19px/1.2 var(--serif); }
 .run-title:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--ink-3); }
 .run-status { display: inline-flex; align-items: center; gap: 6px; }
@@ -714,7 +721,7 @@ kbd {
 .back { display: inline-flex; align-items: center; gap: 6px; font: 500 13px/1 var(--sans); color: var(--ink-3); text-decoration: none; }
 .back:hover { color: var(--ink); }
 .run-headline { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-top: 16px; }
-.run-name { margin: 0; font: 620 30px/1.15 var(--sans); letter-spacing: -.018em; color: var(--ink); text-wrap: balance; }
+.run-name { margin: 0; font: 620 30px/1.15 var(--sans); letter-spacing: -.018em; color: var(--ink); text-wrap: balance; overflow-wrap: anywhere; }
 .run-name.it { font: italic 400 36px/1.1 var(--serif); letter-spacing: 0; }
 .run-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: none; padding-top: 4px; }
 .seg.export { align-items: center; }
@@ -751,14 +758,16 @@ kbd {
 .lmark.is-asking { border-color: var(--accent-mark); animation: live-pulse 1.4s var(--ease-out) infinite; }
 @media (prefers-reduced-motion: reduce) { .lmark.is-asking { animation: none; background: var(--accent-wash-2); } }
 
+/* Where some papers sit in the collection: Today's plate, at the size the page gives it. */
 .sky { margin: 0; }
-.sky-canvas, .sky-empty {
-  display: block; width: 100%; aspect-ratio: 1; border-radius: var(--r-lg);
+.sky-plate {
+  position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: var(--r-lg);
   background: var(--plate); border: 1px solid var(--rule);
 }
-.sky.tall .sky-canvas, .sky.tall .sky-empty { aspect-ratio: auto; height: 100%; min-height: 320px; border-radius: 0; border: 0; }
+.sky-plate > .plate { position: absolute; inset: 0; }
+.sky-plate.tall { aspect-ratio: auto; height: 100%; min-height: 320px; border-radius: 0; border: 0; }
 .sky.tall { display: grid; grid-template-rows: minmax(0, 1fr) auto; height: 100%; min-height: 0; }
-.sky-empty { display: grid; place-items: center; padding: 24px; text-align: center; font: 400 13px/1.5 var(--sans); color: var(--ink-3); }
+.sky-empty { display: grid; place-items: center; height: 100%; padding: 24px; text-align: center; font: 400 13px/1.5 var(--sans); color: var(--ink-3); }
 .sky figcaption { margin-top: 10px; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
 .sky.tall figcaption { margin: 0; padding: 12px 28px 16px; border-top: 1px solid var(--rule); }
 
@@ -937,7 +946,7 @@ kbd {
 .watch { padding: 14px 0 12px; border-top: 1px solid var(--rule); }
 .watch:first-child { border-top: 0; }
 .watch[data-lit] { box-shadow: inset 2px 0 0 var(--accent-mark); margin-left: -28px; padding-left: 26px; }
-.watch-name { font: italic 400 21px/1.2 var(--serif); color: var(--ink); text-decoration: none; letter-spacing: .005em; }
+.watch-name { font: italic 400 21px/1.2 var(--serif); color: var(--ink); text-decoration: none; letter-spacing: .005em; overflow-wrap: anywhere; }
 .watch-name:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--ink-3); }
 .watch .meta { flex-wrap: wrap; row-gap: 2px; }
 .watch-state { font-weight: 600; color: var(--ink-2); }
@@ -971,18 +980,24 @@ code.cron { font: 400 12px/1 var(--mono); color: var(--ink-2); background: var(-
 .ahead-date { padding-left: 2px; font: 500 12px/1 var(--sans); color: var(--ink-2); }
 .ahead-fires { display: grid; gap: 1px; min-width: 0; }
 /* Each mark opens its watch, and lights the watch's other marks while it is under the pointer or the focus. */
+/* The dot and the time, then the name beside them, wrapping under itself at its own separators so two
+   watches that differ only at the end of a long name stay apart; past three lines it is cut, and the
+   mark's title and label carry the whole name. */
 .fire-mark {
-  display: flex; align-items: center; gap: 6px; min-width: 0; padding: 3px 4px; border-radius: 5px;
-  font: 400 12px/1.3 var(--sans); color: var(--ink-2); text-decoration: none;
+  display: grid; grid-template-columns: 7px auto minmax(0, 1fr); align-items: baseline; column-gap: 6px; min-width: 0;
+  padding: 3px 4px; border-radius: 5px; font: 400 12px/1.3 var(--sans); color: var(--ink-2); text-decoration: none;
 }
 .fire-mark:hover, .fire-mark[data-lit] { background: var(--panel-2); color: var(--ink); }
 .fire-mark:focus-visible { outline-offset: 0; border-radius: 5px; }
 .fire-mark[data-firing="will-not-run"], .fire-mark[data-firing="unconfirmed"] { color: var(--ink-3); }
-.fire { flex: none; display: block; width: 7px; height: 7px; border-radius: 50%; border: 1.25px solid var(--ink-3); }
+.fire { flex: none; display: block; width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; border: 1.25px solid var(--ink-3); align-self: start; }
 .fire[data-lit] { border-color: var(--accent-mark); background: var(--accent-mark); }
 .fire[data-firing="will-not-run"], .fire[data-firing="unconfirmed"] { opacity: .4; }
 .fire-time { flex: none; font-variant-numeric: tabular-nums; }
-.fire-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.fire-name {
+  min-width: 0; overflow: hidden; overflow-wrap: anywhere; color: var(--ink);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3;
+}
 .fire-mark[data-firing="will-not-run"] .fire-name, .fire-mark[data-firing="unconfirmed"] .fire-name { color: var(--ink-2); }
 .fire-more { padding: 2px 4px; font: 500 11.5px/1.2 var(--sans); color: var(--ink-3); }
 .ahead-sub { margin: 28px 0 6px; font: 600 15px/1.3 var(--sans); color: var(--ink); }
@@ -1007,9 +1022,14 @@ code.cron { font: 400 12px/1 var(--mono); color: var(--ink-2); background: var(-
 @media (prefers-reduced-motion: reduce) { .switch-track, .switch-knob { transition: none; } }
 .run-now-refusal { border-left: 2px solid var(--fault); }
 .run-now-said a { color: var(--ink); text-underline-offset: 3px; }
+.watch-skipped { border-left: 2px solid var(--fault); }
+button.watch-skipped-open {
+  border: 0; padding: 0; background: none; font: inherit; color: var(--ink); cursor: pointer;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
 
 .watch-main { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); }
-.watch-main .sky-canvas, .watch-main .sky-empty { aspect-ratio: auto; height: clamp(320px, 58vh, 560px); }
+.watch-main .sky-plate { aspect-ratio: auto; height: clamp(320px, 58vh, 560px); }
 .nights-title { margin: 0 0 12px; font: 600 16px/1.3 var(--sans); color: var(--ink); }
 .night-strip { display: flex; align-items: flex-end; gap: 3px; height: 72px; padding-bottom: 10px; border-bottom: 1px solid var(--rule); margin-bottom: 6px; }
 .night-bar { position: relative; flex: 1; max-width: 12px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; }

@@ -507,13 +507,18 @@ def test_a_source_that_never_answered_in_the_window_is_not_called_stopped(conn):
 
     assert verdict["level"] == "attention"
     assert "stopped answering" not in verdict["headline"]
-    assert "not answered in the last 1 run" in verdict["headline"]
+    # Nothing before this run either: it has never answered, which is not the
+    # same thing as not having answered lately.
+    assert verdict["headline"] == "IEEE Xplore has not answered any run resmon has a record of."
 
 
 def test_a_silent_source_is_counted_against_the_runs_that_included_it(conn):
-    # Semantic Scholar was in the first run only. The second run did not ask it,
-    # so "has not answered in the last 2 runs" would claim a failure that the
-    # record does not hold.
+    # Semantic Scholar answered once, long before the window, then was in the
+    # first run of the window only. The second run did not ask it, so "has not
+    # answered in the last 2 runs" alone would claim a failure that the record
+    # does not hold.
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["semantic_scholar"])
+    record(conn, earlier, "semantic_scholar", count=3)
     first = make_run(conn, started="2026-10-01T09:00:00",
                      repositories=["arxiv", "semantic_scholar"])
     record(conn, first, "arxiv", count=4)
@@ -522,13 +527,12 @@ def test_a_silent_source_is_counted_against_the_runs_that_included_it(conn):
     second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
     record(conn, second, "arxiv", count=4)
 
-    verdict = source_wall.build(conn)["verdict"]
+    verdict = source_wall.build(conn, limit=2)["verdict"]
 
     assert verdict["level"] == "attention"
-    assert "in the last 2 runs." not in verdict["headline"]
-    assert verdict["headline"].endswith(
-        "has not answered in the 1 of the last 2 runs that recorded an outcome for it."
-    )
+    assert verdict["headline"] == (
+        "Semantic Scholar has not answered in the last 2 runs. Only 1 of those "
+        "runs recorded an outcome for it, and none was an answer.")
 
 
 def test_an_all_clear_verdict_carries_its_denominator(conn):
@@ -633,3 +637,58 @@ def test_the_endpoint_rejects_a_window_outside_its_bound(client):
     assert client.get(
         f"/api/coverage/source-wall?limit={source_wall.MAX_RUNS}"
     ).status_code == 200
+
+
+def test_never_answered_and_not_answered_lately_are_said_apart(conn):
+    """A source that once answered and one that never has are different faults.
+
+    The first stopped; the second usually cannot be asked the way the runs ask
+    it. One headline said "has not answered in the last N runs" of both.
+    """
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["doaj"])
+    record(conn, earlier, "doaj", count=5)
+    for day in ("01", "02"):
+        run = make_run(conn, started=f"2026-10-{day}T09:00:00", repositories=["doaj", "plos"])
+        record(conn, run, "doaj", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+        record(conn, run, "plos", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+
+    verdict = source_wall.build(conn, limit=2)["verdict"]
+
+    assert verdict["headline"] == (
+        "DOAJ has not answered in the last 2 runs. "
+        "PLOS has not answered any run resmon has a record of.")
+
+
+def test_a_failure_before_the_window_is_not_an_answer_before_it(conn):
+    """Only an answer counts as having answered: an older failure does not make
+    a source one that "has not answered lately"."""
+    earlier = make_run(conn, started="2026-09-01T09:00:00", repositories=["plos"])
+    record(conn, earlier, "plos", count=0, reason="upstream_failure", detail={"status": 503, "attempts": 3})
+    run = make_run(conn, started="2026-10-01T09:00:00", repositories=["plos"])
+    record(conn, run, "plos", count=0, reason="upstream_failure", detail={"status": 400, "attempts": 1})
+
+    assert source_wall.build(conn, limit=1)["verdict"]["headline"] == (
+        "PLOS has not answered any run resmon has a record of.")
+
+
+@pytest.mark.parametrize("names, said", [
+    (["A"], "A"),
+    (["A", "B"], "A and B"),
+    (["Crossref", "HAL", "OpenAlex"], "Crossref, HAL, and OpenAlex"),
+    (["A", "B", "C", "D"], "A, B, C, and D"),
+])
+def test_every_list_the_wall_writes_takes_the_serial_comma(names, said):
+    assert source_wall._join(names) == said
+
+
+def test_the_dropped_sources_line_takes_the_serial_comma(conn):
+    first = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "crossref", "hal", "openalex"])
+    for slug in ("arxiv", "crossref", "hal", "openalex"):
+        record(conn, first, slug, count=2)
+    second = make_run(conn, started="2026-10-02T09:00:00", repositories=["arxiv"])
+    record(conn, second, "arxiv", count=2)
+
+    detail = source_wall.build(conn)["verdict"]["detail"]
+
+    assert any(line.startswith("CrossRef, HAL, and OpenAlex answered when last asked") for line in detail), detail
+

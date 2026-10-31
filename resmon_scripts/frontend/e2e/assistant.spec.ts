@@ -86,7 +86,9 @@ test.describe('the assistant panel', () => {
 
         // Codex is named with its reason rather than omitted: a user who has it
         // installed and sees no mention would conclude resmon had not noticed.
-        await expect(block).toContainText(/shell/i);
+        // Discovery is held to configured paths here, so its reason is that no
+        // codex command was found.
+        await expect(block).toContainText(/No codex executable was found/);
 
         await expect(win.getByLabel('Message the assistant')).toBeDisabled();
 
@@ -112,7 +114,7 @@ test.describe('the assistant panel', () => {
     await expect(win.getByTestId('assistant-panel')).toBeHidden();
   });
 
-  test('the settings tab shows the assistant and why codex is not offered',
+  test('the settings tab shows the assistant and what it says about codex',
     async ({ win, goto }) => {
       await goto('/settings/ai');
       const section = win.getByTestId('assistant-settings');
@@ -120,6 +122,8 @@ test.describe('the assistant panel', () => {
       await expect(section).toBeVisible();
       await expect(win.getByTestId('assistant-settings-status')).toContainText(
         /Available|Not available/);
-      await expect(section).toContainText(/shell/i);
+      // Codex is listed with its own reason: here, held to configured paths, that
+      // its command was not found.
+      await expect(section).toContainText(/No codex executable was found/);
     });
 });

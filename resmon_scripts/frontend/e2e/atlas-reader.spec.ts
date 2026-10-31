@@ -417,7 +417,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await pageInput.press('Enter');
     await expect(reader).toHaveAttribute('data-page', '3');
 
-    // — focus mode: the window, then the same page and zoom on the way back ---------------
+    // — focus mode: the window at fit page, then the same page and the reader's zoom on the way back ---
     const zoom = reader.getByLabel('Zoom', { exact: true });
     await zoom.selectOption('150');
     await expect(image.getByRole('status')).toHaveText(/^Page 3 of 4 rendered/, { timeout: 60_000 });
@@ -430,7 +430,15 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     expect(await win.evaluate(() => !!document.querySelector('nav[aria-label="Sections"]')?.closest('[inert]')),
       'the top bar is still reachable behind focus mode').toBe(true);
     await expect(reader).toHaveAttribute('data-page', '3');
-    await expect(zoom).toHaveValue('150');
+    // Focus mode opens at fit page, whatever the zoom beside the notes.
+    await expect(zoom).toHaveValue('page');
+    await expect(scroll.locator('.ev-sheet[data-page="3"][data-drawn="true"]')).toBeVisible({ timeout: 30_000 });
+    const whole = await scroll.evaluate((el) => {
+      const frame = el.getBoundingClientRect();
+      const sheet = el.querySelector<HTMLElement>('.ev-sheet[data-page="3"]')!.getBoundingClientRect();
+      return { sheet: sheet.height, frame: frame.height };
+    });
+    expect(whole.sheet, 'fit page draws the whole page inside the window').toBeLessThanOrEqual(whole.frame);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-focus.png') });
     // The notes come back beside the pages, and go again.
     await reader.getByRole('button', { name: 'Notes' }).click();
@@ -441,16 +449,24 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-focus-notes.png') });
     await panel.getByRole('button', { name: 'Close the notes' }).click();
     await expect(panel).toBeHidden();
-    await zoom.selectOption('page');
+    // A zoom chosen in focus mode stays while it lasts.
+    await zoom.selectOption('200');
     // Scrolled by the wheel, which lets go of the page the gallery went to.
     await scroll.hover();
     await win.mouse.wheel(0, 20_000);
     await expect(reader).toHaveAttribute('data-page', '4', { timeout: 10_000 });
+    await expect(zoom).toHaveValue('200');
     await win.keyboard.press('Escape');
     await expect(reader).not.toHaveAttribute('data-focus', 'true');
     await expect(reader.getByRole('button', { name: 'Focus' })).toBeFocused();
     await expect(reader).toHaveAttribute('data-page', '4');
+    // The reader's own zoom is back, and focus mode opens at fit page again.
+    await expect(zoom).toHaveValue('150');
+    await reader.getByRole('button', { name: 'Focus' }).click();
     await expect(zoom).toHaveValue('page');
+    await win.keyboard.press('Escape');
+    await expect(reader).not.toHaveAttribute('data-focus', 'true');
+    await expect(zoom).toHaveValue('150');
     await expect(members.first()).toBeVisible();
     expect(await win.evaluate(() => document.querySelectorAll('[inert]').length), 'focus mode left something inert').toBe(0);
     await zoom.selectOption('width');
@@ -566,7 +582,9 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await reader.getByRole('button', { name: 'Focus' }).click();
     await expect(reader).toHaveAttribute('data-focus', 'true');
     await expect(reader.getByRole('button', { name: 'Notes' })).toHaveAttribute('aria-pressed', 'false');
-    await expect(zoom).toHaveValue('width');
+    // Focus mode opens at fit page; fit width, the most pixels a page is drawn at, is the measure here.
+    await expect(zoom).toHaveValue('page');
+    await zoom.selectOption('width');
     await expect(long.locator('.ev-sheet[data-page="1"][data-sharp="true"]')).toHaveCount(1, { timeout: 30_000 });
     const density = await win.evaluate(() => window.devicePixelRatio);
     const first = (await long.evaluate(inView))[0]!;

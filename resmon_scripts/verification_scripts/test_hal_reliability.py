@@ -12,6 +12,7 @@ import json
 import socket
 import threading
 import time
+from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
 import httpx
@@ -112,22 +113,48 @@ def test_hal_normalizes_real_response_shape_and_preserves_query_window(wire):
     assert api_base.search_outcome().snapshot()["last_call_failed"] is False
 
 
+@pytest.fixture
+def october_30(monkeypatch):
+    """The day the future-dated records were measured, as UTC's today."""
+    monkeypatch.setattr(api_hal, "_utc_today", lambda: date(2026, 10, 30))
+
+
 @pytest.mark.parametrize(("date_from", "date_to", "fq"), [
-    ("2026-10-23", None, "producedDate_tdate:[2026-10-23T00:00:00Z TO *]"),
+    ("2026-10-23", None, "producedDate_tdate:[2026-10-23T00:00:00Z TO 2026-10-30T23:59:59Z]"),
     (None, "2026-10-30", "producedDate_tdate:[* TO 2026-10-30T23:59:59Z]"),
     ("2026-10-23", "2026-10-30", "producedDate_tdate:[2026-10-23T00:00:00Z TO 2026-10-30T23:59:59Z]"),
+    # An end the person chose is theirs, even one in the future.
+    ("2026-10-23", "2027-12-31", "producedDate_tdate:[2026-10-23T00:00:00Z TO 2027-12-31T23:59:59Z]"),
 ])
-def test_an_open_side_of_the_window_is_a_bare_star(wire, date_from, date_to, fq):
-    """A time suffix on ``*`` is a range HAL cannot parse, and a watch since its previous run has no end."""
+def test_an_open_start_is_a_bare_star_and_an_open_end_is_today(wire, october_30, date_from, date_to, fq):
+    """A time suffix on ``*`` is a range HAL cannot parse, and a watch since its previous run has no end.
+
+    That end is today, UTC, to the last second, rather than ``*``: HAL holds
+    records dated years ahead, and newest first they filled a run's cap before
+    any current paper (93 of 375 on October 30, 2026).
+    """
     calls, _ = wire
     api_hal.HalClient().search("synthetic", date_from, date_to, 3)
     assert calls[0]["params"]["fq"] == fq
 
 
-def test_no_window_sends_no_date_filter(wire):
+def test_no_window_still_ends_today(wire, october_30):
+    """With no dates either, newest first would begin in the future."""
     calls, _ = wire
     api_hal.HalClient().search("synthetic", max_results=3)
-    assert "fq" not in calls[0]["params"]
+    assert calls[0]["params"]["fq"] == "producedDate_tdate:[* TO 2026-10-30T23:59:59Z]"
+
+
+def test_every_page_of_one_search_asks_for_the_same_day(wire, monkeypatch):
+    """Today is read once, so a search running past midnight pages one range."""
+    days = iter([date(2026, 10, 30), date(2026, 10, 31)])
+    monkeypatch.setattr(api_hal, "_utc_today", lambda: next(days))
+    calls, replies = wire
+    replies[:] = [{"response": {"docs": [document(i) for i in range(100)]}},
+                  {"response": {"docs": [document(100)]}}]
+    api_hal.HalClient().search("synthetic", "2026-10-23", None, 101)
+    assert [call["params"]["fq"] for call in calls] == [
+        "producedDate_tdate:[2026-10-23T00:00:00Z TO 2026-10-30T23:59:59Z]"] * 2
 
 
 @pytest.mark.parametrize("body", [

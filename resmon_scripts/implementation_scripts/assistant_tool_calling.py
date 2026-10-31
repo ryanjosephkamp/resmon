@@ -250,16 +250,20 @@ PROVIDER_TOOL_CALLING: dict[str, ProviderToolCalling] = {
         state="yes",
         reason="The Codex CLI is an agent; calling tools is what it does.",
         evidence=(
-            "2.0a, against codex-cli 0.153.1: an MCP server can be attached per "
-            "invocation (`-c 'mcp_servers.resmon={…}'` is accepted under "
-            "`--strict-config`)."
+            "codex-cli 0.166.0's own help: `codex exec --json` prints JSONL events, "
+            "`-c` overrides any configuration value (so an MCP server is attached per "
+            "invocation), `--ignore-user-config` leaves `$CODEX_HOME/config.toml` out, "
+            "`--sandbox read-only` pins the sandbox, and `codex exec resume <id>` "
+            "continues a thread. An MCP server attached with `-c` was accepted under "
+            "`--strict-config` by codex-cli 0.153.1."
         ),
-        assistant="no",
+        assistant="cli_runtime",
         assistant_reason=(
-            "resmon can give a Codex session its own tools but cannot take away "
-            "Codex's shell, and `codex exec` has no way for you to approve a command "
-            "before it runs. Established against codex-cli 0.153.1 in 2.0a. Codex "
-            "remains a summarisation lane, where it is given no tools at all."
+            "resmon drives the codex command you already signed into, so it spends your "
+            "ChatGPT plan rather than a key. `codex exec` cannot hold a tool call for you "
+            "to approve, so Codex is given resmon's read-only tools only, in a read-only "
+            "sandbox, and a turn in which Codex runs a command or reaches past resmon's "
+            "tools is stopped."
         ),
     ),
 }

@@ -129,7 +129,9 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     // No email account is set up in this state directory, and it says so.
     await expect(win.locator('[data-will="no-email-account"]')).toBeVisible();
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-editor-new.png') });
-    await save.click();
+    // ⌘Enter (Ctrl+Enter) in any field of the editor saves the watch, as Save watch does.
+    await expect(win.locator('.ask-go .enter-hint')).toBeVisible();
+    await win.locator('#watch-intent').press('ControlOrMeta+Enter');
 
     await expect(win.locator('.watch-page [data-editor="said"]')).toHaveText('Saved, paused.', { timeout: 30_000 });
     const made = idFrom(win.url());

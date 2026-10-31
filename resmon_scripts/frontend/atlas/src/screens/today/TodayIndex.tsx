@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
+import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { authors, duration, number, troubleParts, when } from './format';
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
@@ -138,9 +139,9 @@ export function TodayIndex(props: Props) {
                 {group.watch || group.regionId !== undefined ? (
                   <button type="button" className="zoomto"
                     onClick={() => onZoomTo(group.watch ? { watchId: group.watch.id } : { regionId: group.regionId })}>
-                    {group.title}
+                    {breakable(group.title)}
                   </button>
-                ) : group.title}
+                ) : breakable(group.title)}
               </h3>
               <span className="n">{number(group.total)} new</span>
             </div>
@@ -181,7 +182,7 @@ export function TodayIndex(props: Props) {
             <div className="ghead"><h3 className="rg">Nothing new from</h3></div>
             {quiet.map((watch) => (
               <div key={watch.id} className="quietwatch">
-                <span className="it">{watch.name}</span>
+                <span className="it">{breakable(watch.name)}</span>
                 <RunLine watch={watch} now={now} />
               </div>
             ))}

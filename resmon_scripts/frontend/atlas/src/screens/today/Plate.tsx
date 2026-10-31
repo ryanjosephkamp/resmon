@@ -29,7 +29,8 @@ export interface PlateHandle {
   focus: () => void;
 }
 
-export interface PlateHover { index: number; screenX: number; screenY: number }
+/** The paper under the pointer, where it is on the plate, and the plate's size, so a tip can stay inside it. */
+export interface PlateHover { index: number; screenX: number; screenY: number; width?: number; height?: number }
 
 interface Props {
   sky: Sky;
@@ -43,7 +44,10 @@ interface Props {
   selected: number | null;
   /** A paper hovered in the index, ringed here too. */
   pointed: number | null;
-  onSelect: (index: number | null) => void;
+  /** A paper chosen, or the choice cleared: by a click, or from the keyboard (Enter, Shift and an arrow, Escape). */
+  onSelect: (index: number | null, via: 'pointer' | 'keyboard') => void;
+  /** Enter on the paper already chosen: where a page opens papers elsewhere, it opens it. */
+  onOpen?: (index: number) => void;
   onHover: (hover: PlateHover | null) => void;
   /** Read when the theme or accent changes, so the canvas redraws in it. */
   paletteKey: string;
@@ -56,6 +60,12 @@ interface Props {
   look?: PlateLook | null;
   /** What the whole plate is, for the button and the keys that return to it: "the whole collection". */
   whole?: string;
+  /**
+   * What the wheel does over the plate. `zoom` where the plate is the page
+   * (Today, a run's map tab); `page` where it sits in a page that scrolls,
+   * where the wheel scrolls the page, a pinch zooms, and a sideways swipe pans.
+   */
+  wheel?: 'zoom' | 'page';
 }
 
 const MARGIN = 26;
@@ -71,6 +81,8 @@ const RAMP_ALPHA = [1, 0.86, 0.66, 0.46, 0.32];
 const DIM_ALPHA = 0.2;
 /** A lit paper wearing a color is drawn at least this opaque, so its color can be read at any age. */
 const COLOR_ALPHA = 0.8;
+/** The most round dots drawn as one path; see the draw loop. */
+const PATH_DOTS = 512;
 /** Past this many, the find's matches are lit but not each ringed: rings that many overlap into a texture. */
 const FOUND_RINGS = 400;
 
@@ -131,8 +143,20 @@ export function paintOrder(sky: Sky, lit: Uint8Array | null, group: Uint8Array |
   return { order, spans };
 }
 
+// One per sky, however many plates draw it.
+const hashes = new WeakMap<Sky, ReturnType<typeof makeHash>>();
+
 /** A spatial hash over plate space, for finding the paper under the pointer. */
-function buildHash(sky: Sky, cells = 192) {
+function buildHash(sky: Sky) {
+  let hash = hashes.get(sky);
+  if (!hash) {
+    hash = makeHash(sky);
+    hashes.set(sky, hash);
+  }
+  return hash;
+}
+
+function makeHash(sky: Sky, cells = 192) {
   const { minX, minY, size } = sky.bounds;
   const buckets = new Map<number, number[]>();
   for (let i = 0; i < sky.count; i++) {
@@ -170,7 +194,7 @@ function shadingImage(field: Field, ink: string): HTMLCanvasElement {
 export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const {
     sky, regions, shapes, field, arrivals, lit, selected, pointed, onSelect, onHover, paletteKey,
-    label, children, onAway, toolsAt = 'left', look = null, whole = 'the whole collection',
+    label, children, onAway, toolsAt = 'left', look = null, whole = 'the whole collection', onOpen, wheel: wheelMode = 'zoom',
   } = props;
   const keysId = useId();
   const wrap = useRef<HTMLDivElement>(null);
@@ -348,16 +372,23 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ctx.globalAlpha = (span.dim ? DIM_ALPHA : color ? Math.max(COLOR_ALPHA, alpha) : alpha) * crowding;
       ctx.fillStyle = span.dim ? p.ink3 : (color || p.ink);
       const round = r >= 1.15;
+      // Round dots go into paths of at most PATH_DOTS circles each: one path of
+      // tens of thousands of circles took Chromium seconds to build on a new
+      // canvas, where a few hundred short paths take milliseconds.
+      let inPath = 0;
       if (round) ctx.beginPath();
       for (let k = span.start; k < span.end; k++) {
         const i = order[k] ?? 0;
         const sx = ((s.x[i] ?? 0) - v.cx) * v.scale + size.w / 2;
         const sy = size.h / 2 - ((s.y[i] ?? 0) - v.cy) * v.scale;
         if (sx < inner.x - pad || sx > inner.x + inner.w + pad || sy < inner.y - pad || sy > inner.y + inner.h + pad) continue;
-        if (round) { ctx.moveTo(sx + r, sy); ctx.arc(sx, sy, r, 0, Math.PI * 2); }
-        else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+        if (round) {
+          ctx.moveTo(sx + r, sy);
+          ctx.arc(sx, sy, r, 0, Math.PI * 2);
+          if (++inPath === PATH_DOTS) { ctx.fill(); ctx.beginPath(); inPath = 0; }
+        } else ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
       }
-      if (round) ctx.fill();
+      if (round && inPath > 0) ctx.fill();
     }
     ctx.globalAlpha = 1;
 
@@ -651,8 +682,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         for (const i of buckets.get(r * cells + c) ?? []) {
           // New papers win ties: their rings are what a pointer is aimed at.
           // A paper the filters dimmed can still be chosen, but a lit one near it wins.
-          const dimmed = look?.lit && !look.lit[i] ? 1.6 : 1;
-          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1) * dimmed;
+          // Papers drawn on the same spot tie at any distance; there the lit one wins too.
+          const out = look?.lit && !look.lit[i];
+          const d = Math.hypot((sky.x[i] ?? 0) - px, (sky.y[i] ?? 0) - py) * (arrivalRank.has(i) ? 0.6 : 1) * (out ? 1.6 : 1)
+            + (out ? 1e-9 : 0);
           if (d < reach && d < bestD) { best = i; bestD = d; }
         }
       }
@@ -690,7 +723,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       if (hit === null) onHover(null);
       else {
         const [sx, sy] = toScreen(sky.x[hit] ?? 0, sky.y[hit] ?? 0);
-        onHover({ index: hit, screenX: sx, screenY: sy });
+        onHover({ index: hit, screenX: sx, screenY: sy, width: size.w, height: size.h });
       }
       schedule();
     }
@@ -700,16 +733,29 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     drag.current = null;
     if (d && d.moved) { reportAway(); return; }
     const [x, y] = local(event);
-    onSelect(nearest(x, y));
+    onSelect(nearest(x, y), 'pointer');
   };
   const onPointerLeave = () => {
     if (hoverIndex.current !== null) { hoverIndex.current = null; onHover(null); schedule(); }
   };
   // The wheel zooms the plate and nothing else: listened to directly, not
   // passively, so a plate inside a page that scrolls does not scroll it too.
+  // A plate set in a scrolling page leaves the page its scroll: there a pinch
+  // (which arrives as a wheel with Control held) zooms, and a sideways swipe
+  // pans, as the swipe rule for a map that pans expects (`SwipeNavigation`).
   const wheel = useRef<(event: globalThis.WheelEvent) => void>(() => undefined);
   useEffect(() => {
     wheel.current = (event) => {
+      if (wheelMode === 'page' && !event.ctrlKey) {
+        if (Math.abs(event.deltaX) <= Math.abs(event.deltaY)) return;
+        event.preventDefault();
+        const v = view.current;
+        view.current = { ...v, cx: v.cx + event.deltaX / v.scale };
+        glide.current = null;
+        schedule();
+        reportAway();
+        return;
+      }
       event.preventDefault();
       const [x, y] = local(event);
       zoomAt(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.0018)), x, y);
@@ -728,7 +774,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   /** Choose a paper from the keyboard, and keep it on the screen. */
   const choose = (i: number | null) => {
     if (i === null) return;
-    onSelect(i);
+    onSelect(i, 'keyboard');
     const [sx, sy] = toScreen(sky.x[i] ?? 0, sky.y[i] ?? 0);
     const edge = MARGIN + 30;
     if (sx < edge || sx > size.w - edge || sy < edge || sy > size.h - edge) {
@@ -783,7 +829,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       return;
     }
     const moves: Record<string, () => void> = {
-      Enter: () => { if (selected === null) choose(nearestMiddle()); },
+      Enter: () => { if (selected === null) choose(nearestMiddle()); else onOpen?.(selected); },
       '+': () => zoomAt(1.5, size.w / 2, size.h / 2),
       '=': () => zoomAt(1.5, size.w / 2, size.h / 2),
       '-': () => zoomAt(1 / 1.5, size.w / 2, size.h / 2),
@@ -792,7 +838,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ArrowRight: () => go({ ...v, cx: v.cx + step }),
       ArrowUp: () => go({ ...v, cy: v.cy + step }),
       ArrowDown: () => go({ ...v, cy: v.cy - step }),
-      Escape: () => onSelect(null),
+      Escape: () => onSelect(null, 'keyboard'),
     };
     const move = moves[event.key];
     if (move) { event.preventDefault(); move(); }

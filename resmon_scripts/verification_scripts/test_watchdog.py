@@ -495,6 +495,48 @@ def test_four_quiet_runs_are_below_the_flatline_threshold(conn):
 
 
 # ---------------------------------------------------------------------------
+# Rule: a scheduled fire did not run because the run before was still going
+# ---------------------------------------------------------------------------
+
+
+def _skipped(conn, routine_id, days_ago, disposition="skipped"):
+    from implementation_scripts.database import record_missed_fire
+    due = (NOW - timedelta(days=days_ago)).isoformat()
+    record_missed_fire(conn, routine_id, due, disposition=disposition)
+    return due
+
+
+def test_a_watch_whose_fires_were_skipped_this_week_is_broken(conn):
+    routine_id = _routine(conn)
+    _skipped(conn, routine_id, 3)
+    last = _skipped(conn, routine_id, 1)
+
+    findings = _by_kind(watchdog.report(conn, now=NOW), "routine_fires_skipped")
+
+    assert len(findings) == 1
+    finding = findings[0]
+    assert finding["severity"] == "broken"
+    assert finding["key"] == f"routine_fires_skipped:{routine_id}"
+    assert finding["scope"] == {"type": "routine", "id": routine_id, "name": "Nightly arXiv"}
+    assert finding["title"] == "'Nightly arXiv' did not run 2 times it was due in the last 7 days"
+    assert finding["evidence"] == {"skipped_fires": 2, "last_skipped_due_at_utc": last, "window_days": 7}
+    assert "does not run a skipped fire later" in finding["detail"]
+
+
+def test_old_skips_missed_closes_and_paused_watches_are_not_skipped_fires(conn):
+    old = _routine(conn, name="old")
+    _skipped(conn, old, watchdog.SKIPPED_FIRES_WINDOW_DAYS + 1)
+    closed = _routine(conn, name="closed")
+    # Due while resmon was shut: shown on the watch, and not a certain non-run.
+    _skipped(conn, closed, 1, disposition="recorded")
+    paused = _routine(conn, name="paused", active=False)
+    _skipped(conn, paused, 1)
+
+    assert _by_kind(watchdog.report(conn, now=NOW), "routine_fires_skipped") == []
+    assert watchdog.report(conn, now=NOW)["thresholds"]["skipped_fires_window_days"] == 7
+
+
+# ---------------------------------------------------------------------------
 # Cadence advice
 # ---------------------------------------------------------------------------
 

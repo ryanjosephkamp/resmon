@@ -240,7 +240,7 @@ export function colorsBy(sky: Sky, facts: Facts | null, color: ColorBy, names: (
     const legend: Keyed[] = top.map((w, k) => ({
       key: `watch:${w.id}`, label: w.name, color: CATEGORY_COLORS[k] ?? NONE_COLOR, group: k,
     }));
-    if (ranked.length > top.length) legend.push({ key: 'watch:other', label: 'Another watch', color: OTHER_COLOR, group: OTHER });
+    if (ranked.length > top.length) legend.push({ key: 'watch:other', label: 'Other watches', color: OTHER_COLOR, group: OTHER });
     legend.push({ key: 'watch:none', label: 'No watch: your own searches', color: NONE_COLOR, group: NONE });
     return { group, colors: [...top.map((_, k) => CATEGORY_COLORS[k] ?? NONE_COLOR), OTHER_COLOR, NONE_COLOR], legend };
   }
