@@ -194,7 +194,7 @@ would make an honest product dishonest through an integration.
 | `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `exec_id`, immediately | `POST /api/search/sweep` |
 | `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
 | `create_watch_profile` | `name`, optional `orcid`, `orcid_cited`, `aliases`, `affiliations`, `field_hints` | the created profile, with `basis_warning` **lifted to the top of the answer** when it has no identifier | `POST /api/profiles` |
-| `run_routine` | `routine_id` | `exec_id`, immediately; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running | **needs a new endpoint — see below** |
+| `run_routine` | `routine_id` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position` and `execution_id: null` instead, the run starting on its own when a slot frees; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running, and a `conflict` error when the queue is full as well | **needs a new endpoint — see below** |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
 | `deactivate_routine` | `routine_id` | `id`, `is_active: false` | `POST /api/routines/{id}/deactivate` |
 | `update_settings` | `group`, `settings` — the group on `SETTINGS_GROUPS`, every key on `SETTINGS_KEYS_WRITABLE` (20 of the app's 39; see the v2.4 narrowing amendment) | `group`, `changed` (a per-key `{from, to}` diff), `requested`, `unchanged_key_count` | `GET` + `PUT /api/settings/{group}` |
@@ -257,6 +257,28 @@ Listed so the omissions are visible and arguable rather than silently missing.
 ---
 
 ## Amendments
+
+### An answer, not a version — October 31, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, and the contract
+version does not change.** `run_routine` has one more answer, which shipped on October 30, 2026
+with the queue that holds a run resmon has no room for yet.
+
+When resmon is already running as many runs as it allows, `POST /api/routines/{id}/run` now
+**queues** the run instead of refusing it. The answer is a success (HTTP 202) with
+`execution_id: null`, `queued: true`, `queue_position` (1 is next), and a `detail` sentence saying
+the run starts on its own when a slot frees and there is nothing more to do. Until then that case
+was a `conflict` error telling the caller to wait and try again, which invited a second run of the
+same routine. Only when the queue is full as well is it still a `conflict`.
+
+So **a caller must read `queued` before it reads `execution_id`**: a queued run has no execution
+yet, and `get_execution` has nothing to look up. That narrows what a success promised, which is why
+it is written here and not left to the tool's docstring, where it has been since the queue landed.
+Ask, the other consumer, shows the tool's answer as it came and asks nothing of the id, so it needed
+no change.
+
+The row also named the id `exec_id`. The tool has always returned the route's own key,
+`execution_id`, and the row now says so.
 
 ### A group, not a version — 30 October 2026
 
