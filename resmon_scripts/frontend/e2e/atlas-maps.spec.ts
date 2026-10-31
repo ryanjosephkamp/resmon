@@ -96,8 +96,16 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await win.keyboard.press('Enter');
     await expect(win.locator(canvas)).toHaveAttribute('data-selected', /^\d+$/);
     const first = Number(await win.locator(canvas).getAttribute('data-selected'));
-    await win.keyboard.press('Shift+ArrowRight');
-    await expect(win.locator(canvas)).not.toHaveAttribute('data-selected', String(first));
+    // Shift and an arrow choose the nearest paper that way; the first paper
+    // may have none to its right, so each way is tried until one moves.
+    let moved = false;
+    for (const way of ['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp']) {
+      await win.keyboard.press(`Shift+${way}`);
+      moved = await expect(win.locator(canvas)).not.toHaveAttribute('data-selected', String(first), { timeout: 5_000 })
+        .then(() => true, () => false);
+      if (moved) break;
+    }
+    expect(moved).toBe(true);
     const second = Number(await win.locator(canvas).getAttribute('data-selected'));
     const listed = await win.locator(`.entry[data-paper="${second}"]`).count();
     if (listed) await expect(win.locator(`.entry.sel[data-paper="${second}"]`)).toBeVisible();
