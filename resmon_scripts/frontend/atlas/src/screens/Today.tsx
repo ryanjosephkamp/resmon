@@ -66,10 +66,16 @@ export function Today() {
   });
 
   const [now] = useState(() => new Date());
-  // New papers mean new stars: when Today's count moves, the map is asked again.
+  // New papers mean new stars: when Today's count moves, the map is asked
+  // again. Not on arrival, when the count is the cached one: the map is read
+  // on arrival anyway, and asking again then fetched the whole map twice.
   const total = today.data?.total;
+  const seenTotal = useRef<number | undefined>(undefined);
   useEffect(() => {
     if (total === undefined) return;
+    const before = seenTotal.current;
+    seenTotal.current = total;
+    if (before === undefined || before === total) return;
     void client.invalidateQueries({ queryKey: MAP_KEY });
     void client.invalidateQueries({ queryKey: FACETS_KEY });
   }, [total, client]);
@@ -126,12 +132,12 @@ export function Today() {
   const listedIds = useMemo(() => papers.map((p) => p.id), [papers]);
   const lifecycle = useLifecycleFor(listedIds);
 
-  // The opening: the plate settles, then the new papers light one by one in
-  // the order they arrived, their numbers in the index lighting with them.
+  // The opening: the plate settles, then the new papers light in the order
+  // they arrived, their numbers in the index lighting with them (`opening.ts`).
   // Without motion everything is lit from the start, and papers that arrive
   // after the opening (a later read) are lit at once.
   const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const litNow = useOpening(papers.length, !!sky && !!today.data, still);
+  const opening = useOpening(!!sky && !!today.data, still);
 
   const looked = useMutation({
     mutationFn: () => answer(engine().POST('/api/today/looked')),
@@ -226,7 +232,7 @@ export function Today() {
             shapes={shapes}
             field={field}
             arrivals={arrivals}
-            lit={litNow}
+            opening={opening}
             selected={selectedIndex}
             pointed={pointedIndex}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
@@ -279,7 +285,7 @@ export function Today() {
           regions={regionsById}
           sourceName={sourceName}
           heading={heading}
-          lit={litNow}
+          opening={opening}
           selected={selectedId}
           now={now}
           saved={saved}

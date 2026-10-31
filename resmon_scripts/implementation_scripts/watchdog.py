@@ -56,6 +56,7 @@ interface can show its work.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -1075,3 +1076,47 @@ def report(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         # a claim the watchdog has not earned.
         "sufficient": bool(history or runs_by_routine),
     }
+
+
+# ---------------------------------------------------------------------------
+# What the report reads, for serving it again while that is unchanged
+# ---------------------------------------------------------------------------
+
+#: The longest one report is served again. Some findings depend on the clock
+#: as well as on the record (a routine overdue, a skipped fire leaving the
+#: week's window), so a report is never older than this, whatever the record
+#: says.
+KEEP_SECONDS = 60.0
+
+
+def what_it_reads(conn: sqlite3.Connection) -> tuple:
+    """A cheap fingerprint of everything ``report`` reads.
+
+    Runs (one starting, ending, or deleted), each run's per-source record,
+    the routines (any change to a watch: its schedule, its settings, its name,
+    turning it on or off), recorded fires, the mutes, the newest paper (an
+    erased corpus), and the app's stored settings. While it is unchanged, so is
+    the report, until the clock moves. It costs a handful of indexed lookups
+    where the report scans every run.
+    """
+    row = tuple(conn.execute(
+        "SELECT"
+        " (SELECT COUNT(*) || ':' || IFNULL(MAX(id), 0) || ':' || IFNULL(MAX(end_time), '')"
+        "  || ':' || IFNULL(SUM(status IN ('running', 'cancelling')), 0) FROM executions),"
+        " (SELECT COUNT(*) || ':' || IFNULL(MAX(rowid), 0) FROM execution_sources),"
+        " (SELECT IFNULL(group_concat(id || '|' || is_active || '|' || IFNULL(last_executed_at, '') || '|'"
+        "  || IFNULL(schedule_cron, '') || '|' || IFNULL(parameters, '') || '|' || name, char(30)), '')"
+        "  FROM routines),"
+        " (SELECT COUNT(*) || ':' || IFNULL(MAX(id), 0) || ':' || IFNULL(SUM(disposition = 'skipped'), 0)"
+        "  FROM routine_missed_fires),"
+        " (SELECT IFNULL(group_concat(finding_key || '@' || muted_at, char(30)), '') FROM watchdog_mutes),"
+        " (SELECT IFNULL(MAX(id), 0) FROM documents)"
+    ).fetchone())
+    # The report reads no stored setting today; a setting changing still
+    # starts it afresh, so one it comes to read is never served stale. Hashed,
+    # so no setting's value is held beside the report.
+    settings = hashlib.sha256()
+    for key, value in conn.execute("SELECT key, value FROM app_settings ORDER BY key"):
+        settings.update(f"{key}\x1e{value}\x1f".encode("utf-8", "replace"))
+    return row + (settings.hexdigest(),)
+

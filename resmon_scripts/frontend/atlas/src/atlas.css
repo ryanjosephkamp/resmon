@@ -692,6 +692,7 @@ kbd {
 .export-bar .export-note { flex-basis: 100%; margin: 2px 0 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink-2); }
 .runlog-said { flex: none; padding: 8px 22px 8px 28px; border-bottom: 1px solid var(--rule); }
 .runlog-said .settings-said, .runlog-said .field-error { margin: 0; }
+.runlog-older { margin: 14px 0 6px; }
 .run-row {
   display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px;
   padding: 12px 0; border-top: 1px solid var(--rule);
