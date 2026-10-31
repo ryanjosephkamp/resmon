@@ -31,6 +31,8 @@ type Marks = {
   matches: NonNullable<components['schemas']['WatchProfileMatchesByDocument']['matches']>;
   events: NonNullable<components['schemas']['LifecycleForDocuments']['events']>;
 };
+/** No paper marked on the map: the same list each time, so the map is not drawn again for a new empty one. */
+const NONE_MARKED: readonly number[] = [];
 /** What each search page carries for its papers (`include`). */
 const MARKS = ['links', 'matches', 'lifecycle'] as const;
 type Sort = 'newest' | 'similarity';
@@ -78,10 +80,14 @@ export function Collection() {
   const [opened, setOpened] = useState<SkyChoice | null>(null);
   const sky = useRef<PaperSkyHandle>(null);
   useFocusOnArrival('collection-query');
+  // The words typed become the search once typing pauses. Nothing is set when
+  // they already are the search: on arrival that timer re-rendered the page,
+  // and redrew its map, a third of a second after it had settled.
   useEffect(() => {
+    if (draft.trim() === query) return undefined;
     const settle = setTimeout(() => setQuery(draft.trim()), SETTLE_MS);
     return () => clearTimeout(settle);
-  }, [draft]);
+  }, [draft, query]);
 
   const status = useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: () => answer(engine().GET('/api/embeddings/status')) });
   const canRank = status.data?.capability.available === true;
@@ -162,7 +168,7 @@ export function Collection() {
     <div className="collection">
       <PaperSky
         ref={sky}
-        marked={query || filtered ? ids : []}
+        marked={query || filtered ? ids : NONE_MARKED}
         shape="tall"
         wheel="zoom"
         chosen={opened?.id ?? null}
