@@ -4284,6 +4284,11 @@ class ExplorerSearchBody(ExplorerFilters):
     # answered with the default rather than a 422: a renderer from a newer build
     # talking to an older backend should get papers, not a validation error.
     sort: str = "newest"
+    # What else to answer for this page's papers, in the same reply: their
+    # near-duplicate links, the people they matched, and their lifecycle
+    # notices, each as its own ``/for-documents`` route answers it. Nothing
+    # unless asked, so a caller that does not ask gets the page it always got.
+    include: list[Literal["links", "matches", "lifecycle"]] = Field(default_factory=list, max_length=3)
 
 
 class ExplorerExportBody(ExplorerFilters):
@@ -4353,6 +4358,15 @@ def explorer_search(body: ExplorerSearchBody):
             # the difference between a list a user can trust and a control that
             # appears to do nothing.
             result["similarity_unavailable"] = reason
+        # The page's marks with the page, so a screen draws them without a
+        # second round trip that waits on the first.
+        ids = [int(paper["id"]) for paper in result.get("results", [])]
+        if "links" in body.include:
+            result["links"] = _links_for(conn, ids)
+        if "matches" in body.include:
+            result["matches"] = _profile_matches_for(conn, ids)
+        if "lifecycle" in body.include:
+            result["lifecycle"] = _lifecycle_for(conn, ids)
         return result
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -4518,10 +4532,15 @@ def links_for_documents(body: DocumentIdsBody):
     """
     conn = _get_db()
     try:
-        ids = [int(i) for i in body.document_ids][:500]
-        return {"links": near_duplicates.links_map(conn, ids)}
+        return _links_for(conn, body.document_ids)
     finally:
         _close_db(conn)
+
+
+def _links_for(conn, document_ids) -> dict:
+    """``/api/links/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
+    return {"links": near_duplicates.links_map(conn, ids)}
 
 
 @app.post("/api/links/collapse-preview", response_model=response_models.CollapsePreview,
@@ -5000,49 +5019,54 @@ def lifecycle_for_documents(request: LifecycleForDocumentsRequest):
     Asking per row would be fifty requests to paint one screen; this is one.
     Ids with no events are simply absent from the map.
     """
-    ids = [int(i) for i in request.document_ids][:500]
+    conn = _get_db()
+    try:
+        return _lifecycle_for(conn, request.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _lifecycle_for(conn, document_ids) -> dict:
+    """``/api/lifecycle/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
     if not ids:
         return {"events": {}, "checked": {}}
 
     placeholders = ",".join("?" for _ in ids)
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            f"""
-            SELECT * FROM document_lifecycle
-            WHERE document_id IN ({placeholders})
-            ORDER BY CASE severity
-                         WHEN 'critical' THEN 0
-                         WHEN 'caution' THEN 1
-                         ELSE 2
-                     END,
-                     notice_date DESC
-            """,
-            ids,
-        ).fetchall()
-        events: dict[str, list] = {}
-        for row in rows:
-            events.setdefault(str(row["document_id"]), []).append(dict(row))
+    rows = conn.execute(
+        f"""
+        SELECT * FROM document_lifecycle
+        WHERE document_id IN ({placeholders})
+        ORDER BY CASE severity
+                     WHEN 'critical' THEN 0
+                     WHEN 'caution' THEN 1
+                     ELSE 2
+                 END,
+                 notice_date DESC
+        """,
+        ids,
+    ).fetchall()
+    events: dict[str, list] = {}
+    for row in rows:
+        events.setdefault(str(row["document_id"]), []).append(dict(row))
 
-        # Whether each paper has been looked at travels with the events, so the
-        # interface can tell "nothing has happened to this paper" apart from
-        # "nobody has checked this paper" — which look identical otherwise.
-        checked_rows = conn.execute(
-            f"""
-            SELECT document_id, checked_at, status
-            FROM document_lifecycle_checks
-            WHERE document_id IN ({placeholders})
-            """,
-            ids,
-        ).fetchall()
-        checked = {
-            str(r["document_id"]): {"checked_at": r["checked_at"],
-                                    "status": r["status"]}
-            for r in checked_rows
-        }
-        return {"events": events, "checked": checked}
-    finally:
-        _close_db(conn)
+    # Whether each paper has been looked at travels with the events, so the
+    # interface can tell "nothing has happened to this paper" apart from
+    # "nobody has checked this paper" — which look identical otherwise.
+    checked_rows = conn.execute(
+        f"""
+        SELECT document_id, checked_at, status
+        FROM document_lifecycle_checks
+        WHERE document_id IN ({placeholders})
+        """,
+        ids,
+    ).fetchall()
+    checked = {
+        str(r["document_id"]): {"checked_at": r["checked_at"],
+                                "status": r["status"]}
+        for r in checked_rows
+    }
+    return {"events": events, "checked": checked}
 
 
 @app.get("/api/documents/{doc_id}/lifecycle")
@@ -8807,31 +8831,36 @@ def profile_matches_for_documents(body: ProfileMatchesForDocumentsBody):
     a literal segment after it: ``/api/profiles/starter`` was written below
     ``/api/profiles/{profile_id}`` once and three tests failed on it.
     """
-    ids = [int(i) for i in body.document_ids][:500]
+    conn = _get_db()
+    try:
+        return _profile_matches_for(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+def _profile_matches_for(conn, document_ids) -> dict:
+    """``/api/profiles/matches/for-documents``'s answer, for the search page that carries it too."""
+    ids = [int(i) for i in document_ids][:500]
     if not ids:
         return {"matches": {}}
     placeholders = ",".join("?" for _ in ids)
-    conn = _get_db()
-    try:
-        rows = conn.execute(
-            f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
-            f"       m.evidence, p.display_name "
-            f"  FROM watch_profile_matches m "
-            f"  JOIN watch_profiles p ON p.id = m.profile_id "
-            f" WHERE m.document_id IN ({placeholders}) "
-            f" ORDER BY p.display_name", ids).fetchall()
-        matches: dict[str, list] = {}
-        for row in rows:
-            matches.setdefault(str(row["document_id"]), []).append({
-                "profile_id": row["profile_id"],
-                "display_name": row["display_name"],
-                "basis": row["basis"],
-                "matched_author": row["matched_author"],
-                "evidence": row["evidence"],
-            })
-        return {"matches": matches}
-    finally:
-        _close_db(conn)
+    rows = conn.execute(
+        f"SELECT m.document_id, m.profile_id, m.basis, m.matched_author, "
+        f"       m.evidence, p.display_name "
+        f"  FROM watch_profile_matches m "
+        f"  JOIN watch_profiles p ON p.id = m.profile_id "
+        f" WHERE m.document_id IN ({placeholders}) "
+        f" ORDER BY p.display_name", ids).fetchall()
+    matches: dict[str, list] = {}
+    for row in rows:
+        matches.setdefault(str(row["document_id"]), []).append({
+            "profile_id": row["profile_id"],
+            "display_name": row["display_name"],
+            "basis": row["basis"],
+            "matched_author": row["matched_author"],
+            "evidence": row["evidence"],
+        })
+    return {"matches": matches}
 
 
 @app.get("/api/profiles/{profile_id}", response_model=response_models.WatchProfile,

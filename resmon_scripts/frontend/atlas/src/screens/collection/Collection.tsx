@@ -23,9 +23,18 @@ import { foldedAway, standingInFor } from './fold';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
-import { LifecycleMarks, LifecycleUnread, useLifecycleFor } from '../lifecycle/LifecycleMarks';
+import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
+type Marks = {
+  links: NonNullable<components['schemas']['PaperLinks']['links']>;
+  matches: NonNullable<components['schemas']['WatchProfileMatchesByDocument']['matches']>;
+  events: NonNullable<components['schemas']['LifecycleForDocuments']['events']>;
+};
+/** No paper marked on the map: the same list each time, so the map is not drawn again for a new empty one. */
+const NONE_MARKED: readonly number[] = [];
+/** What each search page carries for its papers (`include`). */
+const MARKS = ['links', 'matches', 'lifecycle'] as const;
 type Sort = 'newest' | 'similarity';
 
 /** How long typing pauses before the collection is searched again. */
@@ -71,10 +80,14 @@ export function Collection() {
   const [opened, setOpened] = useState<SkyChoice | null>(null);
   const sky = useRef<PaperSkyHandle>(null);
   useFocusOnArrival('collection-query');
+  // The words typed become the search once typing pauses. Nothing is set when
+  // they already are the search: on arrival that timer re-rendered the page,
+  // and redrew its map, a third of a second after it had settled.
   useEffect(() => {
+    if (draft.trim() === query) return undefined;
     const settle = setTimeout(() => setQuery(draft.trim()), SETTLE_MS);
     return () => clearTimeout(settle);
-  }, [draft]);
+  }, [draft, query]);
 
   const status = useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: () => answer(engine().GET('/api/embeddings/status')) });
   const canRank = status.data?.capability.available === true;
@@ -91,7 +104,7 @@ export function Collection() {
     queryKey: ['explorer', query, ranking, filters],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
-      body: { ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam },
+      body: { ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS] },
     })),
     getNextPageParam: (last) => (last.has_more && last.next_cursor ? String(last.next_cursor) : undefined),
   });
@@ -118,20 +131,21 @@ export function Collection() {
   // An export's outcome is said only while the filters are the ones it was made under.
   const exportedHere = !!exporting.variables && JSON.stringify(exporting.variables.scope) === JSON.stringify(scope);
 
-  const links = useQuery({
-    queryKey: ['links', ids],
-    enabled: ids.length > 0,
-    queryFn: () => answer(engine().POST('/api/links/for-documents', { body: { document_ids: ids } })),
-  });
-  const anyLinks = !!links.data && Object.keys(links.data.links).length > 0;
-  // The people a paper matched, and on what basis: a name on a paper is not a
-  // person, and each row says which claim its match makes.
-  const people = useQuery({
-    queryKey: ['profile-matches-for', ids],
-    enabled: ids.length > 0,
-    queryFn: () => answer(engine().POST('/api/profiles/matches/for-documents', { body: { document_ids: ids } })),
-  });
-  const lifecycle = useLifecycleFor(ids);
+  // Each page carries its papers' marks, so they are drawn with the rows rather
+  // than after a second round of requests: the papers that look like the same
+  // work, the people a paper matched and on what basis (a name on a paper is
+  // not a person, and each row says which claim its match makes), and what
+  // has been recorded against it since.
+  const marks = useMemo(() => {
+    const out: Marks = { links: {}, matches: {}, events: {} };
+    for (const page of pages.data?.pages ?? []) {
+      Object.assign(out.links, page.links?.links);
+      Object.assign(out.matches, page.matches?.matches);
+      Object.assign(out.events, page.lifecycle?.events);
+    }
+    return out;
+  }, [pages.data]);
+  const anyLinks = Object.keys(marks.links).length > 0;
   const folded = useQuery({
     queryKey: ['fold', ids],
     enabled: fold && anyLinks,
@@ -144,7 +158,7 @@ export function Collection() {
   const visible = rows.filter((row) => !hidden.has(row.id));
 
   const total = first?.total ?? 0;
-  const busy = pages.isFetching || links.isFetching || people.isFetching || (fold && folded.isFetching);
+  const busy = pages.isFetching || (fold && folded.isFetching);
   const said = first ? countSentence(first, filtered, query) : '';
   // The whole collection's own count is the status's, read from every record; it answers only the unfiltered view.
   const cap = first ? capWords(first, !query && !filtered ? status.data?.coverage.total ?? null : null) : null;
@@ -154,7 +168,7 @@ export function Collection() {
     <div className="collection">
       <PaperSky
         ref={sky}
-        marked={query || filtered ? ids : []}
+        marked={query || filtered ? ids : NONE_MARKED}
         shape="tall"
         wheel="zoom"
         chosen={opened?.id ?? null}
@@ -291,7 +305,6 @@ export function Collection() {
             </p>
           )}
           {first?.similarity_unavailable && <p className="rank-note">{first.similarity_unavailable}</p>}
-          <LifecycleUnread error={lifecycle.error} />
           {fold && folded.data && rows.length > visible.length && (
             <p className="collapse-note">
               {count(rows.length - visible.length, 'row')} folded into another that looks like the same work.{' '}
@@ -310,12 +323,12 @@ export function Collection() {
           )}
           <ol className="result-list">
             {visible.map((paper) => {
-              const also = links.data?.links[String(paper.id)] ?? [];
+              const also = marks.links[String(paper.id)] ?? [];
               const standing = folded.data ? standingInFor(folded.data.folded, paper.id) : 0;
               return (
                 <li key={paper.id} className="result" data-document={paper.id}>
                   <Link to={`/papers/${paper.id}`} className="result-title">{paper.title}</Link>
-                  <LifecycleMarks events={lifecycle.data?.events[String(paper.id)]} />
+                  <LifecycleMarks events={marks.events[String(paper.id)]} />
                   <div className="meta">
                     <span className="who">{authors(paper.authors)}</span>
                     <span className="sep" />
@@ -330,9 +343,9 @@ export function Collection() {
                   {also.length > 0 && (
                     <ul className="result-links">{also.map((link) => <li key={link.id}>{link.label}</li>)}</ul>
                   )}
-                  {(people.data?.matches[String(paper.id)] ?? []).length > 0 && (
+                  {(marks.matches[String(paper.id)] ?? []).length > 0 && (
                     <ul className="result-people">
-                      {(people.data?.matches[String(paper.id)] ?? []).map((match) => (
+                      {(marks.matches[String(paper.id)] ?? []).map((match) => (
                         <li key={`${match.profile_id}:${match.basis}`} data-basis={match.basis}>
                           <span className="basis-chip" title={BASIS_MEANING[match.basis]}>{matchBasis(match.basis)}</span>
                           <Link to={`/watches/people/${match.profile_id}`}>{match.display_name}</Link>
