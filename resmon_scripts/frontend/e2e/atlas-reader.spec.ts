@@ -9,6 +9,10 @@
  * that opens a link window of its own and never the reader; and a link to
  * another page of the same document that goes there.
  *
+ * Find in the document (⌘F, Ctrl+F elsewhere): a phrase across two lines, a
+ * word broken at a hyphen, stepping through every match, in the reader and in
+ * focus mode, and ⌘F left alone outside the reader.
+ *
  * A file whose name has no space in 120 characters stays inside every column
  * it is named in, with the whole name in its tooltip. Then a 500-page PDF: its first page drawn, a fast scroll through half of
  * it measured frame by frame, pages far behind the view let go, and a jump
@@ -42,6 +46,10 @@ const LINKS = writePdf([
       { x: 72, y: 720, size: 16, text: SENTENCE },
       { x: 72, y: 690, size: 12, text: `Read more at ${WEB}` },
       { x: 72, y: 660, size: 12, text: 'Go to the target on page three' },
+      // For find: a phrase across two lines, and a word broken at a line-ending hyphen.
+      { x: 72, y: 600, size: 12, text: 'A phrase that runs across' },
+      { x: 72, y: 585, size: 12, text: 'two lines, and a hyphen-' },
+      { x: 72, y: 570, size: 12, text: 'ated word ends the page.' },
     ],
     links: [{ rect: [70, 685, 360, 702], uri: WEB }, { rect: [70, 655, 260, 672], page: 3, top: 500 }],
   },
@@ -315,6 +323,100 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await expect(gallery).toHaveCount(0);
     await expect(reader).toHaveAttribute('data-page', '3', { timeout: 10_000 });
 
+    // — find in the document: across lines, stepping, and the keyboard back where it was ----
+    const findBar = reader.getByRole('search', { name: 'Find in this document' });
+    const query = findBar.getByLabel('Find in the document');
+    const count = findBar.locator('[data-find="count"]');
+    const said = findBar.locator('[data-find="said"]');
+    const marked = (name: string) => win.evaluate((n) => Array.from(CSS.highlights.get(n) ?? [])
+      .map((r) => (r as Range).toString().replace(/\s+/g, '')), name);
+    // Outside the reader ⌘F is left as it was: nothing takes it. Inside, the reader does.
+    await win.evaluate(() => {
+      const taken: boolean[] = [];
+      (window as unknown as { findTaken: boolean[] }).findTaken = taken;
+      window.addEventListener('keydown', (e) => { if (e.key.toLowerCase() === 'f' && (e.metaKey || e.ctrlKey)) taken.push(e.defaultPrevented); });
+    });
+    await panel.getByLabel('Note', { exact: true }).focus();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(findBar).toHaveCount(0);
+    await scroll.focus();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(query).toBeFocused();
+    expect(await win.evaluate(() => (window as unknown as { findTaken: boolean[] }).findTaken)).toEqual([false, true]);
+    await query.fill('runs across two lines');
+    await expect(count).toHaveText('1 of 1', { timeout: 10_000 });
+    await expect(said).toHaveText('1 of 1');
+    await expect.poll(() => marked('ev-find-current'), { timeout: 10_000 }).toEqual(['runsacrosstwolines']);
+    await expect(reader).toHaveAttribute('data-page', '1', { timeout: 10_000 });
+    await query.fill('hyphenated');
+    await expect(count).toHaveText('1 of 1', { timeout: 10_000 });
+    await expect.poll(() => marked('ev-find-current'), { timeout: 10_000 }).toEqual(['hyphen-ated']);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-find.png') });
+    // Six matches on four pages: Enter and Shift+Enter step, wrap, and the view follows.
+    await query.fill('page');
+    await expect(count).toHaveText('1 of 6', { timeout: 10_000 });
+    for (const n of [2, 3, 4]) {
+      await query.press('Enter');
+      await expect(count).toHaveText(`${n} of 6`);
+    }
+    await expect(reader).toHaveAttribute('data-page', '2', { timeout: 10_000 });
+    await expect(said).toHaveText('4 of 6');
+    await query.press('Shift+Enter');
+    await expect(count).toHaveText('3 of 6');
+    await expect(reader).toHaveAttribute('data-page', '1', { timeout: 10_000 });
+    for (const n of [2, 1, 6]) {
+      await query.press('Shift+Enter');
+      await expect(count).toHaveText(`${n} of 6`);
+    }
+    await expect(reader).toHaveAttribute('data-page', '4', { timeout: 10_000 });
+    await expect.poll(() => marked('ev-find-current'), { timeout: 10_000 }).toEqual(['page']);
+    expect((await marked('ev-find')).length, 'the other matches on drawn pages are not marked').toBeGreaterThan(0);
+    await query.press('Escape');
+    await expect(findBar).toHaveCount(0);
+    await expect(scroll).toBeFocused();
+    expect(await marked('ev-find')).toEqual([]);
+    // In focus mode: the bar opens over the pages, and Escape closes it before it leaves focus mode.
+    await reader.getByRole('button', { name: 'Focus' }).click();
+    await expect(scroll).toBeFocused();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(query).toBeFocused();
+    await expect(query).toHaveValue('page');
+    await query.fill('target');
+    await expect(count).toHaveText(/^[12] of 2$/, { timeout: 10_000 });
+    const bar = (await findBar.boundingBox())!;
+    expect(bar.y, 'the find bar is not over the pages in focus mode').toBeGreaterThan(40);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-find-focus.png') });
+    await query.press('Escape');
+    await expect(findBar).toHaveCount(0);
+    await expect(reader).toHaveAttribute('data-focus', 'true');
+    await expect(scroll).toBeFocused();
+    await win.keyboard.press('Escape');
+    await expect(reader).not.toHaveAttribute('data-focus', 'true');
+    // At 1024 pixels, the window CI's macOS job runs in, the focus-mode tools and the find bar still fit.
+    await widen(app, win, 1024, 'light');
+    await reader.getByRole('button', { name: 'Focus' }).click();
+    await scroll.focus();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(query).toBeFocused();
+    const narrow = await reader.evaluate((el) => {
+      const tools = el.querySelector<HTMLElement>('.ev-tools')!;
+      const find = el.querySelector<HTMLElement>('.ev-find')!.getBoundingClientRect();
+      const last = Array.from(tools.querySelectorAll<HTMLElement>('button')).pop()!.getBoundingClientRect();
+      return { over: tools.scrollWidth - tools.clientWidth, lastRight: last.right, findLeft: find.left, findRight: find.right, width: window.innerWidth };
+    });
+    expect(narrow.over, 'the focus-mode tools overflow at 1024 pixels').toBeLessThanOrEqual(0);
+    expect(narrow.lastRight).toBeLessThanOrEqual(narrow.width);
+    expect(narrow.findRight).toBeLessThanOrEqual(narrow.width);
+    expect(narrow.findLeft).toBeGreaterThanOrEqual(0);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reader-find-1024.png') });
+    await query.press('Escape');
+    await win.keyboard.press('Escape');
+    await expect(reader).not.toHaveAttribute('data-focus', 'true');
+    await widen(app, win, 1440, 'light');
+    await pageInput.fill('3');
+    await pageInput.press('Enter');
+    await expect(reader).toHaveAttribute('data-page', '3');
+
     // — focus mode: the window, then the same page and zoom on the way back ---------------
     const zoom = reader.getByLabel('Zoom', { exact: true });
     await zoom.selectOption('150');
@@ -550,6 +652,39 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await zoom.selectOption('width');
     await win.keyboard.press('Escape');
     await expect(reader).not.toHaveAttribute('data-focus', 'true');
+
+    // — find through 500 pages: the first match while the rest are read, scrolling meanwhile ---
+    await pageInput.fill('1');
+    await pageInput.press('Enter');
+    await long.focus();
+    await win.keyboard.press('ControlOrMeta+F');
+    await expect(query).toBeFocused();
+    await query.fill('');
+    const scrolling = long.evaluate(fastScroll);
+    await query.pressSequentially('long fixture', { delay: 25 });
+    const typed = Date.now();
+    let firstShown = 0;
+    await expect.poll(async () => {
+      const text = (await count.textContent()) ?? '';
+      if (!firstShown && /^\d+ of /.test(text)) firstShown = Date.now();
+      return text;
+    }, { timeout: 60_000, intervals: [20] }).toMatch(/^\d+ of 500$/);
+    const allRead = Date.now();
+    const during = await scrolling;
+    await expect(said).toHaveText(/^\d+ of 500$/);
+    // Read once: a new query runs over the kept text.
+    const again = Date.now();
+    await query.fill('page 250 of the');
+    await expect(count).toHaveText('1 of 1', { timeout: 30_000 });
+    const cached = Date.now() - again;
+    await expect(reader).toHaveAttribute('data-page', '250', { timeout: 10_000 });
+    await expect.poll(() => marked('ev-find-current'), { timeout: 10_000 }).toEqual(['Page250ofthe']);
+    console.log(`[reader] find in 500 pages: first match shown ${firstShown - typed} ms after the last key, all 500 pages read ${allRead - typed} ms after it; `
+      + `a second query over the kept text answered in ${cached} ms`);
+    console.log(`[reader] scrolling while typing and reading: frame median ${during.median.toFixed(1)} ms, p95 ${during.p95.toFixed(1)} ms, `
+      + `worst ${during.worst.toFixed(1)} ms, ${during.over50} frames over 50 ms`);
+    await query.press('Escape');
+    await expect(findBar).toHaveCount(0);
 
     expect(problems).toEqual([]);
     expect(refused).toEqual([]);

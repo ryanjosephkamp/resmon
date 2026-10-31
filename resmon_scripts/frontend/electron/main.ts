@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
 import {
   isServiceLaunch, routeForNotice, servicePort, startNoticeListener, type Notice, type NoticeListener,
@@ -909,9 +909,14 @@ function createWindow(ground: string = CLASSIC_GROUND, route: string | null = nu
   // the keyboard, and the menu.
   //
   // macOS only delivers `swipe` when the user has "Swipe between pages" set to
-  // a two-finger gesture in System Settings; there is no way to detect that
-  // from here, which is why the menu items exist rather than relying on it.
+  // a gesture of three fingers (or two or three) in System Settings, which is
+  // why the menu items exist rather than relying on it. The default two-finger
+  // swipe reaches the page as wheel events instead, and the Atlas renderer
+  // follows those itself (`shell/SwipeNavigation.tsx`) through
+  // `resmon:swipe-history`; a `swipe` that lands just after one of its moves
+  // is the same gesture, and is not taken as a second.
   mainWindow.on('swipe', (_event, direction) => {
+    if (Date.now() - lastScrollSwipe < SWIPE_SETTLE_MS) return;
     if (direction === 'left') navigateHistory('back');
     if (direction === 'right') navigateHistory('forward');
   });
@@ -1010,16 +1015,50 @@ function openLinkWindow(url: string): void {
   void win.loadURL(url);
 }
 
-/** Go back or forward one page, if there is one. Never throws. */
-function navigateHistory(direction: 'back' | 'forward'): void {
+/** Go back or forward one page, if there is one; whether it moved. Never throws. */
+function navigateHistory(direction: 'back' | 'forward'): boolean {
   const history = mainWindow?.webContents.navigationHistory;
-  if (!history) return;
+  if (!history) return false;
   try {
-    if (direction === 'back' && history.canGoBack()) history.goBack();
-    if (direction === 'forward' && history.canGoForward()) history.goForward();
+    if (direction === 'back' && history.canGoBack()) { history.goBack(); return true; }
+    if (direction === 'forward' && history.canGoForward()) { history.goForward(); return true; }
   } catch {
     // A window torn down mid-gesture is not worth a crash report.
   }
+  return false;
+}
+
+/** When the renderer last moved for a two-finger swipe, and how long a `swipe` after it is the same gesture. */
+let lastScrollSwipe = 0;
+const SWIPE_SETTLE_MS = 1000;
+
+/**
+ * Whether a two-finger swipe moves between pages here, as it does in Safari:
+ * on macOS, "Swipe between pages" in System Settings › Trackpad › More
+ * Gestures, which the system keeps as `AppleEnableSwipeNavigateWithScrolls`
+ * and which is on until someone turns it off (unset is on). Read as a string,
+ * because a missing boolean reads as false. Elsewhere there is no such
+ * setting, and a touchpad's two-finger swipe moves as in a browser.
+ */
+function twoFingerSwipeNavigates(): boolean {
+  if (process.platform !== 'darwin') return true;
+  try {
+    return systemPreferences.getUserDefault('AppleEnableSwipeNavigateWithScrolls', 'string') !== '0';
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Hand an app menu command to the Atlas renderer, which does it as its own
+ * shortcut does (`atlas/src/shell/shortcuts.ts`), bringing the window forward
+ * first: the menu is also there while a link window is in front.
+ */
+function sendCommand(command: string): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.focus();
+  mainWindow.webContents.send('resmon:command', command);
 }
 
 /**
@@ -1031,12 +1070,50 @@ function navigateHistory(direction: 'back' | 'forward'): void {
  * (Cmd+[ / Cmd+]) alongside the Cmd+Left / Cmd+Right pair, and keeps the rest
  * of the standard menu so Copy, Paste, Minimise and the window list behave as
  * they always have.
+ *
+ * With the Atlas renderer, File also starts a new conversation, Deep Dive, or
+ * Deep Sweep, the app menu (Settings off macOS, in File) opens Settings, and
+ * Help lists the keyboard shortcuts. The renderer answers those keys itself
+ * and takes them, so a menu item's accelerator runs it only when the
+ * renderer left the key alone; a click is sent to the renderer, which does
+ * what the key does. ⌘W stays Close Window.
  */
 function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
+  const send = (command: string) => () => sendCommand(command);
+  const settings: Electron.MenuItemConstructorOptions = {
+    id: 'app-settings', label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: send('settings'),
+  };
+  const atlasFile: Electron.MenuItemConstructorOptions = {
+    label: 'File',
+    id: 'file-menu',
+    submenu: [
+      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'CmdOrCtrl+N', click: send('new-conversation') },
+      { id: 'file-new-dive', label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D', click: send('new-dive') },
+      { id: 'file-new-sweep', label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D', click: send('new-sweep') },
+      { type: 'separator' },
+      ...(isMac ? [{ role: 'close' as const }] : [settings, { type: 'separator' as const }, { role: 'quit' as const }]),
+    ],
+  };
+  const atlasApp: Electron.MenuItemConstructorOptions = {
+    role: 'appMenu',
+    submenu: [
+      { role: 'about' },
+      { type: 'separator' },
+      settings,
+      { type: 'separator' },
+      { role: 'services' },
+      { type: 'separator' },
+      { role: 'hide' },
+      { role: 'hideOthers' },
+      { role: 'unhide' },
+      { type: 'separator' },
+      { role: 'quit' },
+    ],
+  };
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' as const }] : []),
-    { role: 'fileMenu' },
+    ...(isMac ? [ATLAS ? atlasApp : { role: 'appMenu' as const }] : []),
+    ATLAS ? atlasFile : { role: 'fileMenu' },
     { role: 'editMenu' },
     {
       label: 'History',
@@ -1080,6 +1157,10 @@ function installApplicationMenu(): void {
     },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
+    ...(ATLAS ? [{
+      role: 'help' as const,
+      submenu: [{ id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') }],
+    }] : []),
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -1229,6 +1310,17 @@ app.whenReady().then(async () => {
       app.relaunch();
       app.quit();
       return true;
+    });
+
+    // IPC: two-finger swipe navigation, for the Atlas renderer's
+    // `SwipeNavigation`: whether the system lets two fingers swipe between
+    // pages, and the move itself, made here so a `swipe` event that follows it
+    // is known for the same gesture. Answered only to the renderer's own frame.
+    ipcMain.handle('resmon:swipe-navigation', (event) => fromRenderer(event) && twoFingerSwipeNavigates());
+    ipcMain.handle('resmon:swipe-history', (event, direction: unknown) => {
+      if (!fromRenderer(event) || (direction !== 'back' && direction !== 'forward')) return false;
+      lastScrollSwipe = Date.now();
+      return navigateHistory(direction);
     });
 
     // IPC: choose a directory via native folder picker.

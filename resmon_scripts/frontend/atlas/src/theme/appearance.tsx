@@ -1,5 +1,5 @@
 import {
-  createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore,
+  createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore,
   type ReactNode,
 } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -106,7 +106,12 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   // Following the system means following it while the app is open, too.
   const system = useSyncExternalStore(subscribeToSystem, systemTheme);
   const theme: ThemeName = shown.theme === 'system' ? system : shown.theme;
-  useEffect(() => paint(theme, shown.accent), [theme, shown.accent]);
+  // A layout effect, so <html> carries the theme before any screen's own
+  // effects run: a canvas reads its colors from the page in an effect, and a
+  // child's effects run before its parent's. Painted in an ordinary effect, the
+  // first map drawn at launch read a page with no theme on it yet and kept
+  // those colors, black, until something else asked it to draw again.
+  useLayoutEffect(() => paint(theme, shown.accent), [theme, shown.accent]);
 
   const mutation = useMutation({
     // One PUT at a time, in the order they were made, so the engine ends on the

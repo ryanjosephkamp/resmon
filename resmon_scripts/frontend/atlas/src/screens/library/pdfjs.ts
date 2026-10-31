@@ -39,7 +39,8 @@ export interface PdfDocument {
 }
 export interface PdfWorker { promise: Promise<void>; destroy(): void }
 export interface PdfLoadingTask { promise: Promise<PdfDocument>; destroy(): Promise<void> }
-export interface PdfTextLayer { render(): Promise<void>; cancel(): void }
+/** A drawn text layer; `textDivs` holds one element a text run, in the runs' order, empty ones included. */
+export interface PdfTextLayer { render(): Promise<void>; cancel(): void; readonly textDivs: HTMLElement[] }
 export interface PdfModule {
   version: string;
   PDFWorker: new (options: { port: Worker; name: string }) => PdfWorker;

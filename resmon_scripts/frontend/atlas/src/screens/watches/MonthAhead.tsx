@@ -8,8 +8,10 @@ import { CALENDAR_KEY, type CalendarEvent, type RoutineRow } from './model';
 
 /** Five weeks, from the Sunday of this one. */
 const WEEKS = 5;
-/** Marks drawn in one day before the rest are counted instead. */
-const PER_DAY = 8;
+/** Fires named in one day before the rest are counted instead. */
+const PER_DAY = 5;
+/** Fires listed under the month, soonest first. */
+const LISTED = 8;
 
 /**
  * The engine's calendar for the weeks the month ahead draws: the runs that
@@ -47,11 +49,12 @@ function markWords(firing: Firing): string {
 }
 
 /**
- * The month ahead: every fire a schedule is due, as a mark on its day, in
- * this computer's time, which is the zone the scheduler fires in. The watch
- * under the pointer, or under the keyboard's focus, lights its own marks, and
- * a mark opens its watch. Past days of this week are drawn quiet, with no
- * fires: the calendar shows only fires still to come.
+ * The month ahead: every fire a schedule is due, as a mark on its day named
+ * with its time and its watch, in this computer's time, which is the zone the
+ * scheduler fires in. The watch under the pointer, or under the keyboard's
+ * focus, lights its own marks, and a mark opens its watch. Past days of this
+ * week are drawn quiet, with no fires: the calendar shows only fires still to
+ * come.
  *
  * A mark is a run only where something will run it. The opening sentence
  * says "will run" only when every watching watch will, and a watch nothing
@@ -61,8 +64,8 @@ function markWords(firing: Firing): string {
  * first (or the last one used), the arrow keys move through them in time
  * order, and Enter opens the watch.
  */
-export function MonthAhead({ now, events, routines, lit, status, onLight }: {
-  now: Date; events: readonly CalendarEvent[] | null; routines: readonly RoutineRow[]; lit: number | null;
+export function MonthAhead({ now, events, error, routines, lit, status, onLight }: {
+  now: Date; events: readonly CalendarEvent[] | null; error?: Error | null; routines: readonly RoutineRow[]; lit: number | null;
   status?: SchedulerStatus; onLight?: (id: number) => void;
 }) {
   const names = useMemo(() => new Map(routines.map((r) => [r.id, r.name])), [routines]);
@@ -106,10 +109,11 @@ export function MonthAhead({ now, events, routines, lit, status, onLight }: {
   };
 
   return (
-    <section className="month-ahead" aria-label="The month ahead" data-state={events === null ? 'reading' : 'read'}>
-      <h2 className="ahead-title">The month ahead</h2>
+    <section className="month-ahead" aria-label="The month ahead"
+      data-state={events !== null ? 'read' : error ? 'failed' : 'reading'}>
       <p className="ahead-lede">{monthAheadLede(status, activeIds)}</p>
-      {events === null && <p className="index-cap">Reading the calendar.</p>}
+      {events === null && !error && <p className="index-cap">Reading the calendar.</p>}
+      {events === null && error && <p className="index-cap" role="alert">The calendar could not be read ({error.message}).</p>}
       <div className="ahead-grid" role="grid" aria-label="Fires by day">
         {WEEKDAYS.map((d) => <span key={d} className="ahead-dow" role="columnheader">{d}</span>)}
         {days.map((day) => {
@@ -136,6 +140,8 @@ export function MonthAhead({ now, events, routines, lit, status, onLight }: {
                       tabIndex={index === current ? 0 : -1}
                       title={words}
                       aria-label={`${words}. Open the watch`}
+                      data-firing={firingState(firing)}
+                      data-lit={fire.routine_id === lit ? 'true' : undefined}
                       onKeyDown={(event) => move(event, index)}
                       onFocus={() => { setFocusAt(index); if (fire.routine_id !== null) onLight?.(fire.routine_id); }}
                       onMouseEnter={() => { if (fire.routine_id !== null) onLight?.(fire.routine_id); }}
@@ -147,24 +153,27 @@ export function MonthAhead({ now, events, routines, lit, status, onLight }: {
                         data-firing={firingState(firing)}
                         data-lit={fire.routine_id === lit ? 'true' : undefined}
                       />
+                      <span className="fire-time num" aria-hidden="true">{clock(fire.start)}</span>
+                      <span className="fire-name" aria-hidden="true">{nameOf(fire)}</span>
                     </Link>
                   );
                 })}
-                {list.length > PER_DAY && <span className="fire-more num">+{list.length - PER_DAY}</span>}
+                {list.length > PER_DAY && <span className="fire-more num">{list.length - PER_DAY} more</span>}
               </span>
             </div>
           );
         })}
       </div>
-      <h3 className="ahead-sub">{allFire ? 'Next' : 'Next due'}</h3>
+      <h2 className="ahead-sub">{allFire ? 'Next' : 'Next due'}</h2>
       {events !== null && !fires.length && (
         <p className="index-empty">Nothing is due: every watch is paused, or there are none.</p>
       )}
       <ol className="next-fires">
-        {fires.slice(0, 6).map((fire) => {
+        {fires.slice(0, LISTED).map((fire) => {
           const firing = firingOf(status, fire.routine_id ?? -1);
           return (
-            <li key={String(fire.id)} data-routine={fire.routine_id ?? undefined} data-firing={firingState(firing)}>
+            <li key={String(fire.id)} data-routine={fire.routine_id ?? undefined} data-firing={firingState(firing)}
+              onMouseEnter={() => { if (fire.routine_id !== null) onLight?.(fire.routine_id); }}>
               <span className="next-when">{when(fire.start, now)}</span>
               <Link to={`/watches/${fire.routine_id}`} className="it">{nameOf(fire)}</Link>
               {firing === false && <span className="next-doubt">nothing will run it</span>}

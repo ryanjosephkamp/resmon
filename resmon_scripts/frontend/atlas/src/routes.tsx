@@ -15,6 +15,7 @@ import { Run } from './screens/Run';
 import { Search } from './screens/Search';
 import { Settings } from './screens/Settings';
 import { Today } from './screens/Today';
+import { Calendar } from './screens/watches/Calendar';
 import { Watch } from './screens/watches/Watch';
 import { WatchEditor } from './screens/watches/WatchEditor';
 import { Watches } from './screens/watches/Watches';
@@ -35,7 +36,7 @@ export interface Section {
  */
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
-  { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule calendar delivery coverage new watch create', element: <Watches /> },
+  { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule delivery coverage new watch create', element: <Watches /> },
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export shared wording text reuse passages', element: <Collection /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import evidence passages notes projects', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
@@ -65,11 +66,17 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/health/engine', element: <Engine /> },
   { path: '/runs/:id', element: <Run /> },
   { path: '/papers/:id', element: <Paper /> },
+  { path: '/watches/calendar', element: <Calendar /> },
   { path: '/watches/people', element: <People /> },
   { path: '/watches/people/:id', element: <Person /> },
   { path: '/watches/new', element: <WatchEditor /> },
   { path: '/watches/:id/edit', element: <WatchEditor /> },
   { path: '/watches/:id', element: <Watch /> },
+];
+
+/** Screens within a section the command palette also offers by name. */
+export const PLACES: readonly Omit<Section, 'element'>[] = [
+  { path: '/watches/calendar', label: 'Calendar', keywords: 'watches schedule month ahead due next fires when runs' },
 ];
 
 export const HOME = '/today';

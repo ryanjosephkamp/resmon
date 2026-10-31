@@ -9,7 +9,7 @@ import { count, number, when } from '../today/format';
 import {
   BACKGROUND_PATH, BACKGROUND_WORDS, SCHEDULER_KEY, firingNotice, firingOf, firingState, nextWords, type Firing, type FiringNotice,
 } from './firing';
-import { MonthAhead, useCalendar } from './MonthAhead';
+import { useCalendar } from './MonthAhead';
 import { WatchTabs } from './WatchTabs';
 import {
   WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type RoutineRow, type WatchWarning,
@@ -38,7 +38,9 @@ export function useSchedulerStatus() {
 /**
  * Watches: every routine, what it asks and when, whether it is watching or
  * paused, and how its last run went; the one under the pointer lit as a
- * constellation on the collection map, and the month ahead's promised fires.
+ * constellation on the collection map. The month ahead's promised fires are
+ * the Calendar tab's (`Calendar.tsx`); each row's next fire is read from the
+ * same calendar.
  *
  * Paused is not deleted: a paused watch keeps its runs and papers and fires
  * nothing until it is resumed. The fires drawn are the engine's own calendar,
@@ -124,8 +126,6 @@ export function Watches() {
               />
             ))}
           </ol>
-          <MonthAhead now={now} events={calendar.data ?? null} routines={list} lit={shown} status={status.data}
-            onLight={setLit} />
         </div>
       </section>
     </div>
@@ -192,7 +192,7 @@ function WatchRow({ routine, now, next, firing, lit, onLight, catalog }: {
         {due && (<><span className="sep" /><span className="watch-next" data-firing={firingState(firing)}>{due}</span></>)}
       </div>
       <div className="meta">
-        <span>
+        <span className="asks" title={`${asks.person ? 'A person' : asks.query || asks.keywords.join(', ') || 'No keywords'} in ${count(asks.sources.length, 'source')}`}>
           {asks.person ? 'A person' : asks.query || asks.keywords.join(', ') || 'No keywords'}
           {' '}in {count(asks.sources.length, 'source')}
         </span>

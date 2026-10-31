@@ -91,16 +91,17 @@ export function ReadingQueue() {
       <LibraryTabs />
       <div className="library-head">
         <h1 className="page-title">Reading queue</h1>
-        <div className="seg" role="group" aria-label="Show">
-          {FILTERS.map((f) => (
-            <button key={f.id} type="button" aria-pressed={filter === f.id}
-              onClick={() => { setFilter(f.id); setOffset(0); setSelected([]); exporting.reset(); }}>
-              {f.label}{counts ? <span className="seg-n num">{number(counts[f.id])}</span> : null}
-            </button>
-          ))}
-        </div>
       </div>
       <p className="page-lede">Papers you saved from a run or from a paper&rsquo;s page. Removing one leaves it in your collection.</p>
+      {/* The list's own control, so it sits with the list at any width rather than at the far edge of an empty row. */}
+      <div className="seg queue-show" role="group" aria-label="Show">
+        {FILTERS.map((f) => (
+          <button key={f.id} type="button" aria-pressed={filter === f.id}
+            onClick={() => { setFilter(f.id); setOffset(0); setSelected([]); exporting.reset(); }}>
+            {f.label}{counts ? <span className="seg-n num">{number(counts[f.id])}</span> : null}
+          </button>
+        ))}
+      </div>
 
       {ticked.length > 0 && (
         <div className="export-bar queue-export" role="group" aria-label="Export the selected papers" data-queue="export">

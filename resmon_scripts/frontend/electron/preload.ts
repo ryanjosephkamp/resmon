@@ -55,4 +55,14 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   // Quit and open again; resolves false where the main process refuses (the
   // service, or a frame that is not the renderer's own).
   relaunch: (): Promise<boolean> => ipcRenderer.invoke('resmon:relaunch'),
+  // The app menu's commands for the Atlas renderer: New Deep Dive and the rest.
+  onCommand: (callback: (command: string) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, command: string) => callback(command);
+    ipcRenderer.on('resmon:command', listener);
+    return () => { ipcRenderer.removeListener('resmon:command', listener); };
+  },
+  // Two-finger swipe: whether the system lets two fingers swipe between pages,
+  // and the move, which the main process makes.
+  swipeNavigation: (): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-navigation'),
+  swipeHistory: (direction: 'back' | 'forward'): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-history', direction),
 });

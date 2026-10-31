@@ -509,8 +509,8 @@ Atlas the collection and the paper (slice 2): `screens/collection/` (Search › 
 collection at `/search`, Ask the sources at `/search/ask`, a paper at `/papers/:id`),
 `screens/library/ReadingQueue.tsx`, the shared sky `screens/sky/PaperSky.tsx`; real-app
 journey `e2e/atlas-collection.spec.ts`.
-Atlas Watches (slice 3a): `screens/watches/` (every watch and the month ahead at
-`/watches`, a watch at `/watches/:id` with its constellation, nights, coverage audit and
+Atlas Watches (slice 3a): `screens/watches/` (every watch at `/watches`, the calendar
+at `/watches/calendar`, a watch at `/watches/:id` with its constellation, nights, coverage audit and
 delivery record); the routes' bodies are the "watches", "where a watch's reports go" and
 "the calendar" slices of `test_response_models.py`; real-app journey `e2e/atlas-watches.spec.ts`.
 Atlas People (slice 3b): `screens/watches/people/` (watch profiles at `/watches/people`, a

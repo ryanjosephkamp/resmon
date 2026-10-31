@@ -8,6 +8,21 @@ import type { Health } from './model';
 /** The repository's issues page, where a person reports a problem themselves. */
 export const ISSUES_URL = 'https://github.com/ryanjosephkamp/resmon/issues';
 
+/** Who made resmon, and where to find him: the credit row his project sites end with, in its order and words. */
+export const MAKER = { name: 'Ryan Kamp', website: 'https://ryanjosephkamp.github.io/' } as const;
+
+export type CreditIcon = 'website' | 'github' | 'linkedin' | 'x' | 'youtube';
+
+export const CREDIT_LINKS: readonly { icon: CreditIcon; href: string; label: string; title: string }[] = [
+  { icon: 'website', href: MAKER.website, label: 'Ryan Kamp’s website', title: 'Website' },
+  { icon: 'github', href: 'https://github.com/ryanjosephkamp/', label: 'Ryan Kamp on GitHub', title: 'GitHub' },
+  { icon: 'linkedin', href: 'https://www.linkedin.com/in/rjk1999', label: 'Ryan Kamp on LinkedIn', title: 'LinkedIn' },
+  { icon: 'x', href: 'https://x.com/ryanjosephkamp', label: 'Ryan Kamp on X', title: 'X' },
+  { icon: 'youtube', href: 'https://m.youtube.com/@RyanJosephKamp', label: 'Ryan Kamp on YouTube', title: 'YouTube' },
+];
+
+export const SPONSOR_URL = 'https://github.com/sponsors/ryanjosephkamp';
+
 /** The repository's `LICENSE`, word for word. */
 export const LICENSE_TEXT = `MIT License
 
