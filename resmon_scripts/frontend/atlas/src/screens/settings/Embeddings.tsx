@@ -10,6 +10,7 @@ import {
 } from './embeddingWords';
 import { ProviderKey, refusal } from './ProviderKey';
 import { KEY_NAMES } from './summaryLanes';
+import { commandEnter } from '../../shell/shortcuts';
 
 export const EMBEDDING_PAGE_KEY = ['embedding-settings'] as const;
 
@@ -139,7 +140,7 @@ function LaneForm({ page }: { page: EmbeddingPage }) {
   };
 
   return (
-    <form className="settings-form" aria-label="Embedding settings"
+    <form className="settings-form" {...commandEnter()} aria-label="Embedding settings"
       onSubmit={(event) => { event.preventDefault(); if (!refused) save.mutate(); }}>
       <button type="button" className="switch" role="switch" aria-checked={on} data-switch="embedding_enabled"
         onClick={() => setForm({ ...form, embedding_enabled: on ? 'false' : 'true' })}>

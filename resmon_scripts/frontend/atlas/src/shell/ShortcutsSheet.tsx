@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import { SECTIONS, SETTINGS } from '../routes';
 import { Icon } from './Icon';
-import { keysText, sectionIndex, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
+import { COMMAND_ENTER_CHORD, keysText, sectionIndex, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
 
 /** What each shortcut does, in the words the sheet uses. Sections are named from the route table. */
 const SAYS: Partial<Record<ShortcutId, string>> = {
@@ -95,6 +95,12 @@ export function ShortcutsSheet({ open, onClose, dialog, mac }: {
                       </div>
                     );
                   })}
+                  {group.title === 'Anywhere' && (
+                    <div data-shortcut="command-enter">
+                      <dt>Save or send what you wrote</dt>
+                      <dd><kbd>{keysText(COMMAND_ENTER_CHORD, mac)}</kbd></dd>
+                    </div>
+                  )}
                   {group.title === 'Back and forward' && (
                     <div data-shortcut="swipe">
                       <dt>On a trackpad</dt>

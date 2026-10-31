@@ -328,6 +328,8 @@ kbd {
 .keys-list dd { margin: 0; display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .keys-list .keys-words { flex: 0 1 auto; max-width: 180px; font: 400 12.5px/1.35 var(--sans); color: var(--ink-2); text-align: right; }
 .keys-or { font: 400 12px/1 var(--sans); color: var(--ink-3); }
+/* ⌘↩ beside a button that ⌘Enter in its fields presses: quiet, and only where there is room. */
+.enter-hint { flex: none; align-self: center; color: var(--ink-3); background: transparent; }
 .keys-note { margin: 8px 0 0; padding: 12px 22px 18px; border-top: 1px solid var(--rule); font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
 @media (prefers-reduced-motion: reduce) { .keys-sheet[open], .keys-sheet::backdrop { animation: none; } }
 

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { commandEnter } from '../../shell/shortcuts';
 import { download } from '../library/libraryApi';
 import { CliSignIn } from '../settings/CliSignIn';
 import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from '../settings/modelWords';
@@ -470,7 +471,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
           {!unreadable && <Link to="/settings/ai">Open Settings › AI</Link>}
         </p>
       )}
-      <form className="conv-composer" onSubmit={submit}>
+      <form className="conv-composer" {...commandEnter()} onSubmit={submit}>
         <textarea
           ref={box}
           rows={2}

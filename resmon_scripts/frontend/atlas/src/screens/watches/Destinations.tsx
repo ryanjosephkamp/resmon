@@ -4,6 +4,7 @@ import { answer, engine, EngineError } from '../../api/client';
 import { keychainName } from '../settings/model';
 import { platform } from '../../bridge';
 import { CHANNEL_WORDS, WATCHES_KEY, destinationWords, webhookUrl, type DeliveryTarget } from './model';
+import { commandEnter } from '../../shell/shortcuts';
 
 type Mode = 'automatic' | 'review';
 
@@ -217,7 +218,7 @@ function AddDestination({ routineId, channels, onAdded }: { routineId: number; c
     if (!needsTarget || target.trim()) add.mutate();
   };
   return (
-    <form className="destination-add" onSubmit={submit} aria-label="Add a destination">
+    <form className="destination-add" {...commandEnter()} onSubmit={submit} aria-label="Add a destination">
       <p className="field-title">Add a destination</p>
       <div className="destination-add-row">
         <select aria-label="Kind of destination" value={channel} onChange={(e) => { setChannel(e.target.value); add.reset(); }}>

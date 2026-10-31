@@ -1,11 +1,21 @@
 import { Drawer } from '../pdfDocument';
 import {
-  CSS_UNITS, PAGE_GAP, PAGE_PAD, allot, anchorAt, currentPage, explicitDest, findSelection, keptPages, layout, linkBox, linkTarget,
-  stepZoom, topOf, webHref, zoomPercent, zoomScale,
+  CSS_UNITS, FOCUS_ZOOM, OPENING_ZOOM, PAGE_GAP, PAGE_PAD, allot, anchorAt, currentPage, explicitDest, findSelection, keptPages, layout,
+  linkBox, linkTarget, stepZoom, topOf, webHref, zoomPercent, zoomScale,
 } from '../readerModel';
 
 const LETTER = { width: 612, height: 792 };
 const LINK = 2;
+
+test('the reader opens at fit width beside the notes, and focus mode at fit page, the whole page in the window', () => {
+  expect(OPENING_ZOOM).toBe('width');
+  expect(FOCUS_ZOOM).toBe('page');
+  // A focus-mode window on a 1024 by 768 screen: the whole Letter page fits it, top to bottom.
+  const window = { width: 1024, height: 700 };
+  const scale = zoomScale(FOCUS_ZOOM, window, LETTER);
+  expect(LETTER.height * scale).toBeLessThanOrEqual(window.height - 2 * PAGE_PAD);
+  expect(LETTER.width * scale).toBeLessThanOrEqual(window.width - 2 * PAGE_PAD);
+});
 
 test('a zoom is a scale: 100% is actual size, fit width fills the frame, fit page shows the whole page', () => {
   expect(zoomScale(100, { width: 500, height: 500 }, LETTER)).toBeCloseTo(CSS_UNITS);

@@ -12,6 +12,7 @@ import { EMBEDDING_PAGE_KEY, Embeddings, readEmbeddingPage, readEmbeddingStatus 
 import { refusal } from './ProviderKey';
 import { SummaryForm } from './SummaryForm';
 import { AI_KEY, routeSentence } from './summaryLanes';
+import { commandEnter } from '../../shell/shortcuts';
 
 const ASSISTANT_KEY = ['assistant-settings'] as const;
 
@@ -135,7 +136,7 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
   const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: !api, refetchOnMount: 'always' });
   const words = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
   return (
-    <form className="settings-form" aria-label="Assistant settings"
+    <form className="settings-form" {...commandEnter()} aria-label="Assistant settings"
       onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
       <div className="form-grid">
         <label className="form-field" htmlFor="assistant-runtime">
