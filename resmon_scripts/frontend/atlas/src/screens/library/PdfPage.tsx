@@ -125,6 +125,7 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, density, b
         holder.append(end);
         holder.addEventListener('pointerdown', () => holder.classList.add('selecting'));
         text.current.replaceChildren(holder);
+        session.layers.set(number, layer.textDivs);
         const found: Spot[] = [];
         for (const annotation of await proxy.getAnnotations({ intent: 'display' })) {
           const target = linkTarget(annotation, session.api.AnnotationType.LINK);
@@ -169,9 +170,10 @@ export const PdfPage = memo(function PdfPage({ session, index, scale, density, b
       drawing?.replaceChildren();
       words?.replaceChildren();
       parsed.current?.cleanup();
+      session.layers.set(index + 1, null);
       onSaid(index, null);
     };
-  }, [index, onSaid]);
+  }, [session, index, onSaid]);
 
   const style = {
     top: box.top, left: box.left, width: box.width, height: box.height,

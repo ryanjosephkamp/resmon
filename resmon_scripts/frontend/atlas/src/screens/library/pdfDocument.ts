@@ -5,6 +5,7 @@ import {
   type PdfDocument, type PdfLoadingTask, type PdfModule, type PdfWorker,
 } from './pdfjs';
 import type { Size } from './readerModel';
+import type { FindText } from './findModel';
 
 /** The identity of the exact version being drawn, as plain values, so a project's new revision does not redraw it. */
 export interface Drawn { vault_id: string; project_id: string; file_id: string; version_id: string; sha256: string; byte_size: number }
@@ -60,6 +61,32 @@ export class Drawer {
   }
 }
 
+/**
+ * The text layers drawn so far, by page (1-based), each as its runs' elements:
+ * what find marks its matches in. A page let go takes its layer with it.
+ */
+export class TextLayers {
+  private readonly layers = new Map<number, HTMLElement[]>();
+  private readonly listeners = new Set<() => void>();
+
+  set(page: number, runs: HTMLElement[] | null): void {
+    if (runs) this.layers.set(page, runs); else if (!this.layers.delete(page)) return;
+    for (const listener of this.listeners) listener();
+  }
+
+  entries(): IterableIterator<[number, HTMLElement[]]> {
+    return this.layers.entries();
+  }
+
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  }
+}
+
+/** A page's text for find, and where each run starts on the page: its left and top, in PDF units. */
+export interface FindPage extends FindText { boxes: Float32Array }
+
 /** One open document: its pages, the queue that draws them, and the small images the page gallery keeps. */
 export interface PdfSession {
   api: PdfModule;
@@ -70,6 +97,10 @@ export interface PdfSession {
   drawer: Drawer;
   /** Thumbnails already drawn, as JPEG data URLs, the oldest let go past a few hundred. */
   thumbs: Map<number, string>;
+  /** The text layers on screen, for find to mark. */
+  layers: TextLayers;
+  /** Each page's text for find, read once a document. */
+  finds: Map<number, FindPage>;
   /** Stop the worker and say why; every page stops drawing. */
   fail(message: string): void;
 }
@@ -152,7 +183,9 @@ export function usePdfSession(drawn: Drawn | null, attempt: number): SessionStat
         if (!live) return;
         window.clearTimeout(timeout);
         const sizes = Array.from({ length: doc.numPages }, () => ({ width: first.width, height: first.height }));
-        setState({ opening, said: { status: 'ready', session: { api, doc, pages: doc.numPages, sizes, drawer, thumbs: new Map(), fail } } });
+        setState({ opening, said: { status: 'ready', session: {
+          api, doc, pages: doc.numPages, sizes, drawer, thumbs: new Map(), layers: new TextLayers(), finds: new Map(), fail,
+        } } });
       } catch (reason) {
         window.clearTimeout(timeout);
         fail(`The PDF could not be drawn: ${reason instanceof Error ? reason.message : 'the PDF is not supported'}.`);
