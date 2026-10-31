@@ -229,5 +229,6 @@ export function thresholdWords(t: WatchdogReport['thresholds']): string[] {
     `A source that used to return papers looks unusual after ${plural(t.consecutive_zeros, 'empty run', 'empty runs')} in a row, once it has ${plural(t.min_baseline_runs, 'run', 'runs')} of history.`,
     `A watch that used to find papers looks unusual after ${plural(t.flatline_runs, 'run', 'runs')} with nothing new.`,
     `A watch is overdue once it has been quiet for more than ${t.overdue_cadence_multiple} times its usual gap between runs, and for at least ${plural(t.overdue_floor_days, 'day', 'days')}, once it has ${plural(t.min_runs_for_cadence, 'completed run', 'completed runs')} to measure that gap from.`,
+    `A watch is broken when a scheduled run did not happen in the last ${plural(t.skipped_fires_window_days, 'day', 'days')} because the run before it was still going.`,
   ];
 }

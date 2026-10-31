@@ -1,5 +1,5 @@
 import { closeGroups, convexHull } from '../../sky/PaperSky';
-import { deliveryWords, instant, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
+import { deliveryWords, instant, missedFireWords, promisedFires, scheduleText, watchAsks, type CalendarEvent } from '../model';
 
 describe('scheduleText says only what the scheduler will do', () => {
   test.each([
@@ -77,5 +77,16 @@ describe('the constellation outlines', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]).toHaveLength(5);
     expect(closeGroups(near, 4, 5)).toHaveLength(0);
+  });
+});
+
+describe('a fire that did not run is said in words', () => {
+  test.each([
+    ['skipped', 'did not run: the run before it was still going'],
+    ['recorded', 'came due while resmon was not running'],
+    ['ran_late', 'ran late, when you asked for a run'],
+    [null, 'did not run'],
+  ])('%s', (disposition, words) => {
+    expect(missedFireWords(disposition)).toBe(words);
   });
 });

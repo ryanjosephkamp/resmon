@@ -82,13 +82,13 @@ shape changes its output: the same test compares them.
 
 ```bash
 # Backend — from the repo root
-.venv/bin/python -m pytest -q          # hermetic suite: 3147 pass, 5 skip, 108 deselected (CI, Python 3.11)
-.venv/bin/python -m pytest -m live_network   # the 108 — real scholarly APIs, CLIs and sockets
-                                             # 92 of them run weekly in CI; see below
+.venv/bin/python -m pytest -q          # hermetic suite: 4453 pass, 2 skip, 107 deselected (Python 3.11)
+.venv/bin/python -m pytest -m live_network   # the 107 — real scholarly APIs, CLIs and sockets
+                                             # 91 of them run weekly in CI; see below
 
 # Frontend — from resmon_scripts/frontend
-npm run typecheck && npm test && npm run build   # 1112 tests across 104 suites
-npm run e2e                                      # the real Electron app — 139 cases in 55 files, 29 routes; report actual pass/skip counts
+npm run typecheck && npm test && npm run build   # 1368 tests across 127 suites
+npm run e2e                                      # the real Electron app — 161 cases in 70 files, 29 routes; report actual pass/skip counts
 npm run e2e:review                               # the same, on your display, into one folder
 ```
 

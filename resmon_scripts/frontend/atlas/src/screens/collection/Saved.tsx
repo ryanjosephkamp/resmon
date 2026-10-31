@@ -122,7 +122,7 @@ export function Saved() {
           <p className="meta">
             <span>{savedKind(config.config_type)}</span>
             {asks.keywords.length > 0 && (<><span className="sep" /><span>“{asks.keywords.join(' ')}”</span></>)}
-            {sources.length > 0 && (<><span className="sep" /><span>{sources.length > 3 ? `${sources.slice(0, 3).join(', ')} and ${sources.length - 3} more` : sources.join(', ')}</span></>)}
+            {sources.length > 0 && (<><span className="sep" /><span>{sources.length > 3 ? `${sources.slice(0, 3).join(', ')}, and ${sources.length - 3} more` : sources.join(', ')}</span></>)}
             {asks.cron && (<><span className="sep" /><span>{scheduleText(asks.cron) ?? asks.cron}</span></>)}
             {asks.window && (<><span className="sep" /><span>{asks.window}</span></>)}
             {asks.cap !== null && (<><span className="sep" /><span>up to {asks.cap} per source</span></>)}

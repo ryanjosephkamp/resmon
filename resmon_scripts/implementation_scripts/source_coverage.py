@@ -113,6 +113,42 @@ def outcome(row: dict) -> dict:
             "partial": partial}
 
 
+def sent_no_terms(params: dict) -> bool:
+    """Whether a run's saved parameters asked its sources for no words at all.
+
+    Only where the words were saved and are empty: parameters that do not
+    record a query or keywords say nothing about what was searched, and a run
+    that follows a person (``entity``) searches by the person, not by words.
+    """
+    if not params or params.get("entity") is not None or params.get("entity_profile") is not None:
+        return False
+    if "query" not in params and "keywords" not in params:
+        return False
+    keywords = params.get("keywords")
+    words = [k for k in keywords if str(k).strip()] if isinstance(keywords, list) else []
+    query = params.get("query")
+    return not words and not (isinstance(query, str) and query.strip())
+
+
+def _http_status(row: dict) -> object:
+    detail = row.get("zero_detail")
+    if isinstance(detail, str):
+        try:
+            detail = json.loads(detail) if detail else {}
+        except ValueError:
+            return None
+    return detail.get("status") if isinstance(detail, dict) else None
+
+
+# Said of a source that answered HTTP 400 to a run with no search terms. The
+# refusal is the source turning down an empty search, not the source being down,
+# and the row's own sentence ("could not be queried") reads as the second.
+NO_TERMS_REFUSAL = (
+    " This run had no search terms, so resmon sent this source an empty search, "
+    "and the 400 is the source refusing it."
+)
+
+
 def _counted(n: int, singular: str) -> str:
     return f"{n} {singular}" if n == 1 else f"{n} {singular}s"
 
@@ -140,6 +176,15 @@ def _non_answers(sources: list[dict], n: int) -> str:
 def build(execution: dict, rows: list[dict]) -> dict:
     selected, provenance = selection(execution.get("parameters"))
     recorded = {row["source"]: outcome(row) for row in rows}
+    no_terms = sent_no_terms(parameters(execution.get("parameters")))
+    refused_empty = 0
+    if no_terms:
+        for row in rows:
+            said = recorded[row["source"]]
+            if (said["category"] == "non_answer" and said["zero_reason"] == "upstream_failure"
+                    and _http_status(row) == 400):
+                said["note"] += NO_TERMS_REFUSAL
+                refused_empty += 1
     basis = selected if selected is not None else list(recorded)
     sources = [recorded.get(slug, {"source": slug, "category": "unknown",
                 "label": "unknown / outcome not recorded",
@@ -161,6 +206,10 @@ def build(execution: dict, rows: list[dict]) -> dict:
         summary += f" {unexplained} returned nothing for a reason resmon did not record."
     if counts["partial"]:
         summary += f" {counts['partial']} answered with retained partial results."
+    if no_terms:
+        summary += " This run had no search terms, so each source was sent an empty search"
+        summary += (f"; the {refused_empty} that answered HTTP 400 refused it for that reason."
+                    if refused_empty else ".")
     notes = [provenance]
     if extra:
         notes.append(f"{len(extra)} additional recorded sources fall outside the saved selection and are excluded from selected-source counts.")

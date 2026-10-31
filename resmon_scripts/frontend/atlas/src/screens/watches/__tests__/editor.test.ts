@@ -193,6 +193,22 @@ describe('which papers each run asks for', () => {
     expect(seededForm({ name: 'x' }).window).toBe('previous_run');
   });
 
+  test('a watch on words needs a term that is not blank', () => {
+    const ready = { ...blankForm(), name: 'x', keywords: ['y'] };
+    expect(whatIsMissing(ready, 1)).toEqual([]);
+    expect(whatIsMissing({ ...ready, keywords: [] }, 1)).toEqual(['Add at least one term.']);
+    expect(whatIsMissing({ ...ready, keywords: ['  '] }, 1)).toEqual(['Add at least one term.']);
+    // A watch on a person uses no terms.
+    expect(whatIsMissing({ ...ready, keywords: [], follows: 'new_papers', profileId: 2 }, 1)).toEqual([]);
+  });
+
+  test('a watch that stored only the query it runs opens with that query as its one term', () => {
+    const queryOnly = { ...ROUTINE, parameters: JSON.stringify({ repositories: ['arxiv'], query: 'machine learning' }) } as Routine;
+    expect(formFrom(queryOnly).keywords).toEqual(['machine learning']);
+    const none = { ...ROUTINE, parameters: JSON.stringify({ repositories: ['arxiv'], query: ' ', keywords: [''] }) } as Routine;
+    expect(formFrom(none).keywords).toEqual([]);
+  });
+
   test('what stops a window saving', () => {
     const ready = { ...blankForm(), name: 'x', keywords: ['y'] };
     expect(whatIsMissing({ ...ready, window: 'between' }, 1)).toEqual(['Set a start date, an end date, or both.']);
