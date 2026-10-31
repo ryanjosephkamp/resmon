@@ -3265,11 +3265,12 @@ def get_last_answered_models(conn: sqlite3.Connection) -> list[dict]:
             reports = json.loads(row["reported_json"])
         except (TypeError, ValueError):
             continue
-        if not isinstance(requested, dict) or requested.get("runtime") != "claude_cli":
+        if not isinstance(requested, dict) or requested.get("runtime") not in ("claude_cli", "codex_cli"):
             continue
         answer = answered_by(reports)
         if answer:
-            offer("claude_code", str(requested.get("requested_model") or ""), answer["model"],
+            offer("codex" if requested.get("runtime") == "codex_cli" else "claude_code",
+                  str(requested.get("requested_model") or ""), answer["model"],
                   "ask", str(row["created_at_utc"] or ""))
 
     for row in conn.execute(

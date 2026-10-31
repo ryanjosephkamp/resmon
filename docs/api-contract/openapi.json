@@ -862,7 +862,7 @@
       },
       "AssistantConnection": {
         "additionalProperties": true,
-        "description": "One connection the composer can offer.\n\n``runtime`` is ``None``, and ``implemented`` false, for a provider resmon\nlists but has no assistant for (Ollama, Codex). ``family`` is the request\nshape resmon's own loop builds and is present only on API-key\nconnections. ``available`` checks local prerequisites only, an executable\nfound or a key stored, never sign-in or whether a model is accepted.",
+        "description": "One connection the composer can offer.\n\n``runtime`` is ``None``, and ``implemented`` false, for a provider resmon\nlists but has no assistant for (Ollama). ``family`` is the request\nshape resmon's own loop builds and is present only on API-key\nconnections. ``available`` checks local prerequisites only, an executable\nfound or a key stored, never sign-in or whether a model is accepted.",
         "properties": {
           "available": {
             "title": "Available",
@@ -19059,7 +19059,7 @@
     },
     "/api/assistant/status": {
       "get": {
-        "description": "Whether the assistant can run, and if not, the reason in one sentence.\n\nCodex is reported as unavailable *with its reason* rather than omitted: a\nuser who has Codex installed and sees no mention of it would reasonably\nconclude resmon had not noticed it.",
+        "description": "Whether the assistant can run, and if not, the reason in one sentence.\n\nEvery runtime is reported, Codex included, with its reason: a user who has\nCodex installed and sees no mention of it would reasonably conclude resmon\nhad not noticed it.",
         "operationId": "assistant_status_api_assistant_status_get",
         "responses": {
           "200": {

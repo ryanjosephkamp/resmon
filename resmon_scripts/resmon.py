@@ -5502,15 +5502,17 @@ def _sign_in_binary(provider: str, purpose: str, binary_path: Optional[str]) -> 
         raise HTTPException(400, "Sign-in is checked for Claude Code and Codex only.")
     if purpose not in ("summaries", "ask"):
         raise HTTPException(400, "Purpose is summaries or ask.")
-    if purpose == "ask" and provider != "claude_code":
-        raise HTTPException(400, "Ask runs on Claude Code, not Codex.")
     conn = _get_db()
     try:
         settings = _get_settings_group(conn, "ai")
     finally:
         _close_db(conn)
     configured = str(settings.get("ai_cli_path") or "").strip() or None
-    if purpose == "ask":
+    if purpose == "ask" and provider == "codex":
+        # Ask's Codex connection finds its command by its own rule
+        # (``assistant_runtime.codex_cli_path``), and the check asks that one.
+        explicit = assistant_runtime.codex_cli_path(settings) or None
+    elif purpose == "ask":
         # The assistant reads ``ai_cli_path`` whichever provider summaries use
         # (``_assistant_settings``), so the check does the same.
         explicit = configured
@@ -8005,9 +8007,9 @@ def update_assistant_settings(body: SettingsBody):
 def assistant_status():
     """Whether the assistant can run, and if not, the reason in one sentence.
 
-    Codex is reported as unavailable *with its reason* rather than omitted: a
-    user who has Codex installed and sees no mention of it would reasonably
-    conclude resmon had not noticed it.
+    Every runtime is reported, Codex included, with its reason: a user who has
+    Codex installed and sees no mention of it would reasonably conclude resmon
+    had not noticed it.
     """
     conn = _get_db()
     try:

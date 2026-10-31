@@ -230,7 +230,7 @@ def _is_active(base: str, routine_id: int) -> bool:
 # Status and settings
 # ---------------------------------------------------------------------------
 
-def test_status_reports_the_runtime_and_why_codex_is_not_one(backend):
+def test_status_reports_the_runtime_and_codex_beside_it(backend):
     status = _API.get(f"{backend.base}/api/assistant/status", timeout=20).json()
     assert status["available"] is True
     assert status["runtime"]["kind"] == "claude_cli"
@@ -238,7 +238,10 @@ def test_status_reports_the_runtime_and_why_codex_is_not_one(backend):
     # claim is that the endpoint reports the contract the server is serving.
     assert status["contract_version"] == mcp_server.CONTRACT_VERSION
     codex = next(o for o in status["others"] if o["kind"] == "codex_cli")
-    assert codex["available"] is False and "shell" in codex["reason"].lower()
+    # Found or not depends on this machine; either way it says which, and why.
+    assert codex["reason"]
+    if codex["available"]:
+        assert codex["reason"] == assistant_runtime.codex_connection_reason()
 
 
 def test_status_says_why_when_there_is_no_runtime(backend, tmp_path):

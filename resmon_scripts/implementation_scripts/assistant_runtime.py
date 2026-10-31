@@ -48,6 +48,21 @@ cancel becoming a kill of something holding conversation state. Resume across
 processes *and across different working directories* was verified against the
 installed CLI before this was chosen.
 
+## Codex, the second command
+
+``CodexCliRuntime`` drives ``codex exec --json`` the same way, one process per
+turn, and keeps a thread id Codex itself mints (``thread.started``) where
+Claude Code takes the id resmon hands it. Codex has no permission prompt resmon
+can answer -- ``codex exec`` cannot hold a tool call for a card -- so the
+guardrails above become these: resmon's MCP server is started read-only
+(``RESMON_MCP_READ_ONLY``), so the writes are not there to call; the person's
+``~/.codex/config.toml`` and rules files are left out; the sandbox is
+read-only; the shell and the web search are asked off; and a turn in which
+Codex runs a command, changes a file, searches the web or calls a tool from
+any other server is stopped on the spot. The constitution travels as the
+``AGENTS.md`` Codex reads from its working directory, the channel the summary
+lane established for it.
+
 ## The disguise an escaping exception wears
 
 1.9a shipped two bugs that both looked like a network failure, because an
@@ -90,11 +105,13 @@ __all__ = [
     "RUNTIME_KINDS",
     "AssistantRuntime",
     "ClaudeCliRuntime",
+    "CodexCliRuntime",
     "AssistantStartupTimeout",
     "RuntimeStatus",
     "TURN_BUDGET_USD",
     "cannot_resume_notice",
-    "codex_unavailable_reason",
+    "codex_cli_path",
+    "codex_connection_reason",
     "get_runtime",
     "runtime_status",
 ]
@@ -127,7 +144,7 @@ EVENT_TYPES = (
 # parametrised over families as well as kinds -- 1.8.4's defect was one lane of
 # three, and "the runtime sends it" was true of the runtime and false of two of
 # its paths.
-RUNTIME_KINDS = ("claude_cli", "api_key")
+RUNTIME_KINDS = ("claude_cli", "codex_cli", "api_key")
 
 # A turn that has produced nothing for this long is killed. Chosen against the
 # summary lane's own timeouts rather than invented: a single interactive turn
@@ -199,7 +216,7 @@ TURN_BUDGET_USD = 0.75
 _CANNOT_RESUME_MARKERS = ("no conversation found",)
 
 
-def cannot_resume_notice() -> str:
+def cannot_resume_notice(command: str = "The claude CLI") -> str:
     """What the person is told when the CLI has lost their conversation.
 
     It says three things and claims nothing else: the CLI no longer has it,
@@ -209,7 +226,7 @@ def cannot_resume_notice() -> str:
     user infer the assistant can still see it.
     """
     return (
-        "The claude CLI no longer has this conversation, so resmon started a "
+        f"{command} no longer has this conversation, so resmon started a "
         "fresh one to answer you. Your earlier messages are still here, but the "
         "assistant is not able to see them any more."
     )
@@ -259,41 +276,34 @@ class RuntimeStatus:
         }
 
 
-def codex_unavailable_reason() -> str:
-    """Why Codex is not offered as an assistant runtime, in the user's terms.
+def codex_connection_reason() -> str:
+    """What Ask says about its Codex connection when the command is found.
 
-    Decision 1 of the phase brief offers Codex "only if its shell can be
-    disabled". It cannot, on either path, and this was established against
-    codex-cli 0.153.1 rather than assumed:
-
-    * ``codex exec --strict-config -c tools.shell=false`` is rejected with
-      ``unknown configuration field``; so are ``tools.shell.enabled`` and
-      ``shell_tool``. ``tools.web_search`` *is* accepted, so ``--strict-config``
-      really does discriminate between real and invented keys.
-    * An MCP server *can* be attached per invocation
-      (``-c 'mcp_servers.resmon={command=...}'`` is accepted), so the failure is
-      not "cannot attach". It is that resmon's server cannot be made the *only*
-      source.
-    * ``codex exec`` has no interactive approval at all; ``--approve-for-me``
-      routes approvals "through automatic review", which is an automatic
-      approver rather than a person.
-    * ``codex mcp-server`` exposes two tools, ``codex`` and ``codex-reply``, and
-      its only approval control is ``approval-policy: on-request | never`` over
-      *shell commands the model generates*.
-
-    So an assistant on Codex would be an agent with a shell, on the user's
-    machine, reading abstracts from the open internet. resmon's summary lane
-    uses codex safely because it takes no tools and reads no live data; an
-    assistant is the opposite of both.
+    Two things, because both are true and the second is the one a person would
+    not guess: finding the command establishes neither a sign-in nor a model,
+    and Codex gets resmon's read-only tools only. ``codex exec`` has no way to
+    hold a tool call until someone allows it, so a write offered to Codex would
+    be a write nobody approved; the cards on Claude Code keep meaning what they
+    say because Codex is never handed one.
     """
     return (
-        "Codex is not offered for the assistant. resmon can attach its own tools "
-        "to a Codex session but cannot take away Codex's shell, and there is no "
-        "way for you to approve a command before it runs — so an assistant on "
-        "Codex would be an agent that can run commands on your machine while "
-        "reading text off the internet. Codex is still available for "
-        "summarising papers, where it is given no tools at all."
+        "Codex command found; sign-in and model acceptance are unverified. Codex "
+        "gets resmon's read-only tools only: it cannot hold a call for you to "
+        "allow, so it can look things up but cannot change anything."
     )
+
+
+def codex_cli_path(settings: dict) -> str:
+    """The path Ask's Codex connection is told about, or ``""`` to search.
+
+    ``ai_cli_path`` is one setting, kept for the command summaries use, so it
+    names Codex only while summaries use Codex -- the rule Settings › AI's
+    sign-in check already follows. Otherwise Codex is found where its installer
+    puts it, or on PATH.
+    """
+    if str(settings.get("ai_provider") or "").strip().lower() == "codex":
+        return str(settings.get("ai_cli_path") or "").strip()
+    return ""
 
 
 class AssistantRuntime:
@@ -820,6 +830,628 @@ class ClaudeCliRuntime(AssistantRuntime):
 
 
 # ---------------------------------------------------------------------------
+# Codex
+# ---------------------------------------------------------------------------
+
+# What every Codex turn is told besides its MCP server. Each is a ``-c``
+# override, which wins over ``~/.codex/config.toml`` -- and
+# ``--ignore-user-config`` leaves that file out in any case.
+_CODEX_LOCKDOWN = (
+    # Nothing it runs may write, and nothing waits for an approval: there is
+    # nobody for ``codex exec`` to ask.
+    'sandbox_mode="read-only"',
+    'approval_policy="never"',
+    # The shell and the web search, asked off. ``features.<name>`` is the path
+    # ``--disable <name>`` writes (codex-cli 0.166.0's help); spelled as a
+    # ``-c`` override because an unknown key there is ignored, where an
+    # unknown ``--disable`` name may not be. codex-cli 0.153.1 refused
+    # ``tools.shell`` and a top-level ``shell_tool`` under ``--strict-config``
+    # and accepted ``tools.web_search``; ``features.shell_tool`` has not been
+    # tried against a real codex. So it is asked rather than relied on: the
+    # stream below stops a turn that runs a command or searches the web anyway.
+    "features.shell_tool=false",
+    "tools.web_search=false",
+)
+
+# Appended to the constitution in the ``AGENTS.md`` a Codex turn reads. The
+# constitution describes the cards a write waits behind; on Codex there are no
+# writes to wait, and the model should say so rather than go looking for one.
+CODEX_SESSION_RULES = """
+## This session
+
+This conversation runs on Codex. Your tools here are resmon's read-only tools
+and nothing else: you can read the person's watches, runs, papers, sources and
+settings, and you cannot create, run, switch on or off, or change anything.
+When the person asks for a change, say that this connection cannot make it,
+and tell them where in resmon to make it, or that Ask on Claude Code can make
+it with their approval.
+
+You have no shell and no files here. Do not run commands, read or write files,
+or search the web: resmon stops a turn that does.
+"""
+
+# What ``codex exec resume`` may say when the thread behind an id is gone.
+# **Not established against the binary**: no real ``codex`` was run to collect
+# it. The stable half of each plausible sentence is matched, and a resume that
+# silently starts a new thread is caught separately, by the thread id
+# ``thread.started`` reports (see ``_CodexEvents``).
+_CODEX_CANNOT_RESUME_MARKERS = (
+    "no conversation found", "no saved session", "no session found",
+    "session not found", "no rollout found", "thread not found",
+    "could not find session", "could not find thread",
+)
+
+# A thread id is stored and later handed back on a command line, so it is held
+# to the shape of an id before it is trusted with either.
+_THREAD_ID_LIMIT = 128
+
+
+def _toml_string(value: str) -> str:
+    """*value* as a TOML basic string, for a ``-c key=value`` override.
+
+    JSON's string escapes are TOML's, and ``ensure_ascii=False`` keeps every
+    character literal, which TOML allows; ``\\u007f`` is the one control
+    character JSON leaves as it is and TOML does not.
+    """
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+
+
+def _thread_id(value: Any) -> Optional[str]:
+    """A thread id Codex reported, or ``None`` when it is not shaped like one."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    if not text or len(text) > _THREAD_ID_LIMIT or text.startswith("-"):
+        return None
+    if any(ch.isspace() or not ch.isprintable() for ch in text):
+        return None
+    return text
+
+
+class _CodexEvents:
+    """One turn of ``codex exec --json``, read into Ask's events.
+
+    The events read are the ones Codex documents for ``--json``:
+    ``thread.started`` (its ``thread_id``), ``turn.started``, ``item.started``
+    / ``item.updated`` / ``item.completed`` around an item, ``turn.completed``
+    (its ``usage``), ``turn.failed`` and ``error``. Anything else is dropped
+    with a log line, never drawn and never taken for an answer.
+
+    How each becomes Ask's vocabulary:
+
+    * ``thread.started`` -> ``started``, carrying the thread id to keep;
+    * a completed ``agent_message`` -> ``text_delta`` (Codex sends the whole
+      message once it is written, so it is never half-drawn);
+    * an ``mcp_tool_call`` on resmon's server -> ``tool_call`` when it starts
+      and ``tool_result`` when it completes;
+    * ``turn.completed`` -> ``done``, with tokens and **no cost**: Codex
+      reports tokens, and a token count is not a price;
+    * an ``error`` item -> ``notice``, so a problem Codex reports mid-turn
+      (resmon's server failing to start, say) is on the record;
+    * ``reasoning`` and ``todo_list`` -> nothing; they are Codex's working, not
+      the answer.
+
+    A ``command_execution``, ``file_change`` or ``web_search`` item, or a call
+    to any server but resmon's, sets ``refused``: Ask offers none of them, so
+    the turn is stopped and what Codex tried is shown as the call it was.
+    """
+
+    def __init__(self, *, resuming: Optional[str]) -> None:
+        self.resuming = resuming
+        self.thread_id: Optional[str] = None
+        self.completed = False
+        self.failures: list[str] = []
+        self.errors: list[str] = []
+        self.refused: Optional[str] = None
+        self.refused_kind: Optional[str] = None
+        self.done: Optional[dict] = None
+        # Models Codex named on lines that are not otherwise drawn; they ride
+        # on the turn's ``done``.
+        self.pending_reports: list[dict] = []
+        self.reported: list[str] = []
+        self._messages = 0
+        self._calls: dict[str, bool] = {}
+        self._notices: set[str] = set()
+
+    # -- lines ----------------------------------------------------------
+
+    def feed(self, line: str) -> list[dict]:
+        line = line.strip()
+        if not line:
+            return []
+        try:
+            message = json.loads(line)
+        except ValueError:
+            logger.debug("Codex runtime: unparseable stream line dropped")
+            return []
+        if not isinstance(message, dict):
+            return []
+        kind = message.get("type")
+        report = self._model(message.get("model"), "codex_event_model")
+        if kind == "thread.started":
+            events = self._thread(message)
+            if report is not None and events:
+                events[0]["model"] = report["model"]
+                events[0]["model_report"] = report
+                report = None
+        elif kind in ("item.started", "item.updated", "item.completed"):
+            item = message.get("item")
+            events = self._item(kind.split(".", 1)[1], item) if isinstance(item, dict) else []
+        elif kind == "turn.completed":
+            self.completed = True
+            self.done = self._done(message.get("usage"))
+            events = []
+        elif kind == "turn.failed":
+            self.failures.append(_said_by(message.get("error")))
+            events = []
+        elif kind == "error":
+            self.errors.append(_said_by(message))
+            events = []
+        else:
+            if kind != "turn.started":
+                logger.debug("Codex runtime: dropped a %r stream message", kind)
+            events = []
+        if report is not None:
+            self.pending_reports.append(report)
+        return events
+
+    def _model(self, model: Any, source: str) -> Optional[dict]:
+        from .assistant_choices import report
+
+        if not isinstance(model, str) or not model.strip() or model in self.reported:
+            return None
+        made = report(model, source)
+        if made is not None:
+            self.reported.append(model)
+        return made
+
+    def _thread(self, message: dict) -> list[dict]:
+        reported = _thread_id(message.get("thread_id"))
+        if reported is None:
+            logger.info("Codex runtime: thread.started carried no usable thread id")
+            return []
+        self.thread_id = reported
+        events: list[dict] = [{"type": "started", "cli_session_id": reported,
+                               "owned_cli_session_id": reported}]
+        if self.resuming and reported != self.resuming:
+            # Codex answered in a thread of its own rather than the one it was
+            # asked to continue. Its answer is real; what it can see is not
+            # what the person would assume, so that is said where it happened.
+            events.append({"type": "notice", "code": "cannot_resume", "message": (
+                "Codex did not continue this conversation and answered in a new one of "
+                "its own, so the assistant is not able to see your earlier messages. "
+                "They are still here.")})
+        return events
+
+    def _done(self, usage: Any) -> dict:
+        usage = usage if isinstance(usage, dict) else {}
+        return {
+            "type": "done", "result_text": None, "subtype": "success", "is_error": False,
+            "errors": [],
+            # Codex reports tokens and never a price. ``None`` is "not
+            # reported", which is the truth, never a zero that reads as free.
+            "cost_usd": None,
+            "input_tokens": _int_or_none(usage.get("input_tokens")),
+            "output_tokens": _int_or_none(usage.get("output_tokens")),
+            "cache_read_tokens": _int_or_none(usage.get("cached_input_tokens")),
+            "cache_creation_tokens": None,
+            "duration_ms": None, "num_turns": None,
+            "model_reports": [],
+        }
+
+    # -- items ----------------------------------------------------------
+
+    def _item(self, phase: str, item: dict) -> list[dict]:
+        # ``item_type`` is what the first versions of this stream called it.
+        kind = item.get("type") or item.get("item_type")
+        item_id = str(item.get("id") or "")
+        if kind == "agent_message":
+            text = item.get("text")
+            if phase != "completed" or not isinstance(text, str) or not text:
+                return []
+            joined = text if self._messages == 0 else "\n\n" + text
+            self._messages += 1
+            return [{"type": "text_delta", "text": joined}]
+        if kind == "mcp_tool_call":
+            if str(item.get("server") or "") != "resmon":
+                return self._refuse("mcp_tool_call", item_id, item)
+            return self._tool(phase, item_id, item)
+        if kind in ("command_execution", "file_change", "web_search"):
+            return self._refuse(kind, item_id, item)
+        if kind == "error":
+            said = sanitize(_said_by(item))[:300]
+            if phase != "completed" or not said or said in self._notices:
+                return []
+            self._notices.add(said)
+            return [{"type": "notice", "code": "codex_reported",
+                     "message": f"Codex reported a problem during this turn: {said}"}]
+        if kind not in ("reasoning", "todo_list"):
+            logger.debug("Codex runtime: dropped a %r item", kind)
+        return []
+
+    def _tool(self, phase: str, item_id: str, item: dict) -> list[dict]:
+        tool = str(item.get("tool") or "")
+        if not item_id:
+            # Nothing to pair a start with its end; drawn once, when it ends.
+            if phase != "completed":
+                return []
+            item_id = f"codex-call-{len(self._calls) + 1}"
+        events: list[dict] = []
+        if item_id not in self._calls:
+            self._calls[item_id] = False
+            events.append({"type": "tool_call", "tool_name": tool,
+                           "raw_name": f"mcp__resmon__{tool}",
+                           "input": _arguments(item.get("arguments")), "tool_use_id": item_id})
+        if phase == "completed" and not self._calls[item_id]:
+            self._calls[item_id] = True
+            result = item.get("result") if isinstance(item.get("result"), dict) else {}
+            error = item.get("error")
+            said = _said_by(error) if error else ""
+            content = _flatten_result(result.get("content")) if result else ""
+            events.append({
+                "type": "tool_result", "tool_use_id": item_id,
+                "is_error": bool(item.get("status") == "failed" or said
+                                 or result.get("is_error") or result.get("isError")),
+                "content": content or said,
+            })
+        return events
+
+    def _refuse(self, kind: str, item_id: str, item: dict) -> list[dict]:
+        if self.refused is not None:
+            return []
+        self.refused_kind = kind
+        if kind == "command_execution":
+            self.refused = ("Codex started a shell command, which Ask does not allow, so "
+                            "resmon stopped the turn.")
+            name, shown = "shell", {"command": item.get("command")}
+        elif kind == "file_change":
+            self.refused = ("Codex started to change files, which Ask does not allow, so "
+                            "resmon stopped the turn.")
+            name, shown = "file_change", {"changes": item.get("changes")}
+        elif kind == "web_search":
+            self.refused = ("Codex searched the web, which Ask does not offer: its answers "
+                            "come from resmon's own tools. resmon stopped the turn.")
+            name, shown = "web_search", {"query": item.get("query")}
+        else:
+            server, tool = str(item.get("server") or ""), str(item.get("tool") or "")
+            self.refused = (f"Codex called a tool resmon did not give it ({server or 'unnamed'} "
+                            f"server, {tool or 'unnamed'} tool), so resmon stopped the turn.")
+            name, shown = f"{server}/{tool}", _arguments(item.get("arguments"))
+        return [{"type": "tool_call", "tool_name": name, "raw_name": kind,
+                 "input": shown, "tool_use_id": item_id or None}]
+
+
+def _said_by(value: Any) -> str:
+    """The ``message`` of an error object, or the value itself when it is text."""
+    if isinstance(value, dict):
+        value = value.get("message") or value.get("error") or ""
+        if isinstance(value, dict):
+            value = value.get("message") or ""
+    return str(value or "").strip()
+
+
+def _arguments(value: Any) -> dict:
+    """A tool call's arguments as the object the panel draws."""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {"arguments": value}
+    if value is None:
+        return {}
+    return value if isinstance(value, dict) else {"arguments": value}
+
+
+def _codex_cannot_resume(text: str) -> bool:
+    lowered = (text or "").lower()
+    return any(marker in lowered for marker in _CODEX_CANNOT_RESUME_MARKERS)
+
+
+def _codex_says_not_signed_in(text: str) -> bool:
+    """Whether Codex's own words say nobody is signed into it.
+
+    The shared markers, and the two shapes an OpenAI sign-in failure takes in
+    Codex's words: an HTTP 401, and "unauthorized".
+    """
+    lowered = (text or "").lower()
+    return _says_not_signed_in(lowered) or any(
+        word in lowered for word in ("401", "unauthorized"))
+
+
+def _classify_codex_failure(said: str, stderr: str, code: Optional[int], *,
+                            completed: bool) -> tuple[str, str]:
+    """``(sentence, code)`` for a Codex turn that did not finish, from what it said.
+
+    ``said`` is what Codex put in its event stream (``turn.failed`` and
+    ``error``); stderr is the fallback. Never a stack trace and never a guess.
+    """
+    basis = said or stderr
+    lowered = basis.lower()
+    first = next((l.strip() for l in basis.splitlines() if l.strip()), "")
+    shown = sanitize(first[:300])
+    if _codex_cannot_resume(basis):
+        return ("Codex no longer has this conversation, so it could not be picked up "
+                "where it left off. Start a new conversation to carry on.", "failed")
+    if "unexpected argument" in lowered or "unknown option" in lowered or "unrecognized" in lowered:
+        return ("The installed codex command does not accept one of the options resmon "
+                "uses. Updating resmon, or Codex, should fix it."
+                + (f" It said: {shown}" if shown else ""), "failed")
+    if _codex_says_not_signed_in(basis):
+        return ("The Codex command on this computer is not signed in, or its sign-in "
+                "expired, so it could not answer."
+                + (f" It said: {shown}" if shown else ""), "cli_auth")
+    if "usage limit" in lowered or "rate limit" in lowered or "quota" in lowered:
+        return ("Codex reported a usage limit, so it could not answer. The assistant "
+                "shares the limit of your own Codex work."
+                + (f" It said: {shown}" if shown else ""), "failed")
+    if shown:
+        if code:
+            return f"The codex command stopped with exit code {code}: {shown}", "failed"
+        return f"Codex said the turn failed: {shown}", "failed"
+    if code:
+        return (f"The codex command stopped with exit code {code} and said nothing "
+                f"about why. resmon cannot tell you more than that.", "failed")
+    return ("Codex ended without finishing the turn, and said nothing about why."
+            if not completed else "Codex reported that this turn failed, and did not say why."), "failed"
+
+
+def _drain_head_and_tail(stream, head: list, tail: list) -> None:
+    """stderr's first lines and its last ones.
+
+    The head is where Codex prints the header that names its model; the tail is
+    where a failure is explained.
+    """
+    try:
+        for line in stream:
+            if len(head) < 40:
+                head.append(line)
+            tail.append(line)
+            del tail[:-40]
+    except (ValueError, OSError):                    # pragma: no cover - closed
+        pass
+
+
+class CodexCliRuntime(AssistantRuntime):
+    """``codex exec --json`` as an agent over resmon's read-only MCP surface."""
+
+    kind = "codex_cli"
+
+    def __init__(
+        self,
+        *,
+        cli_path: Optional[str] = None,
+        model: Optional[str] = None,
+        effort: Optional[str] = None,
+        backend_port: Optional[int] = None,
+        python_executable: Optional[str] = None,
+        timeout: int = DEFAULT_TURN_TIMEOUT,
+    ) -> None:
+        self.configured_path = (cli_path or "").strip() or None
+        self.model = (model or "").strip() or None
+        self.effort = (effort or "").strip() or None
+        self.backend_port = backend_port
+        self.python_executable = python_executable or _bundled_python()
+        self.timeout = timeout
+        self.resolved_binary: Optional[str] = None
+        self.admitted_status: Optional[RuntimeStatus] = None
+
+    # -- availability ---------------------------------------------------
+
+    def status(self) -> RuntimeStatus:
+        if self.admitted_status is not None:
+            return self.admitted_status
+        found = ai_cli.discover_cli("codex", self.configured_path)
+        if not found.found:
+            return RuntimeStatus(self.kind, False, found.describe())
+        return RuntimeStatus(self.kind, True, found.describe(), found.path, found.how)
+
+    # -- the command ----------------------------------------------------
+
+    def mcp_overrides(self) -> list[str]:
+        """resmon's MCP server, started as Claude Code's is, offering the reads only.
+
+        The same interpreter and script, the same ``RESMON_PORT`` and state
+        directory, so the server answers about this resmon and no other; and
+        ``RESMON_MCP_READ_ONLY``, so the server itself has no write to offer.
+        Codex starts an MCP server with a short list of its own variables, which
+        is why ``PYTHONPATH`` is named here too.
+        """
+        from . import api_auth  # noqa: PLC0415
+
+        server_dir = str(Path(__file__).resolve().parent.parent)
+        env = {"PYTHONPATH": server_dir, "RESMON_STATE_DIR": str(api_auth.state_dir()),
+               "RESMON_MCP_READ_ONLY": "1"}
+        if self.backend_port:
+            env["RESMON_PORT"] = str(self.backend_port)
+        overrides = [
+            f"mcp_servers.resmon.command={_toml_string(self.python_executable)}",
+            f"mcp_servers.resmon.args=[{_toml_string(str(Path(server_dir) / 'mcp_server.py'))}]",
+        ]
+        overrides += [f"mcp_servers.resmon.env.{key}={_toml_string(value)}"
+                      for key, value in env.items()]
+        return overrides
+
+    def instructions(self) -> str:
+        """The ``AGENTS.md`` a turn's working directory holds: the constitution, then this session's terms."""
+        return load_assistant_constitution().rstrip("\n") + "\n" + CODEX_SESSION_RULES
+
+    def build_argv(
+        self,
+        prompt: str,
+        *,
+        workdir: str,
+        thread_id: Optional[str] = None,
+        binary: Optional[str] = None,
+    ) -> list[str]:
+        """The one place a Codex flag is added, for a new thread and a resumed one alike.
+
+        ``codex exec resume`` takes fewer options than ``codex exec`` (no
+        ``--sandbox``, no ``-C``), so the sandbox is set by ``-c`` on both and
+        by the flag as well where it exists, and a resumed turn's working
+        directory is the process's own. ``--`` ends the options: a prompt that
+        reads ``help`` or ``resume`` is a prompt, not a subcommand.
+        """
+        argv = [binary or self.resolved_binary or (self.status().path or "codex"), "exec"]
+        if thread_id:
+            argv.append("resume")
+        argv += [
+            "--json",
+            # The working directory is a fresh empty one, not a repository.
+            "--skip-git-repo-check",
+            # The person's own Codex configuration -- their MCP servers, their
+            # profiles, their approval rules -- stays out of a locked-down
+            # session. Their sign-in does not: Codex still reads it.
+            "--ignore-user-config",
+            "--ignore-rules",
+        ]
+        if not thread_id:
+            argv += ["--sandbox", "read-only", "-C", workdir]
+        overrides = [*self.mcp_overrides(), *_CODEX_LOCKDOWN]
+        if self.effort:
+            # Codex's own name for it, as the summary lane passes it.
+            overrides.append(f"model_reasoning_effort={_toml_string(self.effort)}")
+        for override in overrides:
+            argv += ["-c", override]
+        if self.model:
+            argv += ["-m", self.model]
+        argv.append("--")
+        if thread_id:
+            argv.append(thread_id)
+        argv.append(prompt)
+        return argv
+
+    # -- running --------------------------------------------------------
+
+    def run_turn(
+        self,
+        session_id: int,
+        prompt: str,
+        *,
+        cli_session_id: str,
+        resume: bool,
+        on_event: Optional[Callable[[dict], None]] = None,
+        history: Optional[list[dict]] = None,
+    ) -> Iterator[dict]:
+        """Spawn ``codex exec`` for one turn and yield normalised events.
+
+        ``history`` is unused, as on Claude Code: Codex keeps the thread and
+        ``codex exec resume`` reaches it. Runs in an empty temporary directory
+        holding only the ``AGENTS.md`` resmon writes, removed when the turn
+        ends. A resumed thread keeps the instructions it began with; Codex
+        reads ``AGENTS.md`` when a thread starts.
+        """
+        emit = on_event or (lambda _event: None)
+        with tempfile.TemporaryDirectory(prefix="resmon-assistant-") as workdir:
+            with open(os.path.join(workdir, "AGENTS.md"), "w", encoding="utf-8") as handle:
+                handle.write(self.instructions())
+            try:
+                for event in self._turn(session_id, prompt, workdir,
+                                        thread_id=(cli_session_id or None) if resume else None):
+                    emit(event)
+                    yield event
+            except AssistantStartupTimeout as exc:
+                logger.warning("Assistant turn: %s", exc)
+                yield _error_event(str(exc), detail="startup_timeout")
+            except Exception as exc:                # noqa: BLE001 - as on Claude Code
+                logger.exception("Assistant turn failed")
+                yield _error_event("resmon could not finish that turn.", detail=type(exc).__name__)
+
+    def _turn(self, session_id: int, prompt: str, workdir: str, *,
+              thread_id: Optional[str]) -> Iterator[dict]:
+        """One turn, started again once in a new thread if Codex says the old one is gone.
+
+        The first attempt's ``done`` and ``error`` are held until it is known
+        whether they are the turn's outcome, as on Claude Code.
+        """
+        outcome: dict = {}
+        held: list[dict] = []
+        argv = self.build_argv(prompt, workdir=workdir, thread_id=thread_id)
+        for event in self._stream(session_id, argv, workdir, resuming=thread_id, outcome=outcome):
+            if thread_id and event["type"] in ("done", "error"):
+                held.append(event)
+                continue
+            yield event
+        if not outcome.get("cannot_resume"):
+            yield from held
+            return
+        logger.info("Codex thread for session %s could not be resumed; starting a new one", session_id)
+        yield {"type": "notice", "code": "cannot_resume", "message": cannot_resume_notice("Codex")}
+        argv = self.build_argv(prompt, workdir=workdir, thread_id=None)
+        yield from self._stream(session_id, argv, workdir, resuming=None)
+
+    def _stream(self, session_id: int, argv: list[str], workdir: str, *,
+                resuming: Optional[str], outcome: Optional[dict] = None) -> Iterator[dict]:
+        process = subprocess.Popen(
+            argv, cwd=workdir, stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1, env=_child_env(),
+        )
+        with _PROCESS_LOCK:
+            _PROCESSES[session_id] = process
+            _STOPPED.discard(session_id)
+
+        head: list[str] = []
+        tail: list[str] = []
+        stderr_thread = threading.Thread(
+            target=_drain_head_and_tail, args=(process.stderr, head, tail), daemon=True,
+        )
+        stderr_thread.start()
+        parsed = _CodexEvents(resuming=resuming)
+        try:
+            for line in _lines_with_timeout(process, self.timeout, command="codex"):
+                yield from parsed.feed(line)
+                if parsed.refused is not None:
+                    # Stopped where it was seen: what Codex tried is already
+                    # shown, and nothing else it does in this turn is wanted.
+                    process.kill()
+                    break
+
+            code = process.wait(timeout=15)
+            stderr_thread.join(timeout=2)
+            with _PROCESS_LOCK:
+                stopped = session_id in _STOPPED
+                _STOPPED.discard(session_id)
+            if stopped:
+                yield _error_event("Stopped before it finished.", detail="stopped", code="stopped")
+                return
+            if parsed.refused is not None:
+                yield _error_event(parsed.refused, detail=f"refused {parsed.refused_kind}")
+                return
+            said = "; ".join(t for t in parsed.failures + parsed.errors if t)
+            if parsed.completed and parsed.done is not None and not parsed.failures and code == 0:
+                done = parsed.done
+                done["model_reports"] = list(parsed.pending_reports)
+                if not parsed.reported:
+                    from .assistant_choices import report
+                    from .llm_subscription import _codex_header_model
+
+                    header = _codex_header_model("".join(head))
+                    made = report(header, "codex_header_model") if header else None
+                    if made is not None:
+                        done["model_reports"].append(made)
+                yield done
+                return
+            stderr_text = "".join(tail)
+            if outcome is not None and resuming:
+                outcome["cannot_resume"] = (
+                    parsed.thread_id is None
+                    and _codex_cannot_resume(said + "\n" + stderr_text))
+            message, failure = _classify_codex_failure(
+                said, stderr_text, code, completed=parsed.completed)
+            yield _error_event(message, detail=f"exit {code}", code=failure)
+        finally:
+            with _PROCESS_LOCK:
+                if _PROCESSES.get(session_id) is process:
+                    del _PROCESSES[session_id]
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+
+    def cancel(self, session_id: int) -> bool:
+        return cancel_turn(session_id)
+
+
+# ---------------------------------------------------------------------------
 # Running turns, and the bus the panel reads them off
 # ---------------------------------------------------------------------------
 
@@ -1164,7 +1796,7 @@ def _drain(stream, sink: list) -> None:
 
 def _lines_with_timeout(
     process: subprocess.Popen, timeout: int,
-    first_timeout: int = FIRST_OUTPUT_TIMEOUT,
+    first_timeout: int = FIRST_OUTPUT_TIMEOUT, *, command: str = "claude",
 ) -> Iterator[str]:
     """stdout lines, with two deadlines: one to start, a longer one to continue.
 
@@ -1207,11 +1839,15 @@ def _lines_with_timeout(
         except queue.Empty:
             process.kill()
             if not started:
+                # Only claude's first line has been measured (see
+                # FIRST_OUTPUT_TIMEOUT), so only claude's sentence says how
+                # long it normally takes.
+                usual = " It normally answers within a second." if command == "claude" else ""
                 raise AssistantStartupTimeout(
-                    f"The claude command started but said nothing for "
-                    f"{wait} seconds, so resmon stopped waiting. It normally "
-                    f"answers within a second. Run `claude` once in a terminal "
-                    f"to check it works and is signed in, then try again."
+                    f"The {command} command started but said nothing for "
+                    f"{wait} seconds, so resmon stopped waiting.{usual} Run "
+                    f"`{command}` once in a terminal to check it works and is "
+                    f"signed in, then try again."
                 ) from None
             raise TimeoutError(
                 f"The assistant produced nothing for {wait} seconds."
@@ -1292,7 +1928,15 @@ def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> Assist
     default because it spends a subscription the user already has rather than a
     key they pay per token for -- decision 1's "but not first".
     """
-    if str(settings.get("assistant_runtime") or "").strip().lower() == "api_key":
+    chosen = str(settings.get("assistant_runtime") or "").strip().lower()
+    if chosen == "codex_cli":
+        return CodexCliRuntime(
+            cli_path=codex_cli_path(settings),
+            model=settings.get("assistant_model") or "",
+            effort=settings.get("assistant_effort") or "",
+            backend_port=backend_port,
+        )
+    if chosen == "api_key":
         from .assistant_api_runtime import ApiKeyRuntime  # noqa: PLC0415
 
         provider = assistant_provider(settings)
@@ -1321,6 +1965,14 @@ def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[i
     if binding['runtime'] == 'api_key':
         runtime = ApiKeyRuntime(provider=binding['provider'], model=binding['requested_model'],
                                 custom_base_url=settings.get('ai_custom_base_url'), backend_port=backend_port, profile=profile)
+    elif binding['runtime'] == 'codex_cli':
+        if profile is not None:
+            raise ValueError('Selected evidence answers run on Claude Code or an API key, not Codex.')
+        runtime = CodexCliRuntime(cli_path=codex_cli_path(settings), model=binding['requested_model'],
+                                  effort=binding['requested_effort'], backend_port=backend_port)
+        status = runtime.status()
+        runtime.resolved_binary = status.path
+        runtime.admitted_status = status
     else:
         runtime = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path'), model=binding['requested_model'],
                                    effort=binding['requested_effort'], backend_port=backend_port, profile=profile)
@@ -1336,37 +1988,48 @@ def get_bound_runtime(binding: dict, settings: dict, *, backend_port: Optional[i
 def runtime_status(settings: dict, *, backend_port: Optional[int] = None) -> dict:
     """What ``/api/assistant/status`` answers.
 
-    Codex is listed as unavailable **with its reason**, rather than omitted. A
-    user who has Codex installed and sees no mention of it would reasonably
-    conclude resmon had not noticed.
+    Every runtime is reported, whichever is selected: the selected one as
+    ``runtime``, the rest under ``others`` with their reasons. A user whose
+    command is missing needs to see that the other routes exist, and a user who
+    has Codex installed and saw no mention of it would conclude resmon had not
+    noticed.
     """
     from .assistant_api_runtime import ApiKeyRuntime  # noqa: PLC0415
     from .assistant_tool_calling import tool_calling  # noqa: PLC0415
 
     runtime = get_runtime(settings, backend_port=backend_port)
     status = runtime.status()
-    codex = ai_cli.discover_cli("codex", settings.get("ai_cli_path") or "")
-
-    # Both runtimes are reported, always, whichever is selected. A user whose
-    # CLI is missing needs to see that the other route exists, and a user on the
-    # API-key route needs to see that the CLI one is there -- the same reason
-    # codex is listed with its reason rather than omitted.
     provider = assistant_provider(settings)
-    alternative = (
-        ClaudeCliRuntime(cli_path=settings.get("ai_cli_path") or "")
-        if runtime.kind == "api_key" else
-        ApiKeyRuntime(provider=provider,
-                      model=settings.get("assistant_model") or "",
-                      custom_base_url=settings.get("ai_custom_base_url") or "",
-                      backend_port=backend_port)
-    )
-    alternative_status = alternative.status()
     answer = tool_calling(provider)
+
+    others = []
+    for kind in RUNTIME_KINDS:
+        if kind == runtime.kind:
+            continue
+        if kind == "claude_cli":
+            other = ClaudeCliRuntime(cli_path=settings.get("ai_cli_path") or "").status()
+            reason = other.reason
+        elif kind == "codex_cli":
+            other = CodexCliRuntime(cli_path=codex_cli_path(settings)).status()
+            reason = codex_connection_reason() if other.available else other.reason
+        else:
+            other = ApiKeyRuntime(provider=provider,
+                                  model=settings.get("assistant_model") or "",
+                                  custom_base_url=settings.get("ai_custom_base_url") or "",
+                                  backend_port=backend_port).status()
+            reason = other.reason
+        others.append({
+            "kind": kind,
+            # Codex is listed whether or not it is found, and says which.
+            "installed": other.available if kind == "codex_cli" else True,
+            "available": other.available,
+            "reason": reason,
+        })
 
     return {
         "runtime": status.to_dict(),
         "available": status.available,
-        "reason": status.reason,
+        "reason": codex_connection_reason() if runtime.kind == "codex_cli" and status.available else status.reason,
         "model": getattr(runtime, "model", None),
         "effort": getattr(runtime, "effort", None),
         "kinds": list(RUNTIME_KINDS),
@@ -1381,18 +2044,5 @@ def runtime_status(settings: dict, *, backend_port: Optional[int] = None) -> dic
             "assistant": answer.assistant,
             "assistant_reason": answer.assistant_reason,
         },
-        "others": [
-            {
-                "kind": alternative.kind,
-                "installed": True,
-                "available": alternative_status.available,
-                "reason": alternative_status.reason,
-            },
-            {
-                "kind": "codex_cli",
-                "installed": codex.found,
-                "available": False,
-                "reason": codex_unavailable_reason(),
-            },
-        ],
+        "others": others,
     }
