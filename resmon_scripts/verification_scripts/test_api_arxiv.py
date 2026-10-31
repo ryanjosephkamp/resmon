@@ -438,3 +438,18 @@ def test_a_two_word_query_counts_what_the_and_counts():
 
     assert sent == both, (sent, both, either)
     assert both < either, (both, either)
+
+
+def test_a_stand_in_for_arxiv_can_shorten_its_patience(monkeypatch):
+    """A test serving arXiv's refusals sets the budget short; it never lengthens it."""
+    monkeypatch.setenv("RESMON_ARXIV_PATIENCE_SECONDS", "8")
+    patience = api_arxiv._Patience()
+    assert patience.allows(5)
+    patience.waited = 5
+    assert not patience.allows(10)
+    monkeypatch.setenv("RESMON_ARXIV_PATIENCE_SECONDS", "1000")
+    assert api_arxiv._patience_seconds() == 180.0
+    monkeypatch.setenv("RESMON_ARXIV_PATIENCE_SECONDS", "soon")
+    assert api_arxiv._patience_seconds() == 180.0
+    monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS")
+    assert api_arxiv._patience_seconds() == 180.0

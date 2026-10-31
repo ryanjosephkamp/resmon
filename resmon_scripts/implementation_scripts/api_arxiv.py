@@ -2,6 +2,7 @@
 """arXiv API client — Atom XML response parsing."""
 
 import logging
+import os
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -83,6 +84,19 @@ _FIRST_WAIT_SECONDS = 5.0
 _PATIENCE_SECONDS = 180.0
 
 
+def _patience_seconds() -> float:
+    """The budget: three minutes, unless ``RESMON_ARXIV_PATIENCE_SECONDS`` says less.
+
+    A test that stands in for arXiv and answers 503 every time sets it short,
+    so a run that would wait three minutes for a real arXiv ends in seconds.
+    """
+    raw = os.environ.get("RESMON_ARXIV_PATIENCE_SECONDS", "").strip()
+    try:
+        return min(_PATIENCE_SECONDS, max(0.0, float(raw))) if raw else _PATIENCE_SECONDS
+    except ValueError:
+        return _PATIENCE_SECONDS
+
+
 def _wait(seconds: float) -> None:
     """Sleep between attempts. A seam, so a test can wait without sleeping."""
     time.sleep(seconds)
@@ -96,7 +110,7 @@ class _Patience:
         self.next_wait = _FIRST_WAIT_SECONDS
 
     def allows(self, seconds: float) -> bool:
-        return self.waited + seconds <= _PATIENCE_SECONDS
+        return self.waited + seconds <= _patience_seconds()
 
     def spend(self, seconds: float, why: str) -> None:
         logger.warning("arXiv %s; waiting %.0f s before asking again", why, seconds)
