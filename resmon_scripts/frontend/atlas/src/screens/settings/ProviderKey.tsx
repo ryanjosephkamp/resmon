@@ -66,7 +66,8 @@ export function ProviderKey({ name, provider, id = 'ai-key', note, test }: {
   return (
     <div className="password" data-ai="key" data-state={state ?? 'unknown'}>
       <label className="form-field" htmlFor={id}>
-        <span className="form-label">{providerWords(provider)} key</span>
+        {/* The key for Meta's models is a Together AI key: that is where it is sent. */}
+        <span className="form-label">{provider === 'meta' ? 'Together AI' : providerWords(provider)} key</span>
         <span className="password-row">
           <input id={id} type="password" value={value} autoComplete="new-password"
             placeholder={state === 'present' ? 'Stored; type a new one to replace it' : ''}

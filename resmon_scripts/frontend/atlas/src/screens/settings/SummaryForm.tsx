@@ -254,8 +254,8 @@ function WordingFields({ wording, onWord, provider, problem }: {
             : (
               <span className="form-hint" data-ai="temperature-reach">
                 {!sent && `Not sent to ${laneName(provider)}. `}
-                Sent to OpenAI, Google, xAI, Meta, DeepSeek, Alibaba, and a custom endpoint; Anthropic, Ollama, and the two
-                commands use their own.
+                Sent to OpenAI, Google, xAI, Together AI for Meta’s models, DeepSeek, Alibaba, and a custom endpoint;
+                Anthropic, Ollama, and the two commands use their own.
               </span>
             )}
         </label>
