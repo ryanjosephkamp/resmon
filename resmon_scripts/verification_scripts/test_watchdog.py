@@ -521,6 +521,9 @@ def test_a_watch_whose_fires_were_skipped_this_week_is_broken(conn):
     assert finding["title"] == "'Nightly arXiv' did not run 2 times it was due in the last 7 days"
     assert finding["evidence"] == {"skipped_fires": 2, "last_skipped_due_at_utc": last, "window_days": 7}
     assert "does not run a skipped fire later" in finding["detail"]
+    # When it was due is an instant in the evidence, which a screen says in
+    # the reader's own time; the sentence never prints it in UTC.
+    assert "UTC" not in finding["detail"] and last not in finding["detail"]
 
 
 def test_old_skips_missed_closes_and_paused_watches_are_not_skipped_fires(conn):
@@ -577,7 +580,12 @@ def test_cadence_advice_fires_when_a_source_cannot_keep_up(conn):
     # The honest caveat travels with the advice: this lag was measured through
     # the very polling interval it is being compared against.
     assert finding["evidence"]["lag_includes_polling_interval"] is True
-    assert "at most this, never more" in finding["detail"]
+    assert "resmon cannot tell those apart" in finding["detail"]
+    # Said by name, and saying only what the lag measured: not that running
+    # more often finds nothing sooner, which the lag cannot show.
+    assert "NASA ADS" in finding["title"] and "nasa_ads" not in finding["detail"]
+    assert "anything sooner" not in finding["detail"]
+    assert "does not show whether that would find papers later" in finding["what_to_do"]
 
 
 def test_advice_is_not_an_alarm(conn):
@@ -951,6 +959,53 @@ def test_a_withdrawn_source_nothing_selects_says_nothing_needs_changing(conn):
     finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
     assert "nothing needs changing" in finding["what_to_do"]
     assert "reachable" not in finding["what_to_do"]
+
+
+def test_a_withdrawn_source_is_labeled_withdrawn_and_is_not_an_alarm(conn):
+    """resmon declines to ask it: "broken" beside "nothing needs changing"
+    said two things at once. Withdrawn is its own label, and not an alarm."""
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"ieee": _withdrawn()})
+    report = watchdog.report(conn, now=NOW)
+    finding = _by_kind(report, "source_errors")[0]
+    assert finding["severity"] == "withdrawn"
+    assert report["counts"]["broken"] == 0
+    assert report["counts"]["alarms"] == 0
+
+
+def test_a_zero_with_no_reason_on_record_is_not_a_last_answer(conn):
+    """IEEE Xplore's record: zeros from before resmon recorded why a source
+    returned nothing, then runs after its withdrawal. The Source wall says it
+    has not answered any run resmon has a record of. The Watchdog said its
+    last successful run was the last of those zeros, a day resmon did not
+    observe it answer. Both now read the record the same way."""
+    from implementation_scripts import source_wall
+    for days in (12, 11, 10, 9):
+        _run(conn, days_ago=days, sources={"ieee": {"status": "ok", "result_count": 0}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"ieee": _withdrawn()})
+
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["evidence"]["last_success_at"] is None
+    wall = source_wall.build(conn, limit=12)
+    assert "IEEE Xplore has not answered any run resmon has a record of" in wall["verdict"]["headline"]
+
+
+def test_the_last_answer_is_the_last_run_that_recorded_one(conn):
+    """DOAJ's record: records in the spring, zeros with no reason on record,
+    then failures. It last answered when it last returned records, not on the
+    last unexplained zero."""
+    for days in (90, 89, 88):
+        _run(conn, days_ago=days, sources={"doaj": {"result_count": 2}})
+    for days in (12, 11, 10):
+        _run(conn, days_ago=days, sources={"doaj": {"status": "ok", "result_count": 0}})
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"doaj": _outage()})
+
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["severity"] == "broken"
+    assert finding["evidence"]["last_success_at"] == _ts(88)
+    assert "It last answered successfully 3 months ago." in finding["detail"]
 
 
 def test_a_source_this_build_no_longer_lists_uses_its_recorded_withdrawal(conn):

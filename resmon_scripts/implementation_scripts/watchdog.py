@@ -32,8 +32,15 @@ different things:
     quiet -- is genuinely possible every time.
 
 ``advice``
-    Not a problem at all. Cadence guidance derived from discovery lag. Never
-    counted in the alarm total.
+    Not an alarm. A pattern in what resmon measured, such as how long after
+    their dates a source's papers have reached the collection, stated with
+    what the measurement does and does not show. Never counted in the alarm
+    total.
+
+``withdrawn``
+    A source resmon no longer asks, by decision, that runs still recorded.
+    Not a fault and not an alarm: nothing about the source can be checked or
+    fixed, and the finding says whether a watch still selects it.
 
 Everything the watchdog cannot yet judge is reported too, under
 ``not_enough_data``. A watchdog silent because nothing is wrong and a watchdog
@@ -61,7 +68,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from statistics import median
 
-from . import analytics, repo_catalog
+from . import analytics, repo_catalog, zero_reason
 from .api_registry import RETIRED_NAMES, RETIRED_REPOSITORIES
 
 # --- Source thresholds -----------------------------------------------------
@@ -182,7 +189,7 @@ SKIPPED_FIRES_WINDOW_DAYS = 7
 # plausible cause of the measured lag and the advice would be circular.
 CADENCE_LAG_MULTIPLE = 2.0
 
-_SEVERITY_ORDER = {"broken": 0, "unusual": 1, "advice": 2}
+_SEVERITY_ORDER = {"broken": 0, "unusual": 1, "advice": 2, "withdrawn": 3}
 
 
 # ---------------------------------------------------------------------------
@@ -502,9 +509,16 @@ def _check_sources(
             # source never answered. Before schema 10 it did, because an
             # outage was recorded as ``ok / 0`` -- so a source that had been
             # down for a month was reported as having answered an hour ago.
+            # Nor a zero with no reason on record: resmon did not observe
+            # whether the source answered that run, and the Source wall, the
+            # run's coverage, and the search record all read it that way
+            # (``zero_reason.answered``). Counting it here said a source the
+            # wall calls never answered had last answered on a day it
+            # returned nothing at all.
             last_ok = next(
                 (r for r in runs
-                 if r["status"] == "ok" and not _did_not_answer(r)), None,
+                 if zero_reason.answered(r["status"], int(r["result_count"] or 0),
+                                         r.get("zero_reason"))), None,
             )
             last_ok_at = _parse_ts(last_ok["start_time"]) if last_ok else None
             since = _humanise_days(_days_between(last_ok_at, now)) if last_ok_at else None
@@ -531,7 +545,10 @@ def _check_sources(
                 still_selected = active_sources.get(source)
                 findings.append(_finding(
                     key=f"source_errors:{source}",
-                    severity="broken",
+                    # Withdrawn, not broken: resmon declines to ask it, and
+                    # calling that a fault beside "nothing needs changing"
+                    # said two things at once.
+                    severity="withdrawn",
                     kind="source_errors",
                     scope={"type": "source", "id": source},
                     title=f"{source} was withdrawn from resmon",
@@ -707,12 +724,14 @@ def _check_skipped_fires(conn: sqlite3.Connection, routines: list[dict],
             scope={"type": "routine", "id": routine_id, "name": name},
             title=(f"'{name}' did not run {n} {times} it was due in the last "
                    f"{SKIPPED_FIRES_WINDOW_DAYS} days"),
+            # When the last one was due is in the evidence, as an instant a
+            # screen says in the reader's own time; a sentence would have to
+            # print it in UTC.
             detail=(
-                f"Each time, the run before it was still going, so resmon "
-                f"skipped the fire: it runs one copy of a watch at a time and "
-                f"does not run a skipped fire later. The last was due "
-                f"{row['last_due']} (UTC). This watch is running less often "
-                "than its schedule says."
+                "Each time, the run before it was still going, so resmon "
+                "skipped the fire: it runs one copy of a watch at a time and "
+                "does not run a skipped fire later. This watch is running less "
+                "often than its schedule says."
             ),
             what_to_do=(
                 "Give the watch a longer interval, or fewer sources, so a run "
@@ -877,14 +896,17 @@ def _cadence_advice(
     cadence: float,
     lag_by_source: dict[str, dict],
 ) -> dict | None:
-    """Suggest a slower cadence when the sources cannot keep up with it.
+    """Say when a routine's sources' papers have arrived long after their dates.
 
-    The honest caveat, which the payload carries so the interface can print it:
-    discovery lag is measured from when *resmon* first saw each paper, so it
-    includes however long the routine waited before asking. That is why the
-    advice only fires when the lag is a multiple of the interval — at that
-    point the polling interval cannot account for the gap and the source's own
-    indexing delay must.
+    What is measured is discovery lag (``analytics.discovery_lag``): for every
+    dated paper from a source in the collection, the days from the date the
+    paper carries to when resmon first collected it, by any watch or search.
+    That gap includes the time a routine waits between runs, a search that
+    asked for older papers, and whatever delay the source has, and resmon
+    cannot tell those apart. So the finding fires only when the median is a
+    multiple of the routine's interval, and says only that: it does not claim
+    the source updates slowly, or that running less often would find papers
+    no later.
     """
     slow: list[dict] = []
     for source in _routine_repositories(routine):
@@ -907,29 +929,38 @@ def _cadence_advice(
     slow.sort(key=lambda s: s["median_lag_days"], reverse=True)
     slowest = slow[0]
     others = len(slow) - 1
+    lag_words = _humanise_days(slowest["median_lag_days"])
+    # By name: this finding is a watch's, and a screen renames only a source
+    # finding's own key.
+    source_name = _source_name(slowest["source"])
 
     return _finding(
         key=f"cadence_advice:{routine['id']}",
         severity="advice",
         kind="cadence_advice",
         scope={"type": "routine", "id": routine["id"], "name": name},
-        title=f"'{name}' may be running more often than its sources update",
+        title=(
+            f"{source_name}'s papers reached your collection a median of "
+            f"{lag_words} after their dates"
+        ),
         detail=(
-            f"This routine runs about every {_humanise_days(cadence)}. "
-            f"{slowest['source']} has taken a median of "
-            f"{slowest['median_lag_days']} days to surface a paper to you, "
-            f"across {slowest['sample_size']} dated papers"
-            + (f", and {others} other source{'s' if others != 1 else ''} "
-               "here are slower than the interval too" if others else "")
-            + ". Running more often than that costs requests without finding "
-            "anything sooner. Note that this lag is measured from when resmon "
-            "first saw each paper, so it includes the waiting this routine "
-            "already does — the real indexing delay is at most this, never more."
+            f"'{name}' runs about every {_humanise_days(cadence)}. Across "
+            f"{int(slowest['sample_size'] or 0):,} dated papers from {source_name} in "
+            "your collection, resmon first collected each a median of "
+            f"{slowest['median_lag_days']} days after the date it carries"
+            + (f", and {others} other source{'s' if others != 1 else ''} this "
+               "watch asks show a median more than "
+               f"{CADENCE_LAG_MULTIPLE:g} times its interval too" if others else "")
+            + ". The lag runs from a paper's date to the first run, of any "
+            "watch or search, that collected it: it includes the time between "
+            "runs, searches that asked for older papers, and any delay at the "
+            "source, and resmon cannot tell those apart."
         ),
         what_to_do=(
-            f"Consider a slower schedule, closer to every "
-            f"{_humanise_days(slowest['median_lag_days'])}. Nothing is broken "
-            "either way."
+            f"If {source_name} lists papers that long after their dates, "
+            f"a schedule closer to every {lag_words} would send it fewer "
+            "requests. This measurement does not show whether that would find "
+            "papers later than now."
         ),
         evidence={
             "cadence_days": round(cadence, 2),
