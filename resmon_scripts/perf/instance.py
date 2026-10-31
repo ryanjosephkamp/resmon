@@ -54,6 +54,9 @@ def isolated_env(state: Path, *, scheduler: bool = False, extra: Optional[dict] 
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
         "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
+        # An AI command only where one is configured: never the person's own
+        # signed-in `claude` or `codex`, found on this machine.
+        "RESMON_AI_CLI_DISCOVERY": "configured-only",
         "PYTHONPATH": str(SCRIPTS),
     })
     if not scheduler:

@@ -196,4 +196,6 @@ def test_every_harness_process_is_isolated(tmp_path, monkeypatch):
     assert env["RESMON_PORT_FILE"] == str(tmp_path / "resmon.port")
     assert env["RESMON_STATE_DIR"] == str(tmp_path)
     assert env["PYTHON_KEYRING_BACKEND"] == "keyring.backends.null.Keyring"
+    # Never the person's own signed-in AI command, found on this machine.
+    assert env["RESMON_AI_CLI_DISCOVERY"] == "configured-only"
     assert all(instance.free_port() != instance.SERVICE_PORT for _ in range(50))
