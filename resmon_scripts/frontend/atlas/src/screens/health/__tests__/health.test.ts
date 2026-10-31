@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  MARK, RETIRED_NAMES, findingWords, lastAsked, markOf, pointRadius, runDays, scopeWords, thresholdWords, watchdogVerdict,
+  MARK, RETIRED_NAMES, SEVERITY_MEANING, SEVERITY_WORDS, findingWords, lastAsked, markOf, pointRadius, runDays, scopeWords, thresholdWords, watchdogVerdict,
   windowSentence, type WallRun, type WallSource, type WatchdogFinding, type WatchdogReport,
 } from '../model';
 
@@ -124,6 +124,13 @@ describe('the watchdog', () => {
       + 'IEEE Xplore was withdrawn in v1.8.1.');
     expect(ieee.what_to_do).toMatch(/^No active routine selects IEEE Xplore any more/);
     expect(ieee.withdrawn).toBe(true);
+    // The engine labels it for what it is: not broken, and not an alarm.
+    expect(findingWords(finding({ scope: { type: 'source', id: 'gone' }, severity: 'withdrawn',
+      evidence: { consecutive_errors: 4 } }), names).withdrawn).toBe(true);
+    expect(SEVERITY_WORDS.withdrawn).toBe('Withdrawn');
+    expect(SEVERITY_MEANING.withdrawn).toMatch(/Not a fault, and not an alarm\.$/);
+    // Advice says it is not an alarm, and claims no more than that: never that nothing is wrong.
+    expect(SEVERITY_MEANING.advice).not.toMatch(/Nothing is wrong/);
     // A watch's finding is left as the engine wrote it.
     const watch = findingWords(finding({ kind: 'routine_overdue', scope: { type: 'routine', id: 3, name: 'arxiv' }, title: "'arxiv' has not run" }), names);
     expect(watch.title).toBe("'arxiv' has not run");

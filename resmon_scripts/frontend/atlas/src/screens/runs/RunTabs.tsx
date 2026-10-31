@@ -5,11 +5,14 @@ import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
 import { authors, number, publishedWords } from '../today/format';
+import { sourceName } from '../health/model';
+import { scheduleText } from '../watches/model';
+import { runWindowSentence } from '../watches/window';
 import { saveReport, saveSearchRecord } from './downloads';
 import { Markdown } from './markdown';
 import {
-  absentRecordWords, dayAndTime, eventTime, localStamp, reportInLocalTime, storedInstant, type LiveSource, type ProgressEvent,
-  type Run,
+  absentRecordWords, dayAndTime, eventTime, localStamp, logForReading, reportInLocalTime, runKind, storedInstant,
+  type LiveSource, type ProgressEvent, type Run,
 } from './model';
 import { LivePanel } from './LivePanel';
 import { RunMap } from './RunMap';
@@ -64,10 +67,10 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
         {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
         {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status}
           endedAt={running ? null : run.end_time ?? null} names={names} />}
-        {tab === 'Report' && <TextRecord run={run} kind="report" running={running} />}
-        {tab === 'Log' && <TextRecord run={run} kind="log" running={running} />}
-        {tab === 'Search record' && <SearchRecord id={run.id} settledAt={running ? null : run.end_time} />}
-        {tab === 'Metadata' && <Metadata run={run} />}
+        {tab === 'Report' && <TextRecord run={run} kind="report" running={running} names={names} />}
+        {tab === 'Log' && <TextRecord run={run} kind="log" running={running} names={names} />}
+        {tab === 'Search record' && <SearchRecord run={run} settledAt={running ? null : run.end_time} />}
+        {tab === 'Metadata' && <Metadata run={run} names={names} />}
         {tab === 'Progress' && <Progress live={live} names={names} events={events} />}
       </div>
     </section>
@@ -128,7 +131,9 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
  * file that has gone from where it was written), never as a route and a
  * status code.
  */
-function TextRecord({ run, kind, running }: { run: Run; kind: 'report' | 'log'; running: boolean }) {
+function TextRecord({ run, kind, running, names }: {
+  run: Run; kind: 'report' | 'log'; running: boolean; names: ReadonlyMap<string, string>;
+}) {
   const id = run.id;
   const text = useQuery({
     queryKey: ['run-text', id, kind, running],
@@ -143,7 +148,15 @@ function TextRecord({ run, kind, running }: { run: Run; kind: 'report' | 'log'; 
     const detail = text.error instanceof EngineError ? text.error.detail : null;
     return <p className="record-cap" data-record="absent">{absentRecordWords(run, kind, running, status, detail)}</p>;
   }
-  if (kind === 'log') return <pre className="record-text is-log">{text.data}</pre>;
+  if (kind === 'log') {
+    const log = logForReading(text.data, (slug) => sourceName(slug, names), run.coverage.sources);
+    return (
+      <>
+        <p className="record-cap" data-record="log-note">{log.note}</p>
+        <pre className="record-text is-log">{log.text}</pre>
+      </>
+    );
+  }
   return (
     <>
       <div className="record-bar">
@@ -156,6 +169,15 @@ function TextRecord({ run, kind, running }: { run: Run; kind: 'report' | 'log'; 
   );
 }
 
+/** One source's query, as the search record lists what its requests carried. */
+interface QuerySent {
+  source: string;
+  name: string;
+  sent: string[];
+  omitted: number;
+  note: string | null;
+}
+
 /** The search record, as the engine dates and accounts for it. `/search-record` declares no model. */
 interface SearchRecordData {
   generated_at?: string;
@@ -165,20 +187,53 @@ interface SearchRecordData {
   caveats?: string[];
 }
 
+/** Labels a person reads, where a record's own key would not do. */
+const LABELS: Readonly<Record<string, string>> = {
+  prisma: 'PRISMA box',
+  sources_searched: 'Sources selected',
+  last_seen_at_utc: 'Last seen working at',
+  execution_type: 'Kind',
+  routine_id: 'Watch id',
+  saved_configuration_id: 'Saved search id',
+  saved_configuration_name: 'Saved search',
+  repositories: 'Sources',
+  max_results: 'Most papers per source',
+  date_window_computed: 'How the dates were set',
+  query: 'Query, as typed',
+  keywords: 'Search terms, as typed',
+  queries_sent: 'Query as sent',
+  author_queries: 'Person query as sent',
+};
+
 function words(key: string): string {
+  const label = LABELS[key];
+  if (label) return label;
   const text = key.replace(/_/g, ' ');
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/**
+ * Fields whose empty value is not a gap in the record. A figure's
+ * `not_recorded_reason` is empty because the figure was recorded, and is left
+ * out; a `prisma` box that is empty is one PRISMA does not have.
+ */
+const EMPTY_MEANS: Readonly<Record<string, string | null>> = {
+  not_recorded_reason: null,
+  prisma: 'none: PRISMA has no box for it',
+};
 
 function Value({ value }: { value: unknown }): ReactNode {
   if (value === null || value === undefined || value === '') return <span className="nr">not recorded</span>;
   if (Array.isArray(value)) return value.length ? value.map(String).join(', ') : <span className="nr">none</span>;
   if (typeof value === 'object') {
+    const empty = (v: unknown) => v === null || v === undefined || v === '';
     return (
       <dl className="record-dl nested">
-        {Object.entries(value as Record<string, unknown>).map(([k, v]) => (
-          <div key={k}><dt>{words(k)}</dt><dd><Value value={v} /></dd></div>
-        ))}
+        {Object.entries(value as Record<string, unknown>)
+          .filter(([k, v]) => !(empty(v) && k in EMPTY_MEANS && EMPTY_MEANS[k] === null))
+          .map(([k, v]) => (
+            <div key={k}><dt>{words(k)}</dt><dd>{empty(v) && EMPTY_MEANS[k] ? EMPTY_MEANS[k] : <Value value={v} />}</dd></div>
+          ))}
       </dl>
     );
   }
@@ -188,7 +243,73 @@ function Value({ value }: { value: unknown }): ReactNode {
   return String(value);
 }
 
-function SearchRecord({ id, settledAt }: { id: number; settledAt: string | null | undefined }) {
+/**
+ * What each source's requests carried, one source a line: arXiv's `all:`
+ * terms and its date clause, Crossref's query and filter. A source asked
+ * nothing, or whose client does not say what it sends, says so in the
+ * engine's words; the words typed are never shown here as if they were sent.
+ */
+function QueriesSent({ queries }: { queries: QuerySent[] | null | undefined }) {
+  if (!queries) {
+    return <span className="nr">Not recorded for this run. The words it was given are above, as typed.</span>;
+  }
+  if (!queries.length) return <span className="nr">none</span>;
+  return (
+    <ul className="queries-sent">
+      {queries.map((query) => (
+        <li key={query.source} data-source={query.source}>
+          <span className="queries-sent-source">{query.name}</span>
+          {query.sent.length > 0
+            ? query.sent.map((sent) => <code key={sent} className="queries-sent-query">{sent}</code>)
+            : <span className="nr">{query.note}</span>}
+          {query.omitted > 0 && <span className="nr">and {query.omitted} more like these</span>}
+        </li>
+      ))}
+      <li className="nr">Each request as resmon sent it, without its paging, contact address, or key.</li>
+    </ul>
+  );
+}
+
+/** A record field as a string, or null. */
+function text(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : typeof value === 'number' ? String(value) : null;
+}
+
+/**
+ * The search, in the words the run's own page uses: its kind, its times in
+ * the reader's zone, its dates as the heading says them, and each source's
+ * query as sent. A field that does not apply to the run (a watch for a search
+ * asked by hand) is left out rather than called not recorded.
+ */
+function SearchFacts({ search, run }: { search: Record<string, unknown>; run: Run }) {
+  const keywords = Array.isArray(search.keywords) ? search.keywords.map(String) : [];
+  const watch = text(search.routine_name);
+  const schedule = text(search.routine_schedule);
+  const saved = text(search.configuration_name);
+  const rows: [string, ReactNode][] = [
+    ['Run', text(search.execution_id) ?? <span className="nr">not recorded</span>],
+    ['Kind', text(search.execution_type) ? runKind(String(search.execution_type)) : <span className="nr">not recorded</span>],
+    ['Run at', <Value value={search.run_at} />],
+    ['Completed at', <Value value={search.completed_at} />],
+    ['Status', <Value value={search.status} />],
+    // The words typed; what each source was sent is the next row.
+    ['Search terms, as typed', keywords.length ? keywords.join(', ') : <span className="nr">none</span>],
+    ['Query as sent', <QueriesSent queries={search.queries_as_sent as QuerySent[] | null | undefined} />],
+    ['Dates', runWindowSentence(run.parameters) ?? <span className="nr">not recorded</span>],
+    ['Most papers per source', <Value value={search.max_results_per_source} />],
+  ];
+  if (watch) rows.push(['Watch', watch]);
+  if (schedule) rows.push(['Schedule', scheduleText(schedule) ?? <code className="cron">{schedule}</code>]);
+  if (saved) rows.push(['Saved search', saved]);
+  return (
+    <dl className="record-dl" data-record="search">
+      {rows.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}
+    </dl>
+  );
+}
+
+function SearchRecord({ run, settledAt }: { run: Run; settledAt: string | null | undefined }) {
+  const id = run.id;
   const record = useQuery({
     queryKey: ['run-record', id, settledAt],
     queryFn: async () => (await answer(engine().GET('/api/executions/{exec_id}/search-record', {
@@ -215,8 +336,19 @@ function SearchRecord({ id, settledAt }: { id: number; settledAt: string | null 
           </span>
         )}
       </div>
-      {data.generated_at && <p className="record-cap">Generated {generated ? dayAndTime(generated) : data.generated_at} from what resmon saved.</p>}
-      {(['search', 'identification', 'deduplication'] as const).map((block) => data[block] && (
+      {data.generated_at && (
+        <p className="record-cap">
+          Generated {generated ? dayAndTime(generated) : data.generated_at} from what resmon saved. Times here are in this
+          computer’s time zone; the Markdown file gives them in UTC.
+        </p>
+      )}
+      {data.search && (
+        <section>
+          <h3>Search</h3>
+          <SearchFacts search={data.search} run={run} />
+        </section>
+      )}
+      {(['identification', 'deduplication'] as const).map((block) => data[block] && (
         <section key={block}>
           <h3>{words(block)}</h3>
           <dl className="record-dl">
@@ -236,13 +368,89 @@ function SearchRecord({ id, settledAt }: { id: number; settledAt: string | null 
   );
 }
 
-function Metadata({ run }: { run: Run }) {
+/**
+ * Fields of a run where empty is a fact rather than a gap: a search asked by
+ * hand belongs to no watch, a run that did not fail has no error, and a run
+ * asked with no start date has none. Said as "none", never as not recorded.
+ */
+const EMPTY_IS_NONE: ReadonlySet<string> = new Set([
+  'routine_id', 'saved_configuration_id', 'saved_configuration_name', 'error_message', 'cancel_reason',
+  'interrupted_reason', 'restarted_from', 'date_from', 'date_to',
+]);
+
+function OrNone({ field, value }: { field: string; value: unknown }): ReactNode {
+  if ((value === null || value === undefined || value === '') && EMPTY_IS_NONE.has(field)) return <span className="nr">none</span>;
+  return <Value value={value} />;
+}
+
+/** A source's query, as a run's stored parameters keep it: `{ sent: [...] }`, or null for a client that does not say. */
+function sentWords(entry: unknown): string {
+  if (entry === null) return 'not recorded: its client does not say what it sends';
+  if (!entry || typeof entry !== 'object') return 'not recorded';
+  const record = entry as Record<string, unknown>;
+  if (Array.isArray(record.sent)) return record.sent.length ? record.sent.map(String).join(' | ') : 'nothing sent';
+  // A person watch's author query: `{ kind, value }`.
+  if (typeof record.value === 'string') return record.kind === 'query' ? record.value : `${String(record.kind)} ${record.value}`;
+  return JSON.stringify(entry);
+}
+
+/** The run's stored parameters, each under a label a person reads and each source by name. */
+function Parameters({ raw, nameOf }: { raw: string | null; nameOf: (slug: string) => string }) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw ?? '');
+  } catch {
+    return <Value value={raw} />;
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return <Value value={raw} />;
+  const value = (key: string, v: unknown): ReactNode => {
+    if (key === 'repositories' && Array.isArray(v)) return v.map((slug) => nameOf(String(slug))).join(', ') || <span className="nr">none</span>;
+    if ((key === 'queries_sent' || key === 'author_queries') && v && typeof v === 'object') {
+      // In the order the run selected its sources, as the search record lists them.
+      const selected = (parsed as Record<string, unknown>).repositories;
+      const order = Array.isArray(selected) ? selected.map(String) : [];
+      const at = (slug: string) => (order.includes(slug) ? order.indexOf(slug) : order.length);
+      return (
+        <dl className="record-dl nested">
+          {Object.entries(v as Record<string, unknown>).sort(([a], [b]) => at(a) - at(b)).map(([slug, entry]) => (
+            <div key={slug}><dt>{nameOf(slug)}</dt><dd>{sentWords(entry)}</dd></div>
+          ))}
+        </dl>
+      );
+    }
+    if (key === 'date_window_computed' && v && typeof v === 'object' && typeof (v as { sentence?: unknown }).sentence === 'string') {
+      return (v as { sentence: string }).sentence;
+    }
+    return <OrNone field={key} value={v} />;
+  };
+  return (
+    <dl className="record-dl nested">
+      {Object.entries(parsed as Record<string, unknown>).map(([k, v]) => (
+        <div key={k}><dt>{words(k)}</dt><dd>{value(k, v)}</dd></div>
+      ))}
+    </dl>
+  );
+}
+
+/**
+ * Everything the engine keeps about the run, every field, each under a label
+ * a person reads: its kind in words, each source by name, and each instant
+ * in the reader's own time zone, whatever the field is called in the engine.
+ */
+function Metadata({ run, names }: { run: Run; names: ReadonlyMap<string, string> }) {
   // `ai_lanes` is said in words under the run's head.
   const skip = new Set(['coverage', 'identity', 'progress_events', 'source_outcomes', 'ai_lanes']);
+  const nameOf = (slug: string) => sourceName(slug, names);
+  const value = (key: string, v: unknown): ReactNode => {
+    if (key === 'execution_type' && typeof v === 'string') return runKind(v);
+    if (key === 'repositories' && Array.isArray(v)) return v.map((slug) => nameOf(String(slug))).join(', ') || <span className="nr">none</span>;
+    if (key === 'parameters') return <Parameters raw={typeof v === 'string' ? v : null} nameOf={nameOf} />;
+    return <OrNone field={key} value={v} />;
+  };
   return (
     <dl className="record-dl">
       {Object.entries(run).filter(([k]) => !skip.has(k)).map(([k, v]) => (
-        <div key={k}><dt>{words(k)}</dt><dd><Value value={v} /></dd></div>
+        <div key={k}><dt>{words(k)}</dt><dd>{value(k, v)}</dd></div>
       ))}
     </dl>
   );

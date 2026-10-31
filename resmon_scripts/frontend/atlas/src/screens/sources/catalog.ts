@@ -84,3 +84,32 @@ export function authorWords(query: string): string {
 export function noneAskableAboutAuthors(picked: readonly CatalogEntry[]): boolean {
   return picked.length > 0 && picked.every((entry) => entry.entity_search.author_query === 'none');
 }
+
+/** A sentence the catalog says a chosen source carries in the form's present state. */
+export interface FormNotice {
+  slug: string;
+  effect: string;
+}
+
+/**
+ * The catalog's notices that the form's own state makes true, before anything
+ * is asked: what resmon does in place of a start date that is not set
+ * (bioRxiv and medRxiv read their archives from the first month forward, and
+ * stop at the cap or their time budget long before recent preprints), and how
+ * it asks a source for more than it returns in one request. A notice is shown
+ * only in the state its `applies_when` names, as the catalog requires.
+ */
+export function formNotices(
+  picked: readonly CatalogEntry[], state: { start: boolean; cap: number },
+): FormNotice[] {
+  const out: FormNotice[] = [];
+  for (const entry of picked) {
+    for (const notice of entry.constraints.notices) {
+      const applies = (notice.applies_when === 'without_start_date' && !state.start)
+        || (notice.applies_when === 'above_record_cap' && entry.constraints.records_per_request !== null
+          && state.cap > entry.constraints.records_per_request);
+      if (applies) out.push({ slug: entry.slug, effect: notice.effect });
+    }
+  }
+  return out;
+}

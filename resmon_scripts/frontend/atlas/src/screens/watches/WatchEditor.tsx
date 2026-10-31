@@ -12,7 +12,7 @@ import type { CatalogEntry } from '../runs/model';
 import { SummaryChoiceField, choiceProblem } from '../settings/SummaryChoiceField';
 import { NO_CHOICE, choiceOf, choiceSentence, type SummaryChoice } from '../settings/summaryChoice';
 import { AI_KEY, type AiSettings } from '../settings/summaryLanes';
-import { coarseFor, coarseSentence, noneAskableAboutAuthors, paceOf, rateLong } from '../sources/catalog';
+import { coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import {
   CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, summaryBody,
@@ -498,6 +498,8 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
   const moving = form.window === 'previous_run' || form.window === 'last_days';
   const coarse = asks && between ? coarseFor(picked, form.dateFrom, form.dateTo) : [];
   const coarseMoving = asks && moving ? coarseMovingSentences(picked) : [];
+  // A moving window always has a start; no date limit, or fixed dates with none, does not.
+  const notices = asks ? formNotices(picked, { start: moving || (between && !!form.dateFrom), cap: form.cap }) : [];
   const undated = asks && form.window === 'none';
   const ranked = undated ? relevanceSentence(picked) : null;
   const newest = undated ? byOrder(picked).newest_first : [];
@@ -580,6 +582,9 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           {coarse.length > 0 && <p className="will-quiet">{coarseSentence(coarse)}</p>}
           {asks && moving && next && <p className="will-quiet" data-will="next-dates">{next.sentence}</p>}
           {coarseMoving.map((line) => <p key={line} className="will-quiet" data-will="coarse-window">{line}</p>)}
+          {notices.map((notice) => (
+            <p key={`${notice.slug}:${notice.effect}`} className="will-warn" data-will="notice">{notice.effect}</p>
+          ))}
           {newest.length > 0 && (
             <p className="will-quiet" data-will="newest-first">
               {listed(newest.map((e) => e.name))} {newest.length === 1 ? 'puts its' : 'put their'} newest papers first.

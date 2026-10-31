@@ -16,6 +16,14 @@ import { RestartFacts } from './RestartFacts';
 
 export { RUNS_KEY };
 
+/** How many runs the log reads: the most recent, newest first. */
+export const RUN_LOG_LIMIT = 60;
+
+/** What the count beside "Runs" counts: every run, or only the most recent when there may be more. */
+export function runsCountWords(shown: number, limit = RUN_LOG_LIMIT): string {
+  return shown >= limit ? `the latest ${number(limit)}` : number(shown);
+}
+
 /** What a run's own page hands the log when it deleted the run and came back here. */
 export interface RunLogNotice { deleted?: string }
 
@@ -59,7 +67,7 @@ export function RunLog() {
   const [now] = useState(() => new Date());
   const runs = useQuery({
     queryKey: RUNS_KEY,
-    queryFn: () => answer(engine().GET('/api/executions', { params: { query: { limit: 60 } } })),
+    queryFn: () => answer(engine().GET('/api/executions', { params: { query: { limit: RUN_LOG_LIMIT } } })),
     // Read again every two seconds while anything runs, so a run's line
     // changes when it finishes; every half minute otherwise, for watch runs.
     refetchInterval: (query) => (query.state.data?.some((run) => run.status === 'running') ? 2_000 : 30_000),
@@ -122,7 +130,7 @@ export function RunLog() {
   return (
     <section className="index runlog" aria-label="Runs" aria-busy={runs.isFetching}>
       <div className="index-bar">
-        <h2>Runs<span>{runs.data ? number(runs.data.length) : ''}</span></h2>
+        <h2>Runs<span data-runs="count">{runs.data ? runsCountWords(runs.data.length) : ''}</span></h2>
       </div>
       {chosen.length > 0 && (
         <div className="export-bar" role="group" aria-label="The selected runs">
@@ -229,6 +237,12 @@ export function RunLog() {
             })}
           </section>
         ))}
+        {runs.data && runs.data.length >= RUN_LOG_LIMIT && (
+          <p className="index-cap" data-runs="limit">
+            These are the {number(RUN_LOG_LIMIT)} most recent runs. resmon keeps every run until it is deleted; older ones are
+            not listed here.
+          </p>
+        )}
         {restart.error && (
           <p className="field-error" role="alert">
             {restart.error instanceof EngineError && restart.error.detail
