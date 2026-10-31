@@ -279,7 +279,11 @@ class LosslessModel(BaseModel):
     non-finite float needs that table read before it is modeled.
     """
 
-    model_config = ConfigDict(extra="allow")
+    # Validators are built on first use rather than when the class is made.
+    # FastAPI builds every route's response model as the route is registered,
+    # so this costs nothing at request time and leaves the contract as it was;
+    # it saves building, at every start, what no route asks for directly.
+    model_config = ConfigDict(extra="allow", defer_build=True)
 
 
 # ---------------------------------------------------------------------------

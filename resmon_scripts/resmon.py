@@ -105,14 +105,16 @@ from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
 from implementation_scripts.zero_reason import answered as zero_answered
 from implementation_scripts import (
-    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store, collection_map,
+    analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
     reading_queue, reference_export, response_models, search_record, source_coverage,
     source_wall, vector_index, watch_profiles,
     watchdog,
 )
-from implementation_scripts import shared_wording
+# ``collection_map`` and ``shared_wording`` are imported where they are used:
+# both bring numpy, which an engine that has drawn no map and scanned nothing
+# has no need of, and which adds to every start and to the idle service.
 from implementation_scripts.assistant_permissions import broker as permission_broker
 from implementation_scripts.progress import progress_store
 from implementation_scripts.admission import (
@@ -1318,6 +1320,7 @@ def _launch_execution(
             try:
                 row = get_execution_by_id(conn, exec_id)
                 if row and int(row.get("new_result_count") or 0) > 0:
+                    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
                     shared_wording.scan_job.after_run(_get_db)
             except Exception:
                 logging.getLogger(__name__).exception(
@@ -3843,6 +3846,7 @@ def library_shared_wording_start(request: Request, file_id: str, body: LibraryOp
         with library.checked_vault(conn, body.expected_vault_id):
             library.file_row(conn, file_id, body.expected_version_id)
     try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
         return shared_wording.library_job.start(_library_connection_factory(), body.expected_vault_id,
                                                 file_id, body.expected_version_id)
     except RuntimeError as exc:
@@ -3859,6 +3863,7 @@ def library_shared_wording(request: Request, response: Response, file_id: str,
     with _library_connection() as conn:
         library.vault_row(conn, expected_vault_id)
         library.file_row(conn, file_id, expected_version_id)
+    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
     return shared_wording.library_job.status(file_id, expected_version_id)
 
 
@@ -4595,6 +4600,7 @@ def shared_wording_overview():
     """
     conn = _get_db()
     try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
         return shared_wording.overview(conn)
     finally:
         _close_db(conn)
@@ -4605,6 +4611,7 @@ def shared_wording_overview():
 def shared_wording_scan():
     """Compare every abstract with every other, in the background. Returns at once."""
     try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
         return shared_wording.scan_job.start(_get_db, "full")
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from None
@@ -4614,6 +4621,7 @@ def shared_wording_scan():
           response_model_exclude_unset=True)
 def shared_wording_scan_cancel():
     """Stop the scan in progress. The answer stored before it is kept."""
+    from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
     return shared_wording.scan_job.cancel()
 
 
@@ -4623,6 +4631,7 @@ def shared_wording_pair(a: int, b: int):
     """Two abstracts side by side, the passages they share, and the numbers."""
     conn = _get_db()
     try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
         return shared_wording.pair_view(conn, a, b)
     except LookupError as exc:
         raise HTTPException(404, str(exc)) from None
@@ -4636,6 +4645,7 @@ def shared_wording_for_paper(document_id: int):
     """The pairs one paper is in, for its page."""
     conn = _get_db()
     try:
+        from implementation_scripts import shared_wording  # noqa: PLC0415 - see the imports
         return shared_wording.pairs_for(conn, document_id)
     finally:
         _close_db(conn)
@@ -5729,6 +5739,7 @@ def get_collection_map():
     conn = _get_db()
     try:
         lane = _current_embedding_lane(conn)
+        from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
         return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db)
     finally:
         _close_db(conn)
@@ -7523,6 +7534,7 @@ def _erase_corpus(conn) -> int:
     conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
     # The collection map's cache holds positions and words taken from these
     # papers, so it goes with them, and so does the shared-wording answer.
+    from implementation_scripts import collection_map, shared_wording  # noqa: PLC0415 - see the imports
     collection_map.forget(conn)
     shared_wording.forget(conn)
     try:

@@ -54,6 +54,8 @@ export default defineConfig({
     outDir: path.resolve(__dirname, '..', 'dist', 'atlas'),
     emptyOutDir: true,
     target: 'chrome130',
-    sourcemap: true,
+    // No source map: nothing in the app or its suites reads one, and every
+    // installed copy carried it.
+    sourcemap: false,
   },
 });

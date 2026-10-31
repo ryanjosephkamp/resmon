@@ -8,7 +8,6 @@ from typing import Any, Callable, Optional
 
 from apscheduler.events import EVENT_JOB_MAX_INSTANCES
 from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.triggers.base import BaseTrigger
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
@@ -351,6 +350,11 @@ class ResmonScheduler:
 
     def __init__(self, db_url: str | None = None) -> None:
         url = db_url or _DEFAULT_DB_URL
+        # SQLAlchemy is imported here, by the one process that runs the
+        # scheduler: it takes most of a tenth of a second to import, and an
+        # engine started with the scheduler off never needs it.
+        from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore  # noqa: PLC0415
+
         # Kept as an attribute, not only handed to the scheduler, so
         # ``persisted_next_run_times`` can read the store before ``start()``.
         self._jobstore = SQLAlchemyJobStore(url=url)
