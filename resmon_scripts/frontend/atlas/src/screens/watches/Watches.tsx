@@ -202,6 +202,11 @@ function WatchRow({ routine, now, next, firing, lit, onLight, catalog }: {
           {routine.last_status && last ? ` · ${routine.last_status}` : ''}
         </span>
         {missed > 0 && (<><span className="sep" /><span className="watch-missed">{count(missed, 'fire')} missed while resmon was closed</span></>)}
+        {routine.missed_fires.overlap_skipped > 0 && (
+          <><span className="sep" /><span className="watch-missed" data-watch="skipped-fires">
+            {count(routine.missed_fires.overlap_skipped, 'fire')} skipped: the run before was still going
+          </span></>
+        )}
       </div>
       <WatchWarnings id={routine.id} warnings={warnings} />
     </li>

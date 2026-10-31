@@ -889,6 +889,11 @@ code.cron { font: 400 12px/1 var(--mono); color: var(--ink-2); background: var(-
 @media (prefers-reduced-motion: reduce) { .switch-track, .switch-knob { transition: none; } }
 .run-now-refusal { border-left: 2px solid var(--fault); }
 .run-now-said a { color: var(--ink); text-underline-offset: 3px; }
+.watch-skipped { border-left: 2px solid var(--fault); }
+button.watch-skipped-open {
+  border: 0; padding: 0; background: none; font: inherit; color: var(--ink); cursor: pointer;
+  text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px;
+}
 
 .watch-main { grid-template-columns: minmax(0, 1fr) minmax(320px, 420px); }
 .watch-main .sky-canvas, .watch-main .sky-empty { aspect-ratio: auto; height: clamp(320px, 58vh, 560px); }

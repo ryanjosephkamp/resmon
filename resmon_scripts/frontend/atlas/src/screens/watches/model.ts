@@ -272,6 +272,22 @@ export function watchWarnings(
 }
 
 /**
+ * What became of a fire that came due and did not run, in words, from the
+ * engine's `disposition` (`database.MISSED_FIRE_DISPOSITIONS`). `recorded` is
+ * all the startup path can say: the fire was overdue when resmon started.
+ * `skipped` is certain: the run before it was still going, so it was refused
+ * and will not run.
+ */
+export function missedFireWords(disposition: string | null | undefined): string {
+  switch (disposition) {
+    case 'skipped': return 'did not run: the run before it was still going';
+    case 'recorded': return 'came due while resmon was not running';
+    case 'ran_late': return 'ran late, when you asked for a run';
+    default: return 'did not run';
+  }
+}
+
+/**
  * The engine's timestamps, as instants. SQLite's own (`2026-10-28 22:04:26`)
  * are UTC with no zone written, and `Date` would read them as local time, so
  * a zone-less one is read as UTC; ISO strings with a zone are left alone.

@@ -20,7 +20,8 @@ different things:
 ``broken``
     A recorded fact, not an inference. The source raised an error on each of
     its last several runs; the credential a source requires is not configured;
-    the routine has not fired when its own history says it should have. These
+    the routine has not fired when its own history says it should have; a
+    scheduled fire was skipped because the run before it was still going. These
     are reported as certainties because they are certainties.
 
 ``unusual``
@@ -166,6 +167,13 @@ OVERDUE_FLOOR_DAYS = 1.0
 # (three runs, no history requirement) because this one raises an alarm and
 # that one only labels a row.
 FLATLINE_RUNS = 5
+
+# How far back a scheduled fire that did not run, because the run before it was
+# still going, keeps its watch on the Watchdog. A week: long enough to be seen
+# by someone who looks in once a week, short enough that a watch whose interval
+# was lengthened clears on its own. Every skipped fire stays on the watch's
+# Schedule tab whatever its age.
+SKIPPED_FIRES_WINDOW_DAYS = 7
 
 # --- Cadence advice --------------------------------------------------------
 
@@ -664,6 +672,62 @@ def _check_sources(
     return findings, unjudged
 
 
+def _check_skipped_fires(conn: sqlite3.Connection, routines: list[dict],
+                         now: datetime) -> list[dict]:
+    """Active routines with scheduled fires that did not run, in the last week.
+
+    A recorded fact, not an inference: each row in ``routine_missed_fires``
+    with disposition ``skipped`` is a fire that came due while the routine's
+    previous run was still going, was refused, and will not run (no catch-up
+    run is started). A watch whose runs outlast its interval runs at a fraction
+    of the cadence its owner set, and until this rule that showed only on the
+    watch's own Schedule tab and in the engine log.
+    """
+    active = {int(r["id"]): r.get("name") or f"Routine {r['id']}"
+              for r in routines if r.get("is_active")}
+    if not active:
+        return []
+    since = (now - timedelta(days=SKIPPED_FIRES_WINDOW_DAYS)).astimezone(timezone.utc).isoformat()
+    findings: list[dict] = []
+    for row in conn.execute(
+        "SELECT routine_id, COUNT(*) AS n, MAX(due_at_utc) AS last_due "
+        "FROM routine_missed_fires WHERE disposition = 'skipped' AND due_at_utc >= ? "
+        "GROUP BY routine_id",
+        (since,),
+    ).fetchall():
+        routine_id = int(row["routine_id"])
+        if routine_id not in active:
+            continue
+        name, n = active[routine_id], int(row["n"])
+        times = "time" if n == 1 else "times"
+        findings.append(_finding(
+            key=f"routine_fires_skipped:{routine_id}",
+            severity="broken",
+            kind="routine_fires_skipped",
+            scope={"type": "routine", "id": routine_id, "name": name},
+            title=(f"'{name}' did not run {n} {times} it was due in the last "
+                   f"{SKIPPED_FIRES_WINDOW_DAYS} days"),
+            detail=(
+                f"Each time, the run before it was still going, so resmon "
+                f"skipped the fire: it runs one copy of a watch at a time and "
+                f"does not run a skipped fire later. The last was due "
+                f"{row['last_due']} (UTC). This watch is running less often "
+                "than its schedule says."
+            ),
+            what_to_do=(
+                "Give the watch a longer interval, or fewer sources, so a run "
+                "finishes before the next is due. Its Schedule tab lists every "
+                "fire that did not run."
+            ),
+            evidence={
+                "skipped_fires": n,
+                "last_skipped_due_at_utc": row["last_due"],
+                "window_days": SKIPPED_FIRES_WINDOW_DAYS,
+            },
+        ))
+    return findings
+
+
 def _join_names(names: list[str]) -> str:
     unique = sorted(set(names))
     if len(unique) == 1:
@@ -957,7 +1021,7 @@ def report(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
         routines, runs_by_routine, lag_by_source, now,
     )
 
-    findings = source_findings + routine_findings
+    findings = source_findings + routine_findings + _check_skipped_fires(conn, routines, now)
     _prune_stale_mutes(conn, {f["key"] for f in findings})
     mutes = get_mutes(conn)
 
@@ -1004,6 +1068,7 @@ def report(conn: sqlite3.Connection, *, now: datetime | None = None) -> dict:
             "overdue_floor_days": OVERDUE_FLOOR_DAYS,
             "cadence_lag_multiple": CADENCE_LAG_MULTIPLE,
             "min_runs_for_cadence": MIN_RUNS_FOR_CADENCE,
+            "skipped_fires_window_days": SKIPPED_FIRES_WINDOW_DAYS,
         },
         # False when there is no history at all to reason over. The interface
         # says "nothing to check yet" rather than "all clear", which would be

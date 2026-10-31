@@ -3057,6 +3057,10 @@ export interface paths {
          *     statement that the routine may never run. Refusing here would mean a user
          *     has to activate a routine, run it, and deactivate it again to get one
          *     result.
+         *
+         *     At the run limit the fire is **queued**, and the answer is a 202 with no
+         *     execution id, ``queued`` and its place in the queue: it starts on its own
+         *     when a run finishes. Only when the queue is full too is it refused (409).
          */
         post: operations["run_routine_now_api_routines__routine_id__run_post"];
         delete?: never;
@@ -8831,20 +8835,26 @@ export interface components {
         /**
          * RoutineRunStarted
          * @description ``POST /api/routines/{routine_id}/run``: a run started now, outside the
-         *     schedule.
+         *     schedule, or queued to start when a slot frees.
          *
          *     ``was_inactive`` says the routine was not scheduled and ran once because it
-         *     was asked to, and ``detail`` says so in a sentence. A routine already
-         *     running is refused with a 409 whose detail names that run, which is an
-         *     error body and not this one.
+         *     was asked to, and ``detail`` says so in a sentence. At the run limit the
+         *     answer is a 202 with ``execution_id`` null, ``queued`` true and
+         *     ``queue_position`` (1 is next): the run starts on its own. A routine
+         *     already running is refused with a 409 whose detail names that run, and so
+         *     is a fire the full queue turned away; both are error bodies, not this one.
          */
         RoutineRunStarted: {
             /** Detail */
             detail: string;
             /** Execution Id */
-            execution_id: number;
+            execution_id: number | null;
             /** Missed Fires Marked Ran Late */
             missed_fires_marked_ran_late: number;
+            /** Queue Position */
+            queue_position?: number | null;
+            /** Queued */
+            queued?: boolean | null;
             /** Routine Id */
             routine_id: number;
             /** Was Inactive */
@@ -11443,7 +11453,7 @@ export interface components {
          *     ``scope`` and ``evidence`` are declared ``dict`` rather than modeled, for
          *     two different reasons, and only one of them is good.
          *
-         *     ``evidence`` holds a different key set for each of the seven finding kinds,
+         *     ``evidence`` holds a different key set for each of the eight finding kinds,
          *     so there is no field list to write down and ``dict`` is the description
          *     that fits.
          *
@@ -11557,6 +11567,8 @@ export interface components {
             overdue_cadence_multiple: number;
             /** Overdue Floor Days */
             overdue_floor_days: number;
+            /** Skipped Fires Window Days */
+            skipped_fires_window_days: number;
         } & {
             [key: string]: unknown;
         };
