@@ -7,6 +7,7 @@ import { isMac } from '../../bridge';
 import { Icon } from '../../shell/Icon';
 import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
+import { useFocusOnArrival } from '../arrival';
 import { MapPaper } from '../sky/MapPaper';
 import { basisWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { authors, count, number } from '../today/format';
@@ -69,6 +70,7 @@ export function Collection() {
   // A paper chosen on the map opens in the results' place; the results, and the search box, wait behind it.
   const [opened, setOpened] = useState<SkyChoice | null>(null);
   const sky = useRef<PaperSkyHandle>(null);
+  useFocusOnArrival('collection-query');
   useEffect(() => {
     const settle = setTimeout(() => setQuery(draft.trim()), SETTLE_MS);
     return () => clearTimeout(settle);
