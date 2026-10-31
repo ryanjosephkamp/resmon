@@ -1454,6 +1454,9 @@ class SweepEngine:
         for err in check["errors"]:
             task_log.log(f"  could not check document {err['document_id']}: "
                          f"{err['error']}")
+        for service in check.get("unanswered") or []:
+            task_log.log(f"  {service['name']} did not answer for {service['papers']} "
+                         f"paper(s), left unchecked: {service.get('reason') or 'no reason given'}")
 
         store.emit(exec_id, {
             "type": "stage", "stage": "reporting",
@@ -1501,6 +1504,7 @@ class SweepEngine:
             "new": new_count,
             "checked_now": check["checked_now"],
             "matched_documents": findings["matched_documents"],
+            "unanswered": sum(int(s.get("papers") or 0) for s in check.get("unanswered") or []),
         })
         store.emit(exec_id, {
             "type": "complete", "status": "completed",
