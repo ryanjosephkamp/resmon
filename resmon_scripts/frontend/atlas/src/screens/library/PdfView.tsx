@@ -1,6 +1,7 @@
 import {
-  useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref,
+  useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type Ref, type RefObject,
 } from 'react';
+import { PdfFind } from './PdfFind';
 import { PdfGallery } from './PdfGallery';
 import { PdfPage, type PageSaid, type Place } from './PdfPage';
 import { useSizes, type PdfSession } from './pdfDocument';
@@ -26,9 +27,11 @@ interface Selected { page: number; text: string; top: number; left: number }
  * The page on screen is the one most in view, and the reader's page number
  * follows it.
  */
-export function PdfView({ session, zoom, start, label, gallery, onGallery, onPage, onScale, onSelect, ref }: {
+export function PdfView({ session, zoom, start, label, gallery, onGallery, find, onPage, onScale, onSelect, ref }: {
   session: PdfSession; zoom: Zoom; start: number; label: string;
   gallery: boolean; onGallery: (open: boolean) => void;
+  /** The find bar, when open: its field, the query kept between openings, and its closing. */
+  find: { input: RefObject<HTMLInputElement | null>; query: string; onQuery: (query: string) => void; onClose: () => void } | null;
   onPage: (page: number) => void;
   onScale: (scale: number) => void;
   /** Text selected within one page; absent where nothing can be kept. */
@@ -165,6 +168,26 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
     }).catch(() => undefined);
   }, [session, scale, settle]);
 
+  /** A place on a page in PDF units, scrolled into view only if it is not in view already: a find match. */
+  const reveal = useCallback((page: number, left: number, top: number) => {
+    const node = scroller.current;
+    const now = viewRef.current;
+    const index = page - 1;
+    if (!node || index < 0 || index >= now.tops.length) return;
+    pinned.current = page;
+    void session.doc.getPage(page).then((proxy) => {
+      if (!scroller.current) return;
+      const [x, y] = proxy.getViewport({ scale }).convertToViewportPoint(left, top);
+      if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      const at = now.tops[index]! + Math.max(0, y);
+      if (at < node.scrollTop + 24 || at > node.scrollTop + node.clientHeight - 64) node.scrollTop = Math.max(0, at - node.clientHeight / 3);
+      const sheetLeft = Math.max(PAGE_PAD, Math.floor((Math.max(now.width, node.clientWidth) - now.widths[index]!) / 2));
+      const across = sheetLeft + Math.max(0, x);
+      if (across < node.scrollLeft + 16 || across > node.scrollLeft + node.clientWidth - 96) node.scrollLeft = Math.max(0, across - node.clientWidth / 3);
+      settle();
+    }).catch(() => undefined);
+  }, [session, scale, settle]);
+
   useImperativeHandle(ref, () => ({ go, focus: () => scroller.current?.focus() }), [go]);
 
   const onSaid = useCallback((index: number, next: PageSaid | null) => {
@@ -258,6 +281,10 @@ export function PdfView({ session, zoom, start, label, gallery, onGallery, onPag
             )}
           </div>
         </div>
+        {find && (
+          <PdfFind session={session} page={current} input={find.input} initial={find.query} onQuery={find.onQuery}
+            onReveal={reveal} onClose={find.onClose} />
+        )}
         {gallery && (
           <PdfGallery session={session} sizes={sizes} current={current} label={label}
             onPick={(page) => { onGallery(false); go(page); scroller.current?.focus(); }}

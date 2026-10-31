@@ -1509,7 +1509,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 /* The reader's tools: the page, the zoom, every page at once, and focus mode. */
 .ev-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-top: 12px; }
 .ev-focus-name { display: none; }
-.ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); }
+.ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
 .ev-page-input {
   width: 4.5em; height: 28px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
   background: var(--plate); color: var(--ink); font: 500 13px/1 var(--sans); text-align: right;
@@ -1589,6 +1589,26 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-thumb[aria-current="page"] .ev-thumb-paper { box-shadow: 0 0 0 2px var(--accent-mark); }
 .ev-thumb-paper img { display: block; width: 100%; height: 100%; }
 .ev-thumb-number { font: 500 12px/1 var(--sans); }
+/* Find in the document: a bar over the pages' top right, and its matches marked in the text layer. */
+.ev-find {
+  position: absolute; top: 10px; right: 18px; z-index: 4; display: flex; align-items: center; gap: 2px;
+  width: min(390px, calc(100% - 36px)); padding: 4px 4px 4px 6px;
+  border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow);
+}
+.ev-find input {
+  flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: calc(var(--r) - 2px);
+  background: transparent; color: var(--ink); font: 400 13px/1 var(--sans);
+}
+.ev-find input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 0; }
+.ev-find-count { flex: none; min-width: 5.5em; padding: 0 6px; text-align: right; font: 500 12px/1 var(--sans); color: var(--ink-3); white-space: nowrap; }
+.ev-find-prev .icon { transform: rotate(180deg); }
+.ev-reader[data-focus="true"] .ev-find { top: 12px; right: 22px; }
+/* On the page's paper: every match washed in the accent, the current one deeper and underlined. */
+::highlight(ev-find) { background-color: color-mix(in srgb, var(--accent-mark) 26%, transparent); }
+::highlight(ev-find-current) {
+  background-color: color-mix(in srgb, var(--accent-mark) 62%, transparent);
+  text-decoration: underline 2px var(--accent-ink);
+}
 /*
  * Focus mode: the reader takes the window, its tools become the top bar (the
  * window's own controls inset at the left on macOS, as in the frame's bar),
