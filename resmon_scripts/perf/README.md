@@ -53,8 +53,9 @@ Every process the harness starts gets its own `RESMON_STATE_DIR`,
 `RESMON_DB_PATH`, `RESMON_REPORTS_DIR`, `RESMON_PORT_FILE` and Chromium profile,
 and `PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring`. Port 8742, where an
 installed resmon's background service listens, is never bound and never
-accepted. `RESMON_STATE_DIR` alone does not isolate a run (`AGENTS.md`
-explains why), which is why every path is pinned.
+accepted. `RESMON_STATE_DIR` alone does not isolate a run: the database, the
+reports folder, and the port file each have a variable of their own, which is
+why every path is pinned.
 
 ## What each part measures, and how
 

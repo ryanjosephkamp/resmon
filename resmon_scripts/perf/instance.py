@@ -1,7 +1,7 @@
 """An isolated resmon backend, started and stopped by the harness.
 
 Isolation is the whole point of this file. ``RESMON_STATE_DIR`` alone does not
-isolate a run (``AGENTS.md``): the database comes from ``RESMON_DB_PATH`` and
+isolate a run: the database comes from ``RESMON_DB_PATH`` and
 falls back to one inside the checkout, the reports folder from
 ``RESMON_REPORTS_DIR``, the port file from ``RESMON_PORT_FILE``. Every one of
 them is set here, the keyring is the null backend -- a local test run once

@@ -12,7 +12,7 @@ import { QueuedDocument } from '../../api/readingQueue';
  * under the same id.
  *
  * Everything rendered here is a field the source returned and resmon stored.
- * It is untrusted text (B12 / `AGENTS.md`): React escapes it, no field is
+ * It is untrusted text (B12): React escapes it, no field is
  * passed to `dangerouslySetInnerHTML`, and the only place a stored string
  * becomes an attribute is `href`, which is why `url` is rendered as a link only
  * when it is `http`/`https` — a `javascript:` URL in a metadata field would

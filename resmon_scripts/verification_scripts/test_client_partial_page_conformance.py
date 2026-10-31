@@ -32,7 +32,7 @@ body nothing can read. Three things are then asserted, in the order a user
 would care about them:
 
 1. ``search()`` returns rather than raising, which the client contract in
-   ``AGENTS.md`` requires of every client on every upstream failure;
+   ``docs/adding-a-source.md`` requires of every client on every upstream failure;
 2. every record from the page that *was* readable comes back;
 3. the recorded reason is ``parse_failure``, so the sweep engine's partial
    note can say which page the retained set ends at.
@@ -295,7 +295,7 @@ def test_a_readable_page_survives_an_unreadable_one(slug, body_name, monkeypatch
             f"and are discarded with the frame -- the caller receives an "
             f"exception, not a short list, so the sweep engine cannot keep "
             f"what the source did manage to send. The client contract in "
-            f"AGENTS.md requires search() to return [] on upstream failure, "
+            f"docs/adding-a-source.md requires search() to return [] on upstream failure, "
             f"logged, never raised.")
 
     assert server.requests >= 2, (

@@ -10,8 +10,8 @@ It is a single-maintainer project, so please open an issue before starting subst
 | You want to | Read |
 |---|---|
 | Add a scholarly source | **[docs/adding-a-source.md](docs/adding-a-source.md)** — the long form |
-| Work this repo with an AI harness | **[AGENTS.md](AGENTS.md)** — the contract both harnesses read |
-| Drive resmon from your harness | **[docs/api-contract/mcp.md](docs/api-contract/mcp.md)** |
+| Build, test, and open a pull request | **[Before you open a pull request](#before-you-open-a-pull-request)**, below |
+| Drive resmon from another tool over MCP | **[docs/api-contract/mcp.md](docs/api-contract/mcp.md)** |
 | Know which sources are viable | **[docs/source-landscape.md](docs/source-landscape.md)** |
 | Set up, run, or understand the app | **[README.md](README.md)** |
 
@@ -101,7 +101,7 @@ adding an SDK.
 
 ## Pull-request bodies
 
-The body is how a maintainer, and the next agent, learn what happened. Every one carries:
+The body is how a maintainer, and the next contributor, learn what happened. Every one carries:
 
 - **What changed and why**
 - **How it was verified** — the exact commands and their output counts
@@ -132,9 +132,10 @@ access — should not be filed as public issues. Email the maintainer directly.
 
 ## Extending resmon for yourself
 
-resmon is MIT-licensed and deliberately agent-friendly: `AGENTS.md`, a documented source
-template, and an MCP server that exposes the app to your own harness. Pointing your harness at
-this repository and asking it to add a source you need is a supported way to use the project.
+resmon is MIT-licensed and made to be extended: a documented source template
+([docs/adding-a-source.md](docs/adding-a-source.md)) and an MCP server that exposes the app to
+your own tools ([docs/api-contract/mcp.md](docs/api-contract/mcp.md)). Adding a source you need to
+your own copy is a supported way to use the project.
 
 What you build on resmon is yours and is your responsibility — see the disclaimer in the
 README's [Sources and their terms](README.md#sources-and-their-terms) section, which matters

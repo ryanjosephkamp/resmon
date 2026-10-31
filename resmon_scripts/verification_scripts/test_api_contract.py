@@ -286,12 +286,13 @@ def test_a_modeled_route_carries_a_real_schema_and_an_unmodeled_one_does_not():
 # ---------------------------------------------------------------------------
 
 def test_the_route_count_is_what_the_docs_say():
-    """``app.routes`` against the number written down in three places.
+    """``app.routes`` against the number written down for readers.
 
-    ``AGENTS.md`` has said "184 routes" since the file was written, and the
-    index and the generator's own docstring repeat it. A count in prose is a
-    claim, and a claim with nothing checking it drifts: this is what stops the
-    number being right about a version of the app that no longer exists.
+    The index and the site's API reference page both state how many routes the
+    app has. A count in prose is a claim, and a claim with nothing checking it
+    drifts: the reference page still said 184 when the app had 207. This is what
+    stops the number being right about a version of the app that no longer
+    exists.
     """
     actual = len(api_contract.route_keys())
     assert actual == len(api_contract.api_routes()), (
@@ -301,7 +302,9 @@ def test_the_route_count_is_what_the_docs_say():
 
     stated = {
         "docs/api-contract/http.md": _committed(api_contract.HTTP_INDEX_PATH),
-        "AGENTS.md": (PROJECT_ROOT / "AGENTS.md").read_text(encoding="utf-8"),
+        "site/src/content/guide/api-reference.md": (
+            PROJECT_ROOT / "site" / "src" / "content" / "guide" / "api-reference.md"
+        ).read_text(encoding="utf-8"),
     }
     for name, text in stated.items():
         assert f"{actual} routes" in text, (
