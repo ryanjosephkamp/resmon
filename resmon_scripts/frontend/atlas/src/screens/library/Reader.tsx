@@ -9,7 +9,7 @@ import { evidence, readerBusy, type Anchor, type FileRecord, type PageText, type
 import { PAGE_STATUS, examinedWords, matches, resolutionWords, selectionAnchor, utf16Range, type Pin } from './evidenceModel';
 import { usePdfSession, type Drawn } from './pdfDocument';
 import { PdfView, type PdfViewHandle } from './PdfView';
-import { ZOOM_STEPS, findSelection, stepZoom, zoomPercent, type Zoom } from './readerModel';
+import { FOCUS_ZOOM, OPENING_ZOOM, ZOOM_STEPS, findSelection, stepZoom, zoomPercent, type Zoom } from './readerModel';
 
 function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
@@ -45,9 +45,10 @@ function inertOutside(keep: HTMLElement): () => void {
  * A PDF's pages are stacked in one scroll, drawn as they come near the view.
  * The page number follows the scroll, and the canonical text follows the page
  * once the scroll rests on it, because every page read is a child process and
- * only one runs at a time. Focus mode gives the pages the whole window; the
- * page and zoom are the same on the way in and out, because nothing is
- * redrawn but what the new size needs.
+ * only one runs at a time. Focus mode gives the pages the whole window, and
+ * opens at fit page; a zoom chosen there stays while it lasts, and the zoom
+ * the reader had is back on the way out. The page is the same on the way in
+ * and out, because nothing is redrawn but what the new size needs.
  */
 export function Reader({
   project, file, member, pin, onAnchor, onRemove, removing, readOnly = false, focus: held, onFocus, notesOpen = false, onNotes, focusScope,
@@ -74,7 +75,8 @@ export function Reader({
   const [selected, setSelected] = useState<Anchor | null>(null);
   const [find, setFind] = useState('');
   const [found, setFound] = useState<string | null>(null);
-  const [zoom, setZoom] = useState<Zoom>('width');
+  const [placeZoom, setPlaceZoom] = useState<Zoom>(OPENING_ZOOM);
+  const [focusZoom, setFocusZoom] = useState<Zoom>(FOCUS_ZOOM);
   const [scale, setScale] = useState(1);
   const [gallery, setGallery] = useState(false);
   const [attempt, setAttempt] = useState(0);
@@ -106,6 +108,14 @@ export function Reader({
   const total = session?.pages ?? pages;
   /** Focus mode is for drawn pages; a text file, or a citation's text alone, is read in place. */
   const focus = (held ?? ownFocus) && !!drawn;
+  // Each time focus mode is entered it opens at fit page; the zoom beside the notes is kept for the way out.
+  const [wasFocused, setWasFocused] = useState(focus);
+  if (focus !== wasFocused) {
+    setWasFocused(focus);
+    if (focus) setFocusZoom(FOCUS_ZOOM);
+  }
+  const zoom = focus ? focusZoom : placeZoom;
+  const setZoom = focus ? setFocusZoom : setPlaceZoom;
 
   const textOptions = useCallback((n: number) => ({
     queryKey: ['evidence-text', project.project_id, file.file_id, file.version_id, n],

@@ -10,6 +10,15 @@ export const CSS_UNITS = 96 / 72;
 
 /** The zoom a person chooses: the window's width, the whole page, or a fixed percentage. */
 export type Zoom = 'width' | 'page' | number;
+
+/**
+ * The zoom a reader opens at beside the notes, and the one focus mode opens at
+ * each time it is entered: there the window is the page's, so the whole page
+ * fits it. A zoom chosen in focus mode stays until focus mode is left, and the
+ * reader's own is back then.
+ */
+export const OPENING_ZOOM: Zoom = 'width';
+export const FOCUS_ZOOM: Zoom = 'page';
 export const ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 300] as const;
 
 /** Space around and between the stacked pages, in CSS pixels. */
