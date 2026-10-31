@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-import anthropic
 
 from .ai_errors import AIError, classify_exception
 from .prompt_templates import SUMMARIZE_ABSTRACT, SYSTEM_PREAMBLE, length_band
@@ -209,6 +208,11 @@ class RemoteLLMClient:
             self._spec = None
 
         if provider == "anthropic":
+            # Imported here: the SDK takes a tenth of a second or more to
+            # import, and the engine imports this module on every start
+            # whether or not anything runs on an Anthropic key.
+            import anthropic  # noqa: PLC0415
+
             self._anthropic = anthropic.Anthropic(api_key=api_key)
 
         logger.info("RemoteLLMClient initialized: provider=%s, model=%s", provider, model)
