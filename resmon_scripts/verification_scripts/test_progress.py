@@ -426,7 +426,12 @@ class TestSweepEngineCancellation:
                 progress_store.request_cancel(exec_id)
             return []
 
+        # The engine asks up to eight sources at once, so with the default all
+        # three searches start together and whether the cancel lands before
+        # the other two is a race: it failed on CI with all three asked. One
+        # at a time is the order this test is about.
         with patch("implementation_scripts.sweep_engine.REPORTS_DIR", tmp_path), \
+             patch("implementation_scripts.sweep_engine._SOURCE_CONCURRENCY", 1), \
              patch("implementation_scripts.sweep_engine.get_client") as mock_get:
             mock_client = MagicMock()
             mock_client.search.side_effect = cancel_after_first
