@@ -206,6 +206,35 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
   }
 });
 
+for (const mode of ['503', 'malformed'] as const) {
+  test(`P13e: a source that answers ${mode === '503' ? 'HTTP 503' : 'with an unreadable reply'} is a recorded non-answer, never an empty answer`, async () => {
+    const source = await launchSourceApp(mode, { ui: 'atlas' });
+    const { win, close } = source;
+    try {
+      const id = await startDive(win, arxivDive('coverage fixture'));
+      await source.waitForRequest();
+      source.release();
+      await openSettled(win, id);
+      // Everything asked failed, so the run did.
+      await expect(win.locator('.run')).toHaveAttribute('data-status', 'failed');
+      const record = await recorded(win, 'arxiv');
+      console.log(`P13e ${mode} RECORDED`, JSON.stringify(record));
+      expect(record.category).toBe('non_answer');
+      expect(record.label).toBe(mode === '503' ? 'did not answer' : 'reply unreadable');
+      const effect = source.evidence(id);
+      expect(effect.stored.sources[0].zero_reason).toBe(mode === '503' ? 'upstream_failure' : 'parse_failure');
+      expect(effect.requests.every((r) => r.status === (mode === '503' ? 503 : 200))).toBe(true);
+      const counts = await win.evaluate(async (run) => {
+        const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+        return (await (await e2eFetch(`http://127.0.0.1:${port}/api/executions/${run}/search-record`)).json()).coverage.counts;
+      }, id);
+      expect(counts).toMatchObject({ answered: 0, non_answer: 1, unknown: 0, genuine_empty: 0 });
+    } finally {
+      await close();
+    }
+  });
+}
+
 test('P13d: the ten reasons, and which of them a real browser has now seen', async () => {
   // The denominator, taken from the code rather than counted here: a reason
   // added to `zero_reason.ZERO_REASONS` with no real-browser case shows up in
@@ -222,21 +251,20 @@ test('P13d: the ten reasons, and which of them a real browser has now seen', asy
     'upstream_failure', // P13a
     'answered_empty', // P13b
     'not_recorded', // P13c
+    'parse_failure', // P13e
   ];
   const elsewhereOnly = all.filter((r) => !inRealBrowser.includes(r));
   console.log('P13d REASONS', JSON.stringify({ total: all.length, realBrowser: inRealBrowser, elsewhereOnly }));
 
   expect(all.length).toBe(10);
   for (const reason of inRealBrowser) expect(all).toContain(reason);
-  // Named, not hidden: these six reach the renderer only through data handed
+  // Named, not hidden: these five reach the renderer only through data handed
   // to it. `missing_key` and `retired` need configuration state,
   // `rights_filtered` and `records_unusable` need a live source that really
-  // drops records on rights, `parse_failure` needs an upstream that answers 200
-  // with something unreadable, and `entity_unsupported` needs a watch that
+  // drops records on rights, and `entity_unsupported` needs a watch that
   // follows a person on a source that cannot be asked about one. A tenth
   // reason cannot be added without this list saying so.
   expect(elsewhereOnly.sort()).toEqual([
-    'entity_unsupported', 'missing_key', 'parse_failure', 'records_unusable',
-    'retired', 'rights_filtered',
+    'entity_unsupported', 'missing_key', 'records_unusable', 'retired', 'rights_filtered',
   ]);
 });

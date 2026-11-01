@@ -165,7 +165,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const win = await app.firstWindow({ timeout: 60_000 });
     await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     // On the service's engine, not one of its own.
-    const windowPort = await win.evaluate(() => window.resmonAPI!.getBackendPort());
+    const windowPort = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     expect(windowPort).toBe(String(port));
 
     // Closing the window leaves the service running.

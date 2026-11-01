@@ -34,7 +34,7 @@ journey.describe('J01 Deep Dive', () => {
     // The status is asserted in the two places that are about one build, and
     // both are green: `verification_scripts/test_sweep_final_status.py` (six
     // hermetic cases over a real schema-21 database, including every selected
-    // source answering 503) and `e2e/coverage-reports.spec.ts` (the real
+    // source answering 503) and `e2e/atlas-zero-reasons.spec.ts` (the real
     // Electron app, for both the 503 and the unreadable-200 modes).
     //
     // Nothing is missing from the row. J01's invariant is that a source that

@@ -39,10 +39,10 @@ test('the spawned backend is guarded, and the renderer sends the token in a head
       }
     });
     await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
-    const port = await win.evaluate(() => window.resmonAPI!.getBackendPort());
+    const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
     expect(port).not.toBe('8742');
     const base = `http://127.0.0.1:${port}`;
-    const token = await win.evaluate(() => (window.resmonAPI as unknown as { getApiToken(): string }).getApiToken());
+    const token = await win.evaluate(() => ((window as unknown as { resmonAPI: unknown }).resmonAPI as { getApiToken(): string }).getApiToken());
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
 
     // The renderer's own traffic, from navigating to a data-heavy screen.
@@ -124,7 +124,7 @@ async function launchAgainst(stateDir: string) {
     cwd: FRONTEND_ROOT, env: atlasEnv(launchEnv(stateDir, true)), timeout: 180_000 });
   const win = await app.firstWindow({ timeout: 180_000 });
   await win.waitForLoadState('domcontentloaded');
-  const port = await win.evaluate(() => window.resmonAPI!.getBackendPort());
+  const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
   return { app, win, port };
 }
 
@@ -164,7 +164,7 @@ test('a daemon with a token file is attached with the token and told the rendere
       const mainProcessRequests = daemon.requests.slice(0, daemon.requests.indexOf(registration!) + 1);
       expect(mainProcessRequests.map((r) => r.url)).toEqual(['/api/health', '/api/auth/renderer-origin']);
       expect(mainProcessRequests.every((r) => r.authorization === `Bearer ${token}`)).toBe(true);
-      expect(await win.evaluate(() => (window.resmonAPI as unknown as { getApiToken(): string }).getApiToken())).toBe(token);
+      expect(await win.evaluate(() => ((window as unknown as { resmonAPI: unknown }).resmonAPI as { getApiToken(): string }).getApiToken())).toBe(token);
     } finally { await app.close().catch(() => { /* gone */ }); }
   } finally {
     await daemon.close();
