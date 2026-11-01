@@ -13,7 +13,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
@@ -348,18 +348,25 @@ def test_biorxiv_uses_documented_thirty_record_cursor_pages(monkeypatch):
                for call in calls)
 
 
-@pytest.mark.parametrize(("server", "date_from", "date_to", "window"), [
-    # Only an end date: the range starts where the archive does. It began at
-    # 2020-01-01 for both servers, silently skipping six years of bioRxiv.
-    ("biorxiv", None, "2024-01-31", "2013-11-01/2024-01-31"),
-    ("medrxiv", None, "2024-01-31", "2019-06-01/2024-01-31"),
-    ("biorxiv", None, None, "2013-11-01/2099-12-31"),
-    ("biorxiv", "2024-01-01", None, "2024-01-01/2099-12-31"),
-    ("medrxiv", "2024-01-01", "2024-01-07", "2024-01-01/2024-01-07"),
+@pytest.mark.parametrize(("server", "date_from", "date_to", "window", "noted"), [
+    # No start: the catalog's days before the run. It was the archive's first
+    # month (2013 for bioRxiv), from which a search read oldest first and
+    # stopped long before recent preprints; before that, 2020-01-01.
+    ("biorxiv", None, None, "2026-10-28/2099-12-31",
+     {"date_from": "2026-10-28", "days": 3, "before": "run"}),
+    # An end date already past counts back from that date, so the range is
+    # never one that ends before it starts.
+    ("medrxiv", None, "2024-01-31", "2024-01-28/2024-01-31",
+     {"date_from": "2024-01-28", "days": 3, "before": "end_date"}),
+    ("biorxiv", None, "2026-12-31", "2026-10-28/2026-12-31",
+     {"date_from": "2026-10-28", "days": 3, "before": "run"}),
+    ("biorxiv", "2024-01-01", None, "2024-01-01/2099-12-31", None),
+    ("medrxiv", "2024-01-01", "2024-01-07", "2024-01-01/2024-01-07", None),
 ])
-def test_an_open_start_asks_from_the_first_month_of_the_archive(
-    monkeypatch, server, date_from, date_to, window,
+def test_an_open_start_asks_for_the_days_before_the_run(
+    monkeypatch, server, date_from, date_to, window, noted,
 ):
+    monkeypatch.setattr(api_biorxiv, "_local_today", lambda: date(2026, 10, 31))
     calls = _recording_sequence(monkeypatch, api_biorxiv, [
         FakeResponse(_preprint_payload(server))])
 
@@ -368,11 +375,30 @@ def test_an_open_start_asks_from_the_first_month_of_the_archive(
 
     assert calls[0]["url"] == (
         f"https://api.biorxiv.org/details/{server}/{window}/0")
+    # The client notes the start it gave, so the run can say it and why.
+    assert api_base.search_outcome().snapshot()["default_start"] == noted
+
+
+def test_a_record_dated_without_padding_is_read_as_its_day(monkeypatch):
+    """bioRxiv has listed records dated "2026-8-19". As text that is later
+    than "2026-10-30", and a run said it had read preprints posted "between
+    October 30, 2026 and August 19, 2026"."""
+    page = _preprint_payload(count=3, total=300)
+    for record, day in zip(page["collection"], ("2026-8-19", "2026-10-30", "2026-10-31")):
+        record["date"] = day
+    _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(page)])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_from="2026-10-30", max_results=10)
+
+    assert [r.publication_date for r in results] == ["2026-08-19", "2026-10-30", "2026-10-31"]
+    read = api_base.search_outcome().snapshot()["read"]
+    assert (read["first_date"], read["last_date"]) == ("2026-08-19", "2026-10-31")
 
 
 def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
-    """A search with no start date reads from 2013 forward, oldest first, and
-    can run out of time long before the end of its range. The run says so."""
+    """A range is read oldest first, and a search can run out of time long
+    before the end of it. The run says so."""
     from implementation_scripts import zero_reason  # noqa: PLC0415
 
     expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
@@ -400,7 +426,7 @@ def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
 
 
 def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
-    """No start date, and a word nothing in the first pages has: the run read
+    """A long window, and a word nothing in the first pages has: the run read
     part of the window and none of it matched. That is neither an answered
     zero nor a source that did not answer, and the record says which it is."""
     from implementation_scripts import source_coverage, zero_reason  # noqa: PLC0415
@@ -413,7 +439,8 @@ def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
     expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
     _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(page), expired, expired])
 
-    results = api_biorxiv.BiorxivClient().search(query="nowhereword", max_results=2)
+    results = api_biorxiv.BiorxivClient().search(
+        query="nowhereword", date_from="2013-11-01", max_results=2)
     reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
 
     assert results == []

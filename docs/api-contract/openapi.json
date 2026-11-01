@@ -10034,6 +10034,17 @@
         "additionalProperties": true,
         "description": "What resmon knows about a source *before* anybody presses the button.\n\nDeliberately not here: whether the source requires a credential. That is\non ``api_key_requirement`` and ``credential_name`` of the entry carrying\nthis object, and a second copy is the exact drift this record exists to\nprevent — the sweep engine's own list of keyed sources disagreed with the\ncatalog's for three releases and a source fell through the gap.\n\nAlso deliberately not here: whether the source is up. An outage is not\nsomething a user can act on while composing a query, it belongs to\n``zero_reason`` and the source wall, and a page that warned about every\nprovider's bad day would be warning about nothing.",
         "properties": {
+          "default_start_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Start Days"
+          },
           "established": {
             "title": "Established",
             "type": "string"
@@ -10079,6 +10090,7 @@
           "window_refiltered_locally",
           "keyword_search",
           "records_per_request",
+          "default_start_days",
           "notices",
           "established"
         ],

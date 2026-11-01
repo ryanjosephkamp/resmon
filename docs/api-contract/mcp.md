@@ -258,6 +258,29 @@ Listed so the omissions are visible and arguable rather than silently missing.
 
 ## Amendments
 
+### A start date resmon gives, not a version — November 1, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, and the contract version does not change.** What `run_sweep` and `run_routine` ask two
+sources changes when the caller sets no start date.
+
+bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints each lists for a date
+range, oldest first, for at most 45 seconds a search, and matches the terms itself. Asked with no
+`date_from`, they were read from their first preprints (2013 and 2019) and stopped long before
+recent ones; one term with no dates failed after 45 seconds. A run with no start date now asks
+each of them for the **3 days before the run starts**, or before its `date_to` when that is
+earlier. Every other source in the same run is asked exactly as before. The number is the
+catalog's `constraints.default_start_days` (`null` for every other source), which `GET
+/api/repositories/catalog` now carries; `list_sources` does not pass constraints through, so it
+does not show it.
+
+What the run did is on its record. `get_execution`'s `parameters` keeps the start each was given
+under `default_starts`, by source slug: `date_from`, `days`, `before` (`run` or `end_date`), and
+`sentence`, which says why in the app's words. `get_search_record`'s `search.queries_as_sent` row
+for the source carries the window it was sent, and the run's log says the same sentence. The
+run's own `date_from` stays as it was sent, empty. A watch saved with no start date runs this
+way too; Atlas's editor will not save a watch on words that asks either source without one.
+
 ### Two reads say more, not a version — October 31, 2026
 
 **25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no field is

@@ -112,6 +112,13 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     window = metadata.get("date_window")
     if isinstance(window, dict) and window.get("sentence"):
         lines.append(f"**How the dates were set:** {window['sentence']}  ")
+    # A source that cannot usefully be asked without a start date, in a run
+    # that set none, was given one; "no date limit" above is not true of it.
+    starts = metadata.get("default_starts")
+    if isinstance(starts, dict):
+        for start in starts.values():
+            if isinstance(start, dict) and start.get("sentence"):
+                lines.append(f"**Start date given:** {start['sentence']}  ")
     if cancellation is None:
         count_line = f"**Total Results:** {total} ({new} new)"
     else:

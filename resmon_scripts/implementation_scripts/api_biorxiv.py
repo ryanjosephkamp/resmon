@@ -2,18 +2,22 @@
 """bioRxiv / medRxiv API client — JSON, date-range endpoints, both servers."""
 
 import logging
+import re
 import time
+from datetime import date, timedelta
 from typing import Mapping
 
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
     RateLimiter,
+    note_default_start,
     note_parse_failure_unless_transport,
     note_read,
     safe_request,
     search_outcome,
 )
+from .repo_catalog import constraints_for
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +30,6 @@ _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 
 # Conservative: 2 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
-
-# Where a search with no start date begins: the first month each server holds.
-# The /details endpoint needs both ends of a range. This was 2020-01-01 for
-# both servers, so a search with only an end date silently skipped six years
-# of bioRxiv while its window read as everything up to that date. Asking from
-# the start of the archive is the range the person asked for. Measured October
-# 30, 2026: a range from 1900-01-01 is accepted, and the earliest records
-# returned were dated 2013-11-07 (bioRxiv) and 2019-06-25 (medRxiv).
-_FIRST_MONTH = {"biorxiv": "2013-11-01", "medrxiv": "2019-06-01"}
 
 
 def _request_json(url: str, deadline: float) -> dict | None:
@@ -115,6 +110,60 @@ def _describe_request(url: str, params: Mapping | None, body: Mapping | None) ->
             "matches them in each record it reads)")
 
 
+def _local_today() -> date:
+    """This computer's calendar day, which a run's own dates are counted in."""
+    return date.today()
+
+
+def _iso_day(text: object) -> date | None:
+    try:
+        return date.fromisoformat(str(text or "")[:10])
+    except ValueError:
+        return None
+
+
+def _default_start(server: str, date_to: str | None) -> dict:
+    """Where a search with no start date begins, and from what.
+
+    The /details endpoint needs both ends of a range and lists it oldest
+    first, and the terms are matched in each record read, so a search reads
+    its range from the start for at most ``_SEARCH_BUDGET_SECONDS``. Asked
+    from the first month of each archive (2013 for bioRxiv), a search with no
+    start stopped at its cap or its budget years before recent preprints, and
+    before that it began at 2020-01-01. The start is now the catalog's
+    ``default_start_days`` before the run, or before ``date_to`` when that is
+    earlier, so an end date in the past still has a range to read.
+    """
+    days = constraints_for(server).default_start_days
+    if not days:
+        raise ValueError(f"the catalog gives {server} no default_start_days")
+    today = _local_today()
+    end = _iso_day(date_to)
+    if end is not None and end < today:
+        anchor, before = end, "end_date"
+    else:
+        anchor, before = today, "run"
+    return {"date_from": (anchor - timedelta(days=days)).isoformat(),
+            "days": days, "before": before}
+
+
+def _padded_day(value: str | None) -> str | None:
+    """A record's date as ``YYYY-MM-DD``.
+
+    Some records carry their month and day unpadded: on October 31, 2026, the
+    first three bioRxiv listed from October 30 on were dated "2026-8-17" and
+    "2026-8-19". Compared as text, "2026-8-19" is later than "2026-10-30", so
+    a run that stopped part-way said it had read preprints posted "between
+    October 30, 2026 and August 19, 2026", and the paper was stored under a
+    date written as nothing else in resmon writes one.
+    """
+    match = re.fullmatch(r"(\d{4})-(\d{1,2})-(\d{1,2})", value or "")
+    if not match:
+        return value
+    year, month, day = match.groups()
+    return f"{year}-{int(month):02d}-{int(day):02d}"
+
+
 class BiorxivClient(BaseAPIClient):
     """bioRxiv / medRxiv repository API client."""
 
@@ -139,12 +188,17 @@ class BiorxivClient(BaseAPIClient):
             return []
 
         # The /details endpoint requires both ends of a range. An open start
-        # is the start of the server's archive (`_FIRST_MONTH`), and an open
-        # end a date past anything posted. The endpoint lists a range oldest
-        # first, so a search with no start date reads from the archive's first
-        # month forward and stops at its cap or its time budget; the catalog
-        # says so, and a budget that runs out is recorded on the run.
-        d_from = date_from or _FIRST_MONTH[self._server]
+        # is `_default_start`, noted so the run says where it began and why
+        # (`note_default_start`), and an open end a date past anything posted.
+        # The endpoint lists a range oldest first, so a search reads it from
+        # its start and stops at its cap or its time budget; a budget that
+        # runs out is recorded on the run with how far it read.
+        if date_from:
+            d_from = date_from
+        else:
+            start = _default_start(self._server, date_to)
+            d_from = start["date_from"]
+            note_default_start(**start)
         d_to = date_to or "2099-12-31"
         deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
 
@@ -305,7 +359,7 @@ class BiorxivClient(BaseAPIClient):
                     authors.append(name)
 
         abstract = item.get("abstract")
-        publication_date = item.get("date")  # YYYY-MM-DD
+        publication_date = item.get("date")  # YYYY-MM-DD, or unpadded
         category = item.get("category", "")
         if any(
             value is not None and not isinstance(value, str)
@@ -319,6 +373,7 @@ class BiorxivClient(BaseAPIClient):
             return None
 
         url = f"https://doi.org/{doi}" if doi else ""
+        publication_date = _padded_day(publication_date)
 
         categories = [category] if category else []
 

@@ -47,6 +47,7 @@ __all__ = [
     "WindowError",
     "apply",
     "coverage_note",
+    "default_start_words",
     "normalized",
     "previous_run",
     "resolve",
@@ -212,6 +213,23 @@ def _sentence(record: dict, *, upcoming: bool) -> str:
             f"{run.capitalize()}, the latest earlier run in which a source answered, started "
             f"on {started}; the window starts {overlap} before that, because a source often "
             "lists a paper after the date it carries.")
+
+
+def default_start_words(source: str, start: dict) -> str:
+    """Why a source was asked from a start the run did not set, after its name.
+
+    ``start`` is what the source's client noted when the run gave it no start
+    date (``api_base.note_default_start``): bioRxiv and medRxiv list a range
+    oldest first, so each is asked for the catalog's ``default_start_days``
+    before the run, or before the run's end date when that is earlier. The
+    run's log puts these words after the source's id ("biorxiv: asked from
+    ..."), and its record after "{name} was".
+    """
+    day = _words(date.fromisoformat(str(start["date_from"])))
+    before = "the run's end date" if start.get("before") == "end_date" else "the run started"
+    return (f"asked from {day}, {_days(int(start['days']))} before {before}, because the run "
+            f"set no start date: {source} lists a date range oldest first, so asked from its "
+            "first preprints a search stops long before recent ones.")
 
 
 def resolve(

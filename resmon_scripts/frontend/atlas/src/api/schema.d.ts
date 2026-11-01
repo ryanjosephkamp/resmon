@@ -8359,6 +8359,8 @@ export interface components {
          *     provider's bad day would be warning about nothing.
          */
         RepositoryConstraints: {
+            /** Default Start Days */
+            default_start_days: number | null;
             /** Established */
             established: string;
             /** Keyword Search */
