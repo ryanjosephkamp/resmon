@@ -4,10 +4,10 @@
  * A journey spec says what a person does and what they must then be able to
  * see. It never says which element that is. Everything below is written in the
  * words of the register's journeys — "run a dive", "read the coverage
- * sentence", "back up now" — and a driver behind it maps those onto one
- * renderer. `drivers/classic.ts` does it for the renderer resmon ships today;
- * when the 3.0 renderer exists it supplies a second driver and every spec in
- * this directory runs against it without being rewritten.
+ * sentence", "back up now" — and a driver behind it maps those onto the
+ * renderer: `drivers/atlas.ts` for Atlas's screens, and `drivers/screenless.ts`
+ * for what has no screen. Every spec in this directory ran against the classic
+ * renderer before Atlas, and runs against Atlas without having been rewritten.
  *
  * That is the whole point of the suite, so it is enforced rather than asked
  * for: `register.spec.ts` greps every spec file in this directory for a
@@ -23,7 +23,7 @@
  * run against an installed app, which it one day has to.
  */
 import { test as base, expect } from '@playwright/test';
-import { buildUnderTest, createDriver, driverName } from './drivers';
+import { createDriver } from './drivers';
 import { armExitProbe } from './fixtures/exit-probe';
 import type { SourceReply } from './fixtures/source-endpoint';
 import type { SelectedPrompt } from './fixtures/selected-answer-endpoint';
@@ -43,8 +43,8 @@ export type Place =
   | 'Storage settings'
   // — slice 2a ---------------------------------------------------------------
   // Kept in their own block so slice 2b's additions are a union rather than a
-  // conflict. Every one of these is a row in `frontend/src/routes.ts`; a place
-  // that is not in that table cannot be reached by a person either.
+  // conflict. Each is a place a person reaches; `drivers/atlas.ts` maps each to
+  // Atlas's screen for it.
   | 'Analytics'
   | 'Watchdog'
   | 'Watch Profiles'
@@ -61,8 +61,7 @@ export type Place =
   | 'Evidence'
   | 'Source wall'
   // — the Atlas interface (rebuild phase 2) -----------------------------------
-  // Places only Atlas has. The classic driver answers them by skipping, with
-  // the reason, because the classic renderer has nowhere to take a person.
+  // Places the classic renderer never had.
   | 'Today'
   | 'Appearance settings';
 
@@ -501,7 +500,7 @@ export interface GateRun {
  * method is fine; adding a selector to a spec is not.
  */
 export interface JourneyDriver {
-  /** Which renderer is under test — `classic` or `candidate`. */
+  /** Which driver is driving: `candidate (Atlas)`. */
   readonly name: string;
 
   // — where the person is ----------------------------------------------------
@@ -791,8 +790,6 @@ export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWork
     }
   },
 });
-
-export { buildUnderTest, driverName };
 
 /* ========================================================================== *
  *  Slice 2b — the reading queue, the local API's own boundary, and the two

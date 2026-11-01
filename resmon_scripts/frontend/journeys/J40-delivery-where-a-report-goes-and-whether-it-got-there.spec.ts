@@ -17,13 +17,9 @@
  * that the offline guard refused nothing is what proves it did not.
  *
  * How the targets are added is the driver's. The candidate adds each on the
- * watch's own Where reports go tab, as a person does. The classic driver adds
- * them over the local API rather than through its routine editor, a seam
- * recorded here rather than implied: this row is about where a report goes,
- * that editor is its own surface, and a row that failed because a modal
- * changed would be reporting on the wrong thing. What is read from the screen
- * is the part a person uses to answer the question the row is named for — the
- * routine's own "Where did this go?" record.
+ * watch's own Where reports go tab, as a person does. What is read from the
+ * screen is the part a person uses to answer the question the row is named
+ * for — the routine's own "Where did this go?" record.
  */
 import { expect, journey } from './driver';
 

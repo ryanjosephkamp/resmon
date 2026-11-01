@@ -1,6 +1,7 @@
 /**
- * What the candidate borrows from the classic driver, and why: the only way a
- * candidate journey takes a step without going through an Atlas screen.
+ * What the candidate borrows from the screenless driver (`screenless.ts`), and
+ * why: the only way a journey takes a step without going through an Atlas
+ * screen.
  *
  * Two lists, because a step has no Atlas markup to drive for one of two
  * different reasons, and only one of them is permanent.
@@ -10,15 +11,15 @@
  *   down and up, a raw socket, the MCP server, a pytest gate, killing the
  *   backend or quitting the app, a file read on disk, and what an authored
  *   command, provider or model was sent.
- * - **API setup.** A step a person takes on a screen, which the classic driver
- *   takes over the app's API instead, borrowed only because Atlas has no
- *   screen for it. Each entry says why, as a fact about Atlas checked against
+ * - **API setup.** A step a person takes on a screen, which the screenless
+ *   driver takes over the app's API instead, borrowed only because Atlas has
+ *   no screen for it. Each entry says why, as a fact about Atlas checked against
  *   its code. This list is meant to shrink: the day Atlas has the screen, the
  *   step goes through it, and `register.spec.ts` fails until the entry goes.
  *
  * `register.spec.ts` holds both lists to that: a member borrowed from neither,
  * an API-setup entry with no real reason, an entry `atlas.ts` now implements,
- * and a screenless member whose classic body writes to the app all fail it.
+ * and a screenless member whose body writes to the app all fail it.
  * Everything else Atlas does not implement is skipped as "Not in Atlas yet".
  *
  * Data only, so the guard can read it without launching or importing a driver.
@@ -55,16 +56,16 @@ export const SCREENLESS: readonly string[] = [
 /**
  * Setup a person does on a screen that Atlas does not have yet, by member,
  * with the fact that says so. A reason names what Atlas lacks and the route
- * the classic driver takes instead.
+ * the screenless driver takes instead.
  */
 export const API_SETUP: Readonly<Record<string, string>> = {
   scanForNearDuplicates:
-    'Atlas has no control that starts the near-duplicate scan, and neither does the classic renderer: '
-    + 'a run only reads the links a scan stored (sweep_engine._duplicate_links_for), so the corpus-wide '
-    + 'scan starts only on POST /api/links/scan.',
+    'Atlas has no control that starts the near-duplicate scan: a run only reads the links a scan '
+    + 'stored (sweep_engine._duplicate_links_for), so the corpus-wide scan starts only on '
+    + 'POST /api/links/scan.',
 };
 
-/** Whether the candidate takes this member from the classic driver. */
-export function borrowedFromClassic(member: string): boolean {
+/** Whether the candidate takes this member from the screenless driver. */
+export function borrowed(member: string): boolean {
   return SCREENLESS.includes(member) || Object.prototype.hasOwnProperty.call(API_SETUP, member);
 }

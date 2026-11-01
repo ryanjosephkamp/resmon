@@ -1,6 +1,6 @@
 # Workflows
 
-Seven workflows, twelve jobs. Two things are true of every one of them, and a new job is not finished until
+Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
 **This page used to be the whole of the enforcement, and it had already drifted.** It said *ten* jobs
@@ -34,7 +34,7 @@ That second half matters more than the first. **A required status check that ski
 and branch protection waits for it forever with a symptom that does not look like its cause. Two
 consequences:
 
-- If this repository is ever renamed or transferred, all twelve jobs skip and merging freezes. The fix is to
+- If this repository is ever renamed or transferred, all eleven jobs skip and merging freezes. The fix is to
   update the literal in every workflow. A variable would avoid that, but a literal is the form that cannot
   be changed from inside a fork, which is the whole point.
 - A new job that is also a required check must have its guard true here before it is made required.
@@ -58,7 +58,6 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `ui-smoke.yml` smoke | 25 | 9.8 min | 11 |
 | `ui-smoke.yml` window | 30 | 12.7 min | 13 |
 | `journeys.yml` candidate | 40 | 8.6 min | 8 |
-| `journeys.yml` classic | 45 | 8.3 min | 7, but see below |
 | `live-network.yml` live | 45 | 3.2 min | 7, and the limit is deliberately far above it |
 | `release.yml` build | 60 | 7m09s, worst single leg | v2.2.0 and v2.3.0 |
 | `sqlite-vec-probe.yml` | 35 | 9.7 min (macos-x64) | 23 |
@@ -77,7 +76,7 @@ rather than rounded away.
 The gaps this table once left blank were not hiding a problem, and recording that is worth more than a
 blank row that invites the opposite assumption.
 
-Three rows need their caveat read with them. **`site` has a sample of two**, both from the pull request
+Two rows need their caveat read with them. **`site` has a sample of two**, both from the pull request
 that added it: 52 seconds for the run that was made to fail on purpose, on a cold npm cache, and 24 for
 the green run after it, with the cache warm. The limit is 10 minutes against the only successful run's 24
 seconds, which is about 25x and the widest margin in this table — deliberately, and for a reason that is
@@ -87,32 +86,11 @@ this `package-lock.json`. The row should be remeasured once the job has a few we
 then the limit is sized for what has not been observed rather than for what has. It is also the cheapest
 job here, so a wide limit costs little if it is never approached.
 
-The other two: the `classic` sample has a median of 0.1 minutes, because most
-of those runs stopped at the job's own changed-files step rather than building a second application — look
-in the `scope` step, not the `on:` block, which has no path filter — so only the 8.3 is a real build, and
-the sample is one observation and not seven. And `live-network`'s limit is far
-above its observed time on purpose: its slow case is a provider being slow, which is the thing it exists to
+The other: `live-network`'s limit is far above its observed time on purpose: its slow case is a provider being slow, which is the thing it exists to
 observe, not a runner being stuck.
 
 `release.yml`'s limit is per matrix leg, and the matrix is four legs — `macos-14`, `macos-15-intel`,
 `windows-latest`, `ubuntu-latest` — across three platforms.
-
-## The one job with a second condition
-
-`journeys.yml`'s `classic` leg builds a second application from the `classic` branch and runs this
-checkout's suite against it. That is minutes of runner time whose answer only changes when the suite or
-the renderer does, so it runs on a schedule, on dispatch, and on pull requests — not on every push. The
-guard is ANDed in front of that filter:
-
-```yaml
-if: >-
-  github.repository == 'ryanjosephkamp/resmon'
-  && (
-    github.event_name == 'schedule'
-    || github.event_name == 'workflow_dispatch'
-    || github.event_name == 'pull_request'
-  )
-```
 
 ## A new gate must not be a check that can skip
 
