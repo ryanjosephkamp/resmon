@@ -273,7 +273,7 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     RESMON_PYTHON: pythonPath(),
     // The Keychain is the one piece of state no RESMON_* variable moves: every
     // resmon on a Mac reads and writes it under the service name "resmon". A
-    // spec that walks the Danger Zone — library.spec.ts presses Reset all
+    // spec that walks the Danger zone — atlas-files.spec.ts presses Reset all
     // settings — erased the AI keys, repository keys and SMTP password of
     // whoever ran the suite on their own machine. The null backend reads
     // nothing and writes nothing. A spec that needs a key to persist sets its

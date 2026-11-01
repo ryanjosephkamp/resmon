@@ -1272,7 +1272,7 @@ export interface JourneyDriver {
   /**
    * Choose a parent folder for the vault, through the app's own picker.
    *
-   * The native chooser is scripted, exactly as `e2e/library.spec.ts` scripts
+   * The native chooser is scripted, exactly as `e2e/atlas-files.spec.ts` scripts
    * it and for the same reason: nothing in an automated suite can operate a
    * macOS file dialog. The production IPC handler is untouched — only its OS
    * dependency answers — so the request, the validation and the creation are

@@ -149,7 +149,7 @@ export function createScreenlessDriver(session: Session, testInfo: TestInfo): Sc
    * every other one, every window the document tries to open and every
    * navigation away from itself, so "it reads offline" is the absence of a
    * recorded attempt rather than the absence of a network. The same shape as
-   * the reader `e2e/portable-briefing.spec.ts` uses, with `show: false` so a
+   * the reader `e2e/atlas-answers.spec.ts` uses, with `show: false` so a
    * journey run still puts nothing on the screen.
    */
   const offlineReaderMain = (target: string): string => `

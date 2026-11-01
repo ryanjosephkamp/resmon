@@ -124,7 +124,7 @@ journey.describe('J37 Portable saved-answer HTML', () => {
       + 'settings are not observed.');
     console.log('[J37] NOT VERIFIED: the save dialog. The download destination is answered by the '
       + 'driver; the request, the bytes and the app\'s download record are the app\'s.');
-    console.log('[J37] NOT VERIFIED: printing, zoom and narrow widths — `e2e/portable-briefing.spec.ts` '
+    console.log('[J37] NOT VERIFIED: printing, zoom and narrow widths — `e2e/atlas-answers.spec.ts` '
       + 'covers those; this row is the file outliving the app.');
 
     expect(resmon.refusedConnections()).toEqual([]);

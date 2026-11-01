@@ -44,6 +44,58 @@ async function library<T>(win: Page, route: string, method = 'GET', body?: unkno
   }, [route, method, body] as const) as Promise<T>;
 }
 
+/**
+ * The saved HTML, read the way it is meant to be: in a separate window with
+ * resmon closed to it and every request but the file itself refused. It fits
+ * a phone's width and a desktop's without scrolling sideways, still fits at
+ * twice the zoom, and prints to a PDF that carries the answer.
+ */
+async function readOffline(file: string, dir: string, env: Record<string, string>, python: string, answerId: string): Promise<void> {
+  fs.mkdirSync(dir, { recursive: true });
+  const target = `file://${file}`;
+  const main = path.join(dir, 'reader.js');
+  fs.writeFileSync(main, `const {app,BrowserWindow,session}=require('electron');
+const target=${JSON.stringify(target)};
+globalThis.reader={blocked:[]};
+app.whenReady().then(()=>{
+ let first=true;
+ session.defaultSession.webRequest.onBeforeRequest({urls:['<all_urls>']},(d,cb)=>{const ok=first&&d.url===target;if(ok)first=false;else globalThis.reader.blocked.push(d.url);cb({cancel:!ok});});
+ const win=new BrowserWindow({width:1000,height:850,webPreferences:{nodeIntegration:false,contextIsolation:true,sandbox:true}});
+ win.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+ win.loadURL(target);
+});
+app.on('window-all-closed',()=>app.quit());
+`);
+  const reader = await electron.launch({ args: [main, `--user-data-dir=${path.join(dir, 'profile')}`], cwd: FRONTEND_ROOT, env, timeout: 180_000 });
+  try {
+    const page = await reader.firstWindow({ timeout: 60_000 });
+    await page.waitForSelector('main');
+    const sideways = () => page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    for (const width of [320, 390, 768, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      expect(await sideways(), `the saved answer scrolls sideways at ${width} pixels`).toBe(false);
+    }
+    await page.setViewportSize({ width: 768, height: 900 });
+    await reader.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(2));
+    expect(await sideways(), 'the saved answer scrolls sideways at twice the zoom').toBe(false);
+    await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-answers-offline-zoom200.png') });
+    await reader.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].webContents.setZoomFactor(1));
+    await page.emulateMedia({ media: 'print' });
+    const pdf = path.join(dir, 'answer.pdf');
+    fs.writeFileSync(pdf, Buffer.from(await reader.evaluate(async ({ BrowserWindow }) =>
+      Array.from(await BrowserWindow.getAllWindows()[0].webContents.printToPDF({ printBackground: true })))));
+    expect(fs.readFileSync(pdf).subarray(0, 5).toString()).toBe('%PDF-');
+    const printed = execFileSync(python, ['-c',
+      "from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))", pdf],
+    { encoding: 'utf8' });
+    expect(printed, 'the printed answer does not carry its id').toContain(answerId);
+    expect(await reader.evaluate(() => (globalThis as unknown as { reader: { blocked: string[] } }).reader.blocked),
+      'the saved answer asked for something besides itself').toEqual([]);
+  } finally {
+    await reader.close().catch(() => { /* already gone */ });
+  }
+}
+
 test('Answers: an exact disclosure, one answer per Send, citations that resolve, both exports, and every way an answer stops', async () => {
   test.setTimeout(360_000);
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-answers-')));
@@ -200,6 +252,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     const html = fs.readFileSync(path.join(downloads, 'answer.html'), 'utf8');
     expect(html.startsWith('<!doctype html>') || html.startsWith('<!DOCTYPE html>')).toBe(true);
     expect(html).toContain(answered.answer_id);
+    await readOffline(path.join(downloads, 'answer.html'), path.join(root, 'offline-reader'), env, python, answered.answer_id);
 
     // — a reply never marked complete: failed, unvalidated, nothing shown as cited ----------
     fake.setFault('missing_done');
@@ -230,6 +283,29 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     const leaving = String(await article.getAttribute('data-answer'));
     await win.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Files and passages' }).click();
     expect((await settled(leaving)).state, 'leaving the Answers view left its answer running').toBe('cancelled');
+
+    // — the Claude Code lane, which here is only the fake runtime: discovery is
+    // configured-only and the configured command is the fake's ------------------------------
+    fake.setFault('none');
+    await win.getByRole('group', { name: 'In this project' }).getByRole('button', { name: 'Answers' }).click();
+    const ran = fake.captures().length;
+    const apiCalls = fake.requests.length;
+    const viaCli = await compose();
+    const connection = viaCli.composer.getByLabel('Connection', { exact: true });
+    const cliKey = await connection.evaluate((select) =>
+      [...(select as HTMLSelectElement).options].find((o) => o.value.startsWith('claude_cli:') && !o.disabled)?.value ?? '');
+    expect(cliKey, 'the Claude Code connection is not offered, or not available').not.toBe('');
+    await connection.selectOption(cliKey);
+    await viaCli.composer.getByRole('button', { name: 'Show exactly what will be sent' }).click();
+    await expect(viaCli.disclosure.getByRole('heading', { name: 'Check before sending' })).toBeVisible({ timeout: 60_000 });
+    await viaCli.disclosure.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(article).not.toHaveAttribute('data-answer', leaving, { timeout: 30_000 });
+    const cliAnswer = await settled(String(await article.getAttribute('data-answer')));
+    expect(cliAnswer.state).toBe('succeeded');
+    expect(fake.captures().length, 'the Claude Code lane did not run the fake runtime exactly once').toBe(ran + 1);
+    expect(fake.requests.length, 'the Claude Code lane also called the API').toBe(apiCalls);
+    await expect(article).toHaveAttribute('data-state', 'succeeded', { timeout: 30_000 });
+    await expect(article.locator('button.ev-cite').first()).toBeVisible();
 
     expect(problems).toEqual([]);
   } finally {
