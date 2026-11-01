@@ -97,7 +97,7 @@ test('P12b: every file that launches the app passes --user-data-dir', () => {
   //
   // Scoped to the **file** rather than the call site, and the first version of
   // this was scoped to the call site and produced a false positive:
-  // `zero-reasons.spec.ts` builds its `args` array in a variable a few lines
+  // a spec that built its `args` array in a variable a few lines
   // above the call, which is perfectly correct and invisible to a regex over
   // the call. What that costs is stated in the handback: a launch whose args
   // came from *another module* would pass this.

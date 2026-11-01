@@ -7,13 +7,15 @@
  * that it would.
  *
  * The provocation is deliberately a *real* application failure rather than a
- * hand-rolled `console.error`: `page.route()` aborts the Analytics page's own
+ * hand-rolled `console.error`: `page.route()` aborts Health › Analytics' own
  * data fetch, which is exactly the shape of the failure a smoke suite exists to
  * catch — a page whose backend call does not come back. One provocation
  * produces both signals, since an aborted request fires `requestfailed` and the
  * renderer's unhandled rejection surfaces as a page error.
  */
 import { test, expect } from './fixtures/resmon-app';
+
+test.use({ ui: 'atlas' });
 
 test.describe.configure({ mode: 'serial' });
 
@@ -23,12 +25,12 @@ test('Q3: an aborted backend call is captured as a failed request', async ({
   expect(await backendPort()).not.toBe('8742');
 
   // Start somewhere else so the Analytics fetch happens after the route is armed.
-  await goto('/');
+  await goto('/today');
 
   await win.route('**/api/analytics/**', (route) => route.abort('failed'));
 
   const before = failedRequests.length;
-  await goto('/analytics');
+  await goto('/health/analytics');
   // The page retries nothing, so one navigation is enough; give the abort a
   // moment to propagate to the collector.
   await win.waitForTimeout(1500);
@@ -37,7 +39,7 @@ test('Q3: an aborted backend call is captured as a failed request', async ({
   console.log('Q3 FAILED REQUESTS', JSON.stringify(provoked, null, 2));
   expect(provoked.length).toBeGreaterThan(0);
   expect(provoked.some((r) => r.url.includes('/api/analytics/'))).toBe(true);
-  expect(provoked.every((r) => r.route === '/analytics')).toBe(true);
+  expect(provoked.every((r) => r.route === '/health/analytics')).toBe(true);
 
   await win.unroute('**/api/analytics/**');
 
@@ -52,14 +54,14 @@ test('Q3: an aborted backend call is captured as a failed request', async ({
   const provokedErrors = consoleErrors.slice(errorsBefore);
   console.log('Q3 CONSOLE ERRORS', JSON.stringify(provokedErrors, null, 2));
   expect(provokedErrors.some((e) => e.text.includes('e2e-provoked-console-error'))).toBe(true);
-  expect(provokedErrors[0].route).toBe('/analytics');
+  expect(provokedErrors[0].route).toBe('/health/analytics');
   expect(provokedErrors[0].location).not.toBe('');
 });
 
 test('Q3: an uncaught renderer exception is captured as a page error', async ({
   win, goto, consoleErrors,
 }) => {
-  await goto('/watchdog');
+  await goto('/health/watchdog');
   const before = consoleErrors.length;
   // `pageerror`, not `console`. Without the separate listener in the fixture a
   // React render crash would leave the console collector empty and the suite

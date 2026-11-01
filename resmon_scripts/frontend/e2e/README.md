@@ -33,20 +33,21 @@ under `release/` it skips, and says so.
 | `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that were found the hard way. |
 | `fixtures/electron-fuses.ts` | Reads the fuse wire out of a built app. Two fuses are what make a packaged app driveable at all. |
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
-| `routes.ts` | The routes, **imported** from `src/routes.ts` — the same table `App.tsx` renders from. 24 of them: 14 top-level plus the 10 Settings and About tabs those pages declare. |
-| `main-window.spec.ts` | P2–P4 — `electron/main.ts` itself: the window background, the in-app link window, the History menu. |
+| `routes.ts` | The classic renderer's routes, **imported** from `src/routes.ts`, for the specs that still open it. |
+| `screens.ts` | Atlas's screens, **imported** from `atlas/src/screenPaths.ts`, which its own test holds to the router: every screen at a fixed address, Settings' groups included. |
+| `main-window.spec.ts` | P3–P4 — `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
 | `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
-| `smoke.spec.ts` | One test per route: it loads, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
+| `smoke.spec.ts` | One test per Atlas screen: it loads and stays at its own address, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
 | `search-record.spec.ts` | Q4 — the Results report viewer's *Search record* tab, which a previous attempt reported as unclickable under automation. |
-| `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something. |
-| `ipc-stubs.spec.ts` | Q5 — replacing the three IPC handlers from the main process, with counters proving nothing reached the OS. |
+| `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something, in Atlas. |
+| `ipc-stubs.spec.ts` | Q5 — replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
 | `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
 | `zero-reason.spec.ts` | Phase 1.8.6 — `window_unanswerable` on all three surfaces. |
-| `zero-reasons.spec.ts` | P13 — `upstream_failure` (a dead loopback proxy), `answered_empty` (a live query nothing matches) and `not_recorded`, plus which of the nine reasons a real browser has seen. |
-| `window-manager.spec.ts` | The window itself — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
+| `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection), `answered_empty` (an authored empty feed) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the ten reasons a real browser has seen. |
+| `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
 | `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
 | `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
-| `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too. Skips when there is no build. |
+| `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
 
 ## Five things to know before adding a spec
 

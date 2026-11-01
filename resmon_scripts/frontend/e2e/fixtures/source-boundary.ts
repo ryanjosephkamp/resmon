@@ -20,7 +20,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, launchEnv } from './resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, atlasEnv, launchEnv } from './resmon-app';
 
 type Mode = 'paper' | 'empty' | 'failure' | '503' | 'malformed'
   | 'authored-person' | 'authored-corpus' | 'authored-duplicates';
@@ -317,8 +317,7 @@ export async function launchSourceApp(mode: Mode, launch: SourceLaunch = {}) {
   // so their replies are not gated behind a caller's `release()`. The existing
   // transport cases keep the gate they were written for.
   if (authored) release();
-  const env = launchEnv(stateDir, true);
-  if (launch.ui === 'atlas') env.RESMON_UI = 'atlas';
+  const env = launch.ui === 'atlas' ? atlasEnv(launchEnv(stateDir, true)) : launchEnv(stateDir, true);
   const hookDir = path.join(stateDir, 'python-source-boundary');
   fs.mkdirSync(hookDir);
   // Startup hook is private to this child's PYTHONPATH; no production file or

@@ -223,6 +223,8 @@ export interface FailedRequest {
 }
 
 export interface WorkerFixtures {
+  /** Which renderer the worker's app serves. A spec that drives Atlas says `test.use({ ui: 'atlas' })`. */
+  ui: 'classic' | 'atlas';
   app: ElectronApplication;
   win: Page;
   consoleErrors: ConsoleError[];
@@ -301,24 +303,51 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
   return env;
 }
 
-export async function launchResmon(e2e = true): Promise<{ app: ElectronApplication; stateDir: string }> {
+/** The element that means Atlas has drawn its frame: the top bar's sections. */
+export const ATLAS_LANDMARK = 'nav[aria-label="Sections"]';
+
+/**
+ * The screen a run is held to, as CI's macOS runner holds the window to its
+ * own (1024 by 684 there): `RESMON_E2E_SCREEN=1024x684`. Null when unset.
+ */
+export function heldScreen(): [number, number] | null {
+  const match = /^(\d+)x(\d+)$/.exec(process.env.RESMON_E2E_SCREEN ?? '');
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/** Atlas's launch environment: `base`, served as Atlas, the window no larger than the screen a run is held to. */
+export function atlasEnv(base: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = { ...base, RESMON_UI: 'atlas' };
+  const held = heldScreen();
+  if (held) {
+    env.RESMON_E2E_WIDTH = String(Math.min(Number(env.RESMON_E2E_WIDTH) || WINDOW_WIDTH, held[0]));
+    env.RESMON_E2E_HEIGHT = String(Math.min(Number(env.RESMON_E2E_HEIGHT) || WINDOW_HEIGHT, held[1]));
+  }
+  return env;
+}
+
+export async function launchResmon(
+  e2e = true, ui: 'classic' | 'atlas' = 'classic',
+): Promise<{ app: ElectronApplication; stateDir: string }> {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
+  const env = launchEnv(stateDir, e2e);
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT,
-    env: launchEnv(stateDir, e2e),
+    env: ui === 'atlas' ? atlasEnv(env) : env,
     timeout: 180_000,
   });
   return { app, stateDir };
 }
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
+  ui: ['classic', { option: true, scope: 'worker' }],
   currentRoute: [async ({}, use) => { await use({ value: 'launch' }); }, { scope: 'worker' }],
   consoleErrors: [async ({}, use) => { await use([]); }, { scope: 'worker' }],
   failedRequests: [async ({}, use) => { await use([]); }, { scope: 'worker' }],
 
-  app: [async ({}, use) => {
-    const { app, stateDir } = await launchResmon(true);
+  app: [async ({ ui }, use) => {
+    const { app, stateDir } = await launchResmon(true, ui);
     await use(app);
     await app.close().catch(() => { /* already gone */ });
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -374,7 +403,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     await use();
   }, { auto: true }],
 
-  goto: async ({ win, currentRoute }, use) => {
+  goto: async ({ win, currentRoute, ui }, use) => {
     await use(async (hashPath: string) => {
       currentRoute.value = hashPath;
       // A HashRouter change is not a document navigation, so `page.goto` against
@@ -386,7 +415,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         hashPath,
         { timeout: 15_000 },
       );
-      await win.locator('.app-main').waitFor({ state: 'visible', timeout: 15_000 });
+      await win.locator(ui === 'atlas' ? ATLAS_LANDMARK : '.app-main').waitFor({ state: 'visible', timeout: 60_000 });
       // The two index routes redirect a tick later, and every page fires its
       // first data fetch on mount. Settle before screenshotting.
       await win.waitForLoadState('networkidle').catch(() => { /* long-poll pages never idle */ });

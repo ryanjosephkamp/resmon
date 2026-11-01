@@ -8,9 +8,8 @@
  * folder picker that blocks until a human dismisses it, a document opened in
  * whatever application claims it, a Finder window. Under automation the first
  * hangs the run and the other two are side effects on the machine. A
- * verification layer that cannot neutralise them cannot touch any page with a
- * "Choose folder" or "Reveal in Finder" button — Settings, Results, the Danger
- * Zone.
+ * verification layer that cannot neutralize them cannot touch any screen with a
+ * "Choose folder" or "Reveal in Finder" button: Settings, a run, the Library.
  *
  * `electronApp.evaluate()` runs in the main process with the `electron` module
  * in scope, so `ipcMain.removeHandler` + `ipcMain.handle` replaces the real
@@ -32,9 +31,10 @@ import * as path from 'path';
 import {
   installIpcGuards, readGuards, NOTHING_ESCAPED, STUBBED_CHANNELS,
 } from './fixtures/ipc-guards';
-import { FRONTEND_ROOT } from './fixtures/resmon-app';
-import { ROUTES } from './routes';
+import { FRONTEND_ROOT, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { SCREENS } from './screens';
 
+test.use({ ui: 'atlas' });
 test.describe.configure({ mode: 'serial' });
 
 test('Q5b: the guarded channels are the channels the preload bridge exposes', async () => {
@@ -52,7 +52,7 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   app, win, goto,
 }) => {
   await installIpcGuards(app);
-  await goto('/');
+  await goto('/today');
   // Initial renderer download-history reads are separate from the calls below.
   const before = await readGuards(app);
 
@@ -109,13 +109,13 @@ test('Q5: every IPC channel is stubbed, and nothing reaches the OS', async ({
   expect(guards.escaped).toEqual(NOTHING_ESCAPED);
 });
 
-test('P4: a full pass over every route opens no dialog and makes no shell call', async ({
+test('P4: a full pass over every screen opens no dialog and makes no shell call', async ({
   app, goto, win,
 }) => {
   await installIpcGuards(app);
-  for (const route of ROUTES) {
-    await goto(route.path);
-    await expect(win.locator('.app-main')).toBeVisible();
+  for (const screen of SCREENS) {
+    await goto(screen.path);
+    await expect(win.locator(ATLAS_LANDMARK)).toBeVisible();
   }
   const guards = await readGuards(app);
   console.log('P4 GUARD COUNTS AFTER FULL PASS', JSON.stringify(guards));

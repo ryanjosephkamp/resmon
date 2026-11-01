@@ -1,24 +1,18 @@
 /**
- * `electron/main.ts`, under test for the first time.
+ * `electron/main.ts`, under test: what only a real browser engine and a real
+ * main process can see, each a fix a human found by looking at the app and
+ * each undone silently by an ordinary refactor with the rest of the suite
+ * green.
  *
- * 709 lines, every v1.8.3 interface fix, and — until this file — **no test of
- * any kind**. `tsconfig.electron.json` excludes `src`, `jest.config.js` roots
- * only at `src`, and nothing in CI had ever started the app. The only automated
- * check was `tsc`, which cannot tell a window painted the right colour from one
- * painted white.
+ * - **P3** an external link opens *in-app*, with the URL in the title bar and
+ *   the main window's background, and never hands http(s) to the system
+ *   browser (link behavior used to depend on where you clicked);
+ * - **P3b** the main process's OS-facing calls are still the five the guards
+ *   count;
+ * - **P4** the History menu moves the hash route.
  *
- * These are the three properties that only a real browser engine can see. Each
- * one is a fix a human found by looking at the app, and each would be silently
- * undone by an ordinary refactor with the whole suite green:
- *
- * - **P2** the window's own background matches the stylesheet's (the white
- *   flash on open and close, v1.8.3);
- * - **P3** an external link opens *in-app*, with the URL in the title bar, and
- *   never hands http(s) to the system browser (link behaviour used to depend on
- *   where you clicked: attribution links opened in-app, repository detail links
- *   threw you out to Safari);
- * - **P4** the History menu moves the hash route (back and forward had never
- *   been wired to a history the app always kept).
+ * That the window's own background matches the page's, the white flash on
+ * open and close, is `atlas-appearance.spec.ts`'s, in each theme.
  */
 import { test, expect } from './fixtures/resmon-app';
 import { installIpcGuards, readGuards, NOTHING_ESCAPED } from './fixtures/ipc-guards';
@@ -26,52 +20,26 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { FRONTEND_ROOT } from './fixtures/resmon-app';
 
+test.use({ ui: 'atlas' });
 test.describe.configure({ mode: 'serial' });
 
 /** `#0F1117`, `#ff0f1117`, `#0f1117` → `0f1117`. Electron and CSS disagree on case and alpha. */
 function rgbHex(value: string): string {
   const hex = value.trim().replace(/^#/, '').toLowerCase();
-  // Electron returns ARGB or RGBA on some platforms; the colour is the last six.
+  // Electron returns ARGB or RGBA on some platforms; the color is the last six.
   return hex.length === 8 ? hex.slice(-6) : hex;
 }
-
-test('P2: the window background is the stylesheet background', async ({ app, win, goto }) => {
-  await goto('/');
-
-  // The main process's own value — what Chromium composites *before the
-  // renderer has painted anything*, which is the whole point. A body rule
-  // cannot fix a white flash; it has not run yet.
-  const windowBg = await app.evaluate(async ({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0].getBackgroundColor());
-
-  // The stylesheet's value, resolved by the real engine rather than read out of
-  // the file, so a variable that is overridden further down the cascade is
-  // caught too.
-  const cssVar = await win.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--color-bg'));
-  const bodyBg = await win.evaluate(() => getComputedStyle(document.body).backgroundColor);
-
-  console.log('P2 BACKGROUND', JSON.stringify({ windowBg, cssVar, bodyBg }));
-  expect(rgbHex(windowBg)).toBe(rgbHex(cssVar));
-
-  // And the painted body agrees with both, so the two halves of the fix cannot
-  // drift apart in either direction. `rgb(15, 17, 23)` is `#0f1117`.
-  const [r, g, b] = (bodyBg.match(/\d+/g) ?? []).map(Number);
-  const painted = [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('');
-  expect(painted).toBe(rgbHex(cssVar));
-});
 
 test('P3: an external link opens in-app, titled with its URL, and never reaches the browser', async ({
   app, win, goto,
 }) => {
   await installIpcGuards(app);
-  await goto('/repositories');
+  await goto('/settings/about');
 
-  // A real link on a real page: the "terms" link beside a required attribution
-  // credit. Those render unconditionally (a credit behind a disclosure is not
-  // displayed in the sense the licence means), so this is a user path and not a
-  // fixture.
-  const link = win.locator('.required-attributions a').first();
+  // A real link on a real screen: About resmon's report link, which opens
+  // GitHub's issues page. It renders unconditionally, so this is a user path
+  // and not a fixture.
+  const link = win.locator('[data-about="issues"]');
   await expect(link).toBeVisible();
   const href = await link.getAttribute('href');
   expect(href).toMatch(/^https?:\/\//);
@@ -82,7 +50,7 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   // than by position after it.
   const mainId = await app.evaluate(async ({ BrowserWindow }) =>
     BrowserWindow.getAllWindows()[0].id);
-  // Cancel this real attribution navigation before transport. The window is
+  // Cancel this real navigation before transport. The window is
   // still created by the app; no successful remote page is fabricated.
   const interception = await app.evaluateHandle(({ session }, target) => {
     const facts = {
@@ -179,9 +147,9 @@ test('P3b: the main-process OS-facing surface is still the five that are guarded
 });
 
 test('P4: the History menu moves the hash route', async ({ app, win, goto }) => {
-  await goto('/analytics');
-  await goto('/watchdog');
-  expect(win.url()).toContain('#/watchdog');
+  await goto('/health/analytics');
+  await goto('/health/watchdog');
+  expect(win.url()).toContain('#/health/watchdog');
 
   /** Click a real application-menu item, by id, in the real main process. */
   const clickMenu = (id: string) => app.evaluate(async ({ Menu }, itemId) => {
@@ -192,13 +160,13 @@ test('P4: the History menu moves the hash route', async ({ app, win, goto }) => 
   }, id);
 
   await clickMenu('history-back');
-  await win.waitForFunction(() => window.location.hash.startsWith('#/analytics'),
+  await win.waitForFunction(() => window.location.hash.startsWith('#/health/analytics'),
     undefined, { timeout: 15_000 });
-  expect(win.url()).toContain('#/analytics');
+  expect(win.url()).toContain('#/health/analytics');
 
   await clickMenu('history-forward');
-  await win.waitForFunction(() => window.location.hash.startsWith('#/watchdog'),
+  await win.waitForFunction(() => window.location.hash.startsWith('#/health/watchdog'),
     undefined, { timeout: 15_000 });
-  expect(win.url()).toContain('#/watchdog');
+  expect(win.url()).toContain('#/health/watchdog');
   console.log('P4 HISTORY', JSON.stringify({ final: win.url().split('#')[1] }));
 });

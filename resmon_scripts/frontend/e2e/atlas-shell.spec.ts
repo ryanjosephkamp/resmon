@@ -226,6 +226,11 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
     await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
     await expect(sheet.locator('[data-shortcut="find"] kbd')).toHaveText(mac ? '⌘F' : 'Ctrl+F');
+    // The sheet fades in; the picture waits for that to finish, or it shows
+    // the screen behind it.
+    await sheet.evaluate((node) => Promise.all(document.getAnimations()
+      .filter((a) => (a.effect as KeyframeEffect | null)?.target === node)
+      .map((a) => a.finished)));
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-shortcuts.png') });
     // A shortcut pressed in the sheet closes it and does what it says.

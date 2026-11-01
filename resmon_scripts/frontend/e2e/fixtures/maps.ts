@@ -7,6 +7,7 @@
  * title block over the dot, a newer dot drawn over it, a click intercepted).
  */
 import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { atlasEnv, heldScreen } from './resmon-app';
 
 export const SEED = String.raw`
 import json, os, sys
@@ -165,26 +166,8 @@ export async function chooseByKeyboard(win: Page, canvas: string): Promise<void>
   await win.keyboard.press('Enter');
 }
 
-/**
- * The screen a run is held to, as CI's macOS runner holds the window to its
- * own (1024 by 684 there): `RESMON_E2E_SCREEN=1024x684`. No window, at launch
- * or resized, outgrows it.
- */
-function screen(): [number, number] | null {
-  const match = /^(\d+)x(\d+)$/.exec(process.env.RESMON_E2E_SCREEN ?? '');
-  return match ? [Number(match[1]), Number(match[2])] : null;
-}
-
 /** The maps specs' launch environment: Atlas, and the window no larger than the screen a run is held to. */
-export function mapsEnv(base: Record<string, string>): Record<string, string> {
-  const env: Record<string, string> = { ...base, RESMON_UI: 'atlas' };
-  const held = screen();
-  if (held) {
-    env.RESMON_E2E_WIDTH = String(Math.min(Number(env.RESMON_E2E_WIDTH) || 1440, held[0]));
-    env.RESMON_E2E_HEIGHT = String(Math.min(Number(env.RESMON_E2E_HEIGHT) || 900, held[1]));
-  }
-  return env;
-}
+export const mapsEnv = atlasEnv;
 
 /**
  * Slow the renderer down as a slow runner is, when `RESMON_E2E_CPU_THROTTLE`
@@ -198,7 +181,7 @@ export async function throttle(win: Page): Promise<void> {
 }
 
 export async function resize(app: ElectronApplication, width: number, height: number): Promise<void> {
-  const held = screen();
+  const held = heldScreen();
   if (held) { width = Math.min(width, held[0]); height = Math.min(height, held[1]); }
   await app.evaluate(({ BrowserWindow }, [w, h]) => {
     const win = BrowserWindow.getAllWindows()[0];

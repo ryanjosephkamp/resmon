@@ -6,7 +6,7 @@ name: UI smoke
 # None of that starts Electron, so `electron/main.ts` — 700-odd lines carrying
 # every v1.8.3 interface fix — has never been executed by CI at all. This job
 # launches the real app under Playwright on a virtual display and walks every
-# route in `e2e/routes.ts`.
+# screen in `e2e/screens.ts`.
 #
 # Two jobs, because one runner cannot see the whole app.
 #
@@ -33,8 +33,8 @@ on:
     inputs:
       break_route:
         description: >-
-          Append a route App.tsx does not declare, to demonstrate that this job
-          fails when a route fails to load. Try "/no-such-page".
+          Append an address the app does not route, to demonstrate that this
+          job fails when a screen fails to load. Try "/no-such-page".
         required: false
         default: ''
 
