@@ -83,8 +83,8 @@ const days = dayCount;
 
 /**
  * The chosen sources that cannot usefully be asked without a start date
- * (bioRxiv and medRxiv: each lists a date range oldest first, so asked from
- * its first preprints a search stops long before recent ones), and how many
+ * (bioRxiv and medRxiv: resmon reads every record in their range itself, for
+ * at most 45 seconds, and their whole archives are far more), and how many
  * days before a run the engine starts them when it sets none: the catalog's
  * `default_start_days`. `null` when no chosen source needs one.
  */
@@ -120,9 +120,19 @@ export function formStart(n: number, to: string, now: Date = new Date()): { day:
 
 /** Why the sources that need a start date need one, as the end of a sentence. */
 export function startWhy(needs: StartNeeded): string {
-  const one = needs.entries.length === 1;
-  return `${one ? 'it lists' : 'they list'} a date range oldest first, and asked from ${one ? 'its' : 'their'} first preprints `
-    + 'a search stops long before recent ones';
+  return needs.entries.length === 1
+    ? 'resmon reads every preprint in its range itself, and its whole archive is far more than a search can read in 45 '
+      + 'seconds'
+    : 'resmon reads every preprint in their ranges itself, and their whole archives are far more than a search can read '
+      + 'in 45 seconds';
+}
+
+/** Whole days from `from` to `to`, or to today when `to` is blank; `null` without a start. */
+export function windowSpan(from: string, to: string, now: Date = new Date()): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from)) return null;
+  const end = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : daysBefore(0, now);
+  const days = (Date.parse(`${end}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000;
+  return Number.isFinite(days) ? days : null;
 }
 
 /** Fixed dates in words: "from May 3, 2026 to May 4, 2026". */

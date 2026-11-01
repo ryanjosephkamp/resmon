@@ -64,7 +64,7 @@ def _recording_sequence(monkeypatch, module, replies):
     return calls
 
 
-def _preprint_payload(server="biorxiv", *, count=1, total=None, start=0):
+def _preprint_payload(server="biorxiv", *, count=1, total=None, start=0, date="2024-01-02"):
     if total is None:
         total = count
     records = []
@@ -74,7 +74,7 @@ def _preprint_payload(server="biorxiv", *, count=1, total=None, start=0):
             "title": f"Climate record {index}",
             "authors": "Doe, Jane; Rao, Priya",
             "abstract": "Climate observations",
-            "date": "2024-01-02",
+            "date": date,
             "category": "Scientific Communication",
             "server": server,
         })
@@ -348,6 +348,59 @@ def test_biorxiv_uses_documented_thirty_record_cursor_pages(monkeypatch):
                for call in calls)
 
 
+def test_a_range_is_read_from_its_newest_end_back(monkeypatch):
+    """The endpoint lists a range oldest first. The first page is read for the
+    total, then pages from the end back, each newest first, and the first page
+    last; no record is asked for twice, and a page off the 30-record grid is
+    asked for where the one after it began."""
+    total = 75
+    calls = _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=total, start=0)),
+        FakeResponse(_preprint_payload(count=30, total=total, start=45)),
+        FakeResponse(_preprint_payload(count=30, total=total, start=30)),
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_from="2024-01-01", date_to="2024-01-07", max_results=100)
+
+    assert [call["url"].rsplit("/", 1)[-1] for call in calls] == ["0", "45", "30"]
+    # Records 74 back to 0, each once: the page at 30 is cut where the page at
+    # 45 began.
+    assert [r.title for r in results] == [f"Climate record {i}" for i in range(74, -1, -1)]
+    read = api_base.search_outcome().snapshot()["read"]
+    assert read == {"records": 75, "order": "newest_first", "total": 75,
+                    "first_date": "2024-01-02", "last_date": "2024-01-02"}
+
+
+def test_the_cap_is_filled_from_the_newest_records(monkeypatch):
+    calls = _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=300, start=0)),
+        FakeResponse(_preprint_payload(count=30, total=300, start=270, date="2024-01-07")),
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_from="2024-01-01", date_to="2024-01-07", max_results=5)
+
+    assert [call["url"].rsplit("/", 1)[-1] for call in calls] == ["0", "270"]
+    assert [r.title for r in results] == [f"Climate record {i}" for i in range(299, 294, -1)]
+
+
+def test_a_range_with_no_records_is_answered_empty(monkeypatch):
+    """/details answers an empty range "no posts found". It was recorded as a
+    failure, so a quiet window read as a source that did not answer."""
+    from implementation_scripts import zero_reason  # noqa: PLC0415
+
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse({"messages": [{"status": "no posts found"}], "collection": []})])
+
+    assert api_biorxiv.BiorxivClient("medrxiv").search(
+        query="climate", date_from="2026-10-18", date_to="2026-10-18") == []
+    snapshot = api_base.search_outcome().snapshot()
+    assert snapshot["failures"] == 0 and snapshot["last_call_failed"] is False
+    reason, _detail = zero_reason.derive(snapshot)
+    assert reason not in zero_reason.DID_NOT_ANSWER
+
+
 @pytest.mark.parametrize(("server", "date_from", "date_to", "window", "noted"), [
     # No start: the catalog's days before the run. It was the archive's first
     # month (2013 for bioRxiv), from which a search read oldest first and
@@ -383,7 +436,7 @@ def test_a_record_dated_without_padding_is_read_as_its_day(monkeypatch):
     """bioRxiv has listed records dated "2026-8-19". As text that is later
     than "2026-10-30", and a run said it had read preprints posted "between
     October 30, 2026 and August 19, 2026"."""
-    page = _preprint_payload(count=3, total=300)
+    page = _preprint_payload(count=3, total=3)
     for record, day in zip(page["collection"], ("2026-8-19", "2026-10-30", "2026-10-31")):
         record["date"] = day
     _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(page)])
@@ -391,19 +444,20 @@ def test_a_record_dated_without_padding_is_read_as_its_day(monkeypatch):
     results = api_biorxiv.BiorxivClient().search(
         query="climate", date_from="2026-10-30", max_results=10)
 
-    assert [r.publication_date for r in results] == ["2026-08-19", "2026-10-30", "2026-10-31"]
+    assert [r.publication_date for r in results] == ["2026-10-31", "2026-10-30", "2026-08-19"]
     read = api_base.search_outcome().snapshot()["read"]
     assert (read["first_date"], read["last_date"]) == ("2026-08-19", "2026-10-31")
 
 
 def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
-    """A range is read oldest first, and a search can run out of time long
-    before the end of it. The run says so."""
+    """A search can run out of time long before it has read a long range. It
+    has read the newest part, and the run says which."""
     from implementation_scripts import zero_reason  # noqa: PLC0415
 
     expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
     _recording_sequence(monkeypatch, api_biorxiv, [
-        FakeResponse(_preprint_payload(count=30, total=300000)),
+        FakeResponse(_preprint_payload(count=30, total=300000, date="2024-01-02")),
+        FakeResponse(_preprint_payload(count=30, total=300000, start=299970, date="2024-01-31")),
         expired, expired,
     ])
 
@@ -411,17 +465,19 @@ def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
         query="climate", date_to="2024-01-31", max_results=100)
     snapshot = api_base.search_outcome().snapshot()
 
+    # The newest page's records, not the first page's: that one is never reached.
+    assert [r.title for r in results][:2] == ["Climate record 299999", "Climate record 299998"]
     assert len(results) == 30
     reason, detail = zero_reason.terminal_issue(snapshot)
     assert (reason, detail["detail"]) == ("upstream_failure", "operation_deadline")
     # How far it read is said with it: the records read, of how many the
     # window holds, and the dates among them.
-    assert detail["read"] == {"records": 30, "total": 300000,
-                              "first_date": "2024-01-02", "last_date": "2024-01-02"}
+    assert detail["read"] == {"records": 30, "order": "newest_first", "total": 300000,
+                              "first_date": "2024-01-31", "last_date": "2024-01-31"}
     assert zero_reason.partial_sentence("bioRxiv", reason, detail, len(results)) == (
         "bioRxiv returned 30 usable records before the search operation budget "
-        "expired. It had read the first 30 of the 300,000 records bioRxiv lists "
-        "for the window, posted on January 2, 2024. The retained set may be "
+        "expired. It had read the newest 30 of the 300,000 records bioRxiv lists "
+        "for the window, posted on January 31, 2024. The retained set may be "
         "incomplete.")
 
 
@@ -431,13 +487,12 @@ def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
     zero nor a source that did not answer, and the record says which it is."""
     from implementation_scripts import source_coverage, zero_reason  # noqa: PLC0415
 
-    page = _preprint_payload(count=30, total=262104)
-    for record in page["collection"]:
-        record["date"] = "2013-12-01"
-    page["collection"][0]["date"] = "2013-11-07"
-    page["collection"][-1]["date"] = "2014-01-20"
+    first = _preprint_payload(count=30, total=262104, date="2013-11-07")
+    newest = _preprint_payload(count=30, total=262104, start=262074, date="2026-10-30")
+    newest["collection"][-1]["date"] = "2026-10-31"
     expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
-    _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(page), expired, expired])
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(first), FakeResponse(newest), expired, expired])
 
     results = api_biorxiv.BiorxivClient().search(
         query="nowhereword", date_from="2013-11-01", max_results=2)
@@ -446,11 +501,14 @@ def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
     assert results == []
     assert reason == "upstream_failure"
     assert zero_reason.sentence("bioRxiv", reason, detail) == (
-        "bioRxiv answered, and resmon stopped before the end of your window: the "
-        "search operation budget expired after 3 attempts. It had read the first "
-        "30 of the 262,104 records bioRxiv lists for the window, posted between "
-        "November 7, 2013 and January 20, 2014, and none of them matched. The "
-        "rest were not read, so this is not a zero for your window.")
+        "bioRxiv answered, and resmon stopped before it reached the start of your "
+        "window: the search operation budget expired after 4 attempts. It had read "
+        "the newest 30 of the 262,104 records bioRxiv lists for the window, posted "
+        "between October 30, 2026 and October 31, 2026, and none of them matched. "
+        "The older ones were not read, so this is not a zero for your window.")
+    # A record of a window read from its start, made before, keeps its words.
+    older = {**detail, "read": {k: v for k, v in detail["read"].items() if k != "order"}}
+    assert "It had read the first 30 of the 262,104" in zero_reason.sentence("bioRxiv", reason, older)
     outcome = source_coverage.outcome({
         "source": "biorxiv", "status": "ok", "result_count": 0,
         "zero_reason": reason, "zero_detail": json.dumps(detail)})
@@ -461,19 +519,20 @@ def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
 def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
     unreadable = FakeResponse(json_error=json.JSONDecodeError("empty", "", 0))
     _recording_sequence(monkeypatch, api_biorxiv, [
-        FakeResponse(_preprint_payload(count=30, total=60)),
+        FakeResponse(_preprint_payload(count=30, total=90)),
+        FakeResponse(_preprint_payload(count=30, total=90, start=60)),
         unreadable,
         unreadable,
     ])
 
     results = api_biorxiv.BiorxivClient().search(
-        query="climate", max_results=60,
+        query="climate", max_results=90,
         date_from="2024-01-01", date_to="2024-01-07",
     )
     outcome = api_base.search_outcome().snapshot()
 
     assert len(results) == 30
-    assert outcome["attempts"] == 3
+    assert outcome["attempts"] == 4
     assert outcome["explicit_reason"] == "parse_failure"
     assert outcome["explicit_detail"] == {"detail": "empty_or_invalid_json"}
 
@@ -570,21 +629,22 @@ def test_later_preprint_unavailable_status_keeps_partial_results_truthful(
     monkeypatch,
 ):
     _recording_sequence(monkeypatch, api_biorxiv, [
-        FakeResponse(_preprint_payload(count=30, total=60)),
+        FakeResponse(_preprint_payload(count=30, total=90)),
+        FakeResponse(_preprint_payload(count=30, total=90, start=60)),
         FakeResponse({
-            "messages": [{"status": "Not available at this time", "total": 60}],
+            "messages": [{"status": "Not available at this time", "total": 90}],
             "collection": [],
         }),
     ])
 
     results = api_biorxiv.BiorxivClient().search(
-        query="climate", max_results=60,
+        query="climate", max_results=90,
         date_from="2024-01-01", date_to="2024-01-07",
     )
     outcome = api_base.search_outcome().snapshot()
 
     assert len(results) == 30
-    assert outcome["attempts"] == 2
+    assert outcome["attempts"] == 3
     assert outcome["last_call_failed"] is True
     assert outcome["last_detail"] == "request_error"
 

@@ -397,12 +397,15 @@ def test_every_entry_states_its_result_order():
         assert entry.client_module in entry.result_order_established, entry.slug
 
 
-def test_a_newest_first_entry_is_one_whose_client_asks_for_a_date_sort():
-    """The class is read from the request the client sends, so the client says it."""
+def test_a_newest_first_entry_is_one_whose_client_reads_newest_first():
+    """The class is read from the client: the date sort its request asks for,
+    or, for bioRxiv and medRxiv, its reading of a date-sorted list from the end
+    back. So the client says it."""
     scripts = PROJECT_ROOT / "resmon_scripts" / "implementation_scripts"
     sorts = {"arxiv": '"sortOrder": "descending"', "hal": '"producedDate_tdate desc"',
              "inspire_hep": '"mostrecent"', "nasa_ads": '"date desc"', "plos": '"publication_date desc"',
-             "pubmed": '"sort": "pub_date"'}
+             "pubmed": '"sort": "pub_date"', "biorxiv": "def _newest_first(",
+             "medrxiv": "def _newest_first("}
     newest = {e.slug: e for e in REPOSITORY_CATALOG if e.result_order == "newest_first"}
     assert set(newest) == set(sorts)
     for slug, param in sorts.items():

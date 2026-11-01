@@ -26,8 +26,8 @@ import {
 } from './model';
 import { PEOPLE_KEY, type Profile } from './people/model';
 import {
-  MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, startNeeded, windowHint,
-  type DateWindowComputed,
+  DEFAULT_DAYS, MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, startNeeded,
+  windowHint, windowSpan, type DateWindowComputed,
 } from './window';
 
 /** What the watch page and the list say after the editor leaves them. */
@@ -522,7 +522,13 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
   // person never asks either, because neither can be asked about one.
   const startless = startMissing(form, startNeeded(picked));
   const blankStart = !moving && !(between && !!form.dateFrom) && !startless && form.follows === 'words';
-  const notices = asks ? formNotices(picked, { start: !blankStart, cap: form.cap }) : [];
+  // How many days each run asks for, where the form knows: a run since the previous one asks for at
+  // least the overlap and the time since, and a first run for the last `DEFAULT_DAYS`.
+  const span = form.follows !== 'words' ? null
+    : form.window === 'last_days' ? form.lastDays
+      : form.window === 'previous_run' ? DEFAULT_DAYS
+        : between ? windowSpan(form.dateFrom, form.dateTo) : null;
+  const notices = asks ? formNotices(picked, { start: !blankStart, cap: form.cap, span }) : [];
   const undated = asks && form.window === 'none';
   const ranked = undated ? relevanceSentence(picked) : null;
   const newest = undated ? byOrder(picked).newest_first : [];

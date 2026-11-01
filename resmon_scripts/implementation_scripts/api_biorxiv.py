@@ -5,7 +5,7 @@ import logging
 import re
 import time
 from datetime import date, timedelta
-from typing import Mapping
+from typing import Iterator, Mapping
 
 from .api_base import (
     BaseAPIClient,
@@ -27,6 +27,10 @@ _REQUEST_TIMEOUT_SECONDS = 10.0
 _MAX_RESPONSE_ATTEMPTS = 2
 _PAGE_SIZE = 30
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
+# What /details answers for a range with no records (measured November 1,
+# 2026: `{"messages":[{"status":"no posts found"}], "collection":[]}`). It was
+# recorded as a failure, so an empty window read as a source that did not answer.
+_NO_POSTS = "no posts found"
 
 # Conservative: 2 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=2.0)
@@ -125,14 +129,14 @@ def _iso_day(text: object) -> date | None:
 def _default_start(server: str, date_to: str | None) -> dict:
     """Where a search with no start date begins, and from what.
 
-    The /details endpoint needs both ends of a range and lists it oldest
-    first, and the terms are matched in each record read, so a search reads
-    its range from the start for at most ``_SEARCH_BUDGET_SECONDS``. Asked
-    from the first month of each archive (2013 for bioRxiv), a search with no
-    start stopped at its cap or its budget years before recent preprints, and
-    before that it began at 2020-01-01. The start is now the catalog's
-    ``default_start_days`` before the run, or before ``date_to`` when that is
-    earlier, so an end date in the past still has a range to read.
+    The /details endpoint needs both ends of a range, and the terms are
+    matched in each record read, so a search reads its range for at most
+    ``_SEARCH_BUDGET_SECONDS``. Asked from the first month of each archive
+    (2013 for bioRxiv), a search with no start stopped at its cap or its
+    budget years before recent preprints, and before that it began at
+    2020-01-01. The start is the catalog's ``default_start_days`` before the
+    run, or before ``date_to`` when that is earlier, so an end date in the
+    past still has a range to read.
     """
     days = constraints_for(server).default_start_days
     if not days:
@@ -190,9 +194,6 @@ class BiorxivClient(BaseAPIClient):
         # The /details endpoint requires both ends of a range. An open start
         # is `_default_start`, noted so the run says where it began and why
         # (`note_default_start`), and an open end a date past anything posted.
-        # The endpoint lists a range oldest first, so a search reads it from
-        # its start and stops at its cap or its time budget; a budget that
-        # runs out is recorded on the run with how far it read.
         if date_from:
             d_from = date_from
         else:
@@ -202,71 +203,42 @@ class BiorxivClient(BaseAPIClient):
         d_to = date_to or "2099-12-31"
         deadline = time.monotonic() + _SEARCH_BUDGET_SECONDS
 
+        # The endpoint lists a range oldest first, 30 records a page, and says
+        # how many records the range holds. Read from the first page forward,
+        # a search that stopped at its cap or its budget had read the oldest
+        # part of the window, and a watch re-read the same oldest records on
+        # every run and never reached the newest. The first page is now read
+        # for the total, and the range is read from its end back
+        # (`_newest_first`), newest first within each page, so a search cut
+        # short has read the newest part, and `note_read` says how much of it
+        # and which dates. Measured November 1, 2026: a cursor of the total
+        # less 30 is answered with the range's last 30 records, a cursor off
+        # the 30-record grid with the records from there to the end, and the
+        # same page asked twice with the same records.
+        first = self._page(0, d_from, d_to, deadline)
+        if first is None:
+            return []
+        oldest, total = first
+
+        query_lower = query.lower()
         results: list[NormalizedResult] = []
-        cursor = 0
-        # How far the reading got, for a search that stops before the end of
-        # the range: the records read and the earliest and latest dates among
-        # them. Said on the run when the time budget runs out part-way.
+        # Each record once, should the list move under the read; a preprint's
+        # versions are distinct records.
+        seen: set[tuple[str, str]] = set()
+        # How far the reading got: the records read, and the earliest and
+        # latest dates among them.
+        read = 0
         earliest: str | None = None
         latest: str | None = None
 
-        while len(results) < max_results:
-            url = f"{_BIORXIV_API_BASE}/{self._server}/{d_from}/{d_to}/{cursor}"
-
-            data = _request_json(url, deadline)
-            if data is None:
-                break
-
-            messages = data.get("messages")
-            collection = data.get("collection")
-            if (
-                not isinstance(messages, list)
-                or not all(isinstance(message, dict) for message in messages)
-                or not isinstance(collection, list)
-            ):
-                note_parse_failure_unless_transport(
-                    TypeError("bioRxiv API response has invalid messages/collection"),
-                    "malformed_json_shape",
-                )
-                logger.error("bioRxiv API response has invalid messages/collection")
-                break
-            status_value = messages[0].get("status") if messages else ""
-            if status_value is None:
-                status_msg = ""
-            elif isinstance(status_value, str):
-                status_msg = status_value
-            else:
-                note_parse_failure_unless_transport(
-                    TypeError("bioRxiv API status was not a string"),
-                    "malformed_json_shape",
-                )
-                logger.error("bioRxiv API response has an invalid status")
-                break
-
-            # The bioRxiv /details endpoint sometimes returns an empty
-            # collection together with a non-"ok" status message (e.g.
-            # "Not available at this time" during upstream outages). When
-            # that happens on the *first* page, distinguish it from a
-            # legitimate empty result set so the sweep engine surfaces a
-            # repo_error instead of silently reporting zero results.
-            if not collection:
-                if status_msg and status_msg.lower() != "ok":
-                    search_outcome().note_failure(
-                        RuntimeError(
-                            f"bioRxiv /details/{self._server} returned "
-                            f"status={status_msg!r}"
-                        ),
-                        url,
-                    )
-                    logger.error(
-                        "bioRxiv /details/%s reported unavailable: %s",
-                        self._server,
-                        status_msg,
-                    )
-                break
-
-            query_lower = query.lower()
-            for item in collection:
+        for chunk in self._newest_first(oldest, total, d_from, d_to, deadline):
+            for item in reversed(chunk):
+                if isinstance(item, dict):
+                    key = (str(item.get("doi")), str(item.get("version")))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                read += 1
                 parsed = self._parse_item(item)
                 if parsed is None:
                     continue
@@ -279,24 +251,105 @@ class BiorxivClient(BaseAPIClient):
                     results.append(parsed)
                     if len(results) >= max_results:
                         break
-
-            # The documented /details cursor page contains up to 30 records.
-            try:
-                total = int(messages[0].get("total", 0)) if messages else 0
-            except (TypeError, ValueError):
-                note_parse_failure_unless_transport(
-                    TypeError("bioRxiv API total was not an integer"),
-                    "malformed_json_shape",
-                )
-                logger.error("bioRxiv API response has an invalid total")
-                break
-            cursor += len(collection)
-            note_read(records=cursor, total=total or None,
-                      first_date=earliest, last_date=latest)
-            if len(collection) < _PAGE_SIZE or cursor >= total:
+            note_read(records=read, total=total or None,
+                      first_date=earliest, last_date=latest, newest_first=True)
+            if len(results) >= max_results:
                 break
 
         return results[:max_results]
+
+    def _newest_first(
+        self, oldest: list, total: int, d_from: str, d_to: str, deadline: float,
+    ) -> Iterator[list]:
+        """The range's records in pages from its end back, the first page last.
+
+        ``oldest`` is the first page, already read for the range's total.
+        Each page asked for ends where the one before it began, and the last
+        one asked for starts where ``oldest`` ends, so no record is asked for
+        twice. A page that cannot be read ends the reading where it is, and
+        ``oldest`` is then not reached: what was read is the newest part of
+        the range, unbroken.
+        """
+        end = total
+        held = len(oldest)
+        while end > held:
+            cursor = max(held, end - _PAGE_SIZE)
+            page = self._page(cursor, d_from, d_to, deadline)
+            if page is None or not page[0]:
+                return
+            yield page[0][: end - cursor]
+            end = cursor
+        yield oldest
+
+    def _page(
+        self, cursor: int, d_from: str, d_to: str, deadline: float,
+    ) -> tuple[list, int] | None:
+        """One page of the range and the range's total, or None where the reading stops.
+
+        A range with no records is answered "no posts found", which is an
+        empty answer and not a failure. An empty page with any other status
+        ("Not available at this time" during upstream outages) is recorded as
+        a failure, so the run says the source did not answer rather than
+        reporting a quiet zero.
+        """
+        url = f"{_BIORXIV_API_BASE}/{self._server}/{d_from}/{d_to}/{cursor}"
+        data = _request_json(url, deadline)
+        if data is None:
+            return None
+
+        messages = data.get("messages")
+        collection = data.get("collection")
+        if (
+            not isinstance(messages, list)
+            or not all(isinstance(message, dict) for message in messages)
+            or not isinstance(collection, list)
+        ):
+            note_parse_failure_unless_transport(
+                TypeError("bioRxiv API response has invalid messages/collection"),
+                "malformed_json_shape",
+            )
+            logger.error("bioRxiv API response has invalid messages/collection")
+            return None
+        status_value = messages[0].get("status") if messages else ""
+        if status_value is None:
+            status_msg = ""
+        elif isinstance(status_value, str):
+            status_msg = status_value
+        else:
+            note_parse_failure_unless_transport(
+                TypeError("bioRxiv API status was not a string"),
+                "malformed_json_shape",
+            )
+            logger.error("bioRxiv API response has an invalid status")
+            return None
+
+        if not collection:
+            if status_msg and status_msg.lower() not in ("ok", _NO_POSTS):
+                search_outcome().note_failure(
+                    RuntimeError(
+                        f"bioRxiv /details/{self._server} returned "
+                        f"status={status_msg!r}"
+                    ),
+                    url,
+                )
+                logger.error(
+                    "bioRxiv /details/%s reported unavailable: %s",
+                    self._server,
+                    status_msg,
+                )
+                return None
+            return [], 0
+
+        try:
+            total = int(messages[0].get("total", 0)) if messages else 0
+        except (TypeError, ValueError):
+            note_parse_failure_unless_transport(
+                TypeError("bioRxiv API total was not an integer"),
+                "malformed_json_shape",
+            )
+            logger.error("bioRxiv API response has an invalid total")
+            return None
+        return collection, max(total, len(collection))
 
     @staticmethod
     def _matches_query(result: NormalizedResult, query_lower: str) -> bool:

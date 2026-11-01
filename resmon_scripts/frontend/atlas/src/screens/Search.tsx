@@ -10,7 +10,7 @@ import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
-import { formStart, startNeeded } from './watches/window';
+import { formStart, startNeeded, windowSpan } from './watches/window';
 import { askStartSentence, coarseFor, coarseSentence, formNotices, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
@@ -132,9 +132,9 @@ export function Search() {
   // In the order they were chosen, which is the order the run asks and records them.
   const picked = chosen.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
 
-  // bioRxiv and medRxiv cannot usefully be asked without a start date: each
-  // lists a date range oldest first, so from its first preprints a search
-  // stops at its cap or its time budget long before recent ones. While one is
+  // bioRxiv and medRxiv cannot usefully be asked without a start date: resmon
+  // reads every record in their range itself, for at most 45 seconds, and
+  // their whole archives are far more than that reads. While one is
   // chosen the start is never blank: a blank one, from Any time, a cleared
   // field, or a saved search with none, is the start the engine would give
   // them (`filled`), shown in the field, asked, and saved, and the line under
@@ -217,7 +217,10 @@ export function Search() {
   // The two facts derived from the catalog for this selection.
   const pace = useMemo(() => paceOf(picked), [picked]);
   const coarse = useMemo(() => coarseFor(picked, askedFrom, dates.to), [picked, askedFrom, dates.to]);
-  const notices = useMemo(() => formNotices(picked, { start: !!askedFrom, cap }), [picked, askedFrom, cap]);
+  const notices = useMemo(
+    () => formNotices(picked, { start: !!askedFrom, cap, span: windowSpan(askedFrom, dates.to) }),
+    [picked, askedFrom, dates.to, cap],
+  );
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
     ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
@@ -252,9 +255,10 @@ export function Search() {
             shorter window, and says so in the run’s search record.
           </p>
           <p>
-            bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints they list for your dates, oldest
+            bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints they list for your dates, newest
             first, for up to 45 seconds, and matches your terms itself. So they need a start date, and while either is
-            chosen the form fills one in rather than leave it blank.
+            chosen the form fills one in rather than leave it blank. A longer window may not be read back to its start,
+            and the run says how far back it read.
           </p>
           <p>
             A source that requires an API key and has none here is recorded as not asked. Keys are stored in

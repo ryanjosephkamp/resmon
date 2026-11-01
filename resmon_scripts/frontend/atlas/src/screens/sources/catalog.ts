@@ -113,19 +113,23 @@ export interface FormNotice {
  * The catalog's notices that the form's own state makes true, before anything
  * is asked: what resmon does in place of a start date that is not set
  * (bioRxiv and medRxiv are asked for the days before the run, which a form
- * fills in rather than leave blank), and how it asks a source for more than it
- * returns in one request. A notice is shown only in the state its
- * `applies_when` names, as the catalog requires.
+ * fills in rather than leave blank), that a window longer than those days may
+ * not be read back to its start (`span`, its length in days), and how it asks
+ * a source for more than it returns in one request. A notice is shown only in
+ * the state its `applies_when` names, as the catalog requires.
  */
 export function formNotices(
-  picked: readonly CatalogEntry[], state: { start: boolean; cap: number },
+  picked: readonly CatalogEntry[], state: { start: boolean; cap: number; span?: number | null },
 ): FormNotice[] {
   const out: FormNotice[] = [];
   for (const entry of picked) {
+    const own = entry.constraints.default_start_days;
     for (const notice of entry.constraints.notices) {
       const applies = (notice.applies_when === 'without_start_date' && !state.start)
         || (notice.applies_when === 'above_record_cap' && entry.constraints.records_per_request !== null
-          && state.cap > entry.constraints.records_per_request);
+          && state.cap > entry.constraints.records_per_request)
+        || (notice.applies_when === 'beyond_default_start' && state.start && typeof own === 'number'
+          && typeof state.span === 'number' && state.span > own);
       if (applies) out.push({ slug: entry.slug, effect: notice.effect });
     }
   }

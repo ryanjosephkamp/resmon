@@ -225,8 +225,8 @@ describe('which papers each run asks for', () => {
     const biorxiv = { slug: 'biorxiv', name: 'bioRxiv', constraints: { default_start_days: 3 } } as unknown as CatalogEntry;
     const needs: StartNeeded = { entries: [biorxiv], days: 3 };
     const ready = { ...blankForm(), name: 'x', keywords: ['y'], sources: ['biorxiv'] };
-    const said = 'bioRxiv needs a start date, and this window gives none: it lists a date range oldest first, and asked '
-      + 'from its first preprints a search stops long before recent ones.';
+    const said = 'bioRxiv needs a start date, and this window gives none: resmon reads every preprint in its range '
+      + 'itself, and its whole archive is far more than a search can read in 45 seconds.';
     // No date limit, or fixed dates with no start.
     expect(whatIsMissing({ ...ready, window: 'none' }, 1, needs)).toEqual([said]);
     expect(whatIsMissing({ ...ready, window: 'between' }, 1, needs)).toEqual([said]);

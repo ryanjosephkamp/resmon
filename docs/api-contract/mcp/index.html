@@ -381,6 +381,24 @@ its response. <code>is_active</code> governs scheduling, not permission.</p>
 <table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.4 so are the 19 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
 <hr>
 <h2 id="amendments">Amendments</h2>
+<h3 id="newest-first-not-a-version--november-1-2026">Newest first, not a version — November 1, 2026</h3>
+<p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, and the contract version does not change.</strong> What <code>run_sweep</code> and <code>run_routine</code> return
+from bioRxiv and medRxiv changes for a window longer than the search can read.</p>
+<p>resmon reads the preprints each of them lists for a date range itself, for at most 45 seconds a
+search. The endpoint lists a range oldest first, and resmon read it that way, so a search cut
+short had read the oldest part of the window and a watch read the same oldest records every run.
+It now reads each range from its end back, newest first, and a search that stops at its cap or
+its budget has the newest preprints of the window. The papers a run returns from these two
+sources are the newest matches rather than the oldest, and come newest first.</p>
+<p>A search the budget cuts short still does not count as an answer. Its zero’s <code>zero_detail.read</code>
+gains <code>order: "newest_first"</code>, and its sentence says it read “the newest N of the M records” and
+that the older ones were not read; a record from before keeps “the first N” and its old words.
+An empty range, which the endpoint answers “no posts found”, is now an answered zero rather than
+a failure. The catalog’s <code>result_order</code> for both is <code>newest_first</code>, and each carries a notice
+scoped <code>beyond_default_start</code>, shown before a window longer than <code>default_start_days</code>: the
+search may not read back to its start. <code>applies_when</code> is a string in the HTTP contract, so its
+shape does not change, and <code>list_sources</code> passes no notices through.</p>
 <h3 id="a-start-date-resmon-gives-not-a-version--november-1-2026">A start date resmon gives, not a version — November 1, 2026</h3>
 <p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
 changes, and the contract version does not change.</strong> What <code>run_sweep</code> and <code>run_routine</code> ask two

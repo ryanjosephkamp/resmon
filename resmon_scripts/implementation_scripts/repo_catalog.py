@@ -57,8 +57,10 @@ DateGranularity = Literal["day", "month", "year"]
 # rather than from a description of the upstream, because it is the order the
 # client asks for that decides what a watch with no date limit finds.
 #
-# ``newest_first``  the client asks the upstream to sort by a date, descending.
-#                   A watch with no date limit gets the newest papers each run.
+# ``newest_first``  the client asks the upstream to sort by a date, descending,
+#                   or reads a list the upstream sorts by date from its end
+#                   (bioRxiv and medRxiv). A watch with no date limit gets the
+#                   newest papers each run.
 # ``relevance``     the client asks for relevance order, or sends no sort to an
 #                   upstream that ranks a query by relevance. A watch with no
 #                   date limit gets the most relevant papers of all years,
@@ -251,6 +253,14 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 # ``above_record_cap``   only when the run asks for more records than the
 #                        source returns in one request -- that is, more than
 #                        ``SourceConstraints.records_per_request``.
+# ``beyond_default_start`` only when the window is longer than
+#                        ``SourceConstraints.default_start_days``: a start
+#                        date earlier than that many days before the end date,
+#                        or before today with none. A source read from its
+#                        newest end within a time budget may not reach the
+#                        start of a longer window, and the sentence says so.
+#                        With no start date the window is the default itself,
+#                        so it is not shown there.
 #
 # **Every one of these exists because a sentence was found being shown where
 # it was not true.** The first version of this record had one flag; a render
@@ -281,6 +291,7 @@ NoticeScope = Literal[
     "with_end_date",
     "without_start_date",
     "above_record_cap",
+    "beyond_default_start",
 ]
 
 ConstraintKind = Literal[
@@ -315,14 +326,15 @@ class SourceNotice:
 
 
 # Where bioRxiv and medRxiv start when a run sets no start date: this many days
-# before it. They list a date range oldest first and cannot be asked for words,
-# so resmon reads the range page by page for at most 45 seconds
-# (``api_biorxiv._SEARCH_BUDGET_SECONDS``); asked with no start, a run read from
-# 2013 and stopped there. Measured October 31, 2026: the /details list held 79
-# to 352 bioRxiv records a day from October 18 to 31 (medRxiv, 0 to 118). A
-# run that afternoon made 41 requests inside the budget, at most 1,230 records;
-# late that evening the client read 14 to 25 pages of 30 (420 to 750 records).
-# So the budget covers about one and a half to five days of bioRxiv. Three days
+# before it. They cannot be asked for words, so resmon reads every record in the
+# range itself, page by page from the newest back, for at most 45 seconds
+# (``api_biorxiv._SEARCH_BUDGET_SECONDS``). Asked from 2013, a run would stop
+# long before it reached the start of an archive that size, and a search the
+# budget cuts short is not an answer. Measured October 31, 2026: the /details
+# list held 79 to 352 bioRxiv records a day from October 18 to 31 (medRxiv, 0
+# to 118). A run that afternoon made 41 requests inside the budget, at most
+# 1,230 records; late that evening the client read 14 to 25 pages of 30 (420 to
+# 750 records). So the budget covers about one and a half to five days of bioRxiv. Three days
 # before a run (four calendar days with the run's own) held 681 to 1,235
 # bioRxiv records over October 21 to 31, inside the afternoon's pace on ten of
 # those eleven days; a week (1,817 for October 24 to 31) fits inside neither
@@ -621,13 +633,13 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "of a word. AND and OR are matched as terms too, and as parts of "
             "words they match almost every abstract."
         ),
-        result_order="unstated",
+        result_order="newest_first",
         result_order_established=(
-            "`api_biorxiv.py`: `search()` pages through the `/details` "
-            "date-range endpoint with no sort parameter (from the start "
-            "`default_start_days` gives it when a run sets none) and matches "
-            "the terms itself; nothing in the client establishes the order "
-            "within the range."
+            "`api_biorxiv.py`: the `/details` endpoint lists a range oldest "
+            "first, and `search()` reads it from its end back "
+            "(`_newest_first`), each page reversed, so its matches come "
+            "newest first. The range starts where `default_start_days` puts "
+            "it when a run sets none."
         ),
         constraints=_constraints(
             keyword_search="client_side",
@@ -655,14 +667,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "applied_default",
                     "With no start date, resmon asks bioRxiv for the "
                     f"{DEFAULT_START_DAYS} days before the run starts, or "
-                    "before your end date when that is earlier. bioRxiv lists "
-                    "a range oldest first, so asked from its first preprints "
-                    "in 2013 a run stops at your cap or after 45 seconds, long "
-                    "before recent ones.",
+                    "before your end date when that is earlier. resmon reads "
+                    "every preprint in the range itself, and bioRxiv's whole "
+                    "archive since 2013 is far more than a search can read "
+                    "in 45 seconds.",
                     "`api_biorxiv.py`: `_default_start`, from the catalog's "
                     "`default_start_days`, for `d_from` in `search()`, and "
                     "`_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
+                ),
+                _notice(
+                    "date_window",
+                    "resmon reads bioRxiv from the newest preprints in your "
+                    "window back, for at most 45 seconds, and a window longer "
+                    f"than {DEFAULT_START_DAYS} days can hold more than that "
+                    "reads. A run may stop before it reaches the start of your "
+                    "window, and says how far back it read.",
+                    "`api_biorxiv.py`: `_newest_first` in `search()`, "
+                    "`_SEARCH_BUDGET_SECONDS`, and `note_read`.",
+                    applies_when="beyond_default_start",
                 ),
             ),
         ),
@@ -1308,13 +1331,11 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "of a word. AND and OR are matched as terms too, and as parts of "
             "words they match almost every abstract."
         ),
-        result_order="unstated",
+        result_order="newest_first",
         result_order_established=(
-            "`api_biorxiv.py`, as for bioRxiv: the `/details` date-range "
-            "endpoint with no sort parameter (from the start "
-            "`default_start_days` gives it when a run sets none), the terms "
-            "matched by resmon; nothing establishes the order within the "
-            "range."
+            "`api_biorxiv.py`, as for bioRxiv: `search()` reads the "
+            "`/details` range, which the endpoint lists oldest first, from "
+            "its end back (`_newest_first`), each page reversed."
         ),
         constraints=_constraints(
             keyword_search="client_side",
@@ -1342,14 +1363,25 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                     "applied_default",
                     "With no start date, resmon asks medRxiv for the "
                     f"{DEFAULT_START_DAYS} days before the run starts, or "
-                    "before your end date when that is earlier. medRxiv lists "
-                    "a range oldest first, so asked from its first preprints "
-                    "in 2019 a run stops at your cap or after 45 seconds, long "
-                    "before recent ones.",
+                    "before your end date when that is earlier. resmon reads "
+                    "every preprint in the range itself, and medRxiv's whole "
+                    "archive since 2019 is far more than a search can read "
+                    "in 45 seconds.",
                     "`api_biorxiv.py`: `_default_start`, from the catalog's "
                     "`default_start_days`, for `d_from` in `search()`, and "
                     "`_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
+                ),
+                _notice(
+                    "date_window",
+                    "resmon reads medRxiv from the newest preprints in your "
+                    "window back, for at most 45 seconds, and a window longer "
+                    f"than {DEFAULT_START_DAYS} days can hold more than that "
+                    "reads. A run may stop before it reaches the start of your "
+                    "window, and says how far back it read.",
+                    "`api_biorxiv.py`: `_newest_first` in `search()`, "
+                    "`_SEARCH_BUDGET_SECONDS`, and `note_read`.",
+                    applies_when="beyond_default_start",
                 ),
             ),
         ),

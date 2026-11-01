@@ -51,9 +51,9 @@ from implementation_scripts.repo_catalog import (  # noqa: E402
 )
 from implementation_scripts.sweep_engine import SweepEngine  # noqa: E402
 
-WHY = ("because the run set no start date: bioRxiv lists a date range oldest "
-       "first, so asked from its first preprints a search stops long before "
-       "recent ones.")
+WHY = ("because the run set no start date: resmon reads every preprint in a "
+       "bioRxiv range itself, and bioRxiv's whole archive is far more than a "
+       "search can read in 45 seconds.")
 
 
 @pytest.fixture(autouse=True)
@@ -191,7 +191,7 @@ def test_an_end_date_already_past_is_counted_back_from(conn, answers):
     assert start["before"] == "end_date"
     assert start["sentence"].startswith(
         "medRxiv was asked from September 28, 2026, 3 days before the run's end date, "
-        "because the run set no start date: medRxiv lists")
+        "because the run set no start date: resmon reads every preprint in a medRxiv range")
 
 
 def test_a_run_with_a_start_date_records_no_start_it_did_not_give(conn, answers):

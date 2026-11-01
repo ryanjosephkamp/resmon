@@ -97,10 +97,10 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const anyTime = win.getByRole('button', { name: 'Any time', exact: true });
     await anyTime.click();
     await expect(win.locator('.ask-facts')).toContainText('Springer Nature has no API key here');
-    // bioRxiv lists a date range oldest first, so asked from its first
-    // preprints a search stops long before recent ones. Chosen with Any time,
-    // the form fills in the start the engine would give it and says why, Any
-    // time is not offered, and a cleared start is filled in again.
+    // resmon reads every bioRxiv preprint in a range itself, for at most 45
+    // seconds, and its whole archive is far more. Chosen with Any time, the
+    // form fills in the start the engine would give it and says why, Any time
+    // is not offered, and a cleared start is filled in again.
     const biorxiv = win.locator('.source[data-source="biorxiv"] input');
     const from = win.getByLabel('From', { exact: true });
     await biorxiv.check();
@@ -111,11 +111,21 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(from).toHaveValue(filled);
     await expect(anyTime).toBeDisabled();
     const startLine = win.locator('.ask-facts [data-ask="start-needed"]');
-    await expect(startLine).toHaveText(`bioRxiv needs a start date, so this search starts 3 days back, on ${words}: it lists a `
-      + 'date range oldest first, and asked from its first preprints a search stops long before recent ones.');
-    // The catalog's sentence for a blank start is never true here, so never shown.
-    await expect(win.locator('.ask-facts [data-ask="notice"]')).toHaveCount(0);
+    await expect(startLine).toHaveText(`bioRxiv needs a start date, so this search starts 3 days back, on ${words}: resmon `
+      + 'reads every preprint in its range itself, and its whole archive is far more than a search can read in 45 seconds.');
+    // The catalog's sentence for a blank start is never true here, so never
+    // shown, and the window is the default's own length.
+    const notice = win.locator('.ask-facts [data-ask="notice"]');
+    await expect(notice).toHaveCount(0);
+    // A window longer than that is read from its newest end back and may not
+    // reach its start, which the form says before the run.
+    await win.getByRole('button', { name: '30 days', exact: true }).click();
+    await expect(notice).toHaveText(['resmon reads bioRxiv from the newest preprints in your window back, for at most 45 '
+      + 'seconds, and a window longer than 3 days can hold more than that reads. A run may stop before it reaches the '
+      + 'start of your window, and says how far back it read.']);
+    await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-long-window.png') });
     await from.fill('');
+    await expect(notice).toHaveCount(0);
     await expect(from).toHaveValue(filled);
     await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-start-date.png') });
     // Unchosen, the blank it stood in for comes back, and Any time with it.
