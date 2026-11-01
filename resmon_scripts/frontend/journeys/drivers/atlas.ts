@@ -270,6 +270,14 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     // Fresh: the list says it is busy while it re-reads the engine on arrival.
     await expect(win().locator('section.index')).toHaveAttribute('aria-busy', 'false', { timeout: 120_000 });
     await expect(win().locator('.index-bar h2')).toHaveText(/^New /);
+    // Current, which arriving is not: Today first draws the answer it kept
+    // from the last visit, and reads again once it sees a run has ended since
+    // (`useRunsEnded`). So the count is waited on until it is the engine's own.
+    const total = (await backend.today()).total;
+    await expect.poll(
+      async () => Number((await win().locator('.index-bar h2 span').innerText()).replace(/,/g, '')),
+      { timeout: 30_000, message: `Today never showed the engine's ${total} papers` },
+    ).toBe(total);
   };
 
   const openSearch = async (): Promise<void> => {
