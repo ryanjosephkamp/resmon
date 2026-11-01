@@ -14,14 +14,12 @@ import { collectionSky } from './sky/collectionSky';
 import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
 import { filterCount } from './sky/look';
-import { FACETS_KEY, useMapLook } from './sky/useMapLook';
+import { useMapLook } from './sky/useMapLook';
+import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
 type Brief = components['schemas']['DocumentBrief'];
-
-export const MAP_KEY = ['map'] as const;
-export const TODAY_KEY = ['today'] as const;
 
 /**
  * Today, the morning edition: where last night's papers landed in the whole
@@ -76,9 +74,10 @@ export function Today() {
     const before = seenTotal.current;
     seenTotal.current = total;
     if (before === undefined || before === total) return;
-    void client.invalidateQueries({ queryKey: MAP_KEY });
-    void client.invalidateQueries({ queryKey: FACETS_KEY });
+    void invalidateFor(client, 'papers-arrived');
   }, [total, client]);
+  // Kept between visits (`freshness.ts`): a run that ended since is read in.
+  useRunsEnded();
   const plate = useRef<PlateHandle>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pointedId, setPointedId] = useState<number | null>(null);
@@ -141,7 +140,7 @@ export function Today() {
 
   const looked = useMutation({
     mutationFn: () => answer(engine().POST('/api/today/looked')),
-    onSuccess: () => client.invalidateQueries({ queryKey: TODAY_KEY }),
+    onSuccess: () => invalidateFor(client, 'looked'),
   });
   const save = useMutation({
     mutationFn: async ({ id, on }: { id: number; on: boolean }) => {
@@ -150,6 +149,7 @@ export function Today() {
       return { id, on };
     },
     onMutate: ({ id, on }) => setSaved((prev) => new Map(prev).set(id, on)),
+    onSuccess: () => invalidateFor(client, 'paper-changed'),
     onError: (_e, { id, on }) => setSaved((prev) => new Map(prev).set(id, !on)),
   });
 

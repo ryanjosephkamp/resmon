@@ -8,7 +8,7 @@
  */
 import { useMutation, useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import { engine, engineSentence } from '../../api/client';
-import { TODAY_KEY } from '../Today';
+import { invalidateFor } from '../today/freshness';
 import { RUNS_KEY, type DeleteOutcome, type RunRow } from './model';
 
 /** Ask the engine to delete each run, in order, and say what came of each. */
@@ -54,7 +54,7 @@ export function useDeleteRuns() {
       client.setQueriesData<RunRow[]>({ queryKey: ['routine-runs'] }, without);
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       void client.invalidateQueries({ queryKey: ['routine-runs'] });
-      void client.invalidateQueries({ queryKey: TODAY_KEY });
+      void invalidateFor(client, 'run-removed');
     },
   });
 }

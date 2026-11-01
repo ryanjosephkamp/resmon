@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
-import { MAP_KEY, Tip, findPosition } from '../Today';
+import { Tip, findPosition } from '../Today';
+import { MAP_KEY } from '../today/freshness';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
@@ -36,7 +37,6 @@ interface Props {
  * costs one pass over the collection's points.
  */
 export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
-  const client = useQueryClient();
   const { theme, shown } = useAppearance();
   const [now] = useState(() => new Date());
   const map = useQuery({
@@ -52,12 +52,8 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
     enabled: !running,
     queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', { params: { path: { exec_id: runId } } })),
   });
-  // A run that has just finished stored papers the map was read without: it is read again, which places them.
-  const settled = useRef(settledAt);
-  useEffect(() => {
-    if (settledAt && settled.current !== settledAt) void client.invalidateQueries({ queryKey: MAP_KEY });
-    settled.current = settledAt;
-  }, [settledAt, client]);
+  // A run that has just finished stored papers the map was read without: the
+  // run's page reports it (`useRunEnding`), which reads the map again and places them.
 
   const sourceName = useMemo(() => (slug: string) => names.get(slug) ?? slug, [names]);
   // Until the map has been read since the run ended, it lacks the run's papers.

@@ -21,6 +21,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
+import { SCREEN_PATHS } from '../atlas/src/screenPaths';
 
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -119,6 +120,47 @@ test('the top bar: its name goes home, and a click leaves no ring for the next k
     await home.click();
     await expect.poll(() => hash(win)).toBe('#/today');
     expect(await home.evaluate((node) => getComputedStyle(node).textDecorationLine)).toBe('none');
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
+test('opening a screen writes nothing into the frame’s fields', async () => {
+  // The palette's field, drawn on every change of screen while closed, had its
+  // `name` and `type` written again each time: three changes to the page at
+  // the very moment a screen settled.
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('frame');
+  try {
+    await win.evaluate(() => {
+      const seen: string[] = [];
+      (window as unknown as { e2eFrameChanges: string[] }).e2eFrameChanges = seen;
+      new MutationObserver((records) => {
+        for (const record of records) {
+          const node = record.target as Element;
+          if (node.tagName === 'INPUT' && !node.closest('main.stage')) seen.push(`${record.attributeName} on ${node.outerHTML.slice(0, 120)}`);
+        }
+      }).observe(document, { subtree: true, attributes: true });
+    });
+    for (const screen of SCREEN_PATHS) {
+      await win.evaluate((to) => { window.location.hash = to; }, `#${screen.path}`);
+      await expect.poll(() => hash(win)).toBe(`#${screen.path}`);
+    }
+    await win.evaluate(() => { window.location.hash = '#/today'; });
+    await expect.poll(() => hash(win)).toBe('#/today');
+    expect(await win.evaluate(() => (window as unknown as { e2eFrameChanges: string[] }).e2eFrameChanges)).toEqual([]);
+
+    // Opened, the palette's field is there, empty and holding the caret; closed, it is gone again.
+    await win.getByRole('button', { name: 'Search commands' }).click();
+    const field = win.getByRole('dialog', { name: 'Search commands' }).getByRole('combobox');
+    await expect(field).toBeFocused();
+    await field.fill('cal');
+    await win.keyboard.press('Escape');
+    await expect(win.locator('dialog.palette input')).toHaveCount(0);
+    await win.getByRole('button', { name: 'Search commands' }).click();
+    await expect(field).toHaveValue('');
+    await win.keyboard.press('Escape');
     expect(problems).toEqual([]);
   } finally {
     await done();

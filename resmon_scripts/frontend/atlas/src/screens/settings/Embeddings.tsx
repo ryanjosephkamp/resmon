@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
-import { MAP_KEY } from '../Today';
+import { invalidateFor } from '../today/freshness';
 import { count } from '../today/format';
 import {
   EMBEDDING_STATUS_KEY, embeddedWords, estimateWords, indexWords, missingCount, missingWords, nothingToEmbedWords,
@@ -130,7 +130,7 @@ function LaneForm({ page }: { page: EmbeddingPage }) {
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: EMBEDDING_PAGE_KEY }),
       client.invalidateQueries({ queryKey: EMBEDDING_STATUS_KEY }),
-      client.invalidateQueries({ queryKey: MAP_KEY }),
+      invalidateFor(client, 'map-basis-changed'),
     ]),
   });
   const set = (key: keyof LaneFields) => (value: string) => setForm({ ...form, [key]: value });
