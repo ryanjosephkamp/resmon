@@ -4,7 +4,7 @@ import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
 import { FirstRun } from './today/FirstRun';
-import { useOpening } from './today/opening';
+import { answerKey, useOpening } from './today/opening';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
@@ -132,11 +132,12 @@ export function Today() {
   const lifecycle = useLifecycleFor(listedIds);
 
   // The opening: the plate settles, then the new papers light in the order
-  // they arrived, their numbers in the index lighting with them (`opening.ts`).
-  // Without motion everything is lit from the start, and papers that arrive
-  // after the opening (a later read) are lit at once.
+  // they arrived, their numbers in the index lighting with them (`opening.ts`),
+  // once for each answer this window has not opened. Without motion everything
+  // is lit from the start, and papers that arrive after the opening (a later
+  // read) are lit at once.
   const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const opening = useOpening(!!sky && !!today.data, still);
+  const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
 
   const looked = useMutation({
     mutationFn: () => answer(engine().POST('/api/today/looked')),

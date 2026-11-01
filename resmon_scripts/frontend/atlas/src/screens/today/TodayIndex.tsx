@@ -23,6 +23,21 @@ export interface IndexPaper extends TodayPaper {
 
 export interface Region { id: number; label: string }
 
+/**
+ * How many of a group's papers are listed at first, and how many more each
+ * "Show more" adds. A thousand entries took longer to mount than the rest of
+ * Today together, on every visit; the plate shows them all either way, and a
+ * paper chosen on the plate is listed however far down its group it is.
+ */
+export const GROUP_FIRST = 25;
+export const GROUP_MORE = 50;
+
+/** How many of a group's papers to list: what was asked for, and as far as the paper chosen on the plate. */
+export function listedIn(papers: readonly { id: number }[], asked: number, selected: number | null): number {
+  const at = selected === null ? -1 : papers.findIndex((paper) => paper.id === selected);
+  return Math.min(papers.length, Math.max(asked, at + 1));
+}
+
 interface Group {
   key: string;
   title: string;
@@ -71,6 +86,16 @@ export function TodayIndex(props: Props) {
     marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy,
   } = props;
   const scroller = useRef<HTMLDivElement>(null);
+  // How far each group's list has been opened with Show more, by group.
+  const [reach, setReach] = useState<ReadonlyMap<string, number>>(new Map());
+  // After Show more, the caret goes to the first paper it listed.
+  const focusNext = useRef<number | null>(null);
+  useEffect(() => {
+    const id = focusNext.current;
+    if (id === null) return;
+    focusNext.current = null;
+    scroller.current?.querySelector<HTMLElement>(`[data-paper="${id}"] .entry-title`)?.focus();
+  }, [reach]);
 
   const groups = useMemo<Group[]>(() => {
     if (by === 'region') {
@@ -116,6 +141,42 @@ export function TodayIndex(props: Props) {
     entry?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   }, [selected]);
 
+  /** A group's papers as far as they are listed, and the Show more that lists the next ones. */
+  const listOf = (group: Group) => {
+    const listed = listedIn(group.papers, reach.get(group.key) ?? GROUP_FIRST, selected);
+    const rest = group.papers.length - listed;
+    return (
+      <>
+        {group.papers.slice(0, listed).map((paper) => (
+          <Entry
+            key={`${group.key}:${paper.id}`}
+            paper={paper}
+            opening={opening}
+            listed={papers.length}
+            selected={paper.id === selected}
+            saved={saved.get(paper.id) ?? paper.queue_status !== null}
+            events={lifecycle?.[String(paper.id)]}
+            sourceName={sourceName}
+            onSelect={onSelect}
+            onPoint={onPoint}
+            onZoomTo={onZoomTo}
+            onToggleSave={onToggleSave}
+          />
+        ))}
+        {rest > 0 && (
+          <button type="button" className="btn sm more" data-today="show-more"
+            aria-label={`Show ${number(Math.min(GROUP_MORE, rest))} more of ${group.title}, ${number(rest)} not listed yet`}
+            onClick={() => {
+              focusNext.current = group.papers[listed]?.id ?? null;
+              setReach((was) => new Map(was).set(group.key, listed + GROUP_MORE));
+            }}>
+            Show {number(Math.min(GROUP_MORE, rest))} more
+          </button>
+        )}
+      </>
+    );
+  };
+
   const shown = papers.length;
   return (
     <section className="index" aria-labelledby="index-title" aria-busy={busy}>
@@ -157,22 +218,7 @@ export function TodayIndex(props: Props) {
                   : `${number(group.papers.length)} of them are among the newest ${number(papers.length)} listed; the rest are on the plate.`}
               </p>
             )}
-            {group.papers.map((paper) => (
-              <Entry
-                key={`${group.key}:${paper.id}`}
-                paper={paper}
-                opening={opening}
-                listed={papers.length}
-                selected={paper.id === selected}
-                saved={saved.get(paper.id) ?? paper.queue_status !== null}
-                events={lifecycle?.[String(paper.id)]}
-                sourceName={sourceName}
-                onSelect={onSelect}
-                onPoint={onPoint}
-                onZoomTo={onZoomTo}
-                onToggleSave={onToggleSave}
-              />
-            ))}
+            {listOf(group)}
           </section>
         ))}
         {total === 0 && (
