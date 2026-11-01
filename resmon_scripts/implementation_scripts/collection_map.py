@@ -1054,6 +1054,12 @@ _lock = threading.RLock()
 _fits: dict[Optional[str], Fit] = {}
 _jobs: dict[Optional[str], threading.Thread] = {}
 _errors: dict[Optional[str], str] = {}
+#: How many times each database's map has been forgotten. A fit remembers the
+#: number it started under, and one that ends under another stores nothing:
+#: the papers it read were erased while it ran.
+_generations: dict[Optional[str], int] = {}
+#: The child process fitting each database's map, while one runs.
+_children: dict[Optional[str], subprocess.Popen] = {}
 
 
 def _key(path: Optional[Path]) -> Optional[str]:
@@ -1088,6 +1094,22 @@ def _database_of(path: Path) -> Path:
     return Path(str(path)[: -len("-map.npz")])
 
 
+def _child_files(path: Path, pid: Optional[int] = None) -> list[Path]:
+    """What a child writes beside the cache: its fit, and the fit's half-written file while ``save`` runs."""
+    output = path.with_name(f"{path.name}{_CHILD_SUFFIX}")
+    if pid is not None:
+        return [output, output.with_name(f"{output.name}.{pid}.tmp")]
+    return [output, *path.parent.glob(f"{output.name}.*.tmp")]
+
+
+def _remove(paths: list[Path]) -> None:
+    for each in paths:
+        try:
+            each.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
     """Fit the database ``path`` belongs to in a child process: its fit, and the file it wrote.
 
@@ -1104,20 +1126,27 @@ def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
     output = path.with_name(f"{path.name}{_CHILD_SUFFIX}")
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in (str(_SCRIPTS), env.get("PYTHONPATH", "")) if p)
-    done = subprocess.run(
-        [sys.executable, "-m", "implementation_scripts.collection_map",
-         str(_database_of(path)), str(path), str(output), model or ""],
-        cwd=str(_SCRIPTS), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE, text=True, check=False,
-    )
-    fresh = load(output) if done.returncode == 0 else None
+    key = _key(path)
+    with _lock:
+        child = subprocess.Popen(
+            [sys.executable, "-m", "implementation_scripts.collection_map",
+             str(_database_of(path)), str(path), str(output), model or ""],
+            cwd=str(_SCRIPTS), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE, text=True,
+        )
+        # Held where ``forget`` can reach it, to stop a fit of papers being erased.
+        _children[key] = child
+    try:
+        _, stderr = child.communicate()
+    finally:
+        with _lock:
+            if _children.get(key) is child:
+                del _children[key]
+    fresh = load(output) if child.returncode == 0 else None
     if fresh is None:
-        try:
-            output.unlink()
-        except FileNotFoundError:
-            pass
-        said = (done.stderr or "").strip().splitlines()
-        raise RuntimeError(said[-1] if said else f"the fit exited with status {done.returncode} and kept no map")
+        _remove(_child_files(path, child.pid))
+        said = (stderr or "").strip().splitlines()
+        raise RuntimeError(said[-1] if said else f"the fit exited with status {child.returncode} and kept no map")
     return fresh, output
 
 
@@ -1152,6 +1181,11 @@ def _start_fit(path: Optional[Path], model: Optional[str],
         if running is not None and running.is_alive():
             return
         _errors.pop(key, None)
+        generation = _generations.get(key, 0)
+
+        def current() -> bool:
+            """Whether the papers this fit read are still the database's. Hold ``_lock``."""
+            return _generations.get(key, 0) == generation
 
         def run() -> None:
             try:
@@ -1160,15 +1194,22 @@ def _start_fit(path: Optional[Path], model: Optional[str],
                     conn = open_connection()
                     fresh = fit_corpus(conn, model, previous=_current(path))
                     with _lock:
-                        _fits[key] = fresh
+                        if current():
+                            _fits[key] = fresh
                     return
                 fresh, written = _fit_in_child(path, model)
                 with _lock:
+                    if not current():
+                        # Forgotten while it ran: it holds words from erased papers.
+                        _remove([written])
+                        return
                     _fits[key] = fresh
                     os.replace(written, path)
             except Exception as exc:
-                logger.exception("collection map: fit failed")
                 with _lock:
+                    if not current():
+                        return  # stopped by ``forget``, which is not a failure to report
+                    logger.exception("collection map: fit failed")
                     _errors[key] = f"{type(exc).__name__}: {exc}"
 
         thread = threading.Thread(target=run, name="collection-map-fit", daemon=True)
@@ -1185,20 +1226,29 @@ def wait(conn: sqlite3.Connection, timeout: float = 120.0) -> None:
 
 
 def forget(conn: sqlite3.Connection) -> None:
-    """Drop the map of this database, in memory and on disk.
+    """Drop the map of this database, in memory and on disk, and stop a fit of it.
 
     Called when the corpus is erased: the file holds positions and words taken
-    from the papers, and erasing the papers has to erase them too.
+    from the papers, and erasing the papers has to erase them too. A fit under
+    way read those papers, so its child is stopped, and a fit that ends anyway
+    finds the generation it started under gone and stores nothing.
     """
     path = cache_path(conn)
+    key = _key(path)
     with _lock:
-        _fits.pop(_key(path), None)
-        _errors.pop(_key(path), None)
-    if path is not None:
+        _generations[key] = _generations.get(key, 0) + 1
+        _fits.pop(key, None)
+        _errors.pop(key, None)
+        child = _children.get(key)
+    if child is not None and child.poll() is None:
+        child.terminate()
         try:
-            path.unlink()
-        except FileNotFoundError:
-            pass
+            child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            child.kill()
+            child.wait()
+    if path is not None:
+        _remove([path, *_child_files(path)])
 
 
 def snapshot(conn: sqlite3.Connection, model: Optional[str],

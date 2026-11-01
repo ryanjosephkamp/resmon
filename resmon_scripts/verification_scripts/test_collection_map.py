@@ -20,7 +20,9 @@ import hashlib
 import random
 import sqlite3
 import struct
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -415,6 +417,63 @@ def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tm
     assert "unable to open database file" in cm._errors[str(path)]
     assert not path.exists()
     assert not path.with_name(path.name + cm._CHILD_SUFFIX).exists()
+
+
+def _fitting_children(database: Path) -> list[str]:
+    """The processes fitting this database's map, by their command line."""
+    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=True).stdout
+    return [line for line in listing.splitlines()
+            if "implementation_scripts.collection_map" in line and str(database) in line]
+
+
+def _leftovers(path: Path) -> list[str]:
+    return sorted(p.name for p in path.parent.iterdir() if p.name.startswith(path.name))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the slow interpreter is a shell script")
+def test_erasing_during_a_fit_stops_it_and_keeps_nothing_of_the_papers(db, monkeypatch, tmp_path):
+    """An erase while the map is fitted: no file, no map in memory, no child left fitting."""
+    _corpus(db, per_topic=20)
+    path = cm.cache_path(db)
+    database = Path(str(path)[: -len("-map.npz")])
+    # The child starts a second late, so the erase lands while it is running.
+    slow = tmp_path / "slow-python"
+    slow.write_text(f"#!/bin/sh\nsleep 1\nexec {sys.executable} \"$@\"\n")
+    slow.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(slow))
+
+    assert cm.snapshot(db, None, lambda: db)["state"] == "fitting"
+    deadline = time.monotonic() + 10
+    while not _fitting_children(database) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _fitting_children(database), "no child was fitting the map"
+
+    cm.forget(db)
+    cm.wait(db)
+    time.sleep(2)  # past when the child would have finished had it been left running
+    assert _leftovers(path) == []
+    assert cm._fits.get(str(path)) is None
+    assert str(path) not in cm._errors
+    assert _fitting_children(database) == []
+
+
+def test_a_fit_that_ends_after_an_erase_stores_nothing(db, monkeypatch):
+    """The fit's result arrives after ``forget``: neither the map nor its file is kept."""
+    _corpus(db, per_topic=20)
+    path = cm.cache_path(db)
+
+    def finished_after_an_erase(where, model):
+        written = where.with_name(where.name + cm._CHILD_SUFFIX)
+        cm.save(cm.fit_corpus(db, model), written)
+        cm.forget(db)  # the corpus is erased just before the fit's result is stored
+        return cm.load(written), written
+
+    monkeypatch.setattr(cm, "_fit_in_child", finished_after_an_erase)
+    cm.snapshot(db, None, lambda: db)
+    cm.wait(db)
+    assert _leftovers(path) == []
+    assert cm._fits.get(str(path)) is None
+    assert str(path) not in cm._errors
 
 
 # ---------------------------------------------------------------------------
