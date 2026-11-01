@@ -116,6 +116,23 @@ function startLine(popover: HTMLElement): string {
 }
 
 describe('Calendar — the grid and the popover tell the same time', () => {
+  // The calendar opens on the current month, and every run here is in October
+  // 2026, so the file passed only until November 1. Only the clock is fixed:
+  // the page's own timers and the awaited renders run as they do in the app.
+  beforeEach(() => {
+    jest.useFakeTimers({
+      now: new Date('2026-10-25T16:00:00Z'),
+      doNotFake: [
+        'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame',
+        'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate',
+        'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+      ],
+    });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
   test('the test environment really is on a non-UTC zone', () => {
     // Without this the rest of the file would pass against a UTC machine
     // while the defect was fully intact, which is the failure mode this
