@@ -388,6 +388,35 @@ def test_forgetting_removes_the_file_and_the_fit(db):
     assert cm._fits.get(str(path)) is None
 
 
+def test_the_fit_runs_in_a_child_process(db, monkeypatch):
+    """Not in the engine's interpreter, where it held up every request beside it."""
+    _corpus(db, per_topic=20)
+
+    def in_the_engine(*_args, **_kwargs):
+        raise AssertionError("the engine fitted the map in its own process")
+
+    monkeypatch.setattr(cm, "fit_corpus", in_the_engine)
+    assert cm.snapshot(db, None, lambda: db)["state"] == "fitting"
+    cm.wait(db)
+    answer = cm.snapshot(db, None, lambda: db)
+    assert answer["state"] == "ready" and answer["error"] is None
+    assert len(answer["points"]["id"]) == 80
+    path = cm.cache_path(db)
+    assert path is not None and path.exists()
+    assert not path.with_name(path.name + cm._CHILD_SUFFIX).exists()
+
+
+def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tmp_path):
+    _corpus(db, per_topic=20)
+    monkeypatch.setattr(cm, "_database_of", lambda _path: tmp_path / "no-such-folder" / "resmon.db")
+    cm.snapshot(db, None, lambda: db)
+    cm.wait(db)
+    path = cm.cache_path(db)
+    assert "unable to open database file" in cm._errors[str(path)]
+    assert not path.exists()
+    assert not path.with_name(path.name + cm._CHILD_SUFFIX).exists()
+
+
 # ---------------------------------------------------------------------------
 # Through the route
 # ---------------------------------------------------------------------------

@@ -36,8 +36,9 @@ How it is drawn
 
 Cheap to keep, expensive to fit
 -------------------------------
-A full fit at 100,000 papers takes tens of seconds, so it runs on a background
-thread, and its result is kept in a file beside the database. The file is
+A full fit at 100,000 papers takes tens of seconds, so it runs in a child
+process, watched by a background thread, and its result is kept in a file
+beside the database (:func:`_fit_in_child` says why a process). The file is
 derived: droppable, never backed up, and deleted with the corpus. Papers that
 arrive after a fit are placed against it in milliseconds. A refit happens when
 they reach :data:`REFIT_FRACTION` of the papers the fit saw, or when the basis
@@ -54,7 +55,10 @@ import math
 import os
 import re
 import sqlite3
+import subprocess
+import sys
 import threading
+import time
 import zlib
 from array import array
 from collections import Counter
@@ -1072,6 +1076,74 @@ def fitting(path: Optional[Path]) -> bool:
         return job is not None and job.is_alive()
 
 
+#: The directory ``implementation_scripts`` is imported from, for the child.
+_SCRIPTS = Path(__file__).resolve().parent.parent
+
+#: How a child's file is named beside the cache while it is written and read.
+_CHILD_SUFFIX = "-fit.npz"
+
+
+def _database_of(path: Path) -> Path:
+    """The database a cache file sits beside (``<database>-map.npz``)."""
+    return Path(str(path)[: -len("-map.npz")])
+
+
+def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
+    """Fit the database ``path`` belongs to in a child process: its fit, and the file it wrote.
+
+    A fit is seconds of NumPy and Python loops. On a thread it shares the
+    engine's interpreter lock, and every request answered meanwhile waits for
+    the lock again after each row SQLite hands back: on the first launch over
+    10,000 papers, Today's read took 2.1 s beside the fit and 0.21 s alone,
+    and the window waited for it. A child has its own interpreter, so the
+    engine answers as fast while a fit runs. The child reads the database,
+    starts from the map kept beside it, and writes its fit beside that. On
+    macOS and Linux it exits if the engine does; on Windows, where an orphan
+    keeps its parent's id, it finishes the fit and then exits.
+    """
+    output = path.with_name(f"{path.name}{_CHILD_SUFFIX}")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = os.pathsep.join(p for p in (str(_SCRIPTS), env.get("PYTHONPATH", "")) if p)
+    done = subprocess.run(
+        [sys.executable, "-m", "implementation_scripts.collection_map",
+         str(_database_of(path)), str(path), str(output), model or ""],
+        cwd=str(_SCRIPTS), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE, text=True, check=False,
+    )
+    fresh = load(output) if done.returncode == 0 else None
+    if fresh is None:
+        try:
+            output.unlink()
+        except FileNotFoundError:
+            pass
+        said = (done.stderr or "").strip().splitlines()
+        raise RuntimeError(said[-1] if said else f"the fit exited with status {done.returncode} and kept no map")
+    return fresh, output
+
+
+def _child(database: str, cache: str, output: str, model: str) -> int:
+    """The child's whole work: one fit, written to ``output``."""
+    engine = os.getppid()
+
+    def outlive_nothing() -> None:
+        # Orphaned, a child is adopted by another parent: the engine is gone,
+        # and so is anyone to read the fit.
+        while True:
+            time.sleep(0.5)
+            if os.getppid() != engine:
+                os._exit(0)
+
+    threading.Thread(target=outlive_nothing, name="collection-map-parent", daemon=True).start()
+    conn = sqlite3.connect(database, timeout=30)
+    conn.execute("PRAGMA query_only = ON")
+    try:
+        fresh = fit_corpus(conn, model or None, previous=load(Path(cache)))
+    finally:
+        conn.close()
+    save(fresh, Path(output))
+    return 0
+
+
 def _start_fit(path: Optional[Path], model: Optional[str],
                open_connection: Callable[[], sqlite3.Connection]) -> None:
     key = _key(path)
@@ -1083,12 +1155,17 @@ def _start_fit(path: Optional[Path], model: Optional[str],
 
         def run() -> None:
             try:
-                conn = open_connection()
-                fresh = fit_corpus(conn, model, previous=_current(path))
+                if path is None:
+                    # A database with no file has nothing a child could open.
+                    conn = open_connection()
+                    fresh = fit_corpus(conn, model, previous=_current(path))
+                    with _lock:
+                        _fits[key] = fresh
+                    return
+                fresh, written = _fit_in_child(path, model)
                 with _lock:
                     _fits[key] = fresh
-                if path is not None:
-                    save(fresh, path)
+                    os.replace(written, path)
             except Exception as exc:
                 logger.exception("collection map: fit failed")
                 with _lock:
@@ -1225,3 +1302,7 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
                 "seen_day": seen_by_id.tolist(),
             },
         }
+
+
+if __name__ == "__main__":
+    sys.exit(_child(*sys.argv[1:5]))
