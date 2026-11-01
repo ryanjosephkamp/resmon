@@ -64,6 +64,14 @@ PENDING_NAME = "restore.pending"
 UNDO_DIR_NAME = "restore-undo"
 #: The record of the last restore attempt, successful or not.
 RESTORE_LOG_NAME = "restore-last.json"
+#: What a restore sets aside with the database it replaces, by suffix: the
+#: database and its WAL pair, and the answers derived from its papers and kept
+#: beside it -- the collection map (``<db>-map.npz``, and a fit a stopped
+#: engine left unread) and shared wording (``<db>-wording.json``). They are
+#: never backed up and describe the papers being replaced, so the restored
+#: database starts without them, as an erased corpus does; an undo puts them
+#: back with the database.
+SET_ASIDE_SUFFIXES = ("", "-wal", "-shm", "-map.npz", "-map.npz-fit.npz", "-wording.json")
 
 #: Process state that exists only while a backend is running. None of it is
 #: restorable, and the manifest names it so a reader is not left wondering
@@ -1003,7 +1011,7 @@ def apply_pending_restore(
     #: Nothing was set aside for it because there was nothing there, so the undo
     #: removes it rather than leaving the bundle's vault behind.
     vault_created: list[Path] = []
-    for suffix in ("", "-wal", "-shm"):
+    for suffix in SET_ASIDE_SUFFIXES:
         current = Path(str(db_path) + suffix)
         if current.exists():
             destination = undo / current.name
