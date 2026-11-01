@@ -57,7 +57,7 @@ export function Analytics() {
     <div className="page health analytics-page" aria-busy={overview.isFetching}>
       <HealthTabs />
       <p className="page-lede">
-        What your collection holds, and which sources, terms and watches earn their place, in the engine’s numbers.
+        What your collection holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
         A view with too little to go on says so instead of drawing a chart.
       </p>
       {overview.isPending && <p className="page-lede">Counting.</p>}

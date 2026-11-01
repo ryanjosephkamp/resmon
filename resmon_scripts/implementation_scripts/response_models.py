@@ -981,8 +981,9 @@ class MapView(LosslessModel):
 
     Empty ``watches`` or ``sources`` filter nothing. ``dates`` says which date
     ``date_from`` and ``date_to`` (inclusive, ``YYYY-MM-DD``, either may be
-    null) are read against. The PUT answers what it stored, after anything it
-    did not recognize fell back to the default.
+    null) are read against. ``list_by`` is how the list beside Today's map is
+    grouped; a run's map has no list. The PUT answers what it stored, after
+    anything it did not recognize fell back to the default.
     """
 
     color: Literal["region", "watch", "source", "age"]
@@ -992,6 +993,7 @@ class MapView(LosslessModel):
     date_from: Optional[str]
     date_to: Optional[str]
     state: Literal["any", "saved", "to_read", "read", "new"]
+    list_by: Literal["watch", "region"]
 
 
 class TodaySourceNote(LosslessModel):

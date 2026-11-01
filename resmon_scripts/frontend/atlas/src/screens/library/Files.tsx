@@ -171,7 +171,7 @@ function Vault({ status }: { status: LibraryStatus }) {
           <label className="btn primary" aria-disabled={importing.isPending}>
             {importing.isPending ? 'Importing' : 'Import files'}
             <input ref={input} type="file" multiple accept=".pdf,.txt,.md,application/pdf,text/plain,text/markdown"
-              aria-label="Import PDF, TXT or MD" className="sr-only" disabled={importing.isPending} onChange={onChosen} />
+              aria-label="Import PDF, TXT, or MD" className="sr-only" disabled={importing.isPending} onChange={onChosen} />
           </label>
           <button type="button" className="btn" disabled={inventory.isPending} onClick={() => inventory.mutate()}>
             Save an inventory
@@ -184,7 +184,7 @@ function Vault({ status }: { status: LibraryStatus }) {
       )}
       {inventory.error && <p className="field-error" role="alert">{errorWords(inventory.error)}</p>}
       <p className="form-hint">
-        PDF, TXT and MD, up to {sizeWords(status.limits.file_bytes)} each. An inventory lists what the database records
+        PDF, TXT, and MD, up to {sizeWords(status.limits.file_bytes)} each. An inventory lists what the database records
         about each file; it is not a copy of the files.
       </p>
 
@@ -195,7 +195,7 @@ function Vault({ status }: { status: LibraryStatus }) {
               aria-label="Filter by file name" autoComplete="off" spellCheck={false} />
           </label>
           {files.data && !list.length && (
-            <p className="index-empty">{q ? `No file name contains “${q}”.` : 'Nothing is kept yet. Import a PDF, TXT or MD file.'}</p>
+            <p className="index-empty">{q ? `No file name contains “${q}”.` : 'Nothing is kept yet. Import a PDF, TXT, or MD file.'}</p>
           )}
           <ol className="library-files">
             {list.map((file) => (

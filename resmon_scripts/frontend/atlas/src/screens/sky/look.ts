@@ -18,12 +18,12 @@ import { count, number } from '../today/format';
 
 export type Facets = components['schemas']['MapFacets'];
 export type MapView = Pick<components['schemas']['MapView'],
-  'color' | 'watches' | 'sources' | 'dates' | 'date_from' | 'date_to' | 'state'>;
+  'color' | 'watches' | 'sources' | 'dates' | 'date_from' | 'date_to' | 'state' | 'list_by'>;
 export type ColorBy = MapView['color'];
 export type StateFilter = MapView['state'];
 
 export const DEFAULT_VIEW: MapView = {
-  color: 'region', watches: [], sources: [], dates: 'found', date_from: null, date_to: null, state: 'any',
+  color: 'region', watches: [], sources: [], dates: 'found', date_from: null, date_to: null, state: 'any', list_by: 'watch',
 };
 
 export const COLOR_WORDS: Record<ColorBy, string> = {

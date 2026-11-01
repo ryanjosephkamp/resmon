@@ -344,7 +344,8 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
   /** Search › Your collection, settled: the list read, the duplicate labels and folds with it. */
   const openCollection = async (query?: string): Promise<void> => {
-    const onIt = await win().evaluate(() => window.location.hash === '#/search');
+    // The words searched for are kept in the address, as `?q=`.
+    const onIt = await win().evaluate(() => /^#\/search(\?|$)/.test(window.location.hash));
     if (!onIt) await win().evaluate(() => { window.location.hash = '#/search'; });
     await expect(win().getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 30_000 });
     if (query !== undefined) {
@@ -1031,7 +1032,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await openFiles();
       await win().getByRole('button', { name: 'Create the library here', exact: true }).click();
       // The control that exists only once there is somewhere to import into.
-      await expect(win().getByLabel('Import PDF, TXT or MD')).toBeEnabled({ timeout: 60_000 });
+      await expect(win().getByLabel('Import PDF, TXT, or MD')).toBeEnabled({ timeout: 60_000 });
       return vaultDirectory();
     },
 
@@ -1044,7 +1045,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         fs.writeFileSync(target, file.content);
         return target;
       });
-      const control = win().getByLabel('Import PDF, TXT or MD');
+      const control = win().getByLabel('Import PDF, TXT, or MD');
       await expect(control).toBeEnabled({ timeout: 60_000 });
       await control.setInputFiles(paths);
       // The page's own account of what it did, written once every file was answered.

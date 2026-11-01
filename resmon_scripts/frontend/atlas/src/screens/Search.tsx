@@ -232,7 +232,7 @@ export function Search() {
           </p>
         )}
 
-        <PlaceHelp summary="About sources, their limits and their keys">
+        <PlaceHelp summary="About sources, their limits, and their keys">
           <p>
             Each source is listed with its own limits before you ask: how it combines your terms, how many requests it
             allows, and how finely it can date a paper. A source that dates papers only to the year cannot answer a

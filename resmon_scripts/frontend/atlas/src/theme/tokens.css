@@ -51,6 +51,9 @@
   --frame: #4a4842;
   --band: #3a3935;
   --bound: #77736b;
+  /* A map's papers the filters or the find leave out, and a small map's other papers: quieter than any lit
+     paper, and 3:1 against the plate, so each is still seen (`sky/__tests__/marks.test.ts`). */
+  --dim-mark: #68655f;
   --fault: #ff6253;
   /* A chart's context segment beside the accent: checked against the accent for color-blind separation
      (worst ΔE 18.7) and against the panel for contrast (3:1 or more). */
@@ -90,6 +93,7 @@
   --frame: #8c897f;
   --band: #b9b6ae;
   --bound: #7d7a72;
+  --dim-mark: #928e86;
   --fault: #c22b1d;
   --chart-context: #8a867e;
   --map-1: #2a78d6;

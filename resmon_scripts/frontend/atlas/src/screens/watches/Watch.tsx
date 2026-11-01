@@ -54,8 +54,13 @@ function WatchPage({ raw }: { raw: string }) {
   const client = useQueryClient();
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
-  /** What Run now came to: a run started, a run queued for the next free slot, or a refusal. */
-  const [said, setSaid] = useState<{ run: number | null; queued: boolean; text: string } | null>(null);
+  /**
+   * What Run now came to: a run started, a run queued for the next free slot,
+   * or a refusal. A queued run has no number until it starts, so `after` is the
+   * newest of this watch's runs when it was queued: the first run after it is
+   * the queued one.
+   */
+  const [said, setSaid] = useState<{ run: number | null; queued: boolean; text: string; after?: number } | null>(null);
   const saved = (useLocation().state as { said?: string } | null)?.said ?? null;
 
   const routine = useQuery({
@@ -63,13 +68,23 @@ function WatchPage({ raw }: { raw: string }) {
     enabled: Number.isInteger(id) && id > 0,
     queryFn: () => answer(engine().GET('/api/routines/{routine_id}', { params: { path: { routine_id: id } } })),
   });
+  const waitingAfter = said?.queued ? said.after ?? 0 : null;
   const history = useQuery({
     queryKey: ['routine-runs', id],
     enabled: routine.isSuccess,
     queryFn: () => answer(engine().GET('/api/executions', { params: { query: { routine_id: id, limit: 60 } } })),
-    refetchInterval: (query) => ((query.state.data ?? []).some((run) => run.status === 'running') ? 1_500 : false),
+    refetchInterval: (query) => {
+      const runs = query.state.data ?? [];
+      if (runs.some((run) => run.status === 'running')) return 1_500;
+      // Queued, the run is not in the list yet: read again until it is, so the page says when it starts.
+      if (waitingAfter !== null && !runs.some((run) => run.id > waitingAfter)) return 2_000;
+      return false;
+    },
   });
   const running = (history.data ?? []).find((run) => run.status === 'running') ?? null;
+  // The run Run now queued, once it has started: the earliest of this watch's runs after the queuing.
+  const dequeued = waitingAfter === null ? null
+    : [...(history.data ?? [])].filter((run) => run.id > waitingAfter).sort((a, b) => a.id - b.id)[0] ?? null;
   const latest = (history.data ?? []).find((run) => run.status !== 'running') ?? null;
   const papers = useWatchPapers(routine.isSuccess ? id : null);
   const latestPapers = useQuery({
@@ -113,7 +128,8 @@ function WatchPage({ raw }: { raw: string }) {
     mutationFn: () => answer(engine().POST('/api/routines/{routine_id}/run', { params: { path: { routine_id: id } } })),
     onMutate: () => setSaid(null),
     onSuccess: (started) => {
-      setSaid({ run: started.execution_id ?? null, queued: started.queued === true, text: started.detail });
+      const newest = Math.max(0, ...(history.data ?? []).map((run) => run.id));
+      setSaid({ run: started.execution_id ?? null, queued: started.queued === true, text: started.detail, after: newest });
       void client.invalidateQueries({ queryKey: ['routine-runs', id] });
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       void client.invalidateQueries({ queryKey: WATCHES_KEY });
@@ -188,6 +204,14 @@ function WatchPage({ raw }: { raw: string }) {
             ? <p className="run-note run-now-said" data-run-started={said.run}>
               {said.text} <Link to={`/runs/${said.run}`}>Open run {said.run}</Link>
             </p>
+            : said.queued && dequeued
+              // The queued run has started, on its own: said, and named, from the run itself.
+              ? <p className="run-note run-now-said" role="status" data-run-started={dequeued.id} data-run-dequeued="true">
+                {dequeued.status === 'running'
+                  ? 'The queued run has started, and is running.'
+                  : `The queued run started and has ended: ${dequeued.status}.`}{' '}
+                <Link to={`/runs/${dequeued.id}`}>Open run {dequeued.id}</Link>
+              </p>
             : said.queued
               // Accepted, not refused: the run starts on its own when a slot frees.
               ? <p className="run-note run-now-said" role="status" data-run-queued="true">{said.text}</p>

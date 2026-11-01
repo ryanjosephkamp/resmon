@@ -140,6 +140,9 @@ export function ariaKeys(chord: Chord, mac: boolean): string {
 export const COMMAND_ENTER = 'data-command-enter';
 export const COMMAND_ENTER_CHORD: Chord = { key: 'Enter', command: true };
 
+/** Find in the document the Library's reader shows, while the keyboard is in its project (`Reader.tsx`). */
+export const FIND_CHORD: Chord = { key: 'f', command: true };
+
 /** A field's or a form's opt-in to ⌘Enter, for spreading onto it: the button to press, or its form's submit. */
 export function commandEnter(button?: string): { 'data-command-enter': string } {
   return { [COMMAND_ENTER]: button ?? '' } as { 'data-command-enter': string };

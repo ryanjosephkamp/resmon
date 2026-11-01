@@ -42,6 +42,7 @@ VIEW_NAMES = ("today", "run")
 COLORS = ("region", "watch", "source", "age")
 DATE_BASES = ("found", "published")
 STATES = ("any", "saved", "to_read", "read", "new")
+LISTS = ("watch", "region")
 #: The shortest find the engine runs: one letter matches most of a collection.
 FIND_MIN_CHARS = 2
 
@@ -135,7 +136,7 @@ def find(conn: sqlite3.Connection, query: str) -> list[int]:
 
 DEFAULT_VIEW = {
     "color": "region", "watches": [], "sources": [], "dates": "found",
-    "date_from": None, "date_to": None, "state": "any",
+    "date_from": None, "date_to": None, "state": "any", "list_by": "watch",
 }
 
 
@@ -155,6 +156,8 @@ def clean_view(value: object) -> dict:
         view["dates"] = raw["dates"]
     if raw.get("state") in STATES:
         view["state"] = raw["state"]
+    if raw.get("list_by") in LISTS:
+        view["list_by"] = raw["list_by"]
     watches = raw.get("watches")
     if isinstance(watches, list):
         view["watches"] = sorted({int(w) for w in watches if isinstance(w, int) and not isinstance(w, bool)})

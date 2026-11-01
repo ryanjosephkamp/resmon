@@ -172,7 +172,7 @@ function ScanFacts({ data, now }: { data: SharedWordingOverview; now: Date }) {
           <dd>
             Two abstracts that share a passage of at least {s.shown_longest} words, or at least {percentWords(s.shown_share)} of
             the shorter one&rsquo;s {s.phrase_words}-word phrases. A run of {s.phrase_words} words found in the abstracts
-            of more than {s.common_works} works is common phrasing, a template or a stock sentence, and does not make a
+            of more than {s.common_works} works is common phrasing, a template, or a stock sentence, and does not make a
             pair on its own; so wording repeated across many papers is not listed here. An abstract under {s.min_words} words
             is not compared.
           </dd>

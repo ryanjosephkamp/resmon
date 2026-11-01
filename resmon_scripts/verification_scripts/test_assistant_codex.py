@@ -420,6 +420,45 @@ def test_the_codex_route_follows_the_path_set_for_codex():
     assert a != b and a != c and c == d
 
 
+def test_claude_code_is_not_handed_a_path_set_for_codex(tmp_path, monkeypatch):
+    monkeypatch.setenv("RESMON_AI_CLI_DISCOVERY", "configured-only")
+    shim = fake_codex(tmp_path)
+    for_codex = {"ai_provider": "codex", "ai_cli_path": shim}
+    assert ar.claude_cli_path(for_codex) == ""
+    assert ar.get_runtime(for_codex).configured_path is None
+    claude = choices.descriptor(for_codex)["connections"][0]
+    assert (claude["runtime"], claude["available"]) == ("claude_cli", False)
+    others = {o["kind"]: o for o in ar.runtime_status({**for_codex, "assistant_runtime": "codex_cli"})["others"]}
+    assert others["claude_cli"]["available"] is False
+    # Set for Claude Code's summaries, or with summaries on a key, the path is still Claude Code's.
+    for provider in ("claude_code", "anthropic", ""):
+        assert ar.claude_cli_path({"ai_provider": provider, "ai_cli_path": "/a/claude"}) == "/a/claude"
+    kept = choices.route_digest({"ai_provider": "claude_code", "ai_cli_path": "/a/claude"}, "claude_cli", "claude_code")
+    assert kept == choices.route_digest({"ai_provider": "anthropic", "ai_cli_path": "/a/claude"}, "claude_cli", "claude_code")
+    assert choices.route_digest(for_codex, "claude_cli", "claude_code") == choices.route_digest({}, "claude_cli", "claude_code")
+
+
+def test_the_key_route_does_not_borrow_a_commands_sentence():
+    # Summaries on a command, and no key provider chosen for Ask: the key route says so, rather
+    # than describing the command it never runs.
+    for provider, name in (("codex", "Codex"), ("claude_code", "Claude Code")):
+        others = {o["kind"]: o for o in ar.runtime_status({"ai_provider": provider})["others"]}
+        reason = others["api_key"]["reason"]
+        assert others["api_key"]["available"] is False
+        assert reason.startswith(f"No key provider is chosen for the assistant: summaries use the {name} command")
+        assert "signed into" not in reason
+
+
+def test_codex_is_asks_default_when_settings_say_so(tmp_path, monkeypatch):
+    monkeypatch.setenv("RESMON_AI_CLI_DISCOVERY", "configured-only")
+    settings = {"ai_provider": "codex", "ai_cli_path": fake_codex(tmp_path), "assistant_runtime": "codex_cli",
+                "assistant_model": "gpt-5.5-codex", "assistant_effort": "high"}
+    assert ar.get_runtime(settings).kind == "codex_cli"
+    found = choices.descriptor(settings)
+    assert found["default_request"] == {"version": 1, "runtime": "codex_cli", "provider": "codex",
+                                        "model": "gpt-5.5-codex", "effort": "high"}
+
+
 def test_selected_evidence_answers_do_not_run_on_codex():
     binding = choices.resolve({}, codex_choice())
     with pytest.raises(ValueError, match="not Codex"):

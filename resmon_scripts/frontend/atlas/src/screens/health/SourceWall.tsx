@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
@@ -101,8 +101,16 @@ function Grid({ wall, picked, onPick }: {
 }) {
   const days = useMemo(() => runDays(wall.runs), [wall.runs]);
   const largest = useMemo(() => largestCount(wall), [wall]);
+  // The newest runs are on the right: where the window is too narrow for every run, the wall opens
+  // scrolled to them, beside When last asked, and older runs are a scroll to the left.
+  const scroller = useRef<HTMLDivElement>(null);
+  const newest = wall.runs[wall.runs.length - 1]?.execution_id;
+  useLayoutEffect(() => {
+    const node = scroller.current;
+    if (node) node.scrollLeft = node.scrollWidth;
+  }, [newest, wall.runs.length]);
   return (
-    <div className="wall-scroll">
+    <div className="wall-scroll" ref={scroller}>
       <table className="wall-grid">
         <thead>
           <tr>

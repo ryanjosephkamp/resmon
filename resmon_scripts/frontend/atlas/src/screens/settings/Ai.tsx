@@ -8,10 +8,11 @@ import { providerWords } from '../ask/askModel';
 import { CliSignIn } from './CliSignIn';
 import { EMBEDDING_STATUS_KEY } from './embeddingWords';
 import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from './modelWords';
+import { listFor, ModelField, useModelList } from './ModelField';
 import { EMBEDDING_PAGE_KEY, Embeddings, readEmbeddingPage, readEmbeddingStatus } from './Embeddings';
 import { refusal } from './ProviderKey';
 import { SummaryForm } from './SummaryForm';
-import { AI_KEY, routeSentence } from './summaryLanes';
+import { AI_KEY, effortsFor, routeSentence } from './summaryLanes';
 import { commandEnter } from '../../shell/shortcuts';
 
 const ASSISTANT_KEY = ['assistant-settings'] as const;
@@ -89,7 +90,7 @@ function Assistant() {
     <section className="ai-part" aria-labelledby="ai-assistant">
       <h3 id="ai-assistant" className="field-title">Ask</h3>
       <p className="field-lede">
-        What a new conversation starts with. A conversation keeps the connection, model and effort it began with,
+        What a new conversation starts with. A conversation keeps the connection, model, and effort it began with,
         so changing these changes no conversation already started.
       </p>
       {settings.isError && <p className="field-error" role="alert">The engine did not answer ({settings.error.message}).</p>}
@@ -97,6 +98,7 @@ function Assistant() {
       {settings.data && (settings.data.assistant_runtime || 'claude_cli') === 'claude_cli' && (
         <CliSignIn provider="claude_code" purpose="ask" checkOnOpen />
       )}
+      {settings.data?.assistant_runtime === 'codex_cli' && <CliSignIn provider="codex" purpose="ask" checkOnOpen />}
       {status.data && (
         <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
           <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
@@ -124,7 +126,14 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
   const [form, setForm] = useState<AssistantSettings>(stored);
   const dirty = (Object.keys(form) as (keyof AssistantSettings)[]).some((k) => form[k] !== stored[k]);
   const api = form.assistant_runtime === 'api_key';
+  const codex = form.assistant_runtime === 'codex_cli';
   const choices = status.composer_choices;
+  // Codex lists its own models, and each one's effort levels, when asked: Load models starts the command.
+  const catalog = useModelList();
+  const listed = codex ? listFor(catalog, 'codex') : null;
+  const efforts = codex
+    ? [...new Set([...effortsFor(listed, form.assistant_model, []), ...(form.assistant_effort ? [form.assistant_effort] : [])])]
+    : choices.claude_efforts;
   const offered = choices.connections.filter((c) => c.runtime === 'api_key');
   const save = useMutation({
     mutationFn: () => answer(engine().PUT('/api/settings/assistant', { body: { settings: { ...form } } })),
@@ -136,7 +145,7 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
   const set = (key: keyof AssistantSettings) => (value: string) => setForm({ ...form, [key]: value });
   const aliases = choices.claude_aliases.includes(form.assistant_model) || !form.assistant_model
     ? choices.claude_aliases : [...choices.claude_aliases, form.assistant_model];
-  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: !api, refetchOnMount: 'always' });
+  const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: !api && !codex, refetchOnMount: 'always' });
   const words = (model: string) => modelOptionWords('claude_code', model, lastFor(last.data, 'claude_code', model), choices.claude_aliases);
   return (
     <form className="settings-form" {...commandEnter()} aria-label="Assistant settings"
@@ -144,9 +153,15 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
       <div className="form-grid">
         <label className="form-field" htmlFor="assistant-runtime">
           <span className="form-label">Connection</span>
+          {/* A model or an effort named for one connection means nothing to another, so a change of connection clears both. */}
           <select id="assistant-runtime" value={form.assistant_runtime || 'claude_cli'}
-            onChange={(e) => setForm({ ...form, assistant_runtime: e.target.value, assistant_effort: e.target.value === 'api_key' ? '' : form.assistant_effort })}>
+            onChange={(e) => {
+              const same = e.target.value === (form.assistant_runtime || 'claude_cli');
+              setForm({ ...form, assistant_runtime: e.target.value,
+                assistant_model: same ? form.assistant_model : '', assistant_effort: same ? form.assistant_effort : '' });
+            }}>
             <option value="claude_cli">Claude Code, the claude command</option>
+            <option value="codex_cli">Codex, the codex command</option>
             <option value="api_key">An API key</option>
           </select>
         </label>
@@ -159,32 +174,44 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
             </select>
           </label>
         )}
-        <label className="form-field" htmlFor="assistant-model">
-          <span className="form-label">Model</span>
-          {api
-            ? <input id="assistant-model" value={form.assistant_model} spellCheck={false} autoComplete="off"
-                placeholder="The provider’s model ID (required)" onChange={(e) => set('assistant_model')(e.target.value)} />
-            : (
-              <select id="assistant-model" value={form.assistant_model} onChange={(e) => set('assistant_model')(e.target.value)}>
-                <option value="">{words('')}</option>
-                {aliases.map((alias) => <option key={alias} value={alias}>{words(alias)}</option>)}
-              </select>
-            )}
-        </label>
+        {codex ? (
+          <ModelField id="assistant-model" provider="codex" value={form.assistant_model}
+            onChange={set('assistant_model')} list={catalog} query={{ provider: 'codex', purpose: 'ask' }} />
+        ) : (
+          <label className="form-field" htmlFor="assistant-model">
+            <span className="form-label">Model</span>
+            {api
+              ? <input id="assistant-model" value={form.assistant_model} spellCheck={false} autoComplete="off"
+                  placeholder="The provider’s model ID (required)" onChange={(e) => set('assistant_model')(e.target.value)} />
+              : (
+                <select id="assistant-model" value={form.assistant_model} onChange={(e) => set('assistant_model')(e.target.value)}>
+                  <option value="">{words('')}</option>
+                  {aliases.map((alias) => <option key={alias} value={alias}>{words(alias)}</option>)}
+                </select>
+              )}
+          </label>
+        )}
         {!api && (
           <label className="form-field" htmlFor="assistant-effort">
             <span className="form-label">Effort</span>
             <select id="assistant-effort" value={form.assistant_effort} onChange={(e) => set('assistant_effort')(e.target.value)}>
               <option value="">The command’s default</option>
-              {choices.claude_efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
+              {efforts.map((effort) => <option key={effort} value={effort}>{effort}</option>)}
             </select>
           </label>
         )}
       </div>
-      {!api && (
+      {!api && !codex && (
         <p className="form-hint">
           The Claude names are aliases the command accepts, not a list of what your account can use. The command
           checks the model and effort when it runs.
+        </p>
+      )}
+      {codex && (
+        <p className="form-hint" data-ai="codex-default">
+          Codex’s models and effort levels are what its own catalog lists, once loaded; a model it leaves out can
+          still be typed, and Codex checks both when it runs. Codex gets resmon’s read-only tools only, so in Ask it
+          can look things up but not change anything.
         </p>
       )}
       <div className="form-actions">

@@ -67,12 +67,12 @@ export function resolutionWords(pin: Pin, page: PageText | undefined): string {
     if (!page) return 'Citation unresolved until this exact page is read.';
     return matches(pin, page)
       ? 'Citation matched this exact current text range. Whether the quote supports the answer is not checked.'
-      : 'Saved citation unresolved: this page, its text hash or its extraction contract differs from the one the answer was given. The frozen quote is unchanged.';
+      : 'Saved citation unresolved: this page, its text hash, or its extraction contract differs from the one the answer was given. The frozen quote is unchanged.';
   }
   if (!page) return 'Saved passage is unresolved until this exact page is read.';
   return matches(pin, page)
-    ? 'Saved passage resolved against this exact version, extraction contract, text hash and codepoint range.'
-    : 'Saved passage unresolved: this page, its text hash or its extraction contract does not match. The saved quote is unchanged.';
+    ? 'Saved passage resolved against this exact version, extraction contract, text hash, and codepoint range.'
+    : 'Saved passage unresolved: this page, its text hash, or its extraction contract does not match. The saved quote is unchanged.';
 }
 
 /** A codepoint range as the UTF-16 range a text field selects. */

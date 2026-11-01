@@ -77,9 +77,13 @@ const MARGIN = 26;
  */
 const NAME_COVER = 0.35;
 const RAMP_RADIUS = [2.3, 1.8, 1.4, 1.1, 0.85];
-const RAMP_ALPHA = [1, 0.86, 0.66, 0.46, 0.32];
-/** A paper the filters leave out: still drawn, so the collection keeps its shape, but faint. */
-const DIM_ALPHA = 0.2;
+/**
+ * A lit paper's opacity by age, newest first. Even the oldest is 3:1 against
+ * the plate in either theme, as a mark that carries meaning must be
+ * (`sky/__tests__/marks.test.ts`). Where a map is crowded, each is thinned
+ * below that, and the crowd is what is seen.
+ */
+export const RAMP_ALPHA = [1, 0.86, 0.7, 0.58, 0.5];
 /** A lit paper wearing a color is drawn at least this opaque, so its color can be read at any age. */
 const COLOR_ALPHA = 0.8;
 /** The most round dots drawn as one path; see the draw loop. */
@@ -89,7 +93,7 @@ const FOUND_RINGS = 400;
 
 interface Palette {
   plate: string; ink: string; ink2: string; ink3: string; grid: string; frame: string;
-  band: string; bound: string; mark: string; accentInk: string; fill: string; onFill: string;
+  band: string; bound: string; mark: string; accentInk: string; fill: string; onFill: string; dim: string;
 }
 
 function readPalette(element: HTMLElement): Palette {
@@ -98,7 +102,7 @@ function readPalette(element: HTMLElement): Palette {
   return {
     plate: v('--plate'), ink: v('--ink'), ink2: v('--ink-2'), ink3: v('--ink-3'), grid: v('--grid'),
     frame: v('--frame'), band: v('--band'), bound: v('--bound'), mark: v('--accent-mark'),
-    accentInk: v('--accent-ink'), fill: v('--accent-fill'), onFill: v('--on-accent'),
+    accentInk: v('--accent-ink'), fill: v('--accent-fill'), onFill: v('--on-accent'), dim: v('--dim-mark'),
   };
 }
 
@@ -365,17 +369,21 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     const cap = Math.max(0.55, spacing * 0.42);
     const crowding = Math.min(1, 0.35 + spacing / 6);
     const pad = 4;
-    // One pass in the look's order: dimmed papers first, faint and in the
-    // third ink, then the lit ones by class and color (see `paintOrder`).
+    // One pass in the look's order: dimmed papers first, smaller and in the
+    // dim mark's gray, then the lit ones by class and color (see `paintOrder`).
+    // A dimmed paper is drawn whole rather than thinned: at a fifth of the
+    // third ink, a small map's other papers all but vanished, and the
+    // collection lost the shape they were drawn to keep.
     const { order, spans } = paint;
     const colors = groupColors.current;
     for (const span of spans) {
       const base = (RAMP_RADIUS[span.cls] ?? 1) * boost;
-      const r = span.dim ? Math.min(base * 0.8, cap) : Math.min(base, cap);
+      // A dimmed paper is smaller than a lit one of its age, but never under two pixels across where there is room.
+      const r = span.dim ? Math.min(Math.max(base * 0.8, 1), cap) : Math.min(base, cap);
       const color = span.dim ? undefined : colors[span.group];
       const alpha = RAMP_ALPHA[span.cls] ?? 0.5;
-      ctx.globalAlpha = (span.dim ? DIM_ALPHA : color ? Math.max(COLOR_ALPHA, alpha) : alpha) * crowding;
-      ctx.fillStyle = span.dim ? p.ink3 : (color || p.ink);
+      ctx.globalAlpha = span.dim ? 1 : (color ? Math.max(COLOR_ALPHA, alpha) : alpha) * crowding;
+      ctx.fillStyle = span.dim ? p.dim : (color || p.ink);
       const round = r >= 1.15;
       // Round dots go into paths of at most PATH_DOTS circles each: one path of
       // tens of thousands of circles took Chromium seconds to build on a new
@@ -509,17 +517,17 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       const [sx, sy] = toScreen(s.x[i] ?? 0, s.y[i] ?? 0, v);
       if (sx < inner.x - 10 || sx > inner.x + inner.w + 10 || sy < inner.y - 10 || sy > inner.y + inner.h + 10) continue;
       const chosen = i === sel;
-      // A new paper the filters or the find leave out keeps its ring and number, faint.
-      ctx.globalAlpha = chosen || !latest.current.look?.lit || latest.current.look.lit[i] ? 1 : 0.28;
+      // A new paper the filters or the find leave out keeps its ring and number, in the dim mark's gray.
+      const out = !chosen && !!latest.current.look?.lit && !latest.current.look.lit[i];
       ctx.beginPath();
       ctx.arc(sx, sy, chosen ? 7 : ring, 0, Math.PI * 2);
       if (chosen) { ctx.fillStyle = p.fill; ctx.fill(); }
       ctx.lineWidth = 1.25;
-      ctx.strokeStyle = p.mark;
+      ctx.strokeStyle = out ? p.dim : p.mark;
       ctx.stroke();
       ctx.beginPath();
       ctx.arc(sx, sy, Math.min(1.6, ring * 0.3), 0, Math.PI * 2);
-      ctx.fillStyle = chosen ? p.onFill : p.ink;
+      ctx.fillStyle = chosen ? p.onFill : out ? p.dim : p.ink;
       ctx.fill();
       const text = String(k + 1);
       const tw = ctx.measureText(text).width;
@@ -528,11 +536,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         ctx.lineWidth = 3;
         ctx.strokeStyle = p.plate;
         ctx.strokeText(text, sx + 7, sy - 9);
-        ctx.fillStyle = p.accentInk;
+        ctx.fillStyle = out ? p.dim : p.accentInk;
         ctx.fillText(text, sx + 7, sy - 9);
       }
     }
-    ctx.globalAlpha = 1;
 
     // The paper under the pointer, or pointed at from the index.
     for (const i of [hoverIndex.current, pt]) {
@@ -724,7 +731,17 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   };
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
     const [x, y] = local(event);
-    const d = drag.current;
+    let d = drag.current;
+    // A press whose release never reached the plate (the window lost the
+    // pointer between them) ends at the first move with no button held: as the
+    // click it was if it had not moved, or as the drag it was. Held on to, it
+    // dragged the map under a pointer with no button down, and a click opened nothing.
+    if (d && event.buttons === 0) {
+      drag.current = null;
+      if (d.moved) reportAway();
+      else onSelect(nearest(d.x, d.y), 'pointer');
+      d = null;
+    }
     if (d) {
       if (!d.moved && Math.hypot(x - d.x, y - d.y) > 3) d.moved = true;
       if (d.moved) {
@@ -753,6 +770,12 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     if (d && d.moved) { reportAway(); return; }
     const [x, y] = local(event);
     onSelect(nearest(x, y), 'pointer');
+  };
+  // A press the system took over (a gesture, a dialog) chooses nothing and drags no further.
+  const onPointerCancel = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.moved) reportAway();
   };
   const onPointerLeave = () => {
     if (hoverIndex.current !== null) { hoverIndex.current = null; onHover(null); schedule(); }
@@ -877,6 +900,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
         onPointerLeave={onPointerLeave}
         onDoubleClick={(event) => { const [x, y] = local(event); zoomAt(2, x, y); }}
         onKeyDown={onKeyDown}

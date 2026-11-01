@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import { SECTIONS, SETTINGS } from '../routes';
 import { Icon } from './Icon';
-import { COMMAND_ENTER_CHORD, keysText, sectionIndex, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
+import { COMMAND_ENTER_CHORD, FIND_CHORD, keysText, sectionIndex, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
 
 /** What each shortcut does, in the words the sheet uses. Sections are named from the route table. */
 const SAYS: Partial<Record<ShortcutId, string>> = {
@@ -21,6 +21,7 @@ const COLUMNS: readonly (readonly { title: string; ids: readonly ShortcutId[] }[
   [
     { title: 'Start', ids: ['new-dive', 'new-sweep', 'new-conversation', 'ask'] },
     { title: 'Back and forward', ids: ['back', 'forward'] },
+    { title: 'Reading a file', ids: [] },
   ],
   [
     { title: 'Go to', ids: ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-6', 'settings'] },
@@ -99,6 +100,12 @@ export function ShortcutsSheet({ open, onClose, dialog, mac }: {
                     <div data-shortcut="command-enter">
                       <dt>Save or send what you wrote</dt>
                       <dd><kbd>{keysText(COMMAND_ENTER_CHORD, mac)}</kbd></dd>
+                    </div>
+                  )}
+                  {group.title === 'Reading a file' && (
+                    <div data-shortcut="find">
+                      <dt>Find in the file</dt>
+                      <dd><kbd>{keysText(FIND_CHORD, mac)}</kbd></dd>
                     </div>
                   )}
                   {group.title === 'Back and forward' && (

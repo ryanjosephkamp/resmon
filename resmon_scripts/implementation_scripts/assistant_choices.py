@@ -82,7 +82,10 @@ def defaults(settings: dict) -> dict:
 
 def route_digest(settings: dict, runtime: str, provider: str) -> str:
     if runtime == 'claude_cli':
-        locator = ['configured_cli', settings.get('ai_cli_path') or '', 'auto' if not settings.get('ai_cli_path') else 'explicit']
+        from .assistant_runtime import claude_cli_path
+
+        path = claude_cli_path(settings)
+        locator = ['configured_cli', path, 'explicit' if path else 'auto']
     elif runtime == 'codex_cli':
         from .assistant_runtime import codex_cli_path
 
@@ -133,14 +136,14 @@ def report(model: object, source: str) -> Optional[dict]:
 
 
 def descriptor(settings: dict, *, backend_port: Optional[int] = None) -> dict:
-    from .assistant_runtime import ClaudeCliRuntime, CodexCliRuntime, codex_cli_path, codex_connection_reason
+    from .assistant_runtime import ClaudeCliRuntime, CodexCliRuntime, claude_cli_path, codex_cli_path, codex_connection_reason
     from .assistant_api_runtime import ApiKeyRuntime
 
     try:
         default, default_error = defaults(settings), None
     except ValueError as exc:
         default, default_error = None, str(exc)
-    cli = ClaudeCliRuntime(cli_path=settings.get('ai_cli_path')).status()
+    cli = ClaudeCliRuntime(cli_path=claude_cli_path(settings)).status()
     codex = CodexCliRuntime(cli_path=codex_cli_path(settings)).status()
     # The two commands first, Claude Code then Codex; the API keys after them.
     connections = [{'runtime': 'claude_cli', 'provider': 'claude_code', 'label': 'Claude Code',

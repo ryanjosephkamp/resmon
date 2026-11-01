@@ -103,6 +103,25 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, inline = fal
     event.preventDefault();
     onBack();
   };
+  // A reading-queue button that had the keyboard is replaced by the next one
+  // (Save to read by Mark read), or disabled while its request is out, and the
+  // keyboard falls to the page, where Escape reached nothing. While it is
+  // there, Escape still returns; once the request is answered, the keyboard is
+  // given back to the actions.
+  const back = useRef(onBack);
+  useEffect(() => { back.current = onBack; }, [onBack]);
+  useEffect(() => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('dialog[open], :popover-open')) return;
+      if (document.activeElement && document.activeElement !== document.body) return;
+      event.preventDefault();
+      back.current();
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
+  const actions = useRef<HTMLDivElement>(null);
+  const acted = useRef(false);
 
   const data = paper.data;
   const status = data?.queue_status ?? null;
@@ -110,6 +129,11 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, inline = fal
     || (remove.isPending && remove.variables === id);
   const failure = (save.variables === id ? save.error : null) ?? (mark.variables?.doc === id ? mark.error : null)
     ?? (remove.variables === id ? remove.error : null);
+  useEffect(() => {
+    if (pending || !acted.current) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    actions.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus();
+  }, [pending, status]);
   const doi = data?.doi ? webLink(`https://doi.org/${data.doi}`) : null;
   const page = webLink(data?.url);
   const pdf = arxivPdf(data?.url);
@@ -152,7 +176,9 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, inline = fal
               <span className="num" title="Its number in this collection only">Paper {data.id}</span>
             </p>
 
-            <div className="paper-actions" data-queue={status ?? 'none'}>
+            <div className="paper-actions" data-queue={status ?? 'none'} ref={actions}
+              onFocus={() => { acted.current = true; }}
+              onBlur={(event) => { if (event.relatedTarget) acted.current = actions.current?.contains(event.relatedTarget) ?? false; }}>
               {status === null ? (
                 <button type="button" className="btn primary sm" disabled={pending} onClick={() => save.mutate(id)}>
                   <Icon name="bookmark" size={14} />Save to read

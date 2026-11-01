@@ -297,6 +297,8 @@ export function Today() {
           onZoomTo={zoomTo}
           onToggleSave={(paper) => save.mutate({ id: paper.id, on: !(saved.get(paper.id) ?? paper.queue_status !== null) })}
           onMarkRead={() => looked.mutate()}
+          by={mapLook.view.list_by}
+          onBy={(by) => mapLook.setView({ ...mapLook.view, list_by: by })}
           footer={<Footer data={data} fires={fires} state={status.data?.state ?? null} now={now}
             backupAt={backup.data?.last_backup?.created_at_utc ?? null} />}
         />

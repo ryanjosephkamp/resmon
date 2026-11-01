@@ -2496,8 +2496,8 @@ export interface paths {
         };
         /**
          * Get Map View
-         * @description The filters and colors a map was last left with: Today's (``today``),
-         *     or every run's map (``run``).
+         * @description The filters and colors a map was last left with, and how the list
+         *     beside it was grouped: Today's (``today``), or every run's map (``run``).
          */
         get: operations["get_map_view_api_map_views__name__get"];
         /** Put Map View */
@@ -7693,8 +7693,9 @@ export interface components {
          *
          *     Empty ``watches`` or ``sources`` filter nothing. ``dates`` says which date
          *     ``date_from`` and ``date_to`` (inclusive, ``YYYY-MM-DD``, either may be
-         *     null) are read against. The PUT answers what it stored, after anything it
-         *     did not recognize fell back to the default.
+         *     null) are read against. ``list_by`` is how the list beside Today's map is
+         *     grouped; a run's map has no list. The PUT answers what it stored, after
+         *     anything it did not recognize fell back to the default.
          */
         MapView: {
             /**
@@ -7711,6 +7712,11 @@ export interface components {
              * @enum {string}
              */
             dates: "found" | "published";
+            /**
+             * List By
+             * @enum {string}
+             */
+            list_by: "watch" | "region";
             /** Sources */
             sources: string[];
             /**
@@ -7743,6 +7749,12 @@ export interface components {
              * @enum {string}
              */
             dates: "found" | "published";
+            /**
+             * List By
+             * @default watch
+             * @enum {string}
+             */
+            list_by: "watch" | "region";
             /** Sources */
             sources?: string[];
             /**

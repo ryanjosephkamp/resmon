@@ -18,7 +18,7 @@ export function WallMark({ state, count, largest = 0 }: { state: string; count?:
           <path d="M4.5 11.5 11.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
         </>
       )}
-      {mark === 'dotted' && <circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.3" strokeDasharray="1.2 2.1" strokeLinecap="round" />}
+      {mark === 'dotted' && <circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="1.7 1.8" strokeLinecap="round" />}
       {mark === 'dash' && <path d="M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />}
       {mark === 'unknown' && <rect x="4.5" y="4.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1.3" />}
     </svg>

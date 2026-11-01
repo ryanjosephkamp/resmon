@@ -198,6 +198,10 @@ def history_to_text_turns(history: Optional[list[dict]]) -> list[dict]:
 # The runtime
 # ---------------------------------------------------------------------------
 
+# The summary providers that are commands rather than keys, by the name a person knows them by.
+_COMMANDS = {"claude_code": "Claude Code", "codex": "Codex"}
+
+
 class ApiKeyRuntime:
     """resmon's own agent loop, over a provider the user has a key for."""
 
@@ -248,6 +252,15 @@ class ApiKeyRuntime:
                 self.kind, False,
                 "No AI provider is chosen for the assistant. Pick one in "
                 "Settings › AI, under Ask.")
+        if self.provider in _COMMANDS:
+            # Reached here by the fallback to the summaries' provider: a command
+            # is not a key provider, and its own sentence describes running the
+            # command, which this route never does.
+            return RuntimeStatus(
+                self.kind, False,
+                f"No key provider is chosen for the assistant: summaries use the "
+                f"{_COMMANDS[self.provider]} command, which is not reached with a key. "
+                "Pick a provider in Settings › AI, under Ask.")
         if not self.answer.offered:
             return RuntimeStatus(self.kind, False, self.answer.assistant_reason)
         if not self.model:

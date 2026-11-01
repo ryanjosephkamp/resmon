@@ -9,7 +9,9 @@
  * Codex thread. A write Codex guesses at is refused by resmon's server with no
  * card to answer, and nothing changes. An expired sign-in is a failed turn
  * with Codex's own Sign in, Check again and Try again; a shell command is a
- * turn stopped where it started.
+ * turn stopped where it started. Settings › AI makes Codex the connection a
+ * new conversation starts with, and Claude Code is never handed the path set
+ * for Codex.
  *
  * **No real `codex` is run.** The command is `fake_codex.py` behind a shim in
  * a folder with a space in its name; it starts resmon's MCP server from the
@@ -216,6 +218,38 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
     await stopped.getByText('What it wrote before it ended').click();
     await expect(stopped.locator('.conv-call-name')).toHaveText('shell');
     await shoot(app, win, 'atlas-ask-codex-stopped', stopped);
+
+    // — Settings › AI makes Codex what a new conversation starts with; Claude Code is not handed Codex's path -
+    await win.evaluate(() => { window.location.hash = '#/settings/ai'; });
+    const form = win.getByRole('form', { name: 'Assistant settings' });
+    await expect(form).toBeVisible({ timeout: 30_000 });
+    const routes = win.locator('[data-ai="routes"]');
+    // The one path set is Codex's, so Claude Code is looked for on its own, and not found here.
+    await expect(routes.locator('li[data-kind="claude_cli"]')).toHaveAttribute('data-available', 'false');
+    await expect(routes.locator('li[data-kind="codex_cli"]')).toHaveAttribute('data-available', 'true');
+    expect(await form.locator('#assistant-runtime option').allTextContents())
+      .toEqual(['Claude Code, the claude command', 'Codex, the codex command', 'An API key']);
+    await form.locator('#assistant-runtime').selectOption('codex_cli');
+    await form.getByRole('button', { name: 'Load models' }).click();
+    await expect(form.locator('[data-ai="model-list"]')).toHaveAttribute('data-count', '2', { timeout: 30_000 });
+    await form.locator('#assistant-model').selectOption('gpt-5.5-codex');
+    expect(await form.locator('#assistant-effort option').allTextContents())
+      .toEqual(['The command’s default', 'minimal', 'low', 'medium', 'high']);
+    await form.locator('#assistant-effort').selectOption('medium');
+    await expect(form.locator('[data-ai="codex-default"]')).toContainText('read-only tools only');
+    await form.getByRole('button', { name: 'Save assistant settings' }).click();
+    await expect(form.getByRole('status')).toHaveText(/^Saved\./, { timeout: 30_000 });
+    expect(await engine<Record<string, string>>(win, '/api/settings/assistant')).toMatchObject({
+      assistant_runtime: 'codex_cli', assistant_model: 'gpt-5.5-codex', assistant_effort: 'medium' });
+    await expect(routes.locator('li').first()).toHaveAttribute('data-kind', 'codex_cli');
+    await expect(win.locator('section[aria-labelledby="ai-assistant"] [data-ai="sign-in"]')).toHaveAttribute('aria-label', 'Codex sign-in');
+    await shoot(app, win, 'atlas-ask-codex-default', form);
+    await win.evaluate(() => { window.location.hash = '#/ask'; });
+    await win.getByRole('region', { name: 'Saved chats' }).getByRole('button', { name: 'New conversation' }).click();
+    await expect(pane.getByRole('heading', { name: 'New conversation' })).toBeVisible({ timeout: 30_000 });
+    await expect(connection).toHaveValue('codex_cli:codex');
+    await expect(pane.getByLabel('Model', { exact: true })).toHaveValue('gpt-5.5-codex');
+    await expect(pane.getByLabel('Effort', { exact: true })).toHaveValue('medium');
 
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
