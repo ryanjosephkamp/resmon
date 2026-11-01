@@ -277,7 +277,7 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     // settings — erased the AI keys, repository keys and SMTP password of
     // whoever ran the suite on their own machine. The null backend reads
     // nothing and writes nothing. A spec that needs a key to persist sets its
-    // own backend after this, as composer-choices.spec.ts does.
+    // own backend after this, as atlas-settings.spec.ts does.
     PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring',
     // Where the background service's unit would be written, and read. Without
     // it the engine reads the real ~/Library/LaunchAgents (or its Linux and

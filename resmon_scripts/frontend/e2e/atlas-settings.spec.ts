@@ -14,9 +14,9 @@
  * own (`RESMON_SERVICE_UNIT_DIR`), so the panel reads nothing of this
  * machine's LaunchAgents, and the service switch is never pressed: installing
  * would register a real launch agent. The keyring is an in-memory one written
- * into the state directory, as composer-choices.spec.ts does, because the
- * fixture's null keyring accepts a password and stores nothing, which would
- * leave the stored password unreadable here.
+ * into the state directory, because the fixture's null keyring accepts a
+ * password and stores nothing, which would leave the stored password
+ * unreadable here.
  *
  * The journeys J04, J21 and J23 drive the same screens through
  * `journeys/drivers/atlas.ts`; this spec is the part that runs on every pull
