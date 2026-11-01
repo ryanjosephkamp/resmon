@@ -35,6 +35,7 @@ const EVIDENCE: Record<string, string> = {
   last_new_result_at: 'Last new paper found',
   cadence_days: 'Runs about every (days)',
   skipped_fires: 'Fires skipped',
+  runs_in_part: 'Runs answered in part, in a row',
   last_skipped_due_at_utc: 'Last skipped fire was due',
 };
 

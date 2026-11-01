@@ -32,6 +32,7 @@ import { apiClient } from './client';
 export const WALL_STATE_ORDER = [
   'answered',
   'answered_empty',
+  'answered_in_part',
   'could_not_be_asked',
   'failed',
   'not_recorded',
@@ -61,6 +62,7 @@ export type WallState = typeof WALL_STATE_ORDER[number];
 export const STATE_MARKS: Record<WallState, string> = {
   answered: '\u25CF',            // filled disc
   answered_empty: '\u25CB',      // ring
+  answered_in_part: '\u25D1',    // ring filled on its newer half
   could_not_be_asked: '\u2298',  // slashed circle, on a hatched cell
   failed: '\u2715',              // cross
   not_recorded: '\u00B7',        // faint dot, on a dotted cell

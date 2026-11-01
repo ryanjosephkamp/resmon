@@ -34,9 +34,13 @@ function refusal(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
 }
 
-/** A recorded outcome's mark: filled for an answer, a ring for unknown, the fault mark for a non-answer. */
-function OutcomeMark({ category }: { category: string }) {
+/**
+ * A recorded outcome's mark: filled for an answer, half filled for an answer
+ * in part, a ring for unknown, the fault mark for a non-answer.
+ */
+function OutcomeMark({ category, inPart }: { category: string; inPart: boolean }) {
   if (category === 'non_answer') return <span className="omark fault" aria-hidden="true"><Icon name="fault" size={14} /></span>;
+  if (category === 'answered' && inPart) return <span className="omark part" aria-hidden="true" />;
   return <span className={category === 'answered' ? 'omark on' : 'omark'} aria-hidden="true" />;
 }
 
@@ -395,8 +399,9 @@ export function Run() {
               <p className="coverage-sentence" data-coverage-summary>{data.coverage.summary}</p>
               <ol className="recorded" aria-label="Recorded outcome of each source">
                 {recorded.map((source) => (
-                  <li key={source.source} className="recorded-row" data-source={source.source} data-category={source.category}>
-                    <OutcomeMark category={source.category} />
+                  <li key={source.source} className="recorded-row" data-source={source.source} data-category={source.category}
+                    data-in-part={source.in_part ? 'true' : undefined}>
+                    <OutcomeMark category={source.category} inPart={source.in_part} />
                     <span className="src-name">{names.get(source.source) ?? source.source}</span>
                     <span className="src-label">{source.label}</span>
                     <span className="src-count num">

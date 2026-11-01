@@ -62,19 +62,19 @@ function grid(overrides: Partial<SourceWallGrid> = {}): SourceWallGrid {
     ],
     sources: [
       { slug: 'arxiv', name: 'arXiv', in_catalog: true, latest_known_state: 'failed',
-        counts: { answered: 1, answered_empty: 0, could_not_be_asked: 0, failed: 1, not_recorded: 0, not_selected: 0 },
+        counts: { answered: 1, answered_empty: 0, answered_in_part: 0, could_not_be_asked: 0, failed: 1, not_recorded: 0, not_selected: 0 },
         cells: [cell(1, 'answered'), cell(2, 'failed')] },
       { slug: 'doaj', name: 'DOAJ', in_catalog: true, latest_known_state: 'answered_empty',
-        counts: { answered: 0, answered_empty: 1, could_not_be_asked: 0, failed: 0, not_recorded: 1, not_selected: 0 },
+        counts: { answered: 0, answered_empty: 1, answered_in_part: 0, could_not_be_asked: 0, failed: 0, not_recorded: 1, not_selected: 0 },
         cells: [cell(1, 'not_recorded'), cell(2, 'answered_empty')] },
       { slug: 'ieee', name: 'IEEE Xplore', in_catalog: true, latest_known_state: 'could_not_be_asked',
-        counts: { answered: 0, answered_empty: 0, could_not_be_asked: 2, failed: 0, not_recorded: 0, not_selected: 0 },
+        counts: { answered: 0, answered_empty: 0, answered_in_part: 0, could_not_be_asked: 2, failed: 0, not_recorded: 0, not_selected: 0 },
         cells: [cell(1, 'could_not_be_asked'), cell(2, 'could_not_be_asked')] },
     ],
     states: [...WALL_STATE_ORDER],
     state_legend: LEGEND,
     totals: {
-      answered: 1, answered_empty: 1, could_not_be_asked: 2,
+      answered: 1, answered_empty: 1, answered_in_part: 0, could_not_be_asked: 2,
       failed: 1, not_recorded: 1, not_selected: 0,
     },
     verdict: { level: 'attention', headline: 'arXiv has stopped answering.', detail: ['Because it did.'] },
@@ -108,12 +108,12 @@ describe('the source wall', () => {
     expect(first).toHaveAttribute('title', 'answered note for run 1');
   });
 
-  test('each of the six states carries a mark no other state carries', () => {
+  test('each of the seven states carries a mark no other state carries', () => {
     render(<SourceWall grid={grid()} />);
 
     const marks = WALL_STATE_ORDER.map((state) => STATE_MARKS[state]);
     expect(new Set(marks).size).toBe(WALL_STATE_ORDER.length);
-    expect(WALL_STATE_ORDER).toHaveLength(6);
+    expect(WALL_STATE_ORDER).toHaveLength(7);
 
     // The legend is drawn from the list the backend served, so a state the
     // backend adds cannot reach the grid without reaching the key beside it.
@@ -191,7 +191,7 @@ describe('the source wall', () => {
     render(<SourceWall grid={grid({
       runs: [], sources: [],
       totals: {
-        answered: 0, answered_empty: 0, could_not_be_asked: 0,
+        answered: 0, answered_empty: 0, answered_in_part: 0, could_not_be_asked: 0,
         failed: 0, not_recorded: 0, not_selected: 0,
       },
       verdict: { level: 'empty', headline: 'No runs are recorded yet, so there is nothing to check.', detail: [] },

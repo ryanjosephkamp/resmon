@@ -32,9 +32,11 @@ interface RoutineName { id: number; name: string }
 
 /** A run's one line of what happened, from what the engine recorded. */
 function summary(run: RunRow): string {
-  const { answered, non_answer: nonAnswer } = run.coverage.counts;
+  const { answered, non_answer: nonAnswer, in_part: inPart } = run.coverage.counts;
   const total = run.coverage.total;
-  const asked = total ? `${answered} of ${total} ${total === 1 ? 'source' : 'sources'} answered` : 'no source outcome recorded';
+  const asked = total
+    ? `${answered} of ${total} ${total === 1 ? 'source' : 'sources'} answered${inPart ? ` (${inPart} in part)` : ''}`
+    : 'no source outcome recorded';
   switch (run.status) {
     case 'running':
       return 'running';

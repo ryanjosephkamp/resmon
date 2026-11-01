@@ -10,7 +10,7 @@
  * rather than papered over by drawing one from the other.
  */
 import type { components } from '../../api/schema';
-import { DID_NOT_ANSWER, ZERO_REASONS } from '../../api/zeroReasonVocabulary';
+import { DID_NOT_ANSWER, ZERO_REASONS, type ZeroReason } from '../../api/zeroReasonVocabulary';
 
 export type RunRow = components['schemas']['RunRow'];
 export type Run = components['schemas']['Run'];
@@ -61,7 +61,7 @@ export const FINAL_EVENTS: ReadonlySet<string> = new Set(['complete', 'cancelled
  * to ask before its last event.
  */
 export type LiveState =
-  | 'pending' | 'asking' | 'answered' | 'no_answer' | 'not_queried' | 'not_recorded' | 'error'
+  | 'pending' | 'asking' | 'answered' | 'in_part' | 'no_answer' | 'not_queried' | 'not_recorded' | 'error'
   | 'cancelled' | 'not_reached';
 
 export interface LiveSource {
@@ -100,9 +100,17 @@ export const ZERO_LABELS: Readonly<Record<string, string>> = {
   missing_key: 'no API key configured',
   retired: 'withdrawn',
   entity_unsupported: 'entity unsupported',
+  answered_in_part: 'answered in part',
 };
 
 const KNOWN_REASONS: ReadonlySet<string> = new Set(ZERO_REASONS);
+
+/**
+ * `zero_reason.ANSWERED_IN_PART`: resmon's own budget or the run's cap stopped
+ * the source after a stretch of the window it states. Typed as a reason the
+ * generated vocabulary holds, so a rename in the backend fails the typecheck.
+ */
+const IN_PART: ZeroReason = 'answered_in_part';
 
 /** Whether a zero's detail says the search read some of the window before it stopped. */
 function readInPart(detail: Record<string, unknown> | null | undefined): boolean {
@@ -154,7 +162,8 @@ export function liveSources(selected: readonly string[], events: readonly Progre
         source.count = typeof event.result_count === 'number' ? event.result_count : null;
         source.reason = event.zero_reason ?? null;
         source.readInPart = readInPart(event.zero_detail);
-        source.state = outcome === 'answered' ? 'answered'
+        source.state = event.zero_reason === IN_PART && outcome === 'answered' ? 'in_part'
+          : outcome === 'answered' ? 'answered'
           : outcome === 'unknown' ? 'not_recorded'
             : event.zero_reason === 'missing_key' ? 'not_queried' : 'no_answer';
         source.note = event.zero_reason && event.zero_message ? event.zero_message : '';
@@ -206,6 +215,9 @@ export function liveLabel(source: LiveSource): string {
       return source.count && source.count > 0
         ? `${source.count.toLocaleString('en-US')} found`
         : ZERO_LABELS[source.reason ?? ''] ?? 'answered, zero';
+    case 'in_part':
+      return source.count && source.count > 0
+        ? `${source.count.toLocaleString('en-US')} found, answered in part` : 'answered in part';
     case 'no_answer':
       // As the recorded coverage says it: the source answered every page it
       // was asked for, and the search stopped before the end of the window.

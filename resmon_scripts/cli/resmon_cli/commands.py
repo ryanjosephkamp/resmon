@@ -156,8 +156,9 @@ def coverage_line(coverage: Optional[Mapping[str, Any]], names: Mapping[str, str
     if not coverage or not coverage.get("total"):
         return f"source outcomes {NOT_RECORDED}"
     counts = coverage.get("counts") or {}
+    in_part = f" ({counts['in_part']} in part)" if counts.get("in_part") else ""
     parts = [f"{counts.get('answered', 0)} of {coverage['total']} "
-             f"{coverage.get('basis_label') or 'sources'} answered"]
+             f"{coverage.get('basis_label') or 'sources'} answered{in_part}"]
     failed = [names.get(s["source"], s["source"]) for s in coverage.get("sources") or []
               if s.get("category") == "non_answer"]
     if failed:

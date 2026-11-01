@@ -130,7 +130,16 @@ NOT_A_MEASUREMENT_ZERO_REASONS = frozenset({
     "upstream_failure",
     "parse_failure",
     "window_unanswerable",
+    # resmon read a stretch of the window and stopped: a count over part of a
+    # window is not what the source returns for the whole of it.
+    "answered_in_part",
 })
+
+# Consecutive runs answered in part before the watchdog says so. Not an alarm:
+# the source answered every page it was asked for and resmon stopped reading.
+# It is advice, because a window that is never read to its start is a choice
+# the person can change, and the run pages say it one run at a time.
+CONSECUTIVE_IN_PART = 3
 
 
 def _did_not_answer(run: dict) -> bool:
@@ -191,6 +200,16 @@ SKIPPED_FIRES_WINDOW_DAYS = 7
 CADENCE_LAG_MULTIPLE = 2.0
 
 _SEVERITY_ORDER = {"broken": 0, "unusual": 1, "advice": 2, "withdrawn": 3}
+
+
+def _detail_of(run: dict) -> dict:
+    detail = run.get("zero_detail")
+    if isinstance(detail, str):
+        try:
+            detail = json.loads(detail) if detail else {}
+        except ValueError:
+            return {}
+    return detail if isinstance(detail, dict) else {}
 
 
 # ---------------------------------------------------------------------------
@@ -606,6 +625,46 @@ def _check_sources(
                 evidence=evidence,
             ))
             continue
+
+        # --- Advice: a source answered only in part, run after run -----------
+        # Not a failure, so it never reaches the rule above, and not a
+        # measurement, so not the baseline below. It is resmon's own budget or
+        # the run's cap stopping each read before the start of the window.
+        in_part = 0
+        for run in runs:
+            if not zero_reason.in_part(run["status"], run.get("zero_reason")):
+                break
+            in_part += 1
+        if in_part >= CONSECUTIVE_IN_PART:
+            name = _source_name(source)
+            detail = _detail_of(latest)
+            capped = detail.get("detail") == "cap"
+            findings.append(_finding(
+                key=f"source_in_part:{source}",
+                severity="advice",
+                kind="source_in_part",
+                scope={"type": "source", "id": source},
+                title=f"{name} was answered in part on its last {in_part} runs",
+                detail=(
+                    f"Each time, {name} answered every page resmon asked for, and "
+                    "resmon stopped before it reached the start of the window. Most "
+                    f"recently, {zero_reason.coverage_words(name, detail)}. This is not "
+                    "a failure, and the older part of each window was not searched."
+                ),
+                what_to_do=(
+                    f"Nothing is broken. To have each window read to its start, give the "
+                    f"watches that ask {name} a shorter window"
+                    + (" or a higher cap." if capped else ".")
+                    + f" {name} is read from the newest preprints back, so a run that "
+                    "stops early has still read the newest ones."
+                ),
+                evidence={
+                    "runs_in_part": in_part,
+                    "stopped_by": "cap" if capped else "time_budget",
+                    "latest_read": detail.get("read") or {},
+                    "last_run_at": latest["start_time"],
+                },
+            ))
 
         # --- Rule: a productive source has gone quiet -----------------------
         # Only runs where the source actually answered can say what it

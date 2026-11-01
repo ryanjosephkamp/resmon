@@ -2,12 +2,14 @@
  * Atlas: Health, in the real app. The Source wall, the watchdog, and the
  * engine this window is talking to.
  *
- * A seeded record of four sweeps over three sources, so every state the wall
- * draws is on it: arXiv answers, answers with nothing, and has one run with
- * no row (not recorded); CrossRef answers and then fails three runs in a row
- * (broken, to the watchdog); Springer Nature is left out of three runs (not
- * asked) and could not be asked in the fourth (no key); and IEEE Xplore, long
- * withdrawn, is still selected by the last three, as an old watch's runs are.
+ * A seeded record of four sweeps, so every state the wall draws is on it:
+ * arXiv answers, answers with nothing, and has one run with no row (not
+ * recorded); CrossRef answers and then fails three runs in a row (broken, to
+ * the watchdog); Springer Nature is left out of three runs (not asked) and
+ * could not be asked in the fourth (no key); bioRxiv is answered in part on the
+ * last three, resmon's budget stopping each read (advice, to the watchdog, and
+ * no alarm); and IEEE Xplore, long withdrawn, is still selected by the last
+ * three, as an old watch's runs are.
  * Each screen is held to what the engine served for it, rather than to numbers
  * written here.
  *
@@ -37,12 +39,19 @@ iso = lambda t: t.strftime("%Y-%m-%dT%H:%M:%SZ")
 plan = [
     # (days ago, selection, {source: (status, count, zero_reason)}; a selected source with no entry has no row)
     (4, ["arxiv", "crossref"], {"arxiv": ("ok", 5, None), "crossref": ("ok", 3, None)}),
-    (3, ["arxiv", "crossref", "ieee"], {"arxiv": ("ok", 0, "answered_empty"), "crossref": ("error", 0, "upstream_failure"),
-        "ieee": ("error", 0, "retired")}),
-    (2, ["arxiv", "crossref", "ieee"], {"crossref": ("error", 0, "upstream_failure"), "ieee": ("error", 0, "retired")}),
-    (1, ["arxiv", "crossref", "springer", "ieee"], {"arxiv": ("ok", 4, None), "crossref": ("error", 0, "upstream_failure"),
-        "springer": ("skipped_missing_key", 0, "missing_key"), "ieee": ("error", 0, "retired")}),
+    (3, ["arxiv", "crossref", "ieee", "biorxiv"], {"arxiv": ("ok", 0, "answered_empty"),
+        "crossref": ("error", 0, "upstream_failure"), "ieee": ("error", 0, "retired"),
+        "biorxiv": ("ok", 0, "answered_in_part")}),
+    (2, ["arxiv", "crossref", "ieee", "biorxiv"], {"crossref": ("error", 0, "upstream_failure"),
+        "ieee": ("error", 0, "retired"), "biorxiv": ("ok", 2, "answered_in_part")}),
+    (1, ["arxiv", "crossref", "springer", "ieee", "biorxiv"], {"arxiv": ("ok", 4, None),
+        "crossref": ("error", 0, "upstream_failure"), "springer": ("skipped_missing_key", 0, "missing_key"),
+        "ieee": ("error", 0, "retired"), "biorxiv": ("ok", 0, "answered_in_part")}),
 ]
+# What bioRxiv's client records when resmon's own time budget stops it after the newest pages.
+in_part = lambda count, day: json.dumps({"detail": "budget", "attempts": 24, "read": {
+    "records": 660, "order": "newest_first", "total": 1824, "first_date": f"2026-10-{day:02d}",
+    "last_date": f"2026-10-{day + 2:02d}"}, **({"partial": True, "returned": count} if count else {})})
 runs = []
 for days, selection, outcomes in plan:
     start = now - timedelta(days=days)
@@ -51,9 +60,11 @@ for days, selection, outcomes in plan:
     for source, (status, count, reason) in outcomes.items():
         # A withdrawn source is recorded as the sweep records it: the registry's refusal, with its reason.
         retired = RETIRED_REPOSITORIES.get(source) if reason == "retired" else None
+        detail = (json.dumps({"detail": retired}) if retired
+                  else in_part(count, 28 - days) if reason == "answered_in_part" else None)
         record_execution_source(conn, run, source, status, result_count=count, zero_reason=reason,
             error_message=f"{source} is no longer available. {retired}" if retired else None,
-            zero_detail=json.dumps({"detail": retired}) if retired else None)
+            zero_detail=detail)
     update_execution_status(conn, run, "completed", end_time=iso(start + timedelta(seconds=30)),
                             result_count=sum(c for _s, c, _r in outcomes.values()), new_result_count=0)
     runs.append(run)
@@ -127,7 +138,22 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
       expect(drawn, `${source.name} is drawn differently from its record`).toEqual(source.cells.map((c) => c.state));
     }
     const states = new Set(served.sources.flatMap((s) => s.cells.map((c) => c.state)));
-    expect([...states].sort()).toEqual(['answered', 'answered_empty', 'could_not_be_asked', 'failed', 'not_recorded', 'not_selected']);
+    expect([...states].sort()).toEqual(['answered', 'answered_empty', 'answered_in_part', 'could_not_be_asked', 'failed',
+      'not_recorded', 'not_selected']);
+
+    // An answer in part, read: its own mark, the engine's words, and its count said as the part read.
+    const biorxiv = served.sources.find((s) => s.slug === 'biorxiv');
+    expect(biorxiv).toBeTruthy();
+    const biorxivRow = rows.filter({ has: win.locator('th[scope="row"]', { hasText: biorxiv!.name }) });
+    await expect(biorxivRow.locator('button[data-health="cell"] svg.wall-mark[data-mark="half"]')).toHaveCount(3);
+    await biorxivRow.locator('button[data-health="cell"]').nth(3).click();
+    const partRead = win.locator('[data-health="reading"]');
+    await expect(partRead).toHaveAttribute('data-state', 'answered_in_part');
+    await expect(partRead.locator('.wall-reading-label')).toHaveText('answered in part');
+    await expect(partRead.locator('.wall-reading-note')).toHaveText(biorxiv!.cells[3]!.note);
+    await expect(partRead.locator('.wall-reading-note')).toContainText('resmon read the newest 660 of the 1,824 records');
+    await expect(partRead.locator('dd').first()).toHaveText('0, from the part of the window read');
+    await partRead.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-health-in-part.png') });
 
     // A failure, read: the engine's sentence, and no count, which would read as "found none".
     const crossref = served.sources.find((s) => s.slug === 'crossref');
@@ -145,6 +171,20 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     await arxivRow.locator('button[data-health="cell"]').nth(0).click();
     await expect(reading.locator('dt', { hasText: 'Papers' })).toHaveCount(1);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-health-wall.png') });
+
+    // The same run's own page: bioRxiv's row is answered, in part, with its own mark and the engine's words.
+    await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, runs[3]);
+    const partRow = win.locator('.recorded-row[data-source="biorxiv"]');
+    await expect(partRow).toHaveAttribute('data-in-part', 'true', { timeout: 30_000 });
+    await expect(partRow).toHaveAttribute('data-category', 'answered');
+    await expect(partRow.locator('.src-label')).toHaveText('answered in part');
+    await expect(partRow.locator('.omark.part')).toHaveCount(1);
+    await expect(win.locator('[data-coverage-summary]')).toContainText('answered (1 in part)');
+    await expect(win.locator('[data-coverage-summary]')).toContainText(
+      'bioRxiv answered in part: resmon read the newest 660 of the 1,824 records');
+    await win.locator('.run-sources').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-run-in-part.png') });
+    await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Health' }).click();
+    await expect(win.locator('[data-health="verdict"] .wall-headline')).toHaveText(served.verdict.headline, { timeout: 30_000 });
 
     // More runs asked for than there are: the window says how many there were.
     await win.getByRole('group', { name: 'Runs shown' }).getByRole('button', { name: '24' }).click();
@@ -164,6 +204,10 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     const report = await api<Report>(win, '/api/watchdog');
     const broken = report.findings.find((f) => f.severity === 'broken' && f.scope.id === 'crossref');
     expect(broken, 'three failures in a row made no broken finding').toBeTruthy();
+    // Three answers in part are not an alarm: advice, in its own words.
+    const partly = report.findings.find((f) => f.scope.id === 'biorxiv');
+    expect(partly?.severity).toBe('advice');
+    expect(report.findings.filter((f) => f.scope.id === 'biorxiv' && f.severity !== 'advice')).toEqual([]);
     await expect(win.locator('[data-health="alarms"]')).toHaveText(String(report.counts.alarms));
     await win.getByRole('navigation', { name: 'Health' }).getByRole('link', { name: /Watchdog/ }).click();
     const wdVerdict = win.locator('[data-health="watchdog-verdict"] .wall-headline');
@@ -176,6 +220,14 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     await expect(card).not.toContainText(/\bcrossref\b/);
     // Stored timestamps read as times, never as ISO.
     await expect(card.locator('.finding-evidence')).not.toContainText(/\d{4}-\d{2}-\d{2}T/);
+
+    const advice = win.locator('li.finding[data-key="source_in_part:biorxiv"]');
+    await expect(advice.locator('.finding-title')).toHaveText('bioRxiv was answered in part on its last 3 runs');
+    await expect(win.locator('.watchdog-group', { has: advice }).locator('h2')).toHaveText('Worth considering');
+    await expect(advice.locator('.finding-evidence')).toContainText('Runs answered in part, in a row');
+    await expect(advice.locator('.finding-detail')).toContainText('This is not a failure');
+    await advice.scrollIntoViewIfNeeded();
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-health-in-part-advice.png') });
 
     // A withdrawn source: by the name it had, its streak not called failures, and its paragraph said once, whole.
     const withdrawn = win.locator('li.finding[data-key="source_errors:ieee"]');

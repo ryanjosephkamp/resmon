@@ -1262,6 +1262,9 @@ class SweepEngine:
                 return None
             coverage = source_coverage.build(
                 execution, get_execution_sources(self.db, exec_id))
+            # A source answered in part is among the answered: it answered
+            # every page resmon asked for, and resmon stopped. A run whose only
+            # shortfalls are those completes, and its coverage says what was read.
             if coverage["total"] == 0 or coverage["counts"]["answered"]:
                 return None
             # A raised query counts: resmon asked and the call did not come

@@ -11,7 +11,9 @@ import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
 import { formStart, startNeeded, windowSpan } from './watches/window';
-import { askStartSentence, coarseFor, coarseSentence, formNotices, paceOf, rateLong } from './sources/catalog';
+import {
+  askStartLongSentence, askStartSentence, coarseFor, coarseSentence, formNotices, paceOf, rateLong,
+} from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
@@ -221,6 +223,10 @@ export function Search() {
     () => formNotices(picked, { start: !!askedFrom, cap, span: windowSpan(askedFrom, dates.to) }),
     [picked, askedFrom, dates.to, cap],
   );
+  // Why Any time is off, and that a long window may not be read to its start,
+  // are two lines about the same sources: where both apply they are one.
+  const merged = !!needs && !filled && needs.entries.every((entry) => notices
+    .some((notice) => notice.slug === entry.slug && notice.scope === 'beyond_default_start'));
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
     ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
@@ -344,9 +350,10 @@ export function Search() {
             )}
             {coarse.length > 0 && <p>{coarseSentence(coarse)}</p>}
             {needs && (
-              <p data-ask="start-needed">{askStartSentence(needs, filled)}</p>
+              <p data-ask="start-needed">{merged ? askStartLongSentence(needs) : askStartSentence(needs, filled)}</p>
             )}
-            {notices.map((notice) => <p key={`${notice.slug}:${notice.effect}`} data-ask="notice">{notice.effect}</p>)}
+            {notices.filter((notice) => !(merged && notice.scope === 'beyond_default_start'))
+              .map((notice) => <p key={`${notice.slug}:${notice.effect}`} data-ask="notice">{notice.effect}</p>)}
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}

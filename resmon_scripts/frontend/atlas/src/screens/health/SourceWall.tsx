@@ -13,8 +13,11 @@ import {
 
 /** The line drawn through a row behind its marks, by state: a run of answers, of failures, of gaps in what could be asked. */
 const TRACK: Record<string, string> = {
-  answered: 'kept', answered_empty: 'kept', failed: 'fault', could_not_be_asked: 'gap',
+  answered: 'kept', answered_empty: 'kept', answered_in_part: 'kept', failed: 'fault', could_not_be_asked: 'gap',
 };
+
+/** The states that answered with papers a cell can count: an answer, or one in part. */
+const COUNTED = new Set(['answered', 'answered_empty', 'answered_in_part']);
 
 function selectionWords(inSelection: boolean | null): string {
   if (inSelection === true) return 'Yes';
@@ -160,7 +163,9 @@ function Row({ source, runs, largest, picked, column, onPick }: {
               title={`${cell.label}. ${cell.note}`}
               onClick={() => onPick(i)}>
               <WallMark state={cell.state} count={cell.result_count} largest={largest} />
-              {(cell.state === 'answered' || cell.state === 'answered_empty') && cell.result_count !== null && (
+              {/* An answer in part with nothing is not drawn as a count of none: the window was not all read. */}
+              {COUNTED.has(cell.state) && cell.result_count !== null
+                && !(cell.state === 'answered_in_part' && cell.result_count === 0) && (
                 <span className="wall-count num">{number(cell.result_count)}</span>
               )}
             </button>
@@ -195,8 +200,14 @@ function Reading({ wall, slug, column }: { wall: Wall; slug: string; column: num
       </div>
       <dl className="wall-reading-facts">
         {/* A count is a fact only about an answer: a failure's recorded zero is not "found none". */}
-        {(cell.state === 'answered' || cell.state === 'answered_empty') && (
-          <div><dt>Papers</dt><dd>{cell.result_count === null ? 'Not recorded' : number(cell.result_count)}</dd></div>
+        {COUNTED.has(cell.state) && (
+          <div>
+            <dt>Papers</dt>
+            <dd>
+              {cell.result_count === null ? 'Not recorded' : number(cell.result_count)}
+              {cell.state === 'answered_in_part' && cell.result_count !== null && ', from the part of the window read'}
+            </dd>
+          </div>
         )}
         {cell.zero_reason && <div><dt>Recorded reason</dt><dd><code className="cron">{cell.zero_reason}</code></dd></div>}
         <div><dt>In this run’s selection</dt><dd>{selectionWords(cell.in_selection)}</dd></div>

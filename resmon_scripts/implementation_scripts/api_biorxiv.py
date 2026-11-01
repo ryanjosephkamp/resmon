@@ -251,8 +251,10 @@ class BiorxivClient(BaseAPIClient):
                     results.append(parsed)
                     if len(results) >= max_results:
                         break
+            capped = len(results) >= max_results and read < total
             note_read(records=read, total=total or None,
-                      first_date=earliest, last_date=latest, newest_first=True)
+                      first_date=earliest, last_date=latest, newest_first=True,
+                      cap=max_results if capped else None)
             if len(results) >= max_results:
                 break
 

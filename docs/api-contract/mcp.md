@@ -258,6 +258,32 @@ Listed so the omissions are visible and arguable rather than silently missing.
 
 ## Amendments
 
+### Answered in part, not a version — November 1, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, no field is removed or changes type, and the contract version does not change.** Three
+reads say one more thing, and one run that failed now completes.
+
+A search that **resmon's own time budget, or the run's cap,** stopped after reading a stated,
+dated stretch of the window is **answered in part**. Today only bioRxiv and medRxiv record that
+stretch, and nothing is inferred for any other source. The source answered every page resmon
+asked for, so it is an answer, for that stretch alone: never an answered zero for the window, and
+never a non-answer. A provider's failure part-way (an HTTP error, a request that timed out, a
+reply resmon could not read) is still a non-answer.
+
+- `get_execution` and `get_search_record`: the zero-reason vocabulary gains `answered_in_part`,
+  which a source's row can carry whether or not it returned papers. Each coverage source gains
+  `in_part` (a boolean, `category` stays `answered`) and `coverage.counts` gains `in_part`, a
+  subset of `answered` as `genuine_empty` and `partial` are. The coverage `summary` says "N
+  answered (M in part)" only where M is not zero, followed by what each one read. `GET
+  /api/executions` gains `source_outcomes.in_part`, which `list_executions` does not pass
+  through.
+- `run_sweep` and `run_routine`: a run whose only shortfalls are sources answered in part
+  completes. Before, a bioRxiv-only run cut short with no match was `failed`.
+- `get_watchdog_findings`: a source answered in part on its last three runs is reported as
+  `advice`, kind `source_in_part`, never as an alarm, and a run answered in part is not counted as
+  a failure or used as a baseline of what the source returns.
+
 ### Newest first, not a version — November 1, 2026
 
 **25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument

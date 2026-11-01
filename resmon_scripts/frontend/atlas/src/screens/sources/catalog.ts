@@ -103,10 +103,26 @@ export function askStartSentence(needs: StartNeeded, filled: { day: string; befo
   return `${names} ${need} a start date, so this search starts ${when}: ${startWhy(needs)}.`;
 }
 
+/**
+ * Ask the sources' one line where both apply: why Any time is not offered, and
+ * that a window longer than the sources' own default may not be read back to
+ * its start (their `beyond_default_start` notice), said together rather than
+ * as two lines about the same sources.
+ */
+export function askStartLongSentence(needs: StartNeeded): string {
+  const names = listed(needs.entries.map((entry) => entry.name));
+  const one = needs.entries.length === 1;
+  return `${names} ${one ? 'needs' : 'need'} a start date, so Any time is not offered while ${one ? 'it is' : 'they are'} `
+    + `chosen. resmon reads ${one ? 'it' : 'them'} from the newest preprints in your window back, for at most 45 seconds, `
+    + `so a window longer than ${dayCount(needs.days)} may not be read back to its start; the run says how far back it read.`;
+}
+
 /** A sentence the catalog says a chosen source carries in the form's present state. */
 export interface FormNotice {
   slug: string;
   effect: string;
+  /** The notice's `applies_when`, so a form can say two of them as one line. */
+  scope: string;
 }
 
 /**
@@ -130,7 +146,7 @@ export function formNotices(
           && state.cap > entry.constraints.records_per_request)
         || (notice.applies_when === 'beyond_default_start' && state.start && typeof own === 'number'
           && typeof state.span === 'number' && state.span > own);
-      if (applies) out.push({ slug: entry.slug, effect: notice.effect });
+      if (applies) out.push({ slug: entry.slug, effect: notice.effect, scope: notice.applies_when });
     }
   }
   return out;
