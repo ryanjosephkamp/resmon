@@ -21,7 +21,6 @@
     "e2e:window": "playwright test --config e2e/playwright.config.ts e2e/window-manager.spec.ts",
     "e2e:review": "node scripts/e2e-review.js",
     "journeys": "playwright test --config journeys/playwright.config.ts",
-    "journeys:classic": "RESMON_JOURNEY_DRIVER=classic playwright test --config journeys/playwright.config.ts",
     "typecheck:journeys": "tsc --noEmit --project journeys/tsconfig.json",
     "perf:ui": "playwright test --config perf/playwright.config.ts",
     "typecheck:perf": "tsc --noEmit --project perf/tsconfig.json",

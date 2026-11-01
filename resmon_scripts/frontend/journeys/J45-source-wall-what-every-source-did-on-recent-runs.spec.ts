@@ -24,33 +24,15 @@
  * page draws is cell for cell what it was served, and the rest are about what
  * that says. A renderer that re-derived a state would fail the first; a
  * backend that collapsed two states would fail the rest.
- *
- * **The classic leg.** The frozen `classic` build is v2.3.0, from September 21,
- * 2026, and the Source wall arrived on October 18: that build has no such page
- * and never will, so failing on it would turn its leg red on every pull request
- * that touches this suite and say nothing new. Where the build under test is
- * *not* this checkout and its own backend serves no Source wall route, the spec
- * says so as NOT VERIFIED and stops — the same shape J21 uses for the defect
- * that build cannot lose. This checkout is never given that: here a missing
- * route fails the row.
  */
-import { buildUnderTest, expect, journey } from './driver';
+import { expect, journey } from './driver';
 
 // The authored source answers with a valid, empty feed until it is taken down.
 journey.use({ sourceReply: 'empty' });
 
 journey.describe('J45 Source wall: what every source did on recent runs', () => {
   journey('a source that did not answer never looks the same as one that answered with nothing', async ({ resmon }) => {
-    const build = buildUnderTest();
     const routes = await resmon.backend.routeInventory();
-    if (!build.thisCheckout && !routes.includes('/api/coverage/source-wall')) {
-      console.log('[J45] NOT VERIFIED: the whole row, on this build. The build under test is '
-        + `${build.frontend}, which is not this checkout, and its backend serves no `
-        + '/api/coverage/source-wall among its routes: it predates the Source wall (#175). Nothing '
-        + 'about how a failure and an empty answer are drawn was measured on this build.');
-      expect(resmon.refusedConnections()).toEqual([]);
-      return;
-    }
     expect(routes, 'this build serves no Source wall').toContain('/api/coverage/source-wall');
 
     const quiet = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'] });

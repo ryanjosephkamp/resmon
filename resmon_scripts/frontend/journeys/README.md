@@ -8,14 +8,12 @@ current markup would have to be rewritten alongside it, which is the same as
 having no suite at all during the only period when one matters. So nothing here
 touches the renderer. Every spec is written in the words of the journey it
 covers — *run a dive*, *read the coverage sentence*, *back up now* — and a
-**driver** behind it maps those onto one renderer's markup. The candidate is the
+**driver** behind it maps those onto the renderer's markup. The driver is the
 Atlas interface, which this build serves with `RESMON_UI=atlas`:
-`drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`) and skips every
-other journey with the reason "Not in Atlas yet: …". A candidate run's skipped
-count is therefore how much of the register Atlas still has to carry, and the
-switch-over waits for it to reach zero. J46, J47, J48 and J49 are Atlas's own
-journeys; the classic driver skips them the same way, saying the classic
-renderer has no such screen.
+`drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`), takes what has
+no screen from `drivers/screenless.ts`, and skips every other journey with the
+reason "Not in Atlas yet: …". A run's skipped count is therefore how much of the
+register Atlas still has to carry.
 
 That is a property, not a promise: `register.spec.ts` greps every spec file for
 a renderer call or an import of anything but the driver, and fails on a hit.
@@ -25,14 +23,14 @@ a renderer call or an import of anything but the driver, and fails on a hit.
 ```bash
 cd resmon_scripts/frontend
 npm run build              # the suite launches a build; it never makes one
-npm run journeys           # this build, through the candidate driver
-npm run journeys:classic   # this build, through the classic driver
+npm run journeys           # this build, through the Atlas driver
 npm run typecheck:journeys # nothing else typechecks this directory
 ```
 
 ### Against some other build
 
-Two variables, and nothing else changes:
+One variable, and nothing else changes. The other build has to include Atlas
+and serve it with `RESMON_UI=atlas`.
 
 ```bash
 # 1. Build the app you want to measure, wherever it lives.
@@ -43,7 +41,6 @@ npm run build
 # 2. Run this suite against it.
 cd /path/to/this/checkout/resmon_scripts/frontend
 RESMON_JOURNEY_APP=/path/to/other/resmon/resmon_scripts/frontend \
-RESMON_JOURNEY_DRIVER=classic \
   npm run journeys
 ```
 
@@ -56,7 +53,6 @@ are not what you meant, stop there.
 | Variable | Effect |
 |---|---|
 | `RESMON_JOURNEY_APP` | The `frontend/` directory of the build under test. Defaults to this checkout. It must already be built; the suite refuses a directory with no `dist/electron/main.js` rather than quietly building one. |
-| `RESMON_JOURNEY_DRIVER` | `classic` or `candidate`. Defaults to `candidate`. Anything else stops the run — a typo that quietly fell back would report green against the wrong renderer. |
 | `RESMON_JOURNEY_BREAK_ROW` | Fails one named register row on purpose, e.g. `J20`. This is how the CI job is shown to be able to go red. |
 | `RESMON_JOURNEY_LAG` | Delays the app's own HTTP calls, e.g. `/api/routines=2500,/api/watchdog=1500`. This is how a read-after-write race is shown to be fixed rather than merely unobserved — widen the gap a read has to survive, and a read that was only passing because the machine was quiet fails. Unset, nothing is intercepted. |
 | `RESMON_JOURNEY_SCREENSHOT_DIR` | Where pictures land. Defaults to `journeys/screenshots/`, which is gitignored. |
@@ -92,13 +88,13 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 49 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each page the app routes to. Nothing else in the suite is allowed to disagree with it. |
-| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every page in `src/routes.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration; the candidate borrows from the classic driver only what `drivers/borrowed.ts` lists, with its reasons. |
+| `register.ts` | The denominator: all 49 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each screen the app has. Nothing else in the suite is allowed to disagree with it. |
+| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every screen in `atlas/src/screenPaths.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration or reads before it waits; the candidate borrows from the screenless driver only what `drivers/borrowed.ts` lists, with its reasons. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
-| `drivers/classic.ts` | The one file that knows a class name, a hash route or the text on a button. |
-| `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the classic driver's members that `drivers/borrowed.ts` lists, and a skip with its reason for everything else. |
-| `drivers/atlas.ts` | The journeys Atlas can take so far, in Atlas's markup, the setup a person does on a screen included. |
-| `drivers/borrowed.ts` | What the candidate may take from the classic driver: `SCREENLESS`, the members that touch no screen in any interface, and `API_SETUP`, setup Atlas has no screen for yet, each entry with the reason. Data only, so the guard reads it without launching anything. |
+| `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the screenless driver's members that `drivers/borrowed.ts` lists, and a skip with its reason for everything else. |
+| `drivers/atlas.ts` | The one file that knows a class name, a hash route or the text on a button: the journeys Atlas can take, in Atlas's markup, the setup a person does on a screen included. |
+| `drivers/screenless.ts` | The members that touch no screen: the engine's record over its API, pictures, the authored fixtures, a raw socket, a gate, a file on disk. |
+| `drivers/borrowed.ts` | What the candidate may take from the screenless driver: `SCREENLESS`, the members that touch no screen, and `API_SETUP`, setup Atlas has no screen for yet, each entry with the reason. Data only, so the guard reads it without launching anything. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
@@ -126,9 +122,9 @@ substring, and "Inactive" satisfied it for as long as the method existed.
 wanted. Add a spec no row claims, and it says that too. Neither direction is
 optional: one alone gives you either a register nothing tests, or a suite that
 has quietly stopped covering the register. The same holds one level out: every
-page `src/routes.ts` routes to has an entry in `ROUTE_ROWS` naming the rows that
-carry it, so a new page with no journey is a red guard rather than a page
-nobody measures — which is what the Source wall was for nine days.
+screen in `atlas/src/screenPaths.ts` has an entry in `ROUTE_ROWS` naming the
+rows that carry it, so a new screen with no journey is a red guard rather than
+a screen nobody measures — which is what the Source wall was for nine days.
 
 **Setup a person does on a screen goes through Atlas's screen.** A
 step taken over the API passes whether or not Atlas has a screen for it, which
@@ -136,15 +132,15 @@ is how Atlas shipped without Settings › AI › Embeddings while J09 and J11
 passed. So where Atlas has a screen for a setup step — a watch made in the
 editor, Run now, a destination, Settings › AI, a restore — `drivers/atlas.ts`
 takes the step through it and ends on `stored(…)`, the engine's record of what
-the screen wrote. The candidate borrows from the classic driver only what
-`drivers/borrowed.ts` lists: `SCREENLESS`, members that touch no screen in any
-interface (the engine's record, a picture, a fixture, a gate, a file on disk,
-what an authored command received), and `API_SETUP`, setup Atlas has no screen
-for yet, each entry with a reason that says which screen is missing and which
-route the classic driver takes instead. `register.spec.ts` fails on a member
-borrowed from neither list, on a reason that is missing or a placeholder, on an
-entry `drivers/atlas.ts` now implements, and on a screenless member whose
-classic body writes to the app. A setup step Atlas has no screen for is a gap
+the screen wrote. The candidate borrows from the screenless driver only what
+`drivers/borrowed.ts` lists: `SCREENLESS`, members that touch no screen (the
+engine's record, a picture, a fixture, a gate, a file on disk, what an authored
+command received), and `API_SETUP`, setup Atlas has no screen for yet, each
+entry with a reason that says which screen is missing and which route the
+screenless driver takes instead. `register.spec.ts` fails on a member borrowed
+from neither list, on a reason that is missing or a placeholder, on an entry
+`drivers/atlas.ts` now implements, and on a screenless member whose body writes
+to the app. A setup step Atlas has no screen for is a gap
 in Atlas, and its entry comes off the list the day the screen lands.
 
 **Nothing here touches the renderer.** If a spec needs something the driver
