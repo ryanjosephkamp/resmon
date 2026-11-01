@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
-import { MAP_KEY } from '../Today';
+import { MAP_KEY, invalidateFor } from '../today/freshness';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
 import { authors, publishedWords } from '../today/format';
@@ -81,6 +81,7 @@ export function Paper() {
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['paper', id] });
     void client.invalidateQueries({ queryKey: ['reading-queue'] });
+    void invalidateFor(client, 'paper-changed');
   };
   const save = useMutation({
     mutationFn: () => answer(engine().POST('/api/reading-queue', { body: { document_id: id } })),

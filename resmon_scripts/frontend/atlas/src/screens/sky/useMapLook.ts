@@ -4,8 +4,8 @@ import { answer, engine } from '../../api/client';
 import type { Sky } from '../today/model';
 import type { PlateLook } from '../today/Plate';
 import { DEFAULT_VIEW, FIND_MIN, joinFacts, lookOf, needsFacts, type MapView } from './look';
+import { FACETS_KEY } from '../today/freshness';
 
-export const FACETS_KEY = ['map-facets'] as const;
 /** How long typing rests before the engine is asked. */
 const FIND_SETTLE_MS = 220;
 
@@ -49,9 +49,13 @@ export function useMapLook(name: 'today' | 'run', sky: Sky | null, names: (slug:
   const [typed, setTyped] = useState('');
   const [term, setTerm] = useState('');
   useEffect(() => {
-    const settle = window.setTimeout(() => setTerm(typed.trim()), FIND_SETTLE_MS);
+    // Nothing to settle when the words have not changed: on arrival the timer
+    // set the same empty term, and the map's bar was drawn again 220 ms in.
+    const next = typed.trim();
+    if (next === term) return undefined;
+    const settle = window.setTimeout(() => setTerm(next), FIND_SETTLE_MS);
     return () => window.clearTimeout(settle);
-  }, [typed]);
+  }, [typed, term]);
   const finding = term.length >= FIND_MIN;
   const find = useQuery({
     queryKey: ['map-find', term],

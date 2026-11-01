@@ -11,6 +11,7 @@ import type { CatalogEntry } from '../runs/model';
 import { choiceOf, stateSentence } from '../settings/summaryChoice';
 import { AI_KEY } from '../settings/summaryLanes';
 import { count, number, when } from '../today/format';
+import { invalidateFor, useRunEnding } from '../today/freshness';
 import { CoverageTab } from './CoverageTab';
 import { DeliveryTab } from './DeliveryTab';
 import {
@@ -83,6 +84,7 @@ function WatchPage({ raw }: { raw: string }) {
     },
   });
   const running = (history.data ?? []).find((run) => run.status === 'running') ?? null;
+  useRunEnding(running?.id ?? null);
   // The run Run now queued, once it has started: the earliest of this watch's runs after the queuing.
   const dequeued = waitingAfter === null ? null
     : [...(history.data ?? [])].filter((run) => run.id > waitingAfter).sort((a, b) => a.id - b.id)[0] ?? null;
@@ -117,7 +119,10 @@ function WatchPage({ raw }: { raw: string }) {
     mutationFn: (active: boolean) => answer(active
       ? engine().POST('/api/routines/{routine_id}/activate', { params: { path: { routine_id: id } } })
       : engine().POST('/api/routines/{routine_id}/deactivate', { params: { path: { routine_id: id } } })),
-    onSuccess: changed,
+    onSuccess: () => {
+      changed();
+      void invalidateFor(client, 'watch-changed');
+    },
   });
   const flip = useMutation({
     mutationFn: ({ column, on }: { column: SwitchColumn; on: boolean }) => answer(engine().PUT('/api/routines/{routine_id}', {

@@ -7,7 +7,7 @@ import { queueWords } from '../collection/Paper';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { runKind } from '../runs/model';
 import { authors, publishedWords, when } from '../today/format';
-import { FACETS_KEY } from './useMapLook';
+import { invalidateFor } from '../today/freshness';
 
 /** A web address the app may hand to its link window: http and https only. */
 export function webLink(value: string | null | undefined): string | null {
@@ -67,7 +67,7 @@ export function MapPaper({ id, cell, region, sourceName, backLabel, inline = fal
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ['paper', id] });
     void client.invalidateQueries({ queryKey: ['reading-queue'] });
-    void client.invalidateQueries({ queryKey: FACETS_KEY });
+    void invalidateFor(client, 'paper-changed');
   };
   // Each takes the paper's id, so a pending action is read only for the paper it was asked about.
   const save = useMutation({

@@ -331,8 +331,9 @@ conn.commit()
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
+    // The log's pages, by their offset: Today reads the newest few runs on its own (`?limit=5`).
     const asked: string[] = [];
-    win.on('request', (r) => { if (/\/api\/executions\?/.test(r.url())) asked.push(new URL(r.url()).search); });
+    win.on('request', (r) => { if (/\/api\/executions\?.*offset=/.test(r.url())) asked.push(new URL(r.url()).search); });
     await win.evaluate(() => { window.location.hash = '#/search/ask'; });
     const log = win.locator('section.runlog');
     await expect(log.locator('.run-row')).toHaveCount(20, { timeout: 60_000 });
