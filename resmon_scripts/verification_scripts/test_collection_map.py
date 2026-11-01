@@ -17,6 +17,7 @@ What is claimed, and tested here against a corpus whose topics are known:
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import sqlite3
 import struct
@@ -350,6 +351,22 @@ def test_the_fit_is_kept_beside_the_database_and_reused(db):
     second = cm.snapshot(db, None, lambda: db)
     assert second["state"] == "ready" and not second["refitting"]
     assert second["points"] == first["points"]
+
+
+def test_positions_are_written_as_the_decimals_they_are_rounded_to(db):
+    """Four decimals, as the fit rounds them, and not the float32's seventeen-digit spelling."""
+    _corpus(db, per_topic=30)
+    answer = _ready(db)
+    fit = cm._current(cm.cache_path(db))
+    assert fit is not None
+    order = {int(i): k for k, i in enumerate(fit.ids)}
+    for axis, column in (("x", 0), ("y", 1)):
+        written = answer["points"][axis]
+        # The same place on the plate as the fit's own rounding, to well under a pixel's hundredth at any zoom.
+        rounded = np.array([np.round(fit.xy[order[i], column], 4) for i in answer["points"]["id"]], np.float64)
+        assert np.abs(np.array(written) - rounded).max() < 1e-7
+        assert all(v == round(v, 4) for v in written)
+        assert max(len(json.dumps(v)) for v in written) <= len("-0.1234")
 
 
 def test_papers_since_the_fit_are_placed_without_a_refit_until_a_fifth(db):

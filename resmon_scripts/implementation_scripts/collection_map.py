@@ -1332,6 +1332,14 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
              "r": round(float(current.disc_r[c]), 4), "size": int(counts[c])}
             for c in range(len(current.labels)) if counts[c] > 0
         ]
+        # Positions are rounded to 4 decimals in the fit's float32, as they
+        # always were, and then written as those decimals: a float32 passed
+        # to JSON as a float64 took 17 digits ("0.522599995136261" for
+        # 0.5226), which was 73% of the answer. What is drawn moves by under
+        # 3e-8 of the plate's width.
+        def coordinate(values: np.ndarray) -> list[float]:
+            return np.round(np.round(values, 4).astype(np.float64), 4).tolist()
+
         return {
             "state": "ready",
             **base,
@@ -1346,8 +1354,8 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
             "regions": regions,
             "points": {
                 "id": served_ids.tolist(),
-                "x": np.round(xy[:, 0], 4).tolist(),
-                "y": np.round(xy[:, 1], 4).tolist(),
+                "x": coordinate(xy[:, 0]),
+                "y": coordinate(xy[:, 1]),
                 "region": region.tolist(),
                 "seen_day": seen_by_id.tolist(),
             },
