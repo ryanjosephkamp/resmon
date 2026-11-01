@@ -306,9 +306,13 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 # nothing and a source that gave no answer are never under one heading: the
 # first is a quiet field, the second says nothing about the field, and a reader
 # skimming headings must not be able to take one for the other. The categories
-# are ``source_coverage``'s (answered, did not answer, unknown), so the report
-# and the search record sort every source the same way.
+# are ``source_coverage``'s (answered, answered in part, did not answer,
+# unknown), so the report and the search record sort every source the same way.
 _NOTE_GROUPS = (
+    ("in_part", "## Sources answered in part",
+     "resmon read the part of the window each one states and stopped, at its own "
+     "time budget or the run's cap. Each answered every page it was asked for; "
+     "the part not read is not counted either way."),
     ("partial", "## Sources with retained partial results", None),
     ("answered", "## Sources that answered with nothing to keep", None),
     ("non_answer", "## Sources that did not answer, and why",
@@ -335,6 +339,8 @@ _CANCELLED_AT = {
 
 def _note_group(note: dict) -> str:
     """Which footer section one source's note belongs in."""
+    if note.get("reason") in zero_reason.ANSWERED_IN_PART:
+        return "in_part"
     if note.get("partial"):
         return "partial"
     reason = note.get("reason")

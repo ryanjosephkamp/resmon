@@ -110,16 +110,17 @@ def test_every_recorded_reason_reaches_exactly_one_wall_state(reason):
     assert set(mapped) == set(zero_reason.ZERO_REASONS)
 
 
-def test_the_states_are_the_six_the_screen_draws():
-    """Five were approved; the sixth is here because the data had it.
+def test_the_states_are_the_seven_the_screen_draws():
+    """Five were approved; the sixth and seventh are here because the data had them.
 
     `not_selected` and `not_recorded` are both silences and they are not the
     same silence: one is a choice the user made and the other is a hole in the
     record. Collapsing them is the same compression as calling a 503 an empty
-    field, one level down.
+    field, one level down. `answered_in_part` is resmon stopping a source it
+    read in order, which is neither a full answer nor a failure.
     """
     assert source_wall.WALL_STATES == (
-        "answered", "answered_empty", "could_not_be_asked", "failed",
+        "answered", "answered_empty", "answered_in_part", "could_not_be_asked", "failed",
         "not_recorded", "not_selected",
     )
 
@@ -153,12 +154,16 @@ def test_the_legend_word_for_a_state_is_the_backend_s_own_word():
 # ---------------------------------------------------------------------------
 
 
-def test_each_of_the_six_states_is_reachable_from_stored_rows(conn):
-    """Rows a real sweep can write, and six distinct cells out."""
-    slugs = ["arxiv", "biorxiv", "crossref", "doaj", "europe_pmc"]
+def test_each_of_the_seven_states_is_reachable_from_stored_rows(conn):
+    """Rows a real sweep can write, and seven distinct cells out."""
+    slugs = ["arxiv", "biorxiv", "crossref", "doaj", "europe_pmc", "medrxiv"]
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=slugs)
     record(conn, run, "arxiv", count=7)
     record(conn, run, "biorxiv", count=0, reason="answered_empty")
+    record(conn, run, "medrxiv", count=0, reason="answered_in_part",
+           detail={"detail": "budget", "attempts": 24, "read": {
+               "records": 660, "order": "newest_first", "total": 1824,
+               "first_date": "2026-10-29", "last_date": "2026-10-31"}})
     record(conn, run, "crossref", status="skipped_missing_key", reason="missing_key")
     record(conn, run, "doaj", count=0, reason="upstream_failure",
            detail={"status": 503, "attempts": 3})
@@ -171,7 +176,9 @@ def test_each_of_the_six_states_is_reachable_from_stored_rows(conn):
     assert cell_for(wall, "crossref")["state"] == "could_not_be_asked"
     assert cell_for(wall, "doaj")["state"] == "failed"
     assert cell_for(wall, "europe_pmc")["state"] == "not_recorded"
-    # The sixth comes from a row recorded outside this run's saved selection,
+    assert cell_for(wall, "medrxiv")["state"] == "answered_in_part"
+    assert cell_for(wall, "medrxiv")["label"] == "answered in part"
+    # The last comes from a row recorded outside this run's saved selection,
     # which gives the grid a source the run never asked.
     record(conn, run, "zenodo", count=1)
     later = make_run(conn, started="2026-10-02T09:00:00", repositories=slugs)

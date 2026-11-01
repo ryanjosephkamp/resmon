@@ -208,7 +208,8 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
         assert f"resmon execution id | {eid}" in md
         assert "Source coverage" in md
         if name == "mixed":
-            assert c["counts"] == {"answered": 2, "non_answer": 2, "unknown": 2, "genuine_empty": 1, "partial": 0}
+            assert c["counts"] == {"answered": 2, "non_answer": 2, "unknown": 2, "genuine_empty": 1, "partial": 0,
+                                    "in_part": 0}
             assert [r["source"] for r in c["sources"]] == ["positive", "empty", "503", "parse", "old", "missing"]
             assert "Recorded at" in md and "Outcome not recorded" in md
         if name == "malformed":
@@ -219,7 +220,7 @@ def test_history_account_arrives_in_http_markdown_list_and_detail(boundary):
             assert "<img" not in md
             assert "\\|" in md and "&lt;img" in md
         if name == "partial":
-            assert c["counts"] == {"answered": 1, "non_answer": 0, "unknown": 0, "genuine_empty": 0, "partial": 1}
+            assert c["counts"] == {"answered": 1, "non_answer": 0, "unknown": 0, "genuine_empty": 0, "partial": 1, "in_part": 0}
             assert c["sources"][0]["note"] == PARTIAL_SENTENCE
             assert search_record._text(PARTIAL_SENTENCE) in md
         print("COVERAGE_HISTORY", json.dumps({"name": name, "coverage": c}))

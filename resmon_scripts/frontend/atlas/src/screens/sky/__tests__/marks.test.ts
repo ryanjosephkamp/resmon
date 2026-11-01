@@ -42,7 +42,8 @@ describe.each(['dark', 'light'] as const)('the %s theme', (name) => {
   });
 
   test('the Source wall\'s marks and the line through a row are 3:1 against its panel', () => {
-    // A point, a ring, a struck circle, a dotted ring, a dash, and the line that joins a row's answers.
+    // A point, a ring, a half-filled ring (ink), a struck circle, a dotted ring, a dash, and the line that
+    // joins a row's answers.
     const below = ['ink', 'ink-2', 'fault', 'ink-3', 'chart-context']
       .filter((token) => !(contrast(t[token]!, t.panel!) >= 3));
     expect(below).toEqual([]);

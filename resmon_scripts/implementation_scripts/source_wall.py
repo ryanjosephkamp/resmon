@@ -14,16 +14,21 @@ called, not re-implemented. A sixth copy of that decision is exactly the
 defect that put a green tick on the seven sources that have no author query
 (fixed in "One source of truth for 'did not answer' in the renderer"). What
 this module adds is a *projection*: the three categories plus the flags that
-``outcome`` already returns, folded into the five states a wall can draw, and
+``outcome`` already returns, folded into the states a wall can draw, and
 a sentence saying what the wall adds up to.
 
-The five states, and what each one is allowed to mean:
+The states, and what each one is allowed to mean:
 
 ``answered``
     The source replied and returned records. Includes a reply whose records
     resmon could not keep -- see the note on ``rights_filtered`` below.
 ``answered_empty``
     The source replied and genuinely had nothing. A quiet field, not a fault.
+``answered_in_part``
+    The source answered every page resmon asked for, and resmon stopped -- at
+    its own time budget or the run's cap -- after a stretch of the window the
+    client recorded. Not a fault and not a full answer: the cell's note says
+    what was read.
 ``could_not_be_asked``
     resmon never got a question to this source, or the source cannot express
     the question: no key, retired, no author query, a window it cannot answer.
@@ -73,9 +78,14 @@ from .api_registry import RETIRED_NAMES
 # on disk and they are not the same silence. The first is a choice the user
 # made; the second is a hole in the record. Collapsing them is the same
 # compression as calling a 503 an empty field, one level down.
+#
+# ``answered_in_part`` is the seventh, for the same reason: bioRxiv and medRxiv
+# record the stretch of a window they read, so "resmon stopped reading" is on
+# disk apart from "the source failed" and from "the source answered it all".
 WALL_STATES: tuple[str, ...] = (
     "answered",
     "answered_empty",
+    "answered_in_part",
     "could_not_be_asked",
     "failed",
     "not_recorded",
@@ -98,6 +108,8 @@ STATE_LEGEND: tuple[dict[str, str], ...] = (
      "meaning": "The source replied and returned records."},
     {"state": "answered_empty", "label": "answered, zero",
      "meaning": "The source replied and genuinely had nothing. A quiet field, not a fault."},
+    {"state": "answered_in_part", "label": "answered in part",
+     "meaning": "The source answered every page; resmon stopped at its own time budget or the run's cap."},
     {"state": "could_not_be_asked", "label": "could not be asked",
      "meaning": "No key, retired, no author query, or a window the source cannot answer."},
     {"state": "failed", "label": "failed",
@@ -126,8 +138,9 @@ STATE_FOR_NON_ANSWER: dict[str, str] = {
 
 # The states that mean the source did get a question answered. Used by the
 # verdict to decide whether a source has *stopped* answering, which needs
-# evidence that it once did.
-_ANSWERING = frozenset({"answered", "answered_empty"})
+# evidence that it once did. A source answered in part is in it: resmon
+# stopped reading, and that is no fault of the source's.
+_ANSWERING = frozenset({"answered", "answered_empty", "answered_in_part"})
 
 # The states that want the user's attention.
 _ATTENTION = frozenset({"could_not_be_asked", "failed"})
@@ -149,10 +162,13 @@ def state_for(outcome: dict) -> str:
     """Project one ``source_coverage.outcome`` dict onto a wall state.
 
     ``outcome`` is taken whole rather than re-derived from the row: its
-    ``category``, ``genuine_empty`` and ``status`` are the facts this function
-    is allowed to read, and it reads nothing else about the row.
+    ``category``, ``genuine_empty``, ``in_part`` and ``status`` are the facts
+    this function is allowed to read, and it reads nothing else about the row.
     """
     category = outcome.get("category")
+    if category == "answered" and outcome.get("in_part"):
+        # Answered, for the stretch the note states; resmon stopped reading.
+        return "answered_in_part"
     if category == "answered":
         # ``genuine_empty`` is the backend's own name for the one zero that is
         # a real answer: status ``ok``, count 0, reason ``answered_empty``.
@@ -437,6 +453,7 @@ def _verdict(sources: list[dict], run_count: int,
 
     stopped: list[str] = []
     silent: list[str] = []
+    in_part: list[str] = []
     # For each silent source, how many of the window's runs recorded an outcome
     # for it. A source can be silent in two of twelve runs because it was only
     # in two of them, and the headline must not count the other ten against it.
@@ -470,6 +487,8 @@ def _verdict(sources: list[dict], run_count: int,
             continue
         if latest in _ANSWERING:
             answering += 1
+            if latest == "answered_in_part":
+                in_part.append(source["name"])
             # Deselection is not a fault and is never the headline, but it is
             # a fact the user may not have intended, so it is reported.
             if source["cells"][-1]["state"] == "not_selected":
@@ -495,6 +514,15 @@ def _verdict(sources: list[dict], run_count: int,
         detail.append(
             f"{len(unasked)} of {total} sources were not in any of these "
             f"{runs}' saved selections, so nothing was asked of them."
+        )
+    if in_part:
+        # Not a fault, and counted as answering; but not a full answer either,
+        # and the headline's "answered" would hide that without this.
+        detail.append(
+            f"{_join(sorted(in_part))} answered in part the last time resmon "
+            f"asked {'it' if len(in_part) == 1 else 'them'}: resmon stopped at its "
+            "own time budget or the run's cap, after the part of the window "
+            f"{'its' if len(in_part) == 1 else 'each'} cell states."
         )
     if dropped:
         # Worded as the record, not as a warning. resmon cannot tell a
@@ -756,6 +784,9 @@ def build(conn: sqlite3.Connection, limit: int = DEFAULT_RUNS) -> dict:
         "A source that answered and whose records resmon could not store reads "
         "as answered, because the source did reply with records. The cell's "
         "note carries how many were matched and how many were kept.",
+        "Answered in part is resmon stopping, at its own time budget or the run's "
+        "cap, not the source failing. The cell's note says which part of the "
+        "window was read; the rest was not read and is counted neither way.",
         "A cancelled run reads as not recorded for every source it was still "
         "querying: resmon observed its own cancellation, not an answer.",
         "Not asked and not recorded are different marks. The first is a choice "
@@ -803,6 +834,8 @@ def mapped_reasons() -> dict[str, str]:
             out[reason] = "not_recorded"
         elif reason == "answered_empty":
             out[reason] = "answered_empty"
+        elif reason in zero_reason.ANSWERED_IN_PART:
+            out[reason] = "answered_in_part"
         else:
             # ``rights_filtered`` and ``records_unusable``: the source answered.
             out[reason] = "answered"

@@ -382,3 +382,26 @@ describe('the report, as Markdown', () => {
     expect(container.textContent).toContain('[click](javascript:alert(1))');
   });
 });
+
+describe('a source answered in part, live', () => {
+  const done = (count: number) => liveSources(['biorxiv'], [{
+    type: 'repo_done', repository: 'biorxiv', result_count: count, zero_reason: 'answered_in_part',
+    zero_detail: { detail: 'budget', read: { records: 660, total: 1824 } },
+    zero_message: 'bioRxiv answered in part: resmon read the newest 660 of the 1,824 records.',
+  } as unknown as ProgressEvent]);
+
+  test('is its own state, with its own words, with or without papers', () => {
+    const [none] = done(0);
+    expect(none!.state).toBe('in_part');
+    expect(liveLabel(none!)).toBe('answered in part');
+    expect(none!.note).toBe('bioRxiv answered in part: resmon read the newest 660 of the 1,824 records.');
+    const [some] = done(12);
+    expect(some!.state).toBe('in_part');
+    expect(liveLabel(some!)).toBe('12 found, answered in part');
+  });
+
+  test('is an answer, not a non-answer', () => {
+    expect(outcomeOf(0, 'answered_in_part')).toBe('answered');
+    expect(ZERO_LABELS.answered_in_part).toBe('answered in part');
+  });
+});

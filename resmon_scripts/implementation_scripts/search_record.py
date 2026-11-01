@@ -524,6 +524,7 @@ _OUTCOME_LABELS = {
     "rights_filtered": "answered; nothing storable",
     "records_unusable": "answered; nothing storable",
     "answered_empty": "answered, zero",
+    "answered_in_part": "answered in part",
     "not_recorded": "zero, reason not recorded",
     "missing_key": "no API key configured",
     "retired": "withdrawn",
@@ -586,7 +587,11 @@ def to_markdown(record: dict) -> str:
                 continue
             lines.extend(["", "### " + title, "", "| Source | Category | Returned | Recorded at | Reason |", "|---|---|---:|---|---|"])
             for row in rows:
-                lines.append("| " + " | ".join(_text(row[k]) for k in ("source", "category", "result_count", "recorded_at", "note")) + " |")
+                # An answer in part is said as one in this column too: the
+                # category alone would read as an answer for the whole window.
+                category = "answered, in part" if row.get("in_part") else row["category"]
+                lines.append("| " + " | ".join(_text(v) for v in (
+                    row["source"], category, row["result_count"], row["recorded_at"], row["note"])) + " |")
         lines.append("")
 
     lines.append("## The search")
@@ -659,9 +664,14 @@ def to_markdown(record: dict) -> str:
     ident = record["identification"]
     recorded_answered = (sum(s["coverage"]["category"] == "answered" for s in record["sources"])
                          if coverage else ident["sources_that_answered"])
+    # Answered in part is said apart: resmon read a stretch of the window and
+    # stopped, which is an answer for that stretch alone.
+    in_part = (sum(bool(s["coverage"].get("in_part")) for s in record["sources"])
+               if coverage else 0)
     lines.append(f"| **Total** | **{ident['records_identified']:,}** | "
                  f"{recorded_answered} of "
-                 f"{ident['sources_searched']} recorded sources answered |")
+                 f"{ident['sources_searched']} recorded sources answered"
+                 f"{f' ({in_part} in part)' if in_part else ''} |")
     lines.append("")
 
     for source in record["sources"]:

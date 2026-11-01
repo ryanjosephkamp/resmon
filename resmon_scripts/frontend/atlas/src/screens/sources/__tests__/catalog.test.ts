@@ -2,7 +2,7 @@ import type { CatalogEntry } from '../../runs/model';
 import { webhookTarget } from '../../watches/Destinations';
 import { webhookUrl } from '../../watches/model';
 import {
-  askStartSentence, coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond,
+  askStartLongSentence, askStartSentence, coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond,
 } from '../catalog';
 
 const entry = (slug: string, patch: Partial<CatalogEntry> & { author?: string } = {}): CatalogEntry => ({
@@ -62,7 +62,7 @@ test('a source\'s notice is shown before asking only in the state of the form it
 
   // No start date: what resmon asks bioRxiv for in its place, said before the run.
   expect(formNotices([biorxiv, ndl, arxiv], { start: false, cap: 100 })).toEqual([
-    { slug: 'biorxiv', effect: 'With no start date, resmon asks bioRxiv for the 3 days before the run.' },
+    { slug: 'biorxiv', effect: 'With no start date, resmon asks bioRxiv for the 3 days before the run.', scope: 'without_start_date' },
   ]);
   // A start date set: nothing about what resmon would have put there.
   expect(formNotices([biorxiv, ndl, arxiv], { start: true, cap: 100 })).toEqual([]);
@@ -93,13 +93,22 @@ test('a window longer than a source\'s own default start says it may not be read
     },
   } as unknown as Partial<CatalogEntry>);
   const arxiv = entry('arxiv', { constraints: { default_start_days: null, records_per_request: null, notices: [] } } as unknown as Partial<CatalogEntry>);
-  const said = [{ slug: 'biorxiv', effect: 'resmon reads bioRxiv newest first.' }];
+  const said = [{ slug: 'biorxiv', effect: 'resmon reads bioRxiv newest first.', scope: 'beyond_default_start' }];
   expect(formNotices([biorxiv, arxiv], { start: true, cap: 100, span: 30 })).toEqual(said);
   expect(formNotices([biorxiv], { start: true, cap: 100, span: 4 })).toEqual(said);
   // The default's own length, or none known, or no start (the default stands in): nothing.
   expect(formNotices([biorxiv], { start: true, cap: 100, span: 3 })).toEqual([]);
   expect(formNotices([biorxiv], { start: true, cap: 100, span: null })).toEqual([]);
   expect(formNotices([biorxiv], { start: false, cap: 100, span: 30 })).toEqual([]);
+});
+
+test('why Any time is off and that a long window may not be read to its start are said as one line', () => {
+  const one = { entries: [entry('biorxiv', { name: 'bioRxiv' })], days: 3 };
+  expect(askStartLongSentence(one)).toBe('bioRxiv needs a start date, so Any time is not offered while it is chosen. '
+    + 'resmon reads it from the newest preprints in your window back, for at most 45 seconds, so a window longer than '
+    + '3 days may not be read back to its start; the run says how far back it read.');
+  const both = { entries: [entry('biorxiv', { name: 'bioRxiv' }), entry('medrxiv', { name: 'medRxiv' })], days: 3 };
+  expect(askStartLongSentence(both)).toMatch(/^bioRxiv and medRxiv need a start date, so Any time is not offered while they are chosen\. resmon reads them /);
 });
 
 test('a source that needs a start date says what the form filled in, or why Any time is not offered', () => {

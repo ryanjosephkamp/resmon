@@ -85,7 +85,8 @@ describe('Ask the sources', () => {
     // Changed: kept, and the line no longer says the form chose it.
     fireEvent.change(from, { target: { value: '2026-10-01' } });
     expect(from.value).toBe('2026-10-01');
-    expect(line()).toMatch(/^bioRxiv needs a start date, so Any time is not offered while it is chosen: /);
+    // A start a month back is a long window too, so the line says that as well.
+    expect(line()).toMatch(/^bioRxiv needs a start date, so Any time is not offered while it is chosen\. resmon reads it from the newest/);
     // Cleared: filled in again.
     fireEvent.change(from, { target: { value: '' } });
     expect(from.value).toBe(filled);
@@ -99,17 +100,24 @@ describe('Ask the sources', () => {
     expect(anyTime).toHaveAttribute('aria-pressed', 'true');
   });
 
-  test('a window longer than bioRxiv\'s own 3 days says it is read from the newest back', () => {
+  test('a window longer than bioRxiv\'s own 3 days says, in the same one line, that it is read from the newest back', () => {
     const { container, pick } = shown('/search/ask');
     const notices = () => [...container.querySelectorAll('[data-ask="notice"]')].map((p) => p.textContent);
+    const line = () => [...container.querySelectorAll('[data-ask="start-needed"]')].map((p) => p.textContent);
+    const merged = 'bioRxiv needs a start date, so Any time is not offered while it is chosen. resmon reads it from the '
+      + 'newest preprints in your window back, for at most 45 seconds, so a window longer than 3 days may not be read '
+      + 'back to its start; the run says how far back it read.';
     pick('biorxiv');
-    // A fresh form asks for the last 30 days.
-    expect(notices()).toEqual([LONG]);
-    fireEvent.click(screen.getByRole('button', { name: '7 days' }));
-    expect(notices()).toEqual([LONG]);
-    // Any time is not offered; the start the form fills in is the default's own 3 days.
-    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } });
+    // A fresh form asks for the last 30 days: one line about bioRxiv, not two.
+    expect(line()).toEqual([merged]);
     expect(notices()).toEqual([]);
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }));
+    expect(line()).toEqual([merged]);
+    // The start the form fills in is the default's own 3 days: only why it filled one.
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } });
+    expect(line()).toEqual([expect.stringMatching(/^bioRxiv needs a start date, so this search starts 3 days back/)]);
+    expect(notices()).toEqual([]);
+    expect(LONG).toContain('newest');
   });
 
   test('a source that needs no start leaves Any time as it is', () => {

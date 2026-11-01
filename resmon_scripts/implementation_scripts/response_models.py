@@ -1754,20 +1754,25 @@ class RunStarted(LosslessModel):
 
 
 class RunCoverageCounts(LosslessModel):
-    """How the selected sources split. ``genuine_empty`` and ``partial`` are
-    subsets of ``answered``, not further categories."""
+    """How the selected sources split. ``genuine_empty``, ``partial`` and
+    ``in_part`` are subsets of ``answered``, not further categories.
+    ``in_part`` counts the sources resmon's own time budget or the run's cap
+    stopped after a stated stretch of the window: answered, and only for that
+    stretch."""
 
     answered: int
     non_answer: int
     unknown: int
     genuine_empty: int
     partial: int
+    in_part: int
 
 
 class RunCoverageSource(LosslessModel):
     """One source's recorded outcome on one run, from ``source_coverage.outcome``.
 
-    ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is
+    ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``in_part``
+    marks an answer for only the stretch of the window ``note`` states. ``label`` is
     the short reason a person reads, and ``note`` the sentence that explains
     it. A selected source with no recorded row is ``unknown`` with
     ``outcome_recorded`` false, and every recorded field ``None``: nothing about
@@ -1785,6 +1790,7 @@ class RunCoverageSource(LosslessModel):
     recorded_at: Optional[str]
     genuine_empty: bool
     partial: bool
+    in_part: bool
 
 
 class RunCoverage(LosslessModel):
@@ -1813,10 +1819,13 @@ class RunSourceOutcomes(LosslessModel):
 
     ``could_not_answer`` counts the zeros that were not answers; ``not_recorded``
     the zeros resmon never observed, deliberately folded into neither.
+    ``in_part`` counts, among ``answered``, the sources resmon's own budget or
+    the run's cap stopped after a stated stretch of the window.
     """
 
     selected: int
     answered: int
+    in_part: int
     could_not_answer: int
     not_recorded: int
     sources_that_could_not_answer: list[str]

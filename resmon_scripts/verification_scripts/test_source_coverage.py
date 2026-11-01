@@ -29,7 +29,8 @@ def test_unusable_selection_never_becomes_zero_selected(params):
 def test_exact_slug_selection_missing_and_additional_sources():
     result = project({"repositories": ["a", "a", "A", "missing"]}, [row(), row("extra")])
     assert [s["source"] for s in result["sources"]] == ["a", "A", "missing"]
-    assert result["counts"] == {"answered": 1, "non_answer": 0, "unknown": 2, "genuine_empty": 1, "partial": 0}
+    assert result["counts"] == {"answered": 1, "non_answer": 0, "unknown": 2, "genuine_empty": 1, "partial": 0,
+                                "in_part": 0}
     assert [s["source"] for s in result["additional_sources"]] == ["extra"]
     assert all(not s["outcome_recorded"] for s in result["sources"][1:])
     assert "no attempt" in result["sources"][1]["note"]
@@ -68,7 +69,8 @@ def test_mixed_run_positive_rights_unusable_and_cap_do_not_mean_new_or_empty():
             row("parse", reason="parse_failure"), row("old", reason=None),
             row("rights", reason="rights_filtered"), row("unusable", reason="records_unusable")]
     result = project({"repositories": [r["source"] for r in rows], "max_results": 100}, rows)
-    assert result["counts"] == {"answered": 4, "non_answer": 2, "unknown": 1, "genuine_empty": 1, "partial": 0}
+    assert result["counts"] == {"answered": 4, "non_answer": 2, "unknown": 1, "genuine_empty": 1, "partial": 0,
+                                "in_part": 0}
     assert "could not read" in result["sources"][3]["note"]
     assert "newly added" in result["sources"][0]["note"]
     assert any("does not prove truncation" in n for n in result["notes"])

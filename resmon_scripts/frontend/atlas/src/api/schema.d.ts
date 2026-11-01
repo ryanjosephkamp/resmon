@@ -9399,14 +9399,19 @@ export interface components {
         };
         /**
          * RunCoverageCounts
-         * @description How the selected sources split. ``genuine_empty`` and ``partial`` are
-         *     subsets of ``answered``, not further categories.
+         * @description How the selected sources split. ``genuine_empty``, ``partial`` and
+         *     ``in_part`` are subsets of ``answered``, not further categories.
+         *     ``in_part`` counts the sources resmon's own time budget or the run's cap
+         *     stopped after a stated stretch of the window: answered, and only for that
+         *     stretch.
          */
         RunCoverageCounts: {
             /** Answered */
             answered: number;
             /** Genuine Empty */
             genuine_empty: number;
+            /** In Part */
+            in_part: number;
             /** Non Answer */
             non_answer: number;
             /** Partial */
@@ -9420,7 +9425,8 @@ export interface components {
          * RunCoverageSource
          * @description One source's recorded outcome on one run, from ``source_coverage.outcome``.
          *
-         *     ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is
+         *     ``category`` is ``answered``, ``non_answer`` or ``unknown``; ``in_part``
+         *     marks an answer for only the stretch of the window ``note`` states. ``label`` is
          *     the short reason a person reads, and ``note`` the sentence that explains
          *     it. A selected source with no recorded row is ``unknown`` with
          *     ``outcome_recorded`` false, and every recorded field ``None``: nothing about
@@ -9431,6 +9437,8 @@ export interface components {
             category: string;
             /** Genuine Empty */
             genuine_empty: boolean;
+            /** In Part */
+            in_part: boolean;
             /** Label */
             label: string;
             /** Note */
@@ -9637,12 +9645,16 @@ export interface components {
          *
          *     ``could_not_answer`` counts the zeros that were not answers; ``not_recorded``
          *     the zeros resmon never observed, deliberately folded into neither.
+         *     ``in_part`` counts, among ``answered``, the sources resmon's own budget or
+         *     the run's cap stopped after a stated stretch of the window.
          */
         RunSourceOutcomes: {
             /** Answered */
             answered: number;
             /** Could Not Answer */
             could_not_answer: number;
+            /** In Part */
+            in_part: number;
             /** Not Recorded */
             not_recorded: number;
             /** Selected */

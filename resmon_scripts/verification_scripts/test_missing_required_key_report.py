@@ -124,9 +124,12 @@ def test_every_zero_reason_lands_where_the_coverage_account_puts_it():
     from implementation_scripts import source_coverage, zero_reason
 
     for reason in zero_reason.ZERO_REASONS:
-        category = source_coverage.outcome(
-            {"source": "x", "status": "ok", "result_count": 0, "zero_reason": reason})["category"]
-        assert _note_group({"reason": reason}) == category, reason
+        outcome = source_coverage.outcome(
+            {"source": "x", "status": "ok", "result_count": 0, "zero_reason": reason})
+        # An answer in part is a subset of answered in the coverage, and has a
+        # section of its own in the report, so it is not read as a quiet field.
+        expected = "in_part" if outcome["in_part"] else outcome["category"]
+        assert _note_group({"reason": reason}) == expected, reason
     assert _note_group({"reason": None}) == "unknown"
     assert _note_group({"reason": "a reason this build does not know"}) == "unknown"
     assert _note_group({"reason": "upstream_failure", "partial": True}) == "partial"

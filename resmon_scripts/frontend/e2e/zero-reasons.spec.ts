@@ -295,7 +295,7 @@ test('P13c: not_recorded — resmon did not observe why, and says exactly that',
   }
 });
 
-test('P13d: the ten reasons, and which of them a real browser has now seen', async () => {
+test('P13d: the reasons, and which of them a real browser has now seen', async () => {
   // The denominator, taken from the code rather than counted here: a reason
   // added to `zero_reason.ZERO_REASONS` with no real-browser case shows up in
   // this list rather than being quietly absent.
@@ -311,13 +311,14 @@ test('P13d: the ten reasons, and which of them a real browser has now seen', asy
     'upstream_failure', // P13a
     'answered_empty', // P13b
     'not_recorded', // P13c
+    'answered_in_part', // atlas-health.spec.ts: a Source wall cell and a run page
   ];
   const jsdomOnly = all.filter((r) => !inRealBrowser.includes(r));
   console.log('P13d REASONS', JSON.stringify({
     total: all.length, realBrowser: inRealBrowser, jsdomOnly,
   }));
 
-  expect(all.length).toBe(10);
+  expect(all.length).toBe(11);
   for (const reason of inRealBrowser) expect(all).toContain(reason);
   // Named, not hidden: these six reach the renderer only through jsdom
   // fixtures. `missing_key` and `retired` need configuration state,
