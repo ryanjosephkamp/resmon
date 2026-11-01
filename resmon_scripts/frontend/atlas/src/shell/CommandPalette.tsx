@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type RefObject } from 'react';
+import { useEffect, useId, useMemo, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PLACES, SECTIONS, SETTINGS } from '../routes';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
@@ -62,16 +62,52 @@ const SHELL_COMMANDS: readonly { id: ShortcutId; group: string; label: string; k
  * combobox over a listbox, so a screen reader hears the highlighted row as it
  * moves. The shell holds the dialog, so a shortcut pressed in it can close it
  * before doing what it says.
+ *
+ * Its field and list are drawn only while it is open. The shell draws again
+ * on every change of screen, and so does anything that navigates; a
+ * controlled field drawn again has its `name` and `type` written again, so a
+ * closed palette's field was changing the page each time a screen opened.
  */
-export function CommandPalette({ open, onClose, onRun, dialog, mac }: {
+export function CommandPalette({ open, onClose, onRun, dialog, mac }: PaletteProps) {
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (open && !node.open) {
+      node.showModal();
+      node.querySelector('input')?.focus();
+    } else if (!open && node.open) {
+      node.close();
+    }
+  }, [open, dialog]);
+
+  return (
+    <dialog
+      ref={dialog}
+      className="palette"
+      data-shell-dialog=""
+      aria-label="Search commands"
+      // A close event is queued, and a key can be handled before it: one that
+      // arrives after the palette has been opened again is not this opening's.
+      onClose={() => { if (!dialog.current?.open) onClose(); }}
+      onCancel={onClose}
+      onMouseDown={(event) => { if (event.target === dialog.current) onClose(); }}
+    >
+      {open && <PaletteBody onClose={onClose} onRun={onRun} dialog={dialog} mac={mac} />}
+    </dialog>
+  );
+}
+
+interface PaletteProps {
   open: boolean;
   onClose: () => void;
   /** Runs one of the shell's own commands, as its shortcut would. */
   onRun: (id: ShortcutId) => void;
   dialog: RefObject<HTMLDialogElement | null>;
   mac: boolean;
-}) {
-  const input = useRef<HTMLInputElement>(null);
+}
+
+/** The field and the commands, for one opening: each opening starts with an empty field and the first row. */
+function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>) {
   const navigate = useNavigate();
   const { stored, save } = useAppearance();
   const [query, setQuery] = useState('');
@@ -132,19 +168,6 @@ export function CommandPalette({ open, onClose, onRun, dialog, mac }: {
   const activeCommand = shown[activeIndex];
 
   useEffect(() => {
-    const node = dialog.current;
-    if (!node) return;
-    if (open && !node.open) {
-      setQuery('');
-      setActive(0);
-      node.showModal();
-      input.current?.focus();
-    } else if (!open && node.open) {
-      node.close();
-    }
-  }, [open, dialog]);
-
-  useEffect(() => {
     document.getElementById(`${listId}-${activeIndex}`)?.scrollIntoView({ block: 'nearest' });
   }, [activeIndex, listId]);
 
@@ -166,21 +189,10 @@ export function CommandPalette({ open, onClose, onRun, dialog, mac }: {
   };
 
   return (
-    <dialog
-      ref={dialog}
-      className="palette"
-      data-shell-dialog=""
-      aria-label="Search commands"
-      // A close event is queued, and a key can be handled before it: one that
-      // arrives after the palette has been opened again is not this opening's.
-      onClose={() => { if (!dialog.current?.open) onClose(); }}
-      onCancel={onClose}
-      onMouseDown={(event) => { if (event.target === dialog.current) onClose(); }}
-    >
+    <>
       <div className="palette-field">
         <Icon name="search" />
         <input
-          ref={input}
           role="combobox"
           aria-expanded="true"
           aria-controls={listId}
@@ -221,6 +233,6 @@ export function CommandPalette({ open, onClose, onRun, dialog, mac }: {
       {shown.length === 0 && (
         <p className="palette-empty" role="status">Nothing matches “{query.trim()}”.</p>
       )}
-    </dialog>
+    </>
   );
 }
