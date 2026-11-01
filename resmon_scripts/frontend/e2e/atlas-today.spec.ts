@@ -3,12 +3,13 @@
  * plate draws, the index lists exactly the papers new since the last look
  * with numbers matching the plate's, a watch names the sources that did not
  * answer on its last run in one line (a withdrawn one by its name, not its
- * key) with each one's reason a click away, the numbers are lit again on
- * coming back to Today and the list is grouped as it was left, both themes
- * are pictured, and Mark all read starts the next window, as the engine then
- * reports too. Today and the map are kept between visits, and a run that
- * ended meanwhile is read in on the next visit rather than at the minute's
- * refresh.
+ * key) with each one's reason a click away, coming back to Today draws the
+ * same answer at rest and the list grouped as it was left, both themes are
+ * pictured, and Mark all read starts the next window, as the engine then
+ * reports too. Today and the map are kept between visits, a run that ended
+ * meanwhile is read in on the next visit rather than at the minute's refresh,
+ * and the opening plays for that new answer and not on a return to the same
+ * one.
  *
  * The collection is written through the engine's own database functions
  * before launch, so the counts asserted here are the ones it was given.
@@ -145,8 +146,7 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-today.png') });
 
-    // Coming back to Today draws the kept answer; the opening runs to the end
-    // all the same, and no number is left dim.
+    // Coming back to Today draws the same answer at rest, with no number dim.
     // The list is grouped as it was left, and the engine keeps that.
     const byRegion = win.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'By region' });
     await byRegion.click();
@@ -213,7 +213,7 @@ conn.commit()
 print(json.dumps({"run": e, "papers": len(docs)}))
 `;
 
-test('Today is kept between visits, and a run that ended meanwhile is read in on the next one', async () => {
+test('Today is kept between visits: the same answer is drawn at rest, and a new one is read in and played', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-kept-'));
   const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')],
@@ -243,18 +243,36 @@ test('Today is kept between visits, and a run that ended meanwhile is read in on
       await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 30_000 });
     };
 
-    // The first visit reads both, once the map is fitted.
+    // The opening lights each number by an animation of its own: counted here.
+    const lit = () => win.evaluate(() => (window as unknown as { e2eLit: number }).e2eLit);
+    await win.evaluate(() => {
+      const counted = window as unknown as { e2eLit: number };
+      counted.e2eLit = 0;
+      const animate = Element.prototype.animate;
+      Element.prototype.animate = function (...args: Parameters<Element['animate']>) {
+        if (this.classList.contains('badge')) counted.e2eLit += 1;
+        return animate.apply(this, args);
+      };
+    });
+
+    // The first visit reads both, once the map is fitted, and plays the opening.
     await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 120_000 });
     await expect(win.getByRole('heading', { name: `${counts.new} new papers` })).toBeVisible();
+    await expect.poll(lit, { message: 'the first visit played no opening' }).toBeGreaterThan(0);
+    await expect(win.locator('.entry .badge.dim')).toHaveCount(0, { timeout: 10_000 });
 
-    // Away and back: Today and the map are drawn from what was read, and neither is asked for again.
+    // Away and back: Today and the map are drawn from what was read, neither is
+    // asked for again, and the same answer is drawn at rest, with no opening.
     const kept = reads.length;
     await away();
+    const playedBefore = await lit();
     await back();
     await expect(win.locator('.entry .badge')).toHaveCount(counts.new);
+    await expect(win.locator('.entry .badge.dim')).toHaveCount(0);
     await expect.poll(() => win.locator('.plate-canvas').evaluate((c) => (c as HTMLCanvasElement).dataset.frameMs ?? ''))
       .not.toBe('');
     expect(reads.slice(kept), 'a revisit read Today or the map again').toEqual([]);
+    expect(await lit(), 'a return to the same answer played the opening again').toBe(playedBefore);
 
     // A run ends while the window is elsewhere. The next visit reads it in at
     // once, well inside the minute after which Today is read again anyway.
@@ -266,6 +284,8 @@ test('Today is kept between visits, and a run that ended meanwhile is read in on
     await back();
     await expect(win.getByRole('heading', { name: `${counts.new + 2} new papers` })).toBeVisible({ timeout: 10_000 });
     await expect(win.locator('.entry-title', { hasText: 'Protein folding late arrival 0' })).toBeVisible();
+    // A new answer: the opening plays for it.
+    await expect.poll(lit, { message: 'the new answer played no opening' }).toBeGreaterThan(playedBefore);
     const reread = reads.filter((r) => r.at > lastRead);
     expect(reread.map((r) => r.path)).toEqual(expect.arrayContaining(['/api/today', '/api/map']));
     expect(Math.min(...reread.map((r) => r.at)) - lastRead, 'read in by the minute\'s refresh, not by the run ending')

@@ -1,34 +1,77 @@
 import { StrictMode, type ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
-import { OPENING_MS, lightsAt, litAt, nextLightAt, useOpening, type Opening } from '../opening';
+import {
+  OPENING_MS, answerKey, forgetOpenings, lightsAt, litAt, nextLightAt, useOpening, type Opening,
+} from '../opening';
 
 const strict = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>;
 const SETTLE = 420;
 const at = (start: number): Opening => ({ state: 'running', start });
 
-describe('Today’s opening starts once, when the plate and the papers are in', () => {
-  beforeEach(() => { jest.useFakeTimers(); });
+describe('Today’s opening plays once for each new answer, when the plate and the papers are in', () => {
+  beforeEach(() => {
+    jest.useFakeTimers();
+    forgetOpenings();
+  });
   afterEach(() => { jest.useRealTimers(); });
 
-  test('it waits for the plate, then runs from that moment, and once per visit', () => {
-    const { result, rerender } = renderHook(({ ready }) => useOpening(ready, false), {
-      initialProps: { ready: false }, wrapper: strict,
-    });
+  const visit = (answer: string | null) => renderHook(({ key }) => useOpening(key, false), {
+    initialProps: { key: answer }, wrapper: strict,
+  });
+
+  test('it waits for the plate, then runs from that moment, once', () => {
+    const { result, rerender } = visit(null);
     act(() => { jest.advanceTimersByTime(5_000); });
     expect(result.current).toEqual({ state: 'waiting' });
-    rerender({ ready: true });
+    rerender({ key: '41@2026-11-01 06:00:00' });
     act(() => { jest.advanceTimersByTime(1); });
     expect(result.current.state).toBe('running');
     const first = result.current;
     // The plate going and coming back (a refit) does not start it again.
-    rerender({ ready: false });
-    rerender({ ready: true });
+    rerender({ key: null });
+    rerender({ key: '41@2026-11-01 06:00:00' });
     act(() => { jest.advanceTimersByTime(1); });
     expect(result.current).toBe(first);
   });
 
+  test('a return to the same answer draws it at rest at once; a newer one plays it again', () => {
+    const first = visit('41@2026-11-01 06:00:00');
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(first.result.current.state).toBe('running');
+    first.unmount();
+
+    // Back on Today, the same answer: lit from the first frame, with nothing to wait for.
+    const again = visit('41@2026-11-01 06:00:00');
+    expect(again.result.current).toEqual({ state: 'none' });
+    act(() => { jest.advanceTimersByTime(5_000); });
+    expect(again.result.current).toEqual({ state: 'none' });
+
+    // A run brought a newer arrival while Today was open: it plays for that answer.
+    again.rerender({ key: '57@2026-11-01 07:30:00' });
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(again.result.current.state).toBe('running');
+    again.unmount();
+    expect(visit('57@2026-11-01 07:30:00').result.current).toEqual({ state: 'none' });
+  });
+
+  test('an answer that arrives while it runs joins it, and is not played again later', () => {
+    const { result, rerender, unmount } = visit('41@a');
+    act(() => { jest.advanceTimersByTime(1); });
+    const running = result.current;
+    rerender({ key: '42@b' });
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(result.current).toBe(running);
+    unmount();
+    expect(visit('42@b').result.current).toEqual({ state: 'none' });
+  });
+
+  test('an answer is its newest arrival, not the read that brought it', () => {
+    expect(answerKey({ id: 41, first_seen_at: '2026-11-01 06:00:00' })).toBe('41@2026-11-01 06:00:00');
+    expect(answerKey(undefined)).toBe('none');
+  });
+
   test('without motion there is no opening: everything is lit from the start', () => {
-    const { result } = renderHook(() => useOpening(false, true), { wrapper: strict });
+    const { result } = renderHook(() => useOpening('41@a', true), { wrapper: strict });
     expect(result.current).toEqual({ state: 'none' });
     expect(litAt(result.current, 9, 0)).toBe(9);
   });
