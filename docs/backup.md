@@ -106,7 +106,10 @@ row, so a target that comes back under a different id has no secret bound to it.
 1. Verify first. Recompute the SHA-256 of every file in `manifest.files` and compare.
 2. Stop resmon. The database must not be open by any process.
 3. Move your current `resmon.db`, `resmon.db-wal` and `resmon.db-shm` somewhere safe.
-   Do not delete them until the restore has proved itself.
+   Do not delete them until the restore has proved itself. Move `resmon.db-map.npz` and
+   `resmon.db-wording.json` with them, if they are there: they are the collection map and
+   the shared wording of the papers being replaced, and the application sets them aside
+   with the database too.
 4. Copy the bundle's `resmon.db` into place.
 5. If the bundle has a `vault/`, read `library_vault.root_path` out of the restored
    database and copy `vault/` there, as `resmon-library-<vault_id>`, mode `0700`. Remove

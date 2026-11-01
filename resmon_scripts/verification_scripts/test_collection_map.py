@@ -17,10 +17,13 @@ What is claimed, and tested here against a corpus whose topics are known:
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 import sqlite3
 import struct
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -350,6 +353,22 @@ def test_the_fit_is_kept_beside_the_database_and_reused(db):
     assert second["points"] == first["points"]
 
 
+def test_positions_are_written_as_the_decimals_they_are_rounded_to(db):
+    """Four decimals, as the fit rounds them, and not the float32's seventeen-digit spelling."""
+    _corpus(db, per_topic=30)
+    answer = _ready(db)
+    fit = cm._current(cm.cache_path(db))
+    assert fit is not None
+    order = {int(i): k for k, i in enumerate(fit.ids)}
+    for axis, column in (("x", 0), ("y", 1)):
+        written = answer["points"][axis]
+        # The same place on the plate as the fit's own rounding, to well under a pixel's hundredth at any zoom.
+        rounded = np.array([np.round(fit.xy[order[i], column], 4) for i in answer["points"]["id"]], np.float64)
+        assert np.abs(np.array(written) - rounded).max() < 1e-7
+        assert all(v == round(v, 4) for v in written)
+        assert max(len(json.dumps(v)) for v in written) <= len("-0.1234")
+
+
 def test_papers_since_the_fit_are_placed_without_a_refit_until_a_fifth(db):
     _corpus(db, per_topic=40)
     _ready(db)
@@ -415,6 +434,70 @@ def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tm
     assert "unable to open database file" in cm._errors[str(path)]
     assert not path.exists()
     assert not path.with_name(path.name + cm._CHILD_SUFFIX).exists()
+
+
+def _fitting_children(database: Path) -> list[str]:
+    """The processes fitting this database's map, by their command line.
+
+    ``-e`` and ``args`` are POSIX, so this reads every process on macOS and on
+    Linux alike. ``-axo`` did not: on Linux ``-a`` leaves out processes with no
+    terminal, which is every process on a CI runner. ``-ww`` keeps each command
+    line whole: without a terminal to measure, Linux's ps cut it short, before
+    the database's path.
+    """
+    listing = subprocess.run(["ps", "-ww", "-eo", "pid=,args="], capture_output=True, text=True, check=True).stdout
+    return [line for line in listing.splitlines()
+            if "implementation_scripts.collection_map" in line and str(database) in line]
+
+
+def _leftovers(path: Path) -> list[str]:
+    return sorted(p.name for p in path.parent.iterdir() if p.name.startswith(path.name))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the slow interpreter is a shell script")
+def test_erasing_during_a_fit_stops_it_and_keeps_nothing_of_the_papers(db, monkeypatch, tmp_path):
+    """An erase while the map is fitted: no file, no map in memory, no child left fitting."""
+    _corpus(db, per_topic=20)
+    path = cm.cache_path(db)
+    database = Path(str(path)[: -len("-map.npz")])
+    # The child starts a second late, so the erase lands while it is running.
+    slow = tmp_path / "slow-python"
+    slow.write_text(f"#!/bin/sh\nsleep 1\nexec {sys.executable} \"$@\"\n")
+    slow.chmod(0o755)
+    monkeypatch.setattr(sys, "executable", str(slow))
+
+    assert cm.snapshot(db, None, lambda: db)["state"] == "fitting"
+    deadline = time.monotonic() + 10
+    while not _fitting_children(database) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert _fitting_children(database), "no child was fitting the map"
+
+    cm.forget(db)
+    cm.wait(db)
+    time.sleep(2)  # past when the child would have finished had it been left running
+    assert _leftovers(path) == []
+    assert cm._fits.get(str(path)) is None
+    assert str(path) not in cm._errors
+    assert _fitting_children(database) == []
+
+
+def test_a_fit_that_ends_after_an_erase_stores_nothing(db, monkeypatch):
+    """The fit's result arrives after ``forget``: neither the map nor its file is kept."""
+    _corpus(db, per_topic=20)
+    path = cm.cache_path(db)
+
+    def finished_after_an_erase(where, model):
+        written = where.with_name(where.name + cm._CHILD_SUFFIX)
+        cm.save(cm.fit_corpus(db, model), written)
+        cm.forget(db)  # the corpus is erased just before the fit's result is stored
+        return cm.load(written), written
+
+    monkeypatch.setattr(cm, "_fit_in_child", finished_after_an_erase)
+    cm.snapshot(db, None, lambda: db)
+    cm.wait(db)
+    assert _leftovers(path) == []
+    assert cm._fits.get(str(path)) is None
+    assert str(path) not in cm._errors
 
 
 # ---------------------------------------------------------------------------

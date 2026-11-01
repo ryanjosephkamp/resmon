@@ -1154,6 +1154,17 @@ def _classify(conn: sqlite3.Connection, measured: list) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 _store_lock = threading.RLock()
+#: How many times each database's answer has been forgotten. A scan remembers
+#: the number it started under, and one that ends under another saves nothing:
+#: the papers it read were erased while it ran.
+_generations: dict[Optional[str], int] = {}
+
+
+def generation(conn: sqlite3.Connection) -> int:
+    """The number of times this database's answer has been forgotten."""
+    path = state_path(conn)
+    with _store_lock:
+        return _generations.get(str(path) if path is not None else None, 0)
 #: Databases with no file keep their answer here; files are cached by path,
 #: modification time and size, so reading the screen does not parse the file.
 _memory: dict[Optional[str], tuple[Optional[tuple[int, int]], dict]] = {}
@@ -1194,9 +1205,15 @@ def load_state(conn: sqlite3.Connection) -> Optional[dict]:
         return state
 
 
-def save_state(conn: sqlite3.Connection, state: dict) -> None:
+def save_state(conn: sqlite3.Connection, state: dict, *, since: Optional[int] = None) -> bool:
+    """Keep ``state`` as the database's answer; a scan passes the generation it read under.
+
+    Returns False, keeping nothing, when the answer was forgotten after ``since``.
+    """
     path = state_path(conn)
     with _store_lock:
+        if since is not None and _generations.get(str(path) if path is not None else None, 0) != since:
+            return False
         if path is None:
             _memory[None] = (None, state)
             return
@@ -1205,6 +1222,7 @@ def save_state(conn: sqlite3.Connection, state: dict) -> None:
         os.replace(temporary, path)
         info = path.stat()
         _memory[str(path)] = ((info.st_mtime_ns, info.st_size), state)
+    return True
 
 
 def forget(conn: sqlite3.Connection) -> None:
@@ -1212,11 +1230,15 @@ def forget(conn: sqlite3.Connection) -> None:
 
     Called when the corpus is erased: the file holds author names and text
     positions taken from the papers, and ids restart after an erase, so an
-    answer kept would describe papers that are not there.
+    answer kept would describe papers that are not there. A scan under way
+    read those papers, so it is stopped, and one that ends anyway saves
+    nothing.
     """
     path = state_path(conn)
     with _store_lock:
-        _memory.pop(str(path) if path is not None else None, None)
+        key = str(path) if path is not None else None
+        _generations[key] = _generations.get(key, 0) + 1
+        _memory.pop(key, None)
         if path is not None:
             try:
                 path.unlink()
@@ -1379,6 +1401,7 @@ class ScanJob:
         clock = time.perf_counter()
         try:
             conn = open_connection()
+            read_under = generation(conn)
             started = self.status()["started_at"] or _now()
             previous = load_state(conn)
             if kind == "new" and (previous is None or previous.get("method_version") != METHOD_VERSION):
@@ -1389,12 +1412,13 @@ class ScanJob:
                                     on_progress=self._progress)
                 if not result["cancelled"]:
                     save_state(conn, _merge(previous or {}, result, new_ids, started_at=started,
-                                            seconds=time.perf_counter() - clock))
+                                            seconds=time.perf_counter() - clock), since=read_under)
             else:
                 result = find_pairs(conn, should_cancel=self._cancel.is_set, on_progress=self._progress)
                 if not result["cancelled"]:
                     save_state(conn, _new_state(result, kind="full", started_at=started,
-                                                seconds=time.perf_counter() - clock, previous=previous))
+                                                seconds=time.perf_counter() - clock, previous=previous),
+                               since=read_under)
             with self._lock:
                 self._state.update(cancelled=result["cancelled"], found=len(result["pairs"]),
                                    kind=kind)

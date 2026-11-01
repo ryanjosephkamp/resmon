@@ -96,7 +96,10 @@ row, so a target that comes back under a different id has no secret bound to it.
 </li>
 <li>
 <p>Move your current <code>resmon.db</code>, <code>resmon.db-wal</code> and <code>resmon.db-shm</code> somewhere safe.
-Do not delete them until the restore has proved itself.</p>
+Do not delete them until the restore has proved itself. Move <code>resmon.db-map.npz</code> and
+<code>resmon.db-wording.json</code> with them, if they are there: they are the collection map and
+the shared wording of the papers being replaced, and the application sets them aside
+with the database too.</p>
 </li>
 <li>
 <p>Copy the bundle’s <code>resmon.db</code> into place.</p>
