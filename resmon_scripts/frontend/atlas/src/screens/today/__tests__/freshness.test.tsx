@@ -9,7 +9,7 @@ import { engine } from '../../../api/client';
 import { LIFECYCLE_FOR } from '../../lifecycle/model';
 import {
   FACETS_KEY, KEPT_MS, MAP_KEY, READ_AGAIN, TODAY_KEY, endedRuns, forgetRunsEnded, invalidateFor, keepBetweenVisits,
-  useRunEnding, useRunsEnded, type Change,
+  mapKeptFor, useRunEnding, useRunsEnded, type Change,
 } from '../freshness';
 
 jest.mock('../../../api/client', () => ({ ...jest.requireActual('../../../api/client'), engine: jest.fn() }));
@@ -33,8 +33,16 @@ test('Today, the map, and what is recorded against listed papers are kept for th
   keepBetweenVisits(client);
   expect(KEPT_MS).toBe(60_000);
   expect(client.getQueryDefaults(TODAY_KEY).staleTime).toBe(KEPT_MS);
-  expect(client.getQueryDefaults(MAP_KEY).staleTime).toBe(KEPT_MS);
   expect(client.getQueryDefaults([LIFECYCLE_FOR, [1, 2]]).staleTime).toBe(KEPT_MS);
+  expect(typeof client.getQueryDefaults(MAP_KEY).staleTime).toBe('function');
+});
+
+test('a drawn map is kept, and one still being fitted is asked for again by the next page that opens', () => {
+  expect(mapKeptFor({ state: 'ready', refitting: false })).toBe(KEPT_MS);
+  expect(mapKeptFor({ state: 'ready', refitting: true })).toBe(0);
+  expect(mapKeptFor({ state: 'fitting' })).toBe(0);
+  expect(mapKeptFor({ state: 'failed' })).toBe(0);
+  expect(mapKeptFor(undefined)).toBe(0);
 });
 
 test.each(Object.keys(READ_AGAIN) as Change[])('“%s” reads again exactly what it makes out of date', async (change) => {

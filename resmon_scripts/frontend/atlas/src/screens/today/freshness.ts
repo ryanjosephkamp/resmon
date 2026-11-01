@@ -46,9 +46,20 @@ export const READ_AGAIN: Readonly<Record<Change, readonly (readonly string[])[]>
   'map-basis-changed': [MAP_KEY],
 };
 
-/** Keep Today, the map, and the lifecycle of listed papers between visits, for `KEPT_MS`. */
+/**
+ * Keep Today, the map, and the lifecycle of listed papers between visits, for
+ * `KEPT_MS`. A map the engine is still fitting is not kept: a page that opens
+ * asks again at once rather than drawing "fitting" until its next poll.
+ */
 export function keepBetweenVisits(client: QueryClient): void {
-  for (const queryKey of [TODAY_KEY, MAP_KEY, [LIFECYCLE_FOR]]) client.setQueryDefaults(queryKey, { staleTime: KEPT_MS });
+  for (const queryKey of [TODAY_KEY, [LIFECYCLE_FOR]]) client.setQueryDefaults(queryKey, { staleTime: KEPT_MS });
+  client.setQueryDefaults(MAP_KEY, { staleTime: (query) => mapKeptFor(query.state.data) });
+}
+
+/** How long one answer from `/api/map` is kept: a minute when it is a drawn map, none while one is being fitted. */
+export function mapKeptFor(data: unknown): number {
+  const map = data as { state?: string; refitting?: boolean } | undefined;
+  return map?.state === 'ready' && !map.refitting ? KEPT_MS : 0;
 }
 
 /** The ended runs at the last reading of the newest runs, or null before one. */
