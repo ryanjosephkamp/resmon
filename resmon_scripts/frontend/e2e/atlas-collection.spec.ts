@@ -23,7 +23,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 
-/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot (embeddings.spec.ts says more). */
+/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot. */
 async function vecLoaded(win: Page): Promise<boolean> {
   return win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();

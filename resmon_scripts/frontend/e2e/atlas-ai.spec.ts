@@ -7,7 +7,7 @@
  * **Nothing here calls a model.** The command the chain names is a script in
  * this spec's state directory that resmon finds and never runs. The embedding
  * model is a Node server on loopback returning a hash-derived vector per text,
- * as `embeddings.spec.ts` uses; it waits a little before each answer so that a
+ * as journey J09's does; it waits a little before each answer so that a
  * backfill lasts long enough to be stopped. What is the app's own: the settings
  * writes, the engine's reading of the chain (checked with `resolve_chain`
  * itself), the probe, the estimate, the backfill and its stop, the index
@@ -205,7 +205,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     const part = win.locator('section.embeddings');
     await expect(part.locator('[data-embeddings="embedded"] dd')).toHaveText('None: no embedding model is set up.');
     await expect(part.locator('[data-embeddings="missing"] dd')).toHaveText('4 papers: no embedding model is set up to make vectors.');
-    // The macos-15 runner's python3 cannot load SQLite extensions (embeddings.spec.ts says more).
+    // The macos-15 runner's python3 cannot load SQLite extensions.
     // There the screen must say so in both places, and nothing past this point can rank.
     const health = await api<{ embeddings?: { extension: string | null; reason?: string } }>(win, 'GET', '/api/health');
     if (!health.body.embeddings?.extension) {
