@@ -953,7 +953,9 @@ function openLinkWindow(url: string): void {
     width: 900,
     height: 700,
     title: url,
-    backgroundColor: '#0f1117',
+    // The main window's own ground, so the link window opens on the theme the
+    // app is showing rather than flashing another color before its page paints.
+    backgroundColor: mainWindow?.getBackgroundColor() ?? CLASSIC_GROUND,
     show: false,
     parent: mainWindow ?? undefined,
     webPreferences: {
