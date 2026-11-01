@@ -33,7 +33,6 @@ under `release/` it skips, and says so.
 | `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that were found the hard way. |
 | `fixtures/electron-fuses.ts` | Reads the fuse wire out of a built app. Two fuses are what make a packaged app driveable at all. |
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
-| `routes.ts` | The classic renderer's routes, **imported** from `src/routes.ts`, for the specs that still open it. |
 | `screens.ts` | Atlas's screens, **imported** from `atlas/src/screenPaths.ts`, which its own test holds to the router: every screen at a fixed address, Settings' groups included. |
 | `main-window.spec.ts` | P3–P4 — `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
 | `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
@@ -45,19 +44,15 @@ under `release/` it skips, and says so.
 | `zero-reason.spec.ts` | Phase 1.8.6 — `window_unanswerable` on all three surfaces. |
 | `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection), `answered_empty` (an authored empty feed) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the ten reasons a real browser has seen. |
 | `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
-| `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
 | `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
 | `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
 
 ## Five things to know before adding a spec
 
-**A page cannot exist without a smoke test.** `src/routes.ts` is the one route
-table; `App.tsx` renders from it and `routes.ts` here imports it, so adding a
-page adds its spec. `src/__tests__/routes.test.tsx` fails when the two
-disagree — including when a `<Route>` is hand-written in `App.tsx` to go around
-the table, and when a Settings or About tab is declared in its own page and not
-in the table's `children`. Until phase 1.8.7 this file was a hand copy and a new
-route was unswept with nothing going red.
+**A screen cannot exist without a smoke test.** `atlas/src/screenPaths.ts` is
+the list of every screen at a fixed address, Settings' groups included;
+`atlas/src/__tests__/screenPaths.test.ts` holds it to the router, and
+`screens.ts` here imports it, so adding a screen adds its smoke case.
 
 **A bare X server has no window manager.** Under `xvfb-run`, `maximize()`,
 focus and stacking are silent no-ops, so a green CI tick from the ubuntu job
@@ -79,16 +74,10 @@ A committed screenshot is a merge conflict, not evidence.
 **8742** is a live launchd daemon over a different database; every spec asserts
 the backend port it found is not that one. Keep that assertion in a new spec.
 
-**Assertions are scoped to resmon's own origins.** The app embeds seventeen
-YouTube iframes and a GitHub Pages `<webview>`, and both produce console errors
-and aborted requests that no change to this repository can fix. `isOwnOrigin()`
-is the boundary; third-party events are printed, not asserted.
-
-That scoping used to mean a broken embed was invisible. `third-party.spec.ts`
-is the answer to it: a **positive** check, separate from "nothing failed" — it
-scrolls each embed into view, evaluates inside the cross-origin frame, and
-requires a player, no error overlay and a real video title. A removed video
-answers HTTP 200, so a status check would have called it healthy.
+**Assertions are scoped to resmon's own origins.** `isOwnOrigin()` is the
+boundary; third-party events are printed, not asserted. Atlas embeds nothing
+from another origin (`atlas-edges.spec.ts` asserts no frame, webview, object, or
+embed on the stage), so the boundary is a guard rather than a filter now.
 
 ## `RESMON_E2E`
 

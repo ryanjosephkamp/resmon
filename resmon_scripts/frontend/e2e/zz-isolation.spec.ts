@@ -26,7 +26,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect } from './fixtures/resmon-app';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK } from './fixtures/resmon-app';
+
+test.use({ ui: 'atlas' });
 
 const E2E_DIR = path.join(FRONTEND_ROOT, 'e2e');
 
@@ -125,11 +127,11 @@ test('P12b: every file that launches the app passes --user-data-dir', () => {
 test('P12c: a synthetic prior profile retains path/size/mtime metadata after a separate launch', async () => {
   test.setTimeout(300_000);
   const { launchResmon } = await import('./fixtures/resmon-app');
-  const control = await launchResmon(true);
+  const control = await launchResmon(true, 'atlas');
   let controlProfile = '';
   try {
     const win = await control.app.firstWindow({ timeout: 180_000 });
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     controlProfile = await control.app.evaluate(({ app }) => app.getPath('userData'));
   } finally { await control.app.close(); }
   const sentinel = path.join(controlProfile, 'synthetic-control-sentinel.txt');
@@ -137,13 +139,13 @@ test('P12c: a synthetic prior profile retains path/size/mtime metadata after a s
   fs.utimesSync(sentinel, 1700000000, 1700000000);
   const before = manifest(controlProfile);
   expect(Object.keys(before).length).toBeGreaterThan(1);
-  const candidate = await launchResmon(true);
+  const candidate = await launchResmon(true, 'atlas');
   try {
     const win = await candidate.app.firstWindow({ timeout: 180_000 });
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     const candidateProfile = await candidate.app.evaluate(({ app }) => app.getPath('userData'));
     expect(path.resolve(candidateProfile)).not.toBe(path.resolve(controlProfile));
-    for (const hash of ['/', '/settings/ai', '/repositories']) {
+    for (const hash of ['/today', '/settings/ai', '/settings/sources']) {
       await win.evaluate(h => { window.location.hash = `#${h}`; }, hash);
       await win.waitForTimeout(300);
     }

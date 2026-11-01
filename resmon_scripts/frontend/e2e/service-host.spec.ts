@@ -31,7 +31,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawn } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, launchEnv } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, atlasEnv, launchEnv, ATLAS_LANDMARK } from './fixtures/resmon-app';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -90,7 +90,7 @@ sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
 `);
-  const env = launchEnv(stateDir, true);
+  const env = atlasEnv(launchEnv(stateDir, true));
   env.RESMON_DAEMON_PORT = String(port);
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
@@ -163,7 +163,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(secondExit, `the second launch's stderr:\n${secondErr.join('').slice(-2000)}`)
       .toEqual({ code: 0, signal: null });
     const win = await app.firstWindow({ timeout: 60_000 });
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     // On the service's engine, not one of its own.
     const windowPort = await win.evaluate(() => window.resmonAPI!.getBackendPort());
     expect(windowPort).toBe(String(port));

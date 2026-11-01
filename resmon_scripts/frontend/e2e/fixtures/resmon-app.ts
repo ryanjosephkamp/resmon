@@ -319,7 +319,9 @@ export function heldScreen(): [number, number] | null {
 export function atlasEnv(base: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = { ...base, RESMON_UI: 'atlas' };
   const held = heldScreen();
-  if (held) {
+  // Only an e2e launch has a written-down size to hold; one without
+  // `RESMON_E2E` is the app as a person gets it, and stays so.
+  if (held && env.RESMON_E2E === '1') {
     env.RESMON_E2E_WIDTH = String(Math.min(Number(env.RESMON_E2E_WIDTH) || WINDOW_WIDTH, held[0]));
     env.RESMON_E2E_HEIGHT = String(Math.min(Number(env.RESMON_E2E_HEIGHT) || WINDOW_HEIGHT, held[1]));
   }
@@ -447,8 +449,7 @@ export { expect } from '@playwright/test';
  * allowed in this document" from inside YouTube's player bundle on 1 of 5
  * runs, and `net::ERR_ABORTED` on 2–6 embed URLs per run when the next route
  * was entered before they finished loading. The embeds are gone — the tab
- * links to the videos instead — and `third-party.spec.ts` P9a now asserts that
- * the tab reaches no YouTube host at all.
+ * links to the videos instead.
  *
  * Asserting on a third party's own output makes the suite red for reasons no
  * change to this repository can fix. Asserting only on resmon's own origins
