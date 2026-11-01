@@ -1275,6 +1275,8 @@ code.path {
 .schedule-row .form-hint { font-size: 13px; color: var(--ink-2); }
 .date input.minute { width: 64px; }
 .window-hint { flex-basis: 100%; max-width: 64ch; }
+.window-start { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; max-width: 72ch; font-size: 13px; color: var(--ink-2); }
+.window-start > span { flex: 1 1 40ch; }
 .editor-intent { margin-top: 26px; max-width: 760px; }
 .form-field textarea {
   width: 100%; min-height: 58px; resize: vertical; padding: 9px 10px; border-radius: var(--r); border: 1px solid var(--rule-2);

@@ -13,7 +13,9 @@
 import { overrideOf, type SummaryChoice } from '../settings/summaryChoice';
 import type { AiSettings } from '../settings/summaryLanes';
 import { scheduleText, type Routine } from './model';
-import { DEFAULT_LAST_DAYS, MAX_DAYS, windowOf, type WindowChoice } from './window';
+import {
+  DEFAULT_LAST_DAYS, MAX_DAYS, dayCount, listed, startWhy, windowOf, type StartNeeded, type WindowChoice,
+} from './window';
 
 export type Cadence = 'hours' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'kept';
 
@@ -330,18 +332,50 @@ export function retractionsAsks(who: string): string {
     + 'for new papers.';
 }
 
-/** What stops a form saving, in the order the form asks it. Empty when it can be saved. */
-export function whatIsMissing(form: WatchForm, knownSources: number): string[] {
+/**
+ * The sources a form asks that need a start date it does not give: none for a
+ * window that moves, which always has one, or for a watch on a person, whose
+ * sources are asked about the person and never for a date range, and every
+ * one of them for no date limit or fixed dates with no start. `null` when the
+ * form gives every source what it needs.
+ */
+export function startMissing(form: WatchForm, needs: StartNeeded | null): StartNeeded | null {
+  if (!needs || form.follows !== 'words') return null;
+  return form.window === 'none' || (form.window === 'between' && !form.dateFrom) ? needs : null;
+}
+
+/** Why a watch asking a source that needs a start date cannot be saved without one. */
+export function startMissingSentence(needs: StartNeeded): string {
+  const names = listed(needs.entries.map((entry) => entry.name));
+  return `${names} ${needs.entries.length === 1 ? 'needs' : 'need'} a start date, and this window gives none: `
+    + `${startWhy(needs)}.`;
+}
+
+/** The window the editor offers in its place: the days the engine would start those sources from. */
+export function startOffer(needs: StartNeeded): { window: 'last_days'; lastDays: number; label: string } {
+  return { window: 'last_days', lastDays: needs.days, label: `Ask for the last ${dayCount(needs.days)}` };
+}
+
+/**
+ * What stops a form saving, in the order the form asks it. Empty when it can
+ * be saved. `needs` is the chosen sources that need a start date
+ * (`startNeeded`), which a watch on words must give them.
+ */
+export function whatIsMissing(form: WatchForm, knownSources: number, needs: StartNeeded | null = null): string[] {
   const missing: string[] = [];
+  const startless = startMissing(form, needs);
   if (!form.name.trim()) missing.push('Give it a name.');
   if (form.follows !== 'words' && form.profileId === null) missing.push('Choose the person it watches for.');
   // The engine refuses a watch on words with none, too: every run would send its sources an empty search.
   if (form.follows === 'words' && !form.keywords.some((k) => k.trim())) missing.push('Add at least one term.');
   if (form.follows !== 'retractions' && knownSources === 0) missing.push('Choose at least one source.');
   if (form.follows !== 'retractions' && form.window === 'between') {
-    if (!form.dateFrom && !form.dateTo) missing.push('Set a start date, an end date, or both.');
-    else if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo) missing.push('The start date is after the end date.');
+    // With a source that needs a start, the sentence below says what this one would.
+    if (!form.dateFrom && !form.dateTo) {
+      if (!startless) missing.push('Set a start date, an end date, or both.');
+    } else if (form.dateFrom && form.dateTo && form.dateFrom > form.dateTo) missing.push('The start date is after the end date.');
   }
+  if (startless) missing.push(startMissingSentence(startless));
   if (form.follows !== 'retractions' && form.window === 'last_days'
     && !(Number.isInteger(form.lastDays) && form.lastDays >= 1 && form.lastDays <= MAX_DAYS)) {
     missing.push(`Choose a number of days from 1 to ${MAX_DAYS.toLocaleString('en-US')}.`);

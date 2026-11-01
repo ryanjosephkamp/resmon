@@ -2,7 +2,7 @@ import type { CatalogEntry } from '../../runs/model';
 import { webhookTarget } from '../../watches/Destinations';
 import { webhookUrl } from '../../watches/model';
 import {
-  coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond,
+  askStartSentence, coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong, rateShort, ratePerSecond,
 } from '../catalog';
 
 const entry = (slug: string, patch: Partial<CatalogEntry> & { author?: string } = {}): CatalogEntry => ({
@@ -51,7 +51,7 @@ test('a source\'s notice is shown before asking only in the state of the form it
   });
   const biorxiv = entry('biorxiv', constraints([
     { applies_when: 'always', effect: 'bioRxiv cannot be asked for keywords.' },
-    { applies_when: 'without_start_date', effect: 'With no start date, resmon asks bioRxiv for everything since 2013.' },
+    { applies_when: 'without_start_date', effect: 'With no start date, resmon asks bioRxiv for the 3 days before the run.' },
   ]) as Partial<CatalogEntry>);
   const ndl = entry('ndl_search', constraints([
     { applies_when: 'above_record_cap', effect: 'resmon splits your date range.' },
@@ -60,9 +60,9 @@ test('a source\'s notice is shown before asking only in the state of the form it
     { applies_when: 'with_date_window', effect: 'arXiv dates by submission.' },
   ]) as Partial<CatalogEntry>);
 
-  // "Any time": bioRxiv's archive is read from its first month, and it says so before the run.
+  // No start date: what resmon asks bioRxiv for in its place, said before the run.
   expect(formNotices([biorxiv, ndl, arxiv], { start: false, cap: 100 })).toEqual([
-    { slug: 'biorxiv', effect: 'With no start date, resmon asks bioRxiv for everything since 2013.' },
+    { slug: 'biorxiv', effect: 'With no start date, resmon asks bioRxiv for the 3 days before the run.' },
   ]);
   // A start date set: nothing about what resmon would have put there.
   expect(formNotices([biorxiv, ndl, arxiv], { start: true, cap: 100 })).toEqual([]);
@@ -83,4 +83,15 @@ test('a webhook destination stored as a URL or as one carrying its files inside'
   expect(webhookUrl(inline)).toBe('https://example.org/hook');
   expect(webhookUrl('https://example.org/hook')).toBe('https://example.org/hook');
   expect(webhookUrl('{not json')).toBe('no address recorded');
+});
+
+test('a source that needs a start date says what the form filled in, or why Any time is not offered', () => {
+  const needs = { entries: [entry('biorxiv', { name: 'bioRxiv' }), entry('medrxiv', { name: 'medRxiv' })], days: 3 };
+  const why = 'they list a date range oldest first, and asked from their first preprints a search stops long before recent ones.';
+  expect(askStartSentence(needs, { day: '2026-10-28', before: 'today' }))
+    .toBe(`bioRxiv and medRxiv need a start date, so this search starts 3 days back, on October 28, 2026: ${why}`);
+  expect(askStartSentence(needs, { day: '2026-09-28', before: 'end' }))
+    .toBe(`bioRxiv and medRxiv need a start date, so this search starts on September 28, 2026, 3 days before its end date: ${why}`);
+  expect(askStartSentence(needs, null))
+    .toBe(`bioRxiv and medRxiv need a start date, so Any time is not offered while they are chosen: ${why}`);
 });

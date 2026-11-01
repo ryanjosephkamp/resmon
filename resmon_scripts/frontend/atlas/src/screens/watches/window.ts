@@ -74,8 +74,55 @@ export function dayWords(day: string): string {
   return Number.isNaN(at.getTime()) ? day : DAY_WORDS.format(at);
 }
 
-function days(n: number): string {
+/** "3 days", "1 day". */
+export function dayCount(n: number): string {
   return n === 1 ? '1 day' : `${n.toLocaleString('en-US')} days`;
+}
+
+const days = dayCount;
+
+/**
+ * The chosen sources that cannot usefully be asked without a start date
+ * (bioRxiv and medRxiv: each lists a date range oldest first, so asked from
+ * its first preprints a search stops long before recent ones), and how many
+ * days before a run the engine starts them when it sets none: the catalog's
+ * `default_start_days`. `null` when no chosen source needs one.
+ */
+export interface StartNeeded {
+  entries: CatalogEntry[];
+  days: number;
+}
+
+export function startNeeded(picked: readonly CatalogEntry[]): StartNeeded | null {
+  const entries = picked.filter((entry) => typeof entry.constraints?.default_start_days === 'number');
+  if (!entries.length) return null;
+  return { entries, days: Math.min(...entries.map((entry) => entry.constraints.default_start_days ?? Infinity)) };
+}
+
+/** The day `n` days before `now`, on this computer's calendar, as a date field holds it. */
+export function daysBefore(n: number, now: Date = new Date()): string {
+  const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() - n);
+  return `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * The start a form fills in for sources that need one, as the engine gives it
+ * a run with none: `n` days before today, or before the end date when that is
+ * earlier, so the window never ends before it starts.
+ */
+export function formStart(n: number, to: string, now: Date = new Date()): { day: string; before: 'today' | 'end' } {
+  const end = /^(\d{4})-(\d{2})-(\d{2})$/.exec(to);
+  if (end && to < daysBefore(0, now)) {
+    return { day: daysBefore(n, new Date(Number(end[1]), Number(end[2]) - 1, Number(end[3]))), before: 'end' };
+  }
+  return { day: daysBefore(n, now), before: 'today' };
+}
+
+/** Why the sources that need a start date need one, as the end of a sentence. */
+export function startWhy(needs: StartNeeded): string {
+  const one = needs.entries.length === 1;
+  return `${one ? 'it lists' : 'they list'} a date range oldest first, and asked from ${one ? 'its' : 'their'} first preprints `
+    + 'a search stops long before recent ones';
 }
 
 /** Fixed dates in words: "from May 3, 2026 to May 4, 2026". */
@@ -173,18 +220,40 @@ export function coarseMovingSentences(picked: readonly CatalogEntry[]): string[]
 }
 
 /**
+ * What a watch with no start date asks the sources that need one, which its
+ * runs give a start of their own (`default_start_days`): "except bioRxiv,
+ * which each run asks for the 3 days before it starts". Empty for a watch
+ * that sets a start, follows a person (whose sources are asked about the
+ * person, never for a date range), or asks no such source.
+ */
+function exceptStartless(parameters: Record<string, unknown>, stored: StoredWindow, catalog: readonly CatalogEntry[]): string {
+  if (parameters.entity || stored.window === 'previous_run' || stored.window === 'last_days' || stored.dateFrom) return '';
+  const asked = new Set([
+    ...(Array.isArray(parameters.repositories) ? parameters.repositories.map(String) : []),
+    ...(typeof parameters.repository === 'string' ? [parameters.repository] : []),
+  ]);
+  const needs = startNeeded(catalog.filter((entry) => asked.has(entry.slug)));
+  if (!needs) return '';
+  const one = needs.entries.length === 1;
+  return `, except ${namesOf(needs.entries)}, which ${one ? 'needs' : 'need'} a start date: each run asks `
+    + `${one ? 'it' : 'them'} for the ${days(needs.days)} before ${stored.dateTo ? 'its end date or the run, whichever is earlier' : 'it starts'}`;
+}
+
+/**
  * A watch's dates in a sentence, for its page. For a window that moves, the
  * engine's own sentence with the dates the next run would ask for
- * (`date_window_next`); for fixed dates or none, the dates as stored. `null`
- * for a watch on retractions, which searches no source for papers and has no
- * dates to ask.
+ * (`date_window_next`); for fixed dates or none, the dates as stored, and, for
+ * a source in `catalog` that needs a start date the watch does not set, the
+ * start each run gives it. `null` for a watch on retractions, which searches
+ * no source for papers and has no dates to ask.
  */
 export function watchWindowSentence(
-  parameters: Record<string, unknown>, next: DateWindowComputed | null | undefined,
+  parameters: Record<string, unknown>, next: DateWindowComputed | null | undefined, catalog: readonly CatalogEntry[] = [],
 ): { window: WindowChoice; text: string } | null {
   const entity = parameters.entity;
   if (entity && typeof entity === 'object' && (entity as Record<string, unknown>).mode === 'retractions') return null;
   const stored = windowOf(parameters);
+  const except = exceptStartless(parameters, stored, catalog);
   switch (stored.window) {
     case 'previous_run':
       return { window: stored.window, text: next?.sentence ?? 'Each run asks for papers published since the previous run.' };
@@ -196,10 +265,10 @@ export function watchWindowSentence(
     case 'between':
       return {
         window: stored.window,
-        text: `Every run asks for papers published ${fixedWords(stored.dateFrom, stored.dateTo)}, the same dates each time.`,
+        text: `Every run asks for papers published ${fixedWords(stored.dateFrom, stored.dateTo)}, the same dates each time${except}.`,
       };
     default:
-      return { window: stored.window, text: 'Every run asks each source with no date limit, in the source’s own order.' };
+      return { window: stored.window, text: `Every run asks each source with no date limit, in the source’s own order${except}.` };
   }
 }
 
@@ -221,8 +290,16 @@ export function runWindowSentence(parameters: string | null | undefined): string
   if (computed && typeof computed === 'object' && typeof (computed as Record<string, unknown>).sentence === 'string') {
     return (computed as { sentence: string }).sentence;
   }
+  // A source that needs a start date, in a run that set none, was given one;
+  // the engine recorded where and why (`default_starts`).
+  const starts = p.default_starts && typeof p.default_starts === 'object' && !Array.isArray(p.default_starts)
+    ? Object.values(p.default_starts as Record<string, unknown>)
+      .map((start) => (start && typeof start === 'object' ? (start as Record<string, unknown>).sentence : null))
+      .filter((sentence): sentence is string => typeof sentence === 'string' && !!sentence)
+    : [];
   const from = typeof p.date_from === 'string' ? p.date_from : '';
   const to = typeof p.date_to === 'string' ? p.date_to : '';
-  if (from || to) return `Papers published ${fixedWords(from, to)}.`;
+  if (from || to) return [`Papers published ${fixedWords(from, to)}.`, ...starts].join(' ');
+  if (starts.length) return ['No start date was set.', ...starts, 'Every other source was asked with no dates.'].join(' ');
   return 'No date limit: each source was asked with no dates.';
 }
