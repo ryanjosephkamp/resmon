@@ -38,7 +38,7 @@ const KEYCHAIN: Record<string, string> = {
 test('About resmon: the engine\'s version, the license as written, the keychain by name, and a report link that sends nothing', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-about-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,

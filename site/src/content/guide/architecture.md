@@ -17,7 +17,7 @@ The core pipeline is `SweepEngine` (`implementation_scripts/sweep_engine.py`), w
 
 ### Frontend — Electron + React
 
-The renderer is a React 18 + TypeScript single-page application bundled with Webpack and served into an Electron window (`electron/main.ts`, `dist/electron/main.js`). Routing uses `react-router-dom` `HashRouter` because the packaged app is loaded from `file://` where push-state history is unreliable. `ExecutionProvider` wraps every route to hold live multi-execution state. All HTTP access is centralized in two API-client wrappers (`api/client.ts`, `api/repositories.ts`), each of which sets `Cache-Control: no-store` and unwraps FastAPI's `{detail: "..."}` error envelope into a single readable message. A `FloatingWidget` overlay is mounted outside `MainContent` so it survives route transitions and continues to pulse for any running execution.
+The renderer, Atlas, is a React 19 + TypeScript single-page application built with Vite and served into an Electron window (`electron/main.ts`, `dist/electron/main.js`). Routing uses `react-router-dom` `HashRouter`. All HTTP goes through one typed client (`atlas/src/api/client.ts`) generated from the engine's OpenAPI schema, and server state is read with TanStack Query.
 
 ### LLM Integration — BYOK Remote and Local (ollama)
 
@@ -106,8 +106,8 @@ What resmon claims is what it did: that it handed the report to your mail server
 | **Backend** | nltk 3.9, tiktoken 0.12 | Text normalization and token-aware chunking for summarization |
 | **Frontend** | Electron 41, Node.js 22.13+, npm 10+ | Desktop shell, main-process bridging |
 | **Frontend** | React 19, React Router 7 (`HashRouter`), TypeScript 6 | Renderer SPA and routing |
-| **Frontend** | Webpack 5, ts-loader 9, css-loader 7, style-loader 4, html-webpack-plugin 5 | Build pipeline |
-| **Frontend** | FullCalendar 6 (`@fullcalendar/react`, `daygrid`, `timegrid`, `interaction`) | Calendar page rendering |
+| **Frontend** | Vite 6, `@vitejs/plugin-react` 4 | Build pipeline |
+| **Frontend** | TanStack Query 5, `openapi-fetch` | Server state and the typed API client |
 | **Frontend** | `electron-builder` 26 | Packaged-app distribution |
 | **Database** | SQLite 3 (stdlib `sqlite3`), SQLAlchemy 2.0 | Local state, schema migrations, APScheduler job store |
 | **LLM — Remote (BYOK)** | `openai` 2.31, `anthropic` 0.95, plus provider-agnostic `httpx` clients for Google, xAI, Meta, DeepSeek, Alibaba, and custom HTTPS endpoints | Remote summarization backends |
@@ -170,22 +170,16 @@ resmon/
 │   │
 │   ├── frontend/                   # Electron + React renderer.
 │   │   ├── package.json              # Node dependencies and build scripts.
-│   │   ├── webpack.config.js         # Renderer bundle config.
-│   │   ├── tsconfig.json             # Renderer TypeScript config.
+│   │   ├── tsconfig.json             # TypeScript config for tests/.
 │   │   ├── tsconfig.electron.json    # Electron-main TypeScript config.
 │   │   ├── electron/                 # Electron main-process sources (preload, IPC bridge).
-│   │   ├── src/                      # Renderer SPA.
-│   │   │   ├── index.tsx               # React root.
-│   │   │   ├── App.tsx                 # HashRouter + layout + providers.
-│   │   │   ├── api/                    # Typed HTTP client wrappers.
-│   │   │   ├── components/             # Shared components (Sidebar, Header, FloatingWidget, …).
-│   │   │   ├── context/                # ExecutionContext.
-│   │   │   ├── hooks/                  # useExecutions, useRepoCatalog.
-│   │   │   ├── pages/                  # One component per route (DashboardPage, AnalyticsPage, ExplorerPage, …).
-│   │   │   ├── styles/                 # Global stylesheets.
-│   │   │   ├── types/                  # Shared TypeScript types.
-│   │   │   └── __tests__/              # Renderer unit tests.
-│   │   └── dist/                     # Build output (renderer/, electron/).
+│   │   ├── atlas/                    # The renderer: vite.config.ts, index.html, src/.
+│   │   │   ├── src/App.tsx             # HashRouter and the routes.
+│   │   │   ├── src/shell/              # The top bar, palette, shortcuts, and engine notice.
+│   │   │   ├── src/screens/            # One folder per section (Today, Watches, Search, Library, Ask, Health, Settings).
+│   │   │   ├── src/api/                # The typed client and the generated schema.
+│   │   ├── tests/                    # Unit tests for the Electron main process and the scripts.
+│   │   └── dist/                     # Build output (atlas/, electron/).
 │   │
 │   ├── service_units/              # launchd plists, systemd units, Task Scheduler XML.
 │   └── verification_scripts/       # pytest-based backend verification suite.

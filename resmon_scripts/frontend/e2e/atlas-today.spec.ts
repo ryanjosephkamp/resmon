@@ -86,7 +86,7 @@ print(json.dumps({"new": sum(len(v["new"]) for v in ids.values()), "watch_new": 
 
 test('Today lists what is new since the last look, and Mark all read starts the next window', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')],
     { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
@@ -215,7 +215,7 @@ print(json.dumps({"run": e, "papers": len(docs)}))
 
 test('Today is kept between visits: the same answer is drawn at rest, and a new one is read in and played', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-kept-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')],
     { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
@@ -329,7 +329,7 @@ conn.commit()
 
 test('Today lists a group\'s first papers, more on request, and any paper chosen on the plate', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-many-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MANY, path.join(FRONTEND_ROOT, '..')],
     { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);

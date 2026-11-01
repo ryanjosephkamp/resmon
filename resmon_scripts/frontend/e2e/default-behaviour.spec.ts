@@ -25,7 +25,7 @@ import { test, expect } from '@playwright/test';
 import * as fs from 'fs';
 import type { ElectronApplication } from '@playwright/test';
 import {
-  launchResmon, WINDOW_WIDTH, WINDOW_HEIGHT, fittedWindowSize,
+  launchResmon, ATLAS_LANDMARK, WINDOW_WIDTH, WINDOW_HEIGHT, fittedWindowSize,
 } from './fixtures/resmon-app';
 
 interface Observed {
@@ -45,7 +45,7 @@ async function observe(app: ElectronApplication): Promise<Observed> {
   await win.waitForLoadState('domcontentloaded');
   // `ready-to-show` fires after the first paint; the maximize (or its absence)
   // has landed by the time the renderer has painted its shell.
-  await win.locator('.app-main').waitFor({ state: 'visible', timeout: 30_000 });
+  await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 30_000 });
   await win.waitForTimeout(500);
 
   const fromMain = await app.evaluate(async ({ BrowserWindow, screen, app: a }) => {

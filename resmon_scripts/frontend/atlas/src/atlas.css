@@ -35,7 +35,15 @@ kbd {
 /* ---------------------------------------------------------------- frame */
 
 /* One column the window's width: nothing in the frame can make a screen wider than the window. */
-.frame { display: grid; grid-template-rows: var(--bar-h) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); height: 100%; }
+.frame { display: grid; grid-template-rows: var(--bar-h) auto minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); height: 100%; }
+.frame > .stage { grid-row: 3; }
+
+/* The engine behind the window changed, or cannot be named: one line, under the bar. */
+.engine-notice {
+  grid-row: 2; display: flex; align-items: center; gap: 12px; margin: 0;
+  padding: 6px 20px; border-bottom: 1px solid var(--rule); background: var(--panel-2); color: var(--ink);
+  font-size: 13px;
+}
 
 .bar {
   display: flex; align-items: center; gap: 18px;

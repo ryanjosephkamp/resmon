@@ -2,7 +2,7 @@
   "generated_by": "verification_scripts/zero_reason_truth_table.py",
   "regenerate_with": "python -m resmon_scripts.verification_scripts.zero_reason_truth_table --write",
   "source_of_truth": ["implementation_scripts/zero_reason.py :: answered", "implementation_scripts/source_coverage.py :: outcome"],
-  "guarded_by": ["verification_scripts/test_zero_reason_truth_table.py", "frontend/src/__tests__/ZeroReasonTruthTable.test.ts"],
+  "guarded_by": ["verification_scripts/test_zero_reason_truth_table.py", "frontend/atlas/src/screens/runs/__tests__/zeroReasonTruthTable.test.ts"],
   "columns": ["status", "result_count", "zero_reason", "answered", "category"],
   "axes": {"recorded_statuses": ["ok", "error", "skipped_missing_key", "cancelled"], "statuses": ["ok", "error", "skipped_missing_key", "cancelled", "running"], "result_counts": [0, 1, 25], "zero_reasons": ["missing_key", "retired", "window_unanswerable", "upstream_failure", "parse_failure", "rights_filtered", "records_unusable", "entity_unsupported", "answered_in_part", "answered_empty", "not_recorded"], "reasons": ["missing_key", "retired", "window_unanswerable", "upstream_failure", "parse_failure", "rights_filtered", "records_unusable", "entity_unsupported", "answered_in_part", "answered_empty", "not_recorded", null, "quota_exhausted"]},
   "counts": {"grid_rows": 195, "invalid_input_rows": 41},

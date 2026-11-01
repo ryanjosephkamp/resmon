@@ -41,7 +41,7 @@ The scholarly sources registered in the repository catalog, whose public APIs ma
 
 ### Open-Source Foundations
 
-resmon depends on and is grateful for the following open-source projects (non-exhaustive): **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **BeautifulSoup**, **SQLAlchemy**, **APScheduler**, **cryptography**, **keyring**, **NLTK**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TypeScript**, **Webpack**, **FullCalendar**, **electron-builder**, and **ollama**. The maintainers and contributors of these projects make a desktop-class literature surveillance tool buildable by a single developer.
+resmon depends on and is grateful for the following open-source projects (non-exhaustive): **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **BeautifulSoup**, **SQLAlchemy**, **APScheduler**, **cryptography**, **keyring**, **NLTK**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TypeScript**, **Vite**, **electron-builder**, and **ollama**. The maintainers and contributors of these projects make a desktop-class literature surveillance tool buildable by a single developer.
 
 ### Standards and Identifiers
 

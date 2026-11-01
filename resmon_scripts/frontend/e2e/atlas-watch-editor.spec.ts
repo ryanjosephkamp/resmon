@@ -66,7 +66,7 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
   fs.mkdirSync(units);
   fs.writeFileSync(path.join(stateDir, 'editor_keyring.py'), KEYRING);
   const env: Record<string, string> = {
-    ...launchEnv(stateDir, true), RESMON_UI: 'atlas', RESMON_SERVICE_UNIT_DIR: units,
+    ...launchEnv(stateDir, true), RESMON_SERVICE_UNIT_DIR: units,
     PYTHON_KEYRING_BACKEND: 'editor_keyring.Keyring',
   };
   env.PYTHONPATH = stateDir + path.delimiter + (env.PYTHONPATH ?? '');

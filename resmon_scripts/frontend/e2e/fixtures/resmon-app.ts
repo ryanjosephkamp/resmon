@@ -140,11 +140,10 @@ export const REPO_ROOT = path.resolve(FRONTEND_ROOT, '..', '..');
  *
  * Every spec in `e2e/` launches the app out of the checkout the spec itself
  * lives in, and that is still the default. `journeys/` needs one more thing:
- * the same suite, from one commit, launched against *another* build — the
- * `classic` branch's, so a journey test can be run against the app as it was
- * and against the app as it is and the two compared. The only difference
- * between those two runs is which directory the Electron process is started
- * from, so that is all this type carries.
+ * the same suite, from one commit, launched against *another* build
+ * (`RESMON_JOURNEY_APP`). The only difference between those two runs is which
+ * directory the Electron process is started from, so that is all this type
+ * carries.
  *
  * `frontend` is the directory holding `package.json` and `dist/`; `repo` is two
  * levels above it, which is where `resmon_scripts/resmon.py` lives and where a
@@ -271,11 +270,11 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     RESMON_PYTHON: pythonPath(),
     // The Keychain is the one piece of state no RESMON_* variable moves: every
     // resmon on a Mac reads and writes it under the service name "resmon". A
-    // spec that walks the Danger Zone — library.spec.ts presses Reset all
+    // spec that walks the Danger zone — atlas-files.spec.ts presses Reset all
     // settings — erased the AI keys, repository keys and SMTP password of
     // whoever ran the suite on their own machine. The null backend reads
     // nothing and writes nothing. A spec that needs a key to persist sets its
-    // own backend after this, as composer-choices.spec.ts does.
+    // own backend after this, as atlas-settings.spec.ts does.
     PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring',
     // Where the background service's unit would be written, and read. Without
     // it the engine reads the real ~/Library/LaunchAgents (or its Linux and
@@ -289,6 +288,9 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
     // discovery itself deletes this and pins HOME and PATH instead.
     RESMON_AI_CLI_DISCOVERY: 'configured-only',
   };
+  // A RESMON_UI left in the shell running the suite is not passed on: this
+  // build has one renderer, and the variable means nothing to it.
+  delete env.RESMON_UI;
   if (e2e) {
     env.RESMON_E2E = '1';
     env.RESMON_E2E_WIDTH = String(WINDOW_WIDTH);
@@ -301,12 +303,38 @@ export function launchEnv(stateDir: string, e2e: boolean): Record<string, string
   return env;
 }
 
+/** The element that means Atlas has drawn its frame: the top bar's sections. */
+export const ATLAS_LANDMARK = 'nav[aria-label="Sections"]';
+
+/**
+ * The screen a run is held to, as CI's macOS runner holds the window to its
+ * own (1024 by 684 there): `RESMON_E2E_SCREEN=1024x684`. Null when unset.
+ */
+export function heldScreen(): [number, number] | null {
+  const match = /^(\d+)x(\d+)$/.exec(process.env.RESMON_E2E_SCREEN ?? '');
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/** Atlas's launch environment: `base`, with the window no larger than the screen a run is held to. */
+export function atlasEnv(base: Record<string, string>): Record<string, string> {
+  const env: Record<string, string> = { ...base };
+  const held = heldScreen();
+  // Only an e2e launch has a written-down size to hold; one without
+  // `RESMON_E2E` is the app as a person gets it, and stays so.
+  if (held && env.RESMON_E2E === '1') {
+    env.RESMON_E2E_WIDTH = String(Math.min(Number(env.RESMON_E2E_WIDTH) || WINDOW_WIDTH, held[0]));
+    env.RESMON_E2E_HEIGHT = String(Math.min(Number(env.RESMON_E2E_HEIGHT) || WINDOW_HEIGHT, held[1]));
+  }
+  return env;
+}
+
 export async function launchResmon(e2e = true): Promise<{ app: ElectronApplication; stateDir: string }> {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
+  const env = launchEnv(stateDir, e2e);
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT,
-    env: launchEnv(stateDir, e2e),
+    env: atlasEnv(env),
     timeout: 180_000,
   });
   return { app, stateDir };
@@ -386,7 +414,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         hashPath,
         { timeout: 15_000 },
       );
-      await win.locator('.app-main').waitFor({ state: 'visible', timeout: 15_000 });
+      await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
       // The two index routes redirect a tick later, and every page fires its
       // first data fetch on mount. Settle before screenshotting.
       await win.waitForLoadState('networkidle').catch(() => { /* long-poll pages never idle */ });
@@ -418,8 +446,7 @@ export { expect } from '@playwright/test';
  * allowed in this document" from inside YouTube's player bundle on 1 of 5
  * runs, and `net::ERR_ABORTED` on 2–6 embed URLs per run when the next route
  * was entered before they finished loading. The embeds are gone — the tab
- * links to the videos instead — and `third-party.spec.ts` P9a now asserts that
- * the tab reaches no YouTube host at all.
+ * links to the videos instead.
  *
  * Asserting on a third party's own output makes the suite red for reasons no
  * change to this repository can fix. Asserting only on resmon's own origins

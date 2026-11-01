@@ -21,7 +21,7 @@
  */
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication } from '@playwright/test';
-import { launchResmon } from './fixtures/resmon-app';
+import { launchResmon, ATLAS_LANDMARK } from './fixtures/resmon-app';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -64,7 +64,7 @@ test('the app opens maximized, where a window manager exists to honour it', asyn
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     await win.waitForTimeout(1000);
 
     const facts = await windowFacts(app);
@@ -93,18 +93,19 @@ test('the in-app link window is a child of the main window and comes to the fron
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
 
     const mainId = await app.evaluate(async ({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].id);
 
-    await win.evaluate(() => { window.location.hash = '#/repositories'; });
-    await win.waitForFunction(() => window.location.hash.startsWith('#/repositories'));
-    const link = win.locator('.required-attributions a').first();
+    // About resmon's report link: it opens GitHub's issues page in a window of its own.
+    await win.evaluate(() => { window.location.hash = '#/settings/about'; });
+    await win.waitForFunction(() => window.location.hash.startsWith('#/settings/about'));
+    const link = win.locator('[data-about="issues"]');
     await link.waitFor({ state: 'visible', timeout: 30_000 });
     const href = await link.getAttribute('href');
     expect(href).toMatch(/^https?:\/\//);
-    // Cancel this real attribution navigation before transport. The window is
+    // Cancel this real navigation before transport. The window is
     // still created by the app; no successful remote page is fabricated.
     const interception = await app.evaluateHandle(({ session }, target) => {
       const facts = {
@@ -202,7 +203,7 @@ test('the swipe handler moves history back and forward', async () => {
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
 
     const go = async (hash: string) => {
       await win.evaluate((h) => { window.location.hash = `#${h}`; }, hash);
@@ -210,8 +211,8 @@ test('the swipe handler moves history back and forward', async () => {
         { timeout: 15_000 });
       await win.waitForTimeout(300);
     };
-    await go('/explorer');
-    await go('/repositories');
+    await go('/search');
+    await go('/settings/sources');
 
     const swipe = (direction: 'left' | 'right') => app.evaluate(
       async ({ BrowserWindow }, d) => {
@@ -221,14 +222,14 @@ test('the swipe handler moves history back and forward', async () => {
     );
 
     await swipe('left');
-    await win.waitForFunction(() => window.location.hash.startsWith('#/explorer'),
+    await win.waitForFunction(() => window.location.hash.startsWith('#/search'),
       undefined, { timeout: 15_000 });
-    expect(win.url()).toContain('#/explorer');
+    expect(win.url()).toContain('#/search');
 
     await swipe('right');
-    await win.waitForFunction(() => window.location.hash.startsWith('#/repositories'),
+    await win.waitForFunction(() => window.location.hash.startsWith('#/settings/sources'),
       undefined, { timeout: 15_000 });
-    expect(win.url()).toContain('#/repositories');
+    expect(win.url()).toContain('#/settings/sources');
     console.log('WM SWIPE — left went back, right went forward');
   } finally {
     await app.close().catch(() => { /* already gone */ });

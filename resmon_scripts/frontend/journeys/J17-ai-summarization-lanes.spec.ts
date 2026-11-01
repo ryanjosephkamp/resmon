@@ -49,10 +49,9 @@ journey.describe('J17 AI summarization lanes', () => {
     await resmon.useAnAuthoredSummarizerThatIsNotSignedIn();
 
     // Before the run: the app says it found the command, and that finding it is
-    // not knowing whether anyone is signed into it. Classic says it has not
-    // checked; Atlas asks the command itself, and must report what the lapsed
-    // command said rather than reading "found" as "signed in". Either is the
-    // reason this row can be honest later.
+    // not knowing whether anyone is signed into it. Atlas asks the command
+    // itself, and must report what the lapsed command said rather than reading
+    // "found" as "signed in". That is the reason this row can be honest later.
     const lane = await resmon.readAiLaneStatus();
     console.log(`[J17] Settings → AI says: ${JSON.stringify(lane)}`);
     expect(lane, 'Settings → AI does not say which command the lane would use')

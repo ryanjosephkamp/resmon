@@ -94,7 +94,7 @@ journey.describe('J05 Analytics', () => {
     // the Explorer already filtered, not on the unfiltered list.
     const followed = await resmon.followTheChartIntoTheExplorer();
     console.log(`[J05] followed into ${followed.hash}`);
-    // The classic Explorer is Atlas's Search › Your collection, at #/search.
+    // The explorer is Search › Your collection, at #/search.
     expect(followed.hash, 'the link out of Analytics did not carry a filter').toMatch(/#\/(explorer|search)\?(source|category)=/);
     expect(followed.list.rows.length, 'the pre-filtered Explorer listed nothing').toBeGreaterThan(0);
     expect(followed.list.countSentence).toMatch(/matching your filters/);

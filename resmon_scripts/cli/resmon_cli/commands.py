@@ -85,7 +85,7 @@ def _routine_names(engine: Engine) -> dict[int, str]:
 def scheduler_notice(status: Mapping[str, Any]) -> Optional[str]:
     """The one sentence about scheduling, or None when every active watch will run.
 
-    ``schedulerNotice`` in ``frontend/src/lib/schedulerStatus.ts``, in this
+    ``firingNotice`` in ``frontend/atlas/src/screens/watches/firing.ts``, in this
     command's words. Three verdicts, not two: ``will_fire`` is None where a
     service runs that no resmon so far can see into, and a sentence about a
     group containing one of those is the weaker one."""

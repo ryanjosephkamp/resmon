@@ -134,15 +134,6 @@ if (!SOLE_INSTANCE) {
   app.quit();
 }
 
-// The Atlas renderer is built beside the classic one (dist/atlas) while the
-// rebuild is under way; RESMON_UI=atlas serves it instead. Anything else,
-// including unset, serves the classic renderer, which stays the app until the
-// Atlas one passes the journey suite and the performance gate.
-const ATLAS = process.env.RESMON_UI === 'atlas';
-
-// Kept in sync with `--color-bg` in styles/global.css by hand; see the note on
-// `backgroundColor` in `createWindow`.
-const CLASSIC_GROUND = '#0f1117';
 
 let mainWindow: BrowserWindow | null = null;
 let backendProcess: ChildProcess | null = null;
@@ -587,7 +578,7 @@ function postNotice(notice: Notice): boolean {
   liveNotices.add(shown);
   shown.on('click', () => {
     liveNotices.delete(shown);
-    void showWindow(routeForNotice(notice, ATLAS));
+    void showWindow(routeForNotice(notice));
   });
   shown.on('close', () => liveNotices.delete(shown));
   // The OS took it: the one fact about the screen this process can know.
@@ -620,7 +611,7 @@ async function showWindow(route: string | null): Promise<void> {
   // Still starting: the engine is not up, so there is nothing to show yet.
   if (backendPort === null || backendToken === null || rendererOriginValue === null) return;
   if (SERVICE && process.platform === 'darwin') app.setActivationPolicy('regular');
-  createWindow(ATLAS ? await atlasGround(backendPort, backendToken) : CLASSIC_GROUND, route);
+  createWindow(await atlasGround(backendPort, backendToken), route);
   if (mainWindow) installDownloads(mainWindow);
 }
 
@@ -766,7 +757,7 @@ function atlasGround(port: number, token: string): Promise<string> {
   });
 }
 
-function createWindow(ground: string = CLASSIC_GROUND, route: string | null = null): void {
+function createWindow(ground: string, route: string | null = null): void {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
@@ -802,7 +793,7 @@ function createWindow(ground: string = CLASSIC_GROUND, route: string | null = nu
     backgroundColor: ground,
     // Atlas draws its own top bar on macOS, with the window controls inset in
     // it, so the bar is the only chrome. Elsewhere the system frame stays.
-    ...(ATLAS && process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -814,28 +805,12 @@ function createWindow(ground: string = CLASSIC_GROUND, route: string | null = nu
       // http://127.0.0.1:<port> origin, and since 2.2 the backend answers CORS
       // for exactly that origin and no other. Disabling the same-origin policy
       // for the whole window bought nothing and cost real protection.
-      // Enable the <webview> tag so the About resmon → Blog tab can embed
-      // the public GitHub Pages blog at https://ryanjosephkamp.github.io/resmon/
-      // in a sandboxed sub-frame. The rendered <webview> is constrained to
-      // that origin in the React component (see ``BlogTab.tsx``); navigations
-      // to any other origin open in the user's default browser via
-      // ``shell.openExternal`` rather than inside the embed.
-      webviewTag: true,
+      // No <webview>: Atlas embeds nothing from another origin.
+      webviewTag: false,
       // No additionalArguments: they land in the renderer process's argv, which
       // `ps` shows to every user. The preload asks for the port and token over
       // the synchronous `resmon:backend-connection` IPC instead.
     },
-  });
-
-  // Defense-in-depth: when a <webview> attaches, scrub away node integration
-  // and the preload script so the embedded blog page cannot reach the host
-  // app's IPC bridge or filesystem. Also force ``contextIsolation`` on. The
-  // origin allow-list is enforced one layer up (in BlogTab.tsx) by setting
-  // ``webview.src`` only to the GitHub Pages blog URL.
-  mainWindow.webContents.on('will-attach-webview', (_event, webPreferences, _params) => {
-    delete (webPreferences as { preload?: string }).preload;
-    (webPreferences as { nodeIntegration?: boolean }).nodeIntegration = false;
-    (webPreferences as { contextIsolation?: boolean }).contextIsolation = true;
   });
 
   // Every external link opens the same way: an in-app window, not the system
@@ -953,7 +928,9 @@ function openLinkWindow(url: string): void {
     width: 900,
     height: 700,
     title: url,
-    backgroundColor: '#0f1117',
+    // The main window's own ground, so the link window opens on the theme the
+    // app is showing rather than flashing another color before its page paints.
+    backgroundColor: mainWindow?.getBackgroundColor() ?? (nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff'),
     show: false,
     parent: mainWindow ?? undefined,
     webPreferences: {
@@ -1112,8 +1089,8 @@ function installApplicationMenu(): void {
     ],
   };
   const template: Electron.MenuItemConstructorOptions[] = [
-    ...(isMac ? [ATLAS ? atlasApp : { role: 'appMenu' as const }] : []),
-    ATLAS ? atlasFile : { role: 'fileMenu' },
+    ...(isMac ? [atlasApp] : []),
+    atlasFile,
     { role: 'editMenu' },
     {
       label: 'History',
@@ -1157,10 +1134,10 @@ function installApplicationMenu(): void {
     },
     { role: 'viewMenu' },
     { role: 'windowMenu' },
-    ...(ATLAS ? [{
+    {
       role: 'help' as const,
       submenu: [{ id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') }],
-    }] : []),
+    },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
@@ -1232,7 +1209,7 @@ app.whenReady().then(async () => {
   try {
     // The renderer server comes first (2.2): the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
-    const rendererRoot = path.join(__dirname, '..', ATLAS ? 'atlas' : 'renderer');
+    const rendererRoot = path.join(__dirname, '..', 'atlas');
     const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
     rendererOriginValue = rendererOrigin;
     // Before any backend starts: a backend this app starts posts its
@@ -1281,7 +1258,7 @@ app.whenReady().then(async () => {
     // check. The frame's own URL cannot be used for it: while the preload runs
     // it is still "" (observed under Playwright), and a handler that throws
     // never sets `returnValue`, which leaves the renderer blocked in sendSync.
-    // The Blog <webview> and link windows have no preload and are refused anyway.
+    // Link windows have no preload and are refused anyway.
     const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => {
       const frame = event.senderFrame;
       return mainWindow !== null

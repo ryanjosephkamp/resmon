@@ -68,7 +68,7 @@ test('the window may start a worker from its own origin, and may not evaluate st
   expect(html).not.toContain('unsafe-eval');
 });
 
-test('the build copies the fixed distribution the classic test pins, and refuses any other count', () => {
+test('the build copies the fixed distribution pdfjsAssets.test.ts pins, and refuses any other count', () => {
   const config = fs.readFileSync(path.join(ATLAS, 'vite.config.ts'), 'utf8');
   expect(config).toContain("'vendor', 'pdfjs', '6.3.289'");
   expect(config).toContain('files.length !== 188');

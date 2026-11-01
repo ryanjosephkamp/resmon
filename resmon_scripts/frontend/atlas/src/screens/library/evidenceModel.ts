@@ -6,8 +6,7 @@
  * Basic Multilingual Plane (an emoji, say) is two of them, so the offsets the
  * engine stores are counted again here in codepoints. The engine recomputes
  * the quote from the retained bytes before it saves anything, and refuses a
- * passage that does not match. The same rules as the classic reader's
- * `selectionAnchor` and `resolveSaved`, which go at the switch-over.
+ * passage that does not match.
  */
 import { EngineError } from '../../api/client';
 import { EvidenceRefusal, type Anchor, type Note, type PageText } from './evidenceApi';

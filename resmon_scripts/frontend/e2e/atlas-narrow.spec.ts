@@ -100,7 +100,7 @@ function brokenAtSeparators(rows: string[], name: string): void {
 test('at about 1,024 points wide: the run log, the source table, the Source wall, the Calendar, and long names', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-narrow-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..'), LONG],
     { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);

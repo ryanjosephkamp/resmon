@@ -51,7 +51,7 @@ async function api<T>(win: Page, route: string, asText = false): Promise<T> {
 test('People: the starter set, a person exported, and a file of people imported', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-people-tools-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { person } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { person: number };

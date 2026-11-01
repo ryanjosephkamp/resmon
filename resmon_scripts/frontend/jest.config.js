@@ -1,22 +1,19 @@
 /**
- * Jest configuration for the resmon renderer.
- *
- * The three specs under src/__tests__/ were written against
- * @testing-library/react + jest but had no runner, so they had never executed.
- * Jest rather than Vitest specifically because the specs already call
- * `jest.fn()` and friends; they run unchanged.
+ * Jest configuration: Atlas's own tests, in the `__tests__` folders beside its
+ * code, and `tests/`, which holds the tests of the Electron main process, the
+ * e2e harness's helpers, and the scripts that generate Atlas's code.
  */
 module.exports = {
   testEnvironment: 'jsdom',
-  roots: ['<rootDir>/src', '<rootDir>/atlas/src'],
-  testMatch: ['**/__tests__/**/*.test.ts?(x)'],
+  roots: ['<rootDir>/atlas/src', '<rootDir>/tests'],
+  testMatch: ['**/__tests__/**/*.test.ts?(x)', '<rootDir>/tests/**/*.test.ts'],
   transform: {
     '^.+\\.tsx?$': ['ts-jest', { tsconfig: '<rootDir>/tsconfig.test.json' }],
   },
   moduleNameMapper: {
-    // Webpack resolves these through css-loader / asset modules; Jest needs a stub.
-    '\\.(css|less|scss)$': '<rootDir>/src/__mocks__/styleMock.js',
-    '\\.(png|jpe?g|gif|svg|webp)$': '<rootDir>/src/__mocks__/fileMock.js',
+    // Vite resolves these as assets; Jest needs a stub.
+    '\\.(css|less|scss)$': '<rootDir>/tests/mocks/styleMock.js',
+    '\\.(png|jpe?g|gif|svg|webp)$': '<rootDir>/tests/mocks/fileMock.js',
   },
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
   testTimeout: 15000,

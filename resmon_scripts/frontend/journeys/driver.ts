@@ -6,8 +6,8 @@
  * words of the register's journeys — "run a dive", "read the coverage
  * sentence", "back up now" — and a driver behind it maps those onto the
  * renderer: `drivers/atlas.ts` for Atlas's screens, and `drivers/screenless.ts`
- * for what has no screen. Every spec in this directory ran against the classic
- * renderer before Atlas, and runs against Atlas without having been rewritten.
+ * for what has no screen. A renderer can change under a spec without the spec
+ * being rewritten.
  *
  * That is the whole point of the suite, so it is enforced rather than asked
  * for: `register.spec.ts` greps every spec file in this directory for a
@@ -61,7 +61,6 @@ export type Place =
   | 'Evidence'
   | 'Source wall'
   // — the Atlas interface (rebuild phase 2) -----------------------------------
-  // Places the classic renderer never had.
   | 'Today'
   | 'Appearance settings';
 
@@ -1272,7 +1271,7 @@ export interface JourneyDriver {
   /**
    * Choose a parent folder for the vault, through the app's own picker.
    *
-   * The native chooser is scripted, exactly as `e2e/library.spec.ts` scripts
+   * The native chooser is scripted, exactly as `e2e/atlas-files.spec.ts` scripts
    * it and for the same reason: nothing in an automated suite can operate a
    * macOS file dialog. The production IPC handler is untouched — only its OS
    * dependency answers — so the request, the validation and the creation are

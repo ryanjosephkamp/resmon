@@ -12,7 +12,7 @@ readmeLines:
 resmon is a hybrid Python + Electron application, so both runtimes must be available on the host machine before installation.
 
 - **Python 3.10, 3.11, or 3.12** — required by the FastAPI backend (`resmon_scripts/resmon.py`) and its dependencies. Verify with `python3 --version`. All three are covered by CI on every push.
-- **Node.js 22.13 or newer** — required to build the React renderer with Webpack and to run the Electron shell; declared as `engines.node` in `resmon_scripts/frontend/package.json` and pinned for `nvm`/`fnm` in `.nvmrc`. Verify with `node --version`.
+- **Node.js 22.13 or newer** — required to build the React renderer with Vite and to run the Electron shell; declared as `engines.node` in `resmon_scripts/frontend/package.json` and pinned for `nvm`/`fnm` in `.nvmrc`. Verify with `node --version`.
 - **npm 10 or newer** — bundled with Node.js 22.13 and later; used to install frontend dependencies and invoke the build/start scripts. Verify with `npm --version`.
 - **Git** — required to clone the repository.
 - **Platform** — macOS, Linux, or Windows. The packaged desktop app is built with `electron-builder` and the headless-daemon split supports launchd (macOS), `systemd --user` (Linux), and Task Scheduler (Windows).
@@ -54,7 +54,7 @@ npm install
 npm run build
 ```
 
-`npm run build` chains two steps: `webpack --mode production` compiles the React renderer into `resmon_scripts/frontend/dist/renderer/`, and `tsc --project tsconfig.electron.json` transpiles the Electron main process into `resmon_scripts/frontend/dist/electron/`. Re-run `npm run build` whenever frontend or Electron-main source files change. During active development, `npm run dev:renderer` runs Webpack in watch mode against the renderer sources only.
+`npm run build` chains two steps: `vite build --config atlas/vite.config.ts` compiles the renderer into `resmon_scripts/frontend/dist/atlas/`, and `tsc --project tsconfig.electron.json` transpiles the Electron main process into `resmon_scripts/frontend/dist/electron/`. Re-run `npm run build` whenever frontend or Electron-main source files change.
 
 ## Installing the Application
 

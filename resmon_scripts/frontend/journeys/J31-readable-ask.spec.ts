@@ -72,9 +72,10 @@ journey.describe('J31 Readable Ask', () => {
         + 'instead and asserts the rest. Whether the shortcut or the register is wrong is the '
         + "lead's to decide.");
     }
-    console.log('[J31] NOT VERIFIED: zoom, small windows and colour contrast. Those need the '
-      + 'Electron handles `e2e/assistant-readability.spec.ts` has and this suite deliberately '
-      + 'does not give a spec. The geometry above is at the size this suite launches.');
+    console.log('[J31] NOT VERIFIED: zoom, small windows and color contrast. Those need '
+      + 'Electron handles this suite deliberately does not give a spec; '
+      + '`e2e/atlas-ask-history.spec.ts` checks twice the zoom. The geometry above is at the '
+      + 'size this suite launches.');
 
     await resmon.takePicture('J31-readable-ask');
     expect(resmon.refusedConnections()).toEqual([]);

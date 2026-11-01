@@ -58,7 +58,7 @@ async function settled(win: Page, id: number): Promise<Json> {
 
 test('a watch since its previous run: made in the editor, run twice, and the dates each run asked', async () => {
   test.setTimeout(420_000);
-  const source = await launchSourceApp('authored-corpus', { ui: 'atlas' });
+  const source = await launchSourceApp('authored-corpus');
   const { win, requests } = source;
   try {
     const problems: string[] = [];

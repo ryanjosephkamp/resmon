@@ -39,7 +39,7 @@ test.describe('the assistant, in an Electron-spawned backend', () => {
     expect(port).not.toBe('8742');
     const cli = fakeCli();
 
-    await goto('/');
+    await goto('/today');
     const result = await win.evaluate(async ([p, cliPath]) => {
       const base = `http://127.0.0.1:${p}`;
       const j = { 'Content-Type': 'application/json' };
@@ -97,7 +97,7 @@ test.describe('the assistant, in an Electron-spawned backend', () => {
        silence timeout and ended with "resmon could not finish that turn". */
     const port = await backendPort();
     const cli = fakeCli();
-    await goto('/');
+    await goto('/today');
 
     const result = await win.evaluate(async ([p, cliPath]) => {
       const base = `http://127.0.0.1:${p}`;

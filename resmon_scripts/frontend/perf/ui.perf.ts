@@ -151,8 +151,8 @@ function isolatedEnv(state: string): Record<string, string> {
     // Where the background service's unit would be read, so whether the
     // person's own resmon service is installed changes nothing on screen.
     RESMON_SERVICE_UNIT_DIR: path.join(state, 'service-units'),
-    // The Atlas interface, which a build from before the switch-over serves
-    // only when asked for by name.
+    // The Atlas interface. This build serves it with nothing set; a baseline
+    // build from before the switch-over serves it only when asked for by name.
     RESMON_UI: 'atlas',
   });
   for (const key of ['RESMON_BACKGROUND_WINDOW', 'RESMON_PYTHON']) {

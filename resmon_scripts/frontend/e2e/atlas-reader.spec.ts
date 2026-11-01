@@ -159,7 +159,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
   fs.writeFileSync(path.join(fixtures, 'links.pdf'), LINKS);
   fs.writeFileSync(path.join(fixtures, 'long-500.pdf'), longPdf(500));
   fs.writeFileSync(path.join(fixtures, LONG), writePdf([{ lines: [{ x: 72, y: 720, size: 14, text: 'Appendix page.' }] }]));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,

@@ -55,7 +55,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-'));
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-parent-')));
   const downloads = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-downloads-')));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const text = fs.readFileSync(path.join(FIXTURES, 'unicode.txt'), 'utf8');
   // The offsets this spec expects, from the fixture's own first line: the app's are compared with these.
   const prefix = text.slice(0, text.indexOf(QUOTE));

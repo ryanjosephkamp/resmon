@@ -26,7 +26,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect } from './fixtures/resmon-app';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK } from './fixtures/resmon-app';
 
 const E2E_DIR = path.join(FRONTEND_ROOT, 'e2e');
 
@@ -97,7 +97,7 @@ test('P12b: every file that launches the app passes --user-data-dir', () => {
   //
   // Scoped to the **file** rather than the call site, and the first version of
   // this was scoped to the call site and produced a false positive:
-  // `zero-reasons.spec.ts` builds its `args` array in a variable a few lines
+  // a spec that built its `args` array in a variable a few lines
   // above the call, which is perfectly correct and invisible to a regex over
   // the call. What that costs is stated in the handback: a launch whose args
   // came from *another module* would pass this.
@@ -129,7 +129,7 @@ test('P12c: a synthetic prior profile retains path/size/mtime metadata after a s
   let controlProfile = '';
   try {
     const win = await control.app.firstWindow({ timeout: 180_000 });
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     controlProfile = await control.app.evaluate(({ app }) => app.getPath('userData'));
   } finally { await control.app.close(); }
   const sentinel = path.join(controlProfile, 'synthetic-control-sentinel.txt');
@@ -140,10 +140,10 @@ test('P12c: a synthetic prior profile retains path/size/mtime metadata after a s
   const candidate = await launchResmon(true);
   try {
     const win = await candidate.app.firstWindow({ timeout: 180_000 });
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 60_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 60_000 });
     const candidateProfile = await candidate.app.evaluate(({ app }) => app.getPath('userData'));
     expect(path.resolve(candidateProfile)).not.toBe(path.resolve(controlProfile));
-    for (const hash of ['/', '/settings/ai', '/repositories']) {
+    for (const hash of ['/today', '/settings/ai', '/settings/sources']) {
       await win.evaluate(h => { window.location.hash = `#${h}`; }, hash);
       await win.waitForTimeout(300);
     }

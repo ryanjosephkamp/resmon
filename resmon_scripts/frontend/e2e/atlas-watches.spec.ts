@@ -82,7 +82,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
   // installed?" is answered about this run and not about the machine.
   const units = path.join(stateDir, 'units');
   fs.mkdirSync(units);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas', RESMON_SERVICE_UNIT_DIR: units };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_SERVICE_UNIT_DIR: units };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { watching, paused, stale, runs } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as

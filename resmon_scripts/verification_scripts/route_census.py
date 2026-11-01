@@ -6,7 +6,8 @@ API-contract guard — was the one anybody knew about. The other three were foun
 separately, by three different people, each time as a red that looked like a
 real regression and each time turning out to be a counter nobody had been told
 to move: ``test_selected_evidence_boundary.py``,
-``frontend/e2e/watch-profiles.spec.ts`` and ``test_response_models.py``.
+``frontend/e2e/watch-profiles.spec.ts`` (since retired) and
+``test_response_models.py``.
 
 Three derivations of the same number exist and none of them is a literal:
 

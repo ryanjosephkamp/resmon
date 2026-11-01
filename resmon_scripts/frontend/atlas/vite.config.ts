@@ -5,9 +5,9 @@ import path from 'path';
 
 /**
  * The fixed PDF.js distribution the Evidence reader draws pages with, copied
- * byte for byte into `pdfjs/6.3.289/` beside the app, as the classic build
- * copies it. The source is `vendor/pdfjs/6.3.289`, whose 188 files are pinned
- * by hash in `src/__tests__/pdfjs.test.ts`; nothing is installed from npm or
+ * byte for byte into `pdfjs/6.3.289/` beside the app. The source is
+ * `vendor/pdfjs/6.3.289`, whose 188 files are pinned by hash in
+ * `src/screens/library/__tests__/pdfjsAssets.test.ts`; nothing is installed from npm or
  * rebuilt. Only the two module suffixes change, `.mjs` to `.js`, because the
  * main process's static server types `.js` as JavaScript and would serve
  * `.mjs` as bytes a worker refuses.
@@ -38,12 +38,11 @@ function pdfjsDistribution(): Plugin {
 }
 
 /**
- * The Atlas renderer, built beside the classic one.
+ * The Atlas renderer.
  *
  * Electron's main process serves one directory of static files to the window
  * (`startRendererServer` in `electron/main.ts`); this build writes that
- * directory as `dist/atlas`, next to the classic `dist/renderer`, and
- * `RESMON_UI=atlas` picks it at launch. Relative asset URLs (`base: './'`)
+ * directory as `dist/atlas`, which the app serves. Relative asset URLs (`base: './'`)
  * because the files are served from whatever root the main process chooses.
  */
 export default defineConfig({

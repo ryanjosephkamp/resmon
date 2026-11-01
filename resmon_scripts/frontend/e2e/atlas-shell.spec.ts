@@ -1,10 +1,9 @@
 /**
- * The Atlas renderer, served instead of the classic one when RESMON_UI=atlas,
- * and the frame around every screen.
+ * The Atlas renderer, which the app serves with nothing set, and the frame
+ * around every screen.
  *
- * The first case proves the switch in the real app: the Atlas shell loads,
- * reaches its own backend with the window's token, and the classic renderer
- * is not what was served. The rest drive the frame as a person does: the
+ * The first case proves it in the real app: the Atlas shell loads and
+ * reaches its own backend with the window's token. The rest drive the frame as a person does: the
  * name in the top bar goes home, a click on the bar leaves no ring for the
  * next key to show, the keyboard's shortcuts (and the app menu's items, sent
  * through the bridge) reach every section and start a new search or
@@ -25,12 +24,12 @@ import { SCREEN_PATHS } from '../atlas/src/screenPaths';
 
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
-test('RESMON_UI=atlas serves the Atlas shell, connected to its own backend', async () => {
+test('the app serves the Atlas shell, connected to its own backend', async () => {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-'));
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT,
-    env: { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' },
+    env: { ...launchEnv(stateDir, true) },
     timeout: 180_000,
   });
   try {
@@ -41,8 +40,6 @@ test('RESMON_UI=atlas serves the Atlas shell, connected to its own backend', asy
     await expect(win.locator('.plate-waiting > [role="status"]')).toHaveText(/Your collection is empty/, { timeout: 120_000 });
     const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort: () => string } }).resmonAPI.getBackendPort());
     expect(port, 'the installed service port is never used').not.toBe('8742');
-    // The classic renderer's sidebar is not on the page.
-    await expect(win.locator('.sidebar')).toHaveCount(0);
   } finally {
     await app.close().catch(() => { /* already gone */ });
     fs.rmSync(stateDir, { recursive: true, force: true });
@@ -54,7 +51,7 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `resmon-e2e-atlas-${name}-`)));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   if (width) env.RESMON_E2E_WIDTH = String(width);
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const cli = path.join(root, 'claude');
@@ -226,6 +223,11 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
     await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
     await expect(sheet.locator('[data-shortcut="find"] kbd')).toHaveText(mac ? '⌘F' : 'Ctrl+F');
+    // The sheet fades in; the picture waits for that to finish, or it shows
+    // the screen behind it.
+    await sheet.evaluate((node) => Promise.all(document.getAnimations()
+      .filter((a) => (a.effect as KeyframeEffect | null)?.target === node)
+      .map((a) => a.finished)));
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-shortcuts.png') });
     // A shortcut pressed in the sheet closes it and does what it says.

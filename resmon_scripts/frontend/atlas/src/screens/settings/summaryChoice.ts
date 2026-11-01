@@ -51,7 +51,7 @@ const said = (value: unknown): string => (value === null || value === undefined 
  * A stored choice (a watch's `ai_enabled` and `ai_settings`) as the form
  * shows it. A provider is read from the chain where one is stored, since the
  * chain is what runs; a provider with no chain is the one lane the engine
- * runs for it, as a watch saved in the classic editor stores it.
+ * runs for it, as watches have always been stored.
  */
 export function choiceOf(enabled: boolean, settings: unknown): SummaryChoice {
   const stored = objectOf(settings);

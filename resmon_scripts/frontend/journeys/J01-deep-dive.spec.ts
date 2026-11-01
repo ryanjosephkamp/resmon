@@ -26,15 +26,13 @@ journey.describe('J01 Deep Dive', () => {
 
     await resmon.waitForRunToSettle(run);
 
-    // The run's *status* is not asserted here. While this file also ran
-    // against the frozen `classic` branch, a one-source dive whose source does
-    // not answer recorded `failed` on this build and `completed` there, so no
-    // expectation could be true of both.
+    // The run's *status* is not asserted here: it is a property of one build,
+    // and this row is about the per-source record.
     //
     // The status is asserted in the two places that are about one build, and
     // both are green: `verification_scripts/test_sweep_final_status.py` (six
     // hermetic cases over a real schema-21 database, including every selected
-    // source answering 503) and `e2e/coverage-reports.spec.ts` (the real
+    // source answering 503) and `e2e/atlas-zero-reasons.spec.ts` (the real
     // Electron app, for both the 503 and the unreadable-200 modes).
     //
     // Nothing is missing from the row. J01's invariant is that a source that

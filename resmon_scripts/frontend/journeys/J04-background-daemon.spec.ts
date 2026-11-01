@@ -60,9 +60,8 @@ journey.describe('J04 Background daemon', () => {
     // And the window is talking to its own backend, not to anybody's daemon.
     const port = await resmon.backend.port();
     expect(port, 'the window attached to the live daemon').not.toBe('8742');
-    // The classic panel writes "this window → pid …"; Atlas writes "This window
-    // is using an engine it started itself, on 127.0.0.1:<port>: pid …". The
-    // claim is the same one: the panel names the backend this window talks to.
+    // "This window is using an engine it started itself, on 127.0.0.1:<port>:
+    // pid …": the panel names the backend this window talks to.
     expect(panel.text, 'the panel does not identify the backend this window is using')
       .toMatch(/this window (→|is using)/i);
 

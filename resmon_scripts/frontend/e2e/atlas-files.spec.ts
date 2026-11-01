@@ -7,7 +7,7 @@
  * fact on screen is held to the engine's record, and the bytes kept are held
  * to the bytes given, read off the disk.
  *
- * **Scripted, as `library.spec.ts` scripts them:** the native folder chooser
+ * **Scripted:** the native folder chooser
  * (`dialog.showOpenDialog` answers with this spec's folder), the system's
  * opener and Finder (`shell.openPath` and `shell.showItemInFolder` record what
  * they were handed and open nothing), and the download destination. The
@@ -44,7 +44,7 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-'));
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-parent-')));
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-staging-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { doc } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { doc: number };
@@ -148,6 +148,27 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     const inventory = JSON.parse(fs.readFileSync(saved, 'utf8')) as { kind: string; files: { sha256: string }[] };
     expect(inventory.kind).toBe('resmon-library-inventory');
     expect(inventory.files.map((f) => f.sha256)).toContain(sha);
+
+    // — kept through the Danger zone: erasing the corpus and resetting every setting leave the library ----
+    const before = fs.readFileSync(kept);
+    await win.evaluate(() => { window.location.hash = '#/settings/danger'; });
+    for (const [label, route] of [['Erase the paper corpus', '/api/admin/erase-corpus'], ['Reset all settings', '/api/admin/reset-settings']] as const) {
+      const row = win.locator('.danger-row').filter({ has: win.getByRole('button', { name: label, exact: true }) });
+      await row.getByRole('button', { name: label, exact: true }).click();
+      const form = win.getByRole('group', { name: `Confirm: ${label}` });
+      await form.getByPlaceholder('Type CONFIRM').fill('CONFIRM');
+      const done = win.waitForResponse((r) => r.url().endsWith(route));
+      await form.getByRole('button', { name: 'Confirm', exact: true }).click();
+      expect((await done).status(), `${label} was refused`).toBe(200);
+    }
+    await win.evaluate(() => { window.location.hash = '#/library/files'; });
+    await expect(win.locator('button.library-file', { hasText: 'notes.txt' })).toBeVisible({ timeout: 30_000 });
+    await expect(win.locator('button.library-file', { hasText: 'outline.md' })).toBeVisible();
+    await expect(win.locator('button.library-file', { hasText: 'paper.pdf' })).toBeVisible();
+    expect(fs.readFileSync(kept).equals(before), 'the kept copy changed through the Danger zone').toBe(true);
+    // The paper it was linked to went with the corpus; the link does not outlive it.
+    await win.locator('button.library-file', { hasText: 'notes.txt' }).click();
+    await expect(detail.locator('[data-library="links"] li')).toHaveCount(0, { timeout: 30_000 });
 
     expect(problems).toEqual([]);
   } finally {

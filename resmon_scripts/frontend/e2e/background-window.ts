@@ -33,7 +33,7 @@
  * flag is set anyway. A config module that throws takes the whole run down
  * before the first spec, so the next person who adds a global `env:` block to
  * that workflow gets a red run naming the conflict instead of a quiet change of
- * subject. `src/__tests__/backgroundWindow.test.ts` is the static half of the
+ * subject. `tests/backgroundWindow.test.ts` is the static half of the
  * same guard and runs on every pull request.
  */
 

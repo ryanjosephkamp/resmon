@@ -1,12 +1,9 @@
 /**
  * The fixed PDF.js 6.3.289 the Evidence reader draws pages with: loaded from
  * this window's own origin, where the build copies it, and checked to be that
- * version before it is used. 20 seconds to draw a page, as the classic
- * reader's `src/lib/pdfjs.ts` allows. Its canvas bound is not kept: the classic
- * reader draws one page, and capped it at 4 million pixels, which drew a page
- * fitted to a wide window below the screen's resolution. Atlas draws each page
- * at the screen's resolution up to `MAX_CANVAS_PIXELS`, and holds every drawn
- * page together to `CANVAS_BUDGET` (`allot` in `readerModel.ts`).
+ * version before it is used. 20 seconds to draw a page. Each page is drawn at
+ * the screen's resolution up to `MAX_CANVAS_PIXELS`, and every drawn page
+ * together is held to `CANVAS_BUDGET` (`allot` in `readerModel.ts`).
  */
 
 /** Only the public PDF.js calls the reader makes: drawing, a page's text to select, and its links. */

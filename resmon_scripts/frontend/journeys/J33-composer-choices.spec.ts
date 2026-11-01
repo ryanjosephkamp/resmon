@@ -165,7 +165,7 @@ journey.describe('J33 Composer choices', () => {
       + 'a model an account does not have. That half belongs to the live suite.');
     console.log('[J33] NOT VERIFIED: the API-key connection\'s half of this row. The composer '
       + 'offers a second connection whose adapter has no effort at all, and this row drives the '
-      + 'CLI one end to end. The API lane\'s own pinning is `e2e/composer-choices.spec.ts`.');
+      + 'CLI one end to end. Journey J14 holds the API lane\'s request to the chosen model.');
 
     await resmon.takePicture('J33-composer-choices');
     expect(resmon.refusedConnections()).toEqual([]);

@@ -17,7 +17,7 @@ export type AiSettings = components['schemas']['AiSettings'];
 /** `GET /api/settings/ai`, read by Settings, Search, and the watch screens alike. */
 export const AI_KEY = ['ai-settings'] as const;
 
-/** The providers a summary can come from, in classic's order: the plans you already pay for first. */
+/** The providers a summary can come from: the plans you already pay for first. */
 export const PROVIDERS: readonly { value: string; label: string }[] = [
   { value: 'claude_code', label: 'Claude Code, on your Claude plan' },
   { value: 'codex', label: 'Codex, on your ChatGPT plan' },
@@ -384,7 +384,7 @@ export function formLane(form: SummaryForm): LaneFields {
 /**
  * The chain to store: the form as its first lane, then the fallbacks kept,
  * each exactly as it was stored. Empty where a chain would say nothing the
- * single keys do not, as the classic Settings writes it: no fallbacks and a
+ * single keys do not, as resmon has always stored it: no fallbacks and a
  * provider that is not a command. A command always gets a chain, because its
  * path, effort, cap, and batch size exist only on a lane.
  */

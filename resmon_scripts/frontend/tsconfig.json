@@ -16,8 +16,9 @@
     "rootDir": ".",
     "moduleResolution": "node10",
     "allowSyntheticDefaultImports": true,
+    "types": ["jest", "node"],
     "ignoreDeprecations": "6.0"
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "src/__tests__/**"]
+  "include": ["tests/**/*"],
+  "exclude": ["node_modules", "dist"]
 }
