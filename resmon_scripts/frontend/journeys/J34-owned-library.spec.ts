@@ -26,7 +26,7 @@
  *
  * *The native folder chooser.* Nothing automated can operate a macOS file
  * dialog. The production IPC handler is untouched and only its OS dependency
- * answers, exactly as `e2e/library.spec.ts` does it — so the request, the
+ * answers, exactly as `e2e/atlas-files.spec.ts` does it — so the request, the
  * refusal of an existing folder and the creation are the app's, and the person
  * pressing Choose in Finder is not.
  *
@@ -148,7 +148,7 @@ journey.describe('J34 Owned Library', () => {
 
     console.log('[J34] NOT VERIFIED: the native folder chooser. Nothing automated can operate a '
       + 'macOS file dialog, so the production IPC handler is left in place and only its OS '
-      + 'dependency answers — the same seam `e2e/library.spec.ts` uses. The request, the refusal '
+      + 'dependency answers — the same seam `e2e/atlas-files.spec.ts` uses. The request, the refusal '
       + 'to adopt an existing folder and the creation are the app\'s; a person pressing Choose in '
       + 'Finder is not observed here.');
     console.log('[J34] NOT VERIFIED: anything about what is inside the imported PDF. It is an '

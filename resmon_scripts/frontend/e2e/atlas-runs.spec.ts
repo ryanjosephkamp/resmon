@@ -89,7 +89,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 # The held query is let go by the spec, never by a timeout.
 config.DEFAULT_REQUEST_TIMEOUT = 240
 `);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
 
@@ -305,7 +305,7 @@ with zipfile.ZipFile(sys.argv[1]) as z:
 test('the run log reads its newest page first, and older runs when asked', async () => {
   test.setTimeout(180_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-runlog-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   // Twenty-three finished runs a person would already have, written before the
   // app starts: one more page than the log reads at first, and a few over.
   execFileSync(env.RESMON_PYTHON, ['-c', `

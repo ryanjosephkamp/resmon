@@ -3,10 +3,10 @@
 ``zero_reason.answered`` is the rule that decides whether a source replied to
 the query resmon sent it, and ``source_coverage.outcome`` is the categorizer
 built on top of it. The renderer has to apply both itself in one place: the
-live Monitor, where a ``repo_done`` event carries a reason slug and a rendered
-sentence and no classification at all. ``frontend/src/api/zeroReason.ts`` does
-that, and until this module it did it from a **hand transcription** whose own
-docstring said so.
+live run page, where a ``repo_done`` event carries a reason slug and a rendered
+sentence and no classification at all. ``outcomeOf`` in
+``frontend/atlas/src/screens/runs/model.ts`` does that; the classic renderer
+before it did it from a **hand transcription** whose own docstring said so.
 
 The vocabulary had already been pulled out of the renderer's hands --
 ``zeroReasonVocabulary.ts`` is generated from ``zero_reason.py`` and
@@ -24,9 +24,9 @@ level rather than closed. So:
 1. ``test_zero_reason_truth_table.py`` regenerates this table from the live
    ``zero_reason.answered`` and ``source_coverage.outcome`` and fails if the
    committed JSON differs. A backend change reddens the backend job.
-2. ``frontend/src/__tests__/ZeroReasonTruthTable.test.ts`` fails if
-   ``zeroReason.ts`` does not reproduce the committed JSON exactly. A renderer
-   change reddens the frontend job.
+2. ``frontend/atlas/src/screens/runs/__tests__/zeroReasonTruthTable.test.ts``
+   fails if ``outcomeOf`` does not reproduce the committed JSON's ``ok`` rows
+   exactly. A renderer change reddens the frontend job.
 
 Neither can go green alone, and neither file can be edited into agreement
 without the other noticing.
@@ -266,7 +266,8 @@ def _category(status: object, count: object, reason: object) -> str:
 
     An earlier version of this docstring said the partial flag was "served to
     the renderer rather than computed by it". That is wrong on the one path
-    that matters: ``api/zeroReason.ts`` has its own ``isPartialAnswer``, and
+    that matters: the renderer has its own partial check (``readInPart`` in
+    Atlas's ``runs/model.ts``), and
     ``sweep_engine`` puts ``zero_detail`` on the ``repo_done`` event, so the
     renderer both computes the flag and has the material to compute it
     exactly. It currently computes a deliberately weaker predicate. Extending
@@ -362,7 +363,7 @@ def render() -> str:
         ],
         "guarded_by": [
             "verification_scripts/test_zero_reason_truth_table.py",
-            "frontend/src/__tests__/ZeroReasonTruthTable.test.ts",
+            "frontend/atlas/src/screens/runs/__tests__/zeroReasonTruthTable.test.ts",
         ],
         "columns": list(COLUMNS),
         "axes": {

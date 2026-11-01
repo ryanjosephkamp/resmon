@@ -23,7 +23,7 @@
  * **And it skips when the build under `release/` is not this checkout's.** The
  * spike's precondition was "a directory exists", which is not the same claim:
  * on a machine whose `release/` still held a **1.6.0** bundle from months
- * earlier, this spec launched that app, walked its routes, and failed on a
+ * earlier, this spec launched that app, walked its screens, and failed on a
  * window-size branch three releases older than the code under test. A stale
  * pass would have been worse than the failure — it would have reported the
  * shipped bundle as verified while never opening it. `npm run dist` first.
@@ -32,9 +32,9 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
-import { launchEnv, FRONTEND_ROOT, WINDOW_WIDTH } from './fixtures/resmon-app';
+import { launchEnv, atlasEnv, FRONTEND_ROOT, WINDOW_WIDTH, ATLAS_LANDMARK } from './fixtures/resmon-app';
 import { readFuses, FUSES_VERIFICATION_DEPENDS_ON, fuseBinaryFor } from './fixtures/electron-fuses';
-import { ROUTES } from './routes';
+import { SCREENS } from './screens';
 
 // A deliberate `require`: the path is computed, so an `import` cannot express
 // it. This carried a suppression for `@typescript-eslint/no-var-requires`,
@@ -101,7 +101,7 @@ test('D4: the two fuses packaged verification depends on are still enabled', () 
   }
 });
 
-test('Q6: the packaged app launches under Playwright and serves every route', async () => {
+test('Q6: the packaged app launches under Playwright and serves every screen', async () => {
   const exe = packagedExecutable();
   test.skip(
     exe === null,
@@ -126,7 +126,7 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
   );
 
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-pkg-'));
-  const env = launchEnv(stateDir, true);
+  const env = atlasEnv(launchEnv(stateDir, true));
   // A packaged app carries its own interpreter under Contents/Resources/backend.
   // Leaving RESMON_PYTHON pointed at the checkout's venv would test the wrong
   // thing — the point is that the shipped bundle starts itself.
@@ -153,7 +153,7 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
 
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    await win.locator('.app-main').waitFor({ state: 'visible', timeout: 120_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 120_000 });
 
     const port = await win.evaluate(
       () => (window as unknown as { resmonAPI: { getBackendPort(): string } })
@@ -181,19 +181,22 @@ test('Q6: the packaged app launches under Playwright and serves every route', as
 
     const bounds = await app.evaluate(async ({ BrowserWindow }) =>
       BrowserWindow.getAllWindows()[0].getBounds());
-    expect(bounds.width).toBe(WINDOW_WIDTH);
+    expect(bounds.width).toBe(Number(env.RESMON_E2E_WIDTH) || WINDOW_WIDTH);
 
-    // Every route, against the shipped bundle rather than the checkout.
+    // Every screen, against the shipped bundle rather than the checkout: at
+    // its own address (Atlas sends one it does not route back to Today), and
+    // with something drawn.
     const empty: string[] = [];
-    for (const route of ROUTES) {
-      await win.evaluate((h) => { window.location.hash = `#${h}`; }, route.path);
-      await win.waitForFunction((h) => window.location.hash.startsWith(`#${h}`), route.path,
+    for (const screen of SCREENS) {
+      await win.evaluate((h) => { window.location.hash = `#${h}`; }, screen.path);
+      await win.waitForFunction((h) => window.location.hash.startsWith(`#${h}`), screen.path,
         { timeout: 15_000 });
       await win.waitForTimeout(500);
-      const routed = await win.locator('main.main-content').innerText();
-      if (routed.trim().length === 0) empty.push(route.path);
+      const at = await win.evaluate(() => window.location.hash.replace(/^#/, '').split('?')[0]);
+      const routed = await win.locator('main.stage').innerText();
+      if (at !== screen.path || routed.trim().length === 0) empty.push(screen.path);
     }
-    console.log('Q6 PACKAGED EMPTY ROUTES', JSON.stringify(empty));
+    console.log('Q6 PACKAGED EMPTY SCREENS', JSON.stringify(empty));
     expect(empty).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });

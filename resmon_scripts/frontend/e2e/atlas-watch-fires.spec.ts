@@ -38,7 +38,7 @@ print(json.dumps({"routine": routine}))
 test('a skipped scheduled run is said on the watch, its schedule, the list, and the Watchdog', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-watch-fires-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { routine } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { routine: number };

@@ -251,8 +251,7 @@ export interface WatchBody {
  *
  * Starts from the parameters already stored, so a field this editor does not
  * show (a structured schedule kept as it is, or anything a newer build
- * writes) survives a save. The classic editor's shape, so a watch saved in
- * either interface opens in the other. `is_active` is sent only for a new
+ * writes) survives a save, and a watch saved before opens here. `is_active` is sent only for a new
  * watch: pausing and resuming are the watch page's, and an edit that sent it
  * would resume a paused watch without a word. Summaries are sent by
  * `summaryBody`, beside this.

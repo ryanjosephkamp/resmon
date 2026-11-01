@@ -468,7 +468,7 @@ const TICKS: ReadonlySet<string> = new Set(['query_progress', 'link_progress', '
 /**
  * The timeline's lines, with a run of identical consecutive lines folded into
  * one. A stopped run's trailing `complete` repeats its `cancelled` line, so it
- * is left out, as the classic activity log leaves it out.
+ * is left out.
  */
 function timelineOf(events: readonly ProgressEvent[], names: ReadonlyMap<string, string>): { at: string; words: string; times: number }[] {
   const out: { at: string; words: string; times: number }[] = [];

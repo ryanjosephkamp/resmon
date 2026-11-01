@@ -82,9 +82,8 @@ export function savedAsks(config: Pick<SavedConfiguration, 'config_type' | 'para
 }
 
 /**
- * What Save this search stores: the same flat parameters the classic Deep
- * Dive and Deep Sweep pages store, so a search saved in either interface
- * opens in the other.
+ * What Save this search stores: the flat Deep Dive and Deep Sweep parameters
+ * every saved search is stored with, so a search saved before opens here.
  */
 export function savedParameters(form: {
   mode: 'dive' | 'sweep';
@@ -143,7 +142,7 @@ export function savedFormProblem(type: string, form: SavedForm): string | null {
  * What a changed saved search stores. `PUT /api/configurations/{id}` replaces
  * the whole parameters object, so the editor's fields are written over what
  * is stored rather than in place of it: whether it summarizes, and anything
- * the classic interface stored beside it (a lane of its own, a query), is
+ * stored beside it (a lane of its own, a query), is
  * kept as it was. A query kept beside the terms is rewritten from them, so
  * the two cannot disagree.
  */

@@ -13,7 +13,7 @@ checked against.
 
 `scripts/verify-output.mjs` reads both and compares them against the built site. It is
 not a smoke test: for the feed it runs the app's own parsing function — copied out of
-`resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx` — over the old feed and
+resmon 2.3's `BlogTab.tsx` — over the old feed and
 the new one, and diffs the five fields the app actually reads, entry by entry.
 
 Do not regenerate these files. A capture taken after the change would be a capture of the

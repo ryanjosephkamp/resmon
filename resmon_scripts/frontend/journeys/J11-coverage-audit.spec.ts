@@ -62,8 +62,7 @@ journey.describe('J11 Coverage audit', () => {
     console.log(`[J11] with an intent: ${JSON.stringify(stated.intent)}`);
     expect(stated.intent, 'the written intent is not what the panel compares against')
       .toContain('Layered perovskite film stability');
-    // "routine" in the classic interface and "watch" in Atlas, which calls a
-    // routine a watch everywhere; the claim is the same one.
+    // Atlas calls a routine a watch everywhere.
     expect(stated.intent, 'the panel still calls the comparison circular')
       .toMatch(/the intent written for this (routine|watch)/);
     expect(stated.intent).not.toMatch(/results the query produced/);

@@ -1,7 +1,8 @@
 """Coverage crosses real SQLite, backend HTTP, read adapter and ZIP boundaries.
 
 The seeded histories are authored, not claimed provider searches. Actual source
-transport is exercised separately in coverage-reports.spec.ts.
+transport is exercised separately in e2e/atlas-zero-reasons.spec.ts; these
+histories are read on Atlas in e2e/atlas-coverage-reports.spec.ts.
 """
 from __future__ import annotations
 import hashlib

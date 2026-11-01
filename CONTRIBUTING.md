@@ -59,18 +59,13 @@ place the window-manager specs actually run — and writes the screenshots and a
 Markdown summary to a folder outside the repository. Use it before asking anyone
 to look at an interface change. Screenshots are never committed.
 
-### Adding a page
+### Adding a screen
 
-Routes live in one table, `resmon_scripts/frontend/src/routes.ts`. `App.tsx` renders from
-it and the Playwright suite imports it, so **a page that exists is a page with a smoke
-test** — there is no second list to remember. Add the route there and to `App.tsx`'s
-`PAGE_ELEMENTS`, and `npm run e2e` sweeps it on the next run. A Settings or About tab is
-read out of that page's own `<Routes>` block, so those go in the table's `children` too.
-
-`src/__tests__/routes.test.tsx` fails when the table and the app disagree, including when
-a `<Route>` is hand-written in `App.tsx` to bypass the table. That guard is the whole
-point: before it, the e2e route list was a hand copy and a new page was unswept with
-nothing going red.
+Every screen at a fixed address is listed in `resmon_scripts/frontend/atlas/src/screenPaths.ts`,
+and `atlas/src/__tests__/screenPaths.test.ts` fails when that list and the router disagree.
+The e2e smoke suite sweeps the list and the journey register's `ROUTE_ROWS` must name the
+rows that carry each entry, so **a screen that exists is a screen with a smoke test and a
+journey** — there is no second list to remember.
 
 CI runs the backend suite on Python 3.10, 3.11 and 3.12 plus the frontend job. **3.12 is not
 decoration** — it releases the GIL around `sqlite3` aggressively and is the acceptance test

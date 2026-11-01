@@ -6,8 +6,7 @@
  * The report and the search record are Markdown text. The run's bundle (the
  * report, its PDF and LaTeX where a LaTeX engine could make them, the log, the
  * metadata, and the search record), several runs' bundles in one archive, and
- * the saved-search archive are ZIPs the engine builds with the same code that
- * writes them for classic's exports.
+ * the saved-search archive are ZIPs the engine builds.
  */
 import { EngineError, engineSentence, engine } from '../../api/client';
 import { runsFileStem } from './model';

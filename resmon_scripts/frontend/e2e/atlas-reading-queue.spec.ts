@@ -59,7 +59,7 @@ async function api<T>(win: Page, route: string, method = 'GET'): Promise<T> {
 test('the reading queue past its first page: paging, ticks, export, and a page that empties', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-queue-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..'), String(SIZE)], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { ids } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[] };

@@ -9,7 +9,7 @@ having no suite at all during the only period when one matters. So nothing here
 touches the renderer. Every spec is written in the words of the journey it
 covers — *run a dive*, *read the coverage sentence*, *back up now* — and a
 **driver** behind it maps those onto the renderer's markup. The driver is the
-Atlas interface, which this build serves with `RESMON_UI=atlas`:
+Atlas interface, which this build serves with nothing set:
 `drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`), takes what has
 no screen from `drivers/screenless.ts`, and skips every other journey with the
 reason "Not in Atlas yet: …". A run's skipped count is therefore how much of the
@@ -29,8 +29,9 @@ npm run typecheck:journeys # nothing else typechecks this directory
 
 ### Against some other build
 
-One variable, and nothing else changes. The other build has to include Atlas
-and serve it with `RESMON_UI=atlas`.
+One variable, and nothing else changes. The other build has to include Atlas;
+the suite sets `RESMON_UI=atlas`, which a build from before the switch-over
+needs to serve it.
 
 ```bash
 # 1. Build the app you want to measure, wherever it lives.

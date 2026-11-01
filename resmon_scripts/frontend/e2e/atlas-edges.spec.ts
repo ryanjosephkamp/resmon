@@ -64,7 +64,7 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
   ].join('\n'));
   const base = launchEnv(stateDir, true);
   const env: Record<string, string> = {
-    ...base, RESMON_UI: 'atlas', PYTHON_KEYRING_BACKEND: 'edges_keyring.Keyring',
+    ...base, PYTHON_KEYRING_BACKEND: 'edges_keyring.Keyring',
     PYTHONPATH: [hooks, base.PYTHONPATH].filter(Boolean).join(path.delimiter),
   };
   const launch = () => electron.launch({
@@ -232,7 +232,7 @@ test('a resmon that had the upload to Google Drive on is told once, on Backup, t
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-drive-')));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   // What a person who switched the upload on before it was removed has: the
   // switch, as the engine stored it, in a database this version has opened.
   execFileSync(env.RESMON_PYTHON, ['-c', [
@@ -297,7 +297,7 @@ test('a staged restore restarts resmon from Backup, the next start shows what it
   const stateDir = path.join(root, 'state');
   const backups = path.join(root, 'backups');
   for (const dir of [stateDir, backups]) fs.mkdirSync(dir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const launch = () => electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,

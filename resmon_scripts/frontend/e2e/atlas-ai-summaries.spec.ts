@@ -167,7 +167,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
   fs.cpSync(path.join(FRONTEND_ROOT, 'journeys', 'fixtures', 'nltk-data'), nltk, { recursive: true });
   const base = launchEnv(stateDir, true);
   const env: Record<string, string> = {
-    ...base, RESMON_UI: 'atlas', PYTHON_KEYRING_BACKEND: 'summaries_keyring.Keyring', NLTK_DATA: nltk,
+    ...base, PYTHON_KEYRING_BACKEND: 'summaries_keyring.Keyring', NLTK_DATA: nltk,
     PYTHONPATH: [hookDir, base.PYTHONPATH].filter(Boolean).join(path.delimiter),
   };
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';

@@ -12,7 +12,7 @@
  *      `parseAtomFeed` over both feeds and diffs the five fields it produces
  *      per entry: `id`, `title`, `link`, `published` and the 240-character
  *      `summary`. That function is reproduced below from
- *      `resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx` with one
+ *      resmon 2.3's `frontend/src/components/AboutResmon/BlogTab.tsx` with one
  *      adaptation, marked where it occurs.
  *
  *   2. **Does every URL the old site served still resolve?** All 54 of them,

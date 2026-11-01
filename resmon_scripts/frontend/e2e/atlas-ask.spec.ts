@@ -40,7 +40,7 @@ test('Ask: the keyboard, a tool row, a card that really allows, a turn that outl
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-ask-')));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas', PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const cli = path.join(root, 'claude');
   fs.writeFileSync(cli, `#!/bin/sh\nexec "${python}" "${path.join(REPO_ROOT, 'resmon_scripts/verification_scripts/fixtures/fake_claude.py')}" "$@"\n`, { mode: 0o755 });

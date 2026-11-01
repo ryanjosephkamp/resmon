@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Generate `src/api/zeroReasonVocabulary.ts` from `zero_reason.py`.
+ * Generate `atlas/src/api/zeroReasonVocabulary.ts` from `zero_reason.py`.
  *
  * The renderer used to keep a hand-written copy of the backend's
  * `DID_NOT_ANSWER` set, with a comment claiming there was no second copy of
@@ -13,7 +13,7 @@
  * Adding the missing string by hand would have rebuilt the same defect with a
  * longer fuse, so the vocabulary is now derived. `zero_reason.py` is the one
  * source of truth; this script copies it into TypeScript, and
- * `ZeroReasonSurfaces.test.tsx` regenerates the module and fails the renderer
+ * `tests/zeroReasonVocabulary.test.ts` regenerates the module and fails the
  * suite if the committed file is not byte-identical to what the live Python
  * produces. A reason added to the backend turns the frontend red until this
  * is re-run, and every renderer surface reads the generated module, so a
@@ -32,13 +32,6 @@ const PYTHON_SOURCE = path.resolve(
 );
 
 /** The generated module, relative to the frontend root. */
-const GENERATED_PATH = path.join('src', 'api', 'zeroReasonVocabulary.ts');
-
-/**
- * The same module for the Atlas renderer, which is a separate program and
- * cannot import the classic renderer's files. Written from the same text, so
- * the two cannot disagree; the classic copy goes with the classic renderer.
- */
 const ATLAS_GENERATED_PATH = path.join('atlas', 'src', 'api', 'zeroReasonVocabulary.ts');
 
 /**
@@ -163,7 +156,7 @@ ${list(vocabulary.didNotAnswer)}
 
 function main() {
   const text = renderModule();
-  for (const relative of [GENERATED_PATH, ATLAS_GENERATED_PATH]) {
+  for (const relative of [ATLAS_GENERATED_PATH]) {
     const target = path.join(FRONTEND_ROOT, relative);
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
     if (existing === text) {
@@ -176,7 +169,7 @@ function main() {
 }
 
 module.exports = {
-  PYTHON_SOURCE, GENERATED_PATH, ATLAS_GENERATED_PATH, pythonVocabulary, renderModule,
+  PYTHON_SOURCE, ATLAS_GENERATED_PATH, pythonVocabulary, renderModule,
 };
 
 if (require.main === module) {

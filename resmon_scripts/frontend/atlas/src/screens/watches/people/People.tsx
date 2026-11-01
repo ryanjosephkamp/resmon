@@ -181,9 +181,8 @@ function StarterSet({ people }: { people: readonly Profile[] }) {
 }
 
 /**
- * A place's own explanation, closed until asked for. Atlas's counterpart of
- * the classic interface's page help: what the place does and what it cannot
- * know, in prose, on the place itself.
+ * A place's own explanation, closed until asked for: what the place does and
+ * what it cannot know, in prose, on the place itself.
  */
 export function PlaceHelp({ summary, children }: { summary: string; children: ReactNode }) {
   return (

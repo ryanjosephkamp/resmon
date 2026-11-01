@@ -140,7 +140,7 @@ journey.describe('J36 Selected-evidence answers', () => {
       + 'loopback; the request, the key read out of the app\'s own credential store, the validation '
       + 'and the saved answer are the app\'s. Whether a live model cites well is not observed.');
     console.log('[J36] NOT VERIFIED: the Claude Code connection. Its CLI path points at nothing on '
-      + 'purpose, so no agent CLI can start; the CLI lane of this feature is `e2e/selected-evidence.spec.ts`\'s.');
+      + 'purpose, so no agent CLI can start; the CLI lane of this feature is `e2e/atlas-answers.spec.ts`\'s.');
     console.log('[J36] NOT VERIFIED: that a citation supports the claim it is attached to. The app '
       + 'checks text identity only and says so; so does this row.');
 

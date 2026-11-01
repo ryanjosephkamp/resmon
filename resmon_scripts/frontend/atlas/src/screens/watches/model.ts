@@ -141,9 +141,7 @@ function describeCron(cron: string): string | null {
  * `scheduler._build_trigger`, so a structured `_schedule` in the parameters
  * wins over the cron string, as it does when the routine fires. `*\/N` in the
  * day of the month restarts every month and is left untranslated, and so is a
- * minute or hour step that does not divide the hour or the day evenly. The
- * classic interface's `lib/scheduleText.ts` still says "Every 5 hours" for
- * the last of those; it goes at the switch-over.
+ * minute or hour step that does not divide the hour or the day evenly.
  */
 export function scheduleText(cron: string | null | undefined, parameters?: unknown): string | null {
   const s = structured(parameters);

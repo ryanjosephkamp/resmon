@@ -5,6 +5,7 @@ import { bridge, isMac } from '../bridge';
 import { useAsk } from '../screens/ask/AskProvider';
 import { startSearch, type SearchKind } from '../screens/searchStart';
 import { CommandPalette } from './CommandPalette';
+import { EngineNotice } from './EngineNotice';
 import { canGo } from './history';
 import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
@@ -189,6 +190,7 @@ export function Shell() {
           <Icon name="settings" />
         </NavLink>
       </header>
+      <EngineNotice />
       <main className="stage">
         <ShowShortcutsContext value={showSheet}>
           <Outlet />

@@ -310,10 +310,8 @@ def test_the_editor_previews_the_sentences_the_api_returns():
     API's consumers render, and the editor would print the asterisks.
     """
     frontend = PROJECT_ROOT / "resmon_scripts" / "frontend"
-    # Both interfaces preview it until the classic one goes: the classic
-    # editor, and Atlas's People model, which its editor reads.
-    editors = (frontend / "src" / "components" / "Profiles" / "ProfileEditor.tsx",
-               frontend / "atlas" / "src" / "screens" / "watches" / "people" / "model.ts")
+    # Atlas's People model, which its editor reads.
+    editors = (frontend / "atlas" / "src" / "screens" / "watches" / "people" / "model.ts",)
     for editor in editors:
         assert editor.is_file(), f"{editor.name} moved; this guard must move with it"
         source = editor.read_text(encoding="utf-8")

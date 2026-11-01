@@ -20,7 +20,7 @@ runner.
 
 ## The constraint everything here is shaped by
 
-**The app fetches this site's feed.** `resmon_scripts/frontend/src/components/AboutResmon/BlogTab.tsx`
+**Installed copies of resmon 2.3 and earlier fetch this site's feed.** Their About resmon → Blog tab
 does a public `GET` of `https://ryanjosephkamp.github.io/resmon/feed.xml` every time a user
 opens **About resmon → Blog**, parses it with `DOMParser`, and builds the post list from it. It
 also loads the site's pages into an Electron `<webview>` that is locked to that origin.

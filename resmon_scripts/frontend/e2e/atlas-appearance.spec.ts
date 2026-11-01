@@ -20,7 +20,7 @@ async function launch(stateDir: string): Promise<{ app: ElectronApplication; win
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
     cwd: FRONTEND_ROOT,
-    env: { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' },
+    env: { ...launchEnv(stateDir, true) },
     // Playwright otherwise tells the page the system is light, whatever it is,
     // while the main process reads the real one; the two must agree here.
     colorScheme: null,

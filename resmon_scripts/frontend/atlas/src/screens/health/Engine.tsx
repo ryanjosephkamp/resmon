@@ -38,10 +38,12 @@ export function Engine() {
         </p>
         {data && (
           <dl className="facts" data-health="details">
-            <div><dt>Runtime</dt><dd><code className="path">{data.identity.runtime_id}</code></dd></div>
+            {/* An engine from before identity was reported names none; that is said, not crashed on. */}
+            <div><dt>Runtime</dt><dd>{data.identity?.runtime_id
+              ? <code className="path">{data.identity.runtime_id}</code> : 'not reported by this engine'}</dd></div>
             <div><dt>Process</dt><dd>pid {data.pid}, started {started ? when(started.toISOString(), now) : 'at a time not recorded'}</dd></div>
             <div><dt>Version</dt><dd>{data.version}</dd></div>
-            <div><dt>Database</dt><dd>schema {data.identity.schema_version}</dd></div>
+            <div><dt>Database</dt><dd>{data.identity?.schema_version !== undefined ? `schema ${data.identity.schema_version}` : 'schema not reported'}</dd></div>
             <div><dt>Similarity index</dt><dd>{data.embeddings.extension ? `sqlite-vec ${data.embeddings.extension}` : `Not loaded${data.embeddings.reason ? `: ${data.embeddings.reason}` : ''}`}</dd></div>
           </dl>
         )}

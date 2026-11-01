@@ -4,11 +4,10 @@
  *
  * It is partial on purpose, and `candidate.ts` says so out loud for the rest:
  * a journey this file does not implement is skipped with the reason "not in
- * Atlas yet", never driven through the classic renderer and never failed. The
- * run's skip count is then the measurement the switch-over waits on.
+ * Atlas yet", and never failed.
  *
- * Every method waits for a state before it reads the screen, as the classic
- * driver's guard requires of that file.
+ * Every method waits for a state before it reads the screen, as
+ * `register.spec.ts` requires of this file.
  */
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
@@ -46,7 +45,7 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   // about a person, where a person chooses sources: Ask the sources.
   Repositories: '/search/ask',
   // Settings is one group at a time; the background service is "In the
-  // background", where the classic interface had it under Advanced.
+  // background".
   'Advanced settings': '/settings/background',
   'Email settings': '/settings/email',
   'Notification settings': '/settings/notifications',

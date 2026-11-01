@@ -28,7 +28,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import tseslint from 'typescript-eslint';
 
 /** Every TypeScript file this config walks, named once. */
-const TYPESCRIPT = ['src/**/*.{ts,tsx}', 'atlas/**/*.{ts,tsx}', 'electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'];
+const TYPESCRIPT = ['atlas/**/*.{ts,tsx}', 'electron/**/*.ts', 'tests/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'];
 
 /**
  * The react-hooks half of the backlog.
@@ -115,7 +115,7 @@ export default tseslint.config(
 
   // ---- the renderer ------------------------------------------------------
   {
-    files: ['src/**/*.{ts,tsx}', 'atlas/**/*.{ts,tsx}'],
+    files: ['atlas/**/*.{ts,tsx}'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       globals: { ...globals.browser },
@@ -125,9 +125,9 @@ export default tseslint.config(
     rules: { ...reactHooks.configs['recommended-latest'].rules, ...HOOKS_BACKLOG },
   },
   {
-    // The renderer suite runs in jsdom — jest's globals and the browser's
-    // both in scope — and its mocks and setup file are CommonJS under Node.
-    files: ['src/**/__tests__/**/*.{ts,tsx}', 'src/**/__mocks__/**/*.js', 'jest.setup.js'],
+    // The Jest suites run in jsdom — jest's globals and the browser's both in
+    // scope — and their mocks and setup file are CommonJS under Node.
+    files: ['atlas/src/**/__tests__/**/*.{ts,tsx}', 'tests/**/*.{ts,js}', 'jest.setup.js'],
     languageOptions: {
       globals: { ...globals.jest, ...globals.node, ...globals.browser },
     },
@@ -135,7 +135,7 @@ export default tseslint.config(
 
   // ---- the Electron main process, the suites and the build scripts -------
   {
-    files: ['electron/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'],
+    files: ['electron/**/*.ts', 'tests/**/*.ts', 'e2e/**/*.ts', 'journeys/**/*.ts', 'perf/**/*.ts', 'demos/**/*.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: { globals: { ...globals.node, ...globals.browser } },
   },

@@ -70,7 +70,7 @@ interface Config { id: number; name: string; config_type: string; parameters: Re
 test('a run saved as a search, and that search changed in place, read back from the engine', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-saved-searches-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { run } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { run: number };

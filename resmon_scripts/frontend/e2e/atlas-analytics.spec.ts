@@ -68,7 +68,7 @@ interface Overview {
 test('Analytics draws the engine\'s numbers, and a chart opens the collection narrowed to what it drew', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-analytics-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { watch } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { watch: number };

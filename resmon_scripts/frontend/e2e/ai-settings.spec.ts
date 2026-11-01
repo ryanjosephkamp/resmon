@@ -72,7 +72,7 @@ async function launchWithCli(cli: 'claude' | 'codex' | null, settings: Record<st
   fs.writeFileSync(opener, `#!/bin/sh\necho "opened $*" >> "${calls}"\n`);
   fs.chmodSync(opener, 0o755);
 
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   env.HOME = home;
   // Discovery itself is under test, so the engine searches, but only PATH.
   env.RESMON_AI_CLI_DISCOVERY = 'path-only';

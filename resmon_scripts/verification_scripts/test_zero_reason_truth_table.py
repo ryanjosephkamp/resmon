@@ -12,7 +12,7 @@ fixture that only the renderer reads goes stale the moment the Python changes,
 which moves the generated-vocabulary blind spot up a level instead of closing
 it. So this file is the backend half: it regenerates the table from the live
 functions and fails when the committed file differs. The renderer half is
-``frontend/src/__tests__/ZeroReasonTruthTable.test.ts``. A backend change
+``frontend/atlas/src/screens/runs/__tests__/zeroReasonTruthTable.test.ts``. A backend change
 reddens the backend job, a renderer change reddens the frontend job, and
 neither can go green alone.
 
@@ -66,7 +66,7 @@ def test_the_committed_truth_table_is_what_the_live_rule_produces():
 
             python -m resmon_scripts.verification_scripts.zero_reason_truth_table --write
 
-        The frontend suite will then redden too, until `api/zeroReason.ts`
+        The frontend suite will then redden too, until Atlas's `outcomeOf`
         reproduces the new table. That is the point: neither side goes green
         on its own.
 

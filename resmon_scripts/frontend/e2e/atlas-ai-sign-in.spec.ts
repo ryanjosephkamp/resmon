@@ -95,7 +95,7 @@ test('Claude Code sign-in: checked in Settings › AI, offered where a turn fail
   fs.writeFileSync(opener, `#!/bin/sh\nprintf "%s\\n" "$@" >> "${opened}"\n`, { mode: 0o755 });
 
   const env: Record<string, string> = {
-    ...launchEnv(stateDir, true), RESMON_UI: 'atlas', FAKE_CLAUDE_STATE: fakeState, RESMON_SIGN_IN_OPENER: opener,
+    ...launchEnv(stateDir, true), FAKE_CLAUDE_STATE: fakeState, RESMON_SIGN_IN_OPENER: opener,
   };
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   // In a folder with a space in its name, so the script's quoting is what is exercised.

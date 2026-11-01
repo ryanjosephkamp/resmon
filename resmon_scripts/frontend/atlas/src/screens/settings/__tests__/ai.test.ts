@@ -13,8 +13,8 @@ const STORED: AiSettings = {
   ai_show_audit_prefix: '', ai_subscription_doc_cap: '', ai_summary_length: '', ai_temperature: '', ai_tone: '',
 };
 
-/** A chain as the classic Settings stores it: a command first, then a key and a local model. */
-const CLASSIC_CHAIN = [
+/** A stored chain: a command first, then a key and a local model. */
+const STORED_CHAIN = [
   { kind: 'subscription', provider: 'claude_code', model: 'sonnet', binary_path: '/opt/claude', effort: 'high', doc_cap: 20, batch_size: 3 },
   { kind: 'api_key', provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI · gpt-4o-mini' },
   { kind: 'local', provider: 'local', model: 'llama3', endpoint: 'http://127.0.0.1:11500', future_field: 'kept' },
@@ -47,7 +47,7 @@ describe('the summary chain, read as the engine reads it', () => {
   });
 
   test('the form starts from the chain’s first lane, not from the single keys it overrides', () => {
-    const stored = chained(CLASSIC_CHAIN, { ai_provider: 'openai', ai_model: 'stale', ai_cli_path: '/stale/claude' });
+    const stored = chained(STORED_CHAIN, { ai_provider: 'openai', ai_model: 'stale', ai_cli_path: '/stale/claude' });
     const summary = storedSummary(stored);
     expect(summary.form).toEqual({
       ai_provider: 'claude_code', ai_model: 'sonnet', ai_cli_path: '/opt/claude', ai_effort: 'high',
@@ -66,39 +66,39 @@ describe('the summary chain, read as the engine reads it', () => {
 
 describe('the summary chain, written back', () => {
   test('a change to the main lane keeps every fallback exactly as it was stored, and the cap and batch size', () => {
-    const stored = chained(CLASSIC_CHAIN);
+    const stored = chained(STORED_CHAIN);
     const { form, fallbacks } = storedSummary(stored);
     const payload = summaryPayload(stored, { ...form, ai_model: 'opus' }, fallbacks);
     const written = JSON.parse(payload.ai_chain!) as Record<string, unknown>[];
     expect(written[0]).toEqual({
       kind: 'subscription', provider: 'claude_code', model: 'opus', binary_path: '/opt/claude', effort: 'high', doc_cap: 20, batch_size: 3,
     });
-    expect(written.slice(1)).toEqual(CLASSIC_CHAIN.slice(1));
+    expect(written.slice(1)).toEqual(STORED_CHAIN.slice(1));
     expect(payload.ai_provider).toBe('claude_code');
     expect(payload.ai_model).toBe('opus');
     expect(payload.ai_cli_path).toBe('/opt/claude');
   });
 
   test('the round trip: what is written reads back as the form and fallbacks that wrote it', () => {
-    const stored = chained(CLASSIC_CHAIN);
+    const stored = chained(STORED_CHAIN);
     const { form, fallbacks } = storedSummary(stored);
     const next = { ...form, ai_effort: 'low' };
     const after: AiSettings = { ...stored, ...summaryPayload(stored, next, fallbacks) };
     const again = storedSummary(after);
     expect(again.form).toEqual(next);
-    expect(again.fallbacks.map((f) => f.raw)).toEqual(CLASSIC_CHAIN.slice(1));
+    expect(again.fallbacks.map((f) => f.raw)).toEqual(STORED_CHAIN.slice(1));
     expect(summaryChanged(after, next, fallbacks)).toBe(false);
     expect(summaryChanged(stored, next, fallbacks)).toBe(true);
   });
 
   test('a removed fallback is gone from the chain, and the rest keep their order', () => {
-    const stored = chained(CLASSIC_CHAIN);
+    const stored = chained(STORED_CHAIN);
     const { form, fallbacks } = storedSummary(stored);
     const kept = fallbacks.filter((f) => f.lane.provider !== 'openai');
     expect(summaryChanged(stored, form, kept)).toBe(true);
     const written = JSON.parse(composeChain(form, kept)) as Record<string, unknown>[];
     expect(written.map((lane) => lane.provider)).toEqual(['claude_code', 'local']);
-    expect(written[1]).toEqual(CLASSIC_CHAIN[2]);
+    expect(written[1]).toEqual(STORED_CHAIN[2]);
   });
 
   test('no chain where it would say nothing the single keys do not; a command always gets one', () => {
@@ -110,7 +110,7 @@ describe('the summary chain, written back', () => {
       { kind: 'subscription', provider: 'codex', binary_path: '/bin/codex', doc_cap: 30 },
     ]);
     // Moving the main lane to a key with fallbacks still stored writes the key lane first.
-    const stored = chained(CLASSIC_CHAIN);
+    const stored = chained(STORED_CHAIN);
     const { fallbacks } = storedSummary(stored);
     const toKey = { ...storedSummary(stored).form, ai_provider: 'custom', ai_model: 'm', ai_custom_base_url: 'https://e/v1' };
     expect(JSON.parse(composeChain(toKey, fallbacks))[0]).toEqual({
@@ -127,7 +127,7 @@ describe('the summary chain, written back', () => {
   });
 
   test('each fallback in a sentence, saying when a run will skip it', () => {
-    const [key, local] = storedSummary(chained(CLASSIC_CHAIN)).fallbacks;
+    const [key, local] = storedSummary(chained(STORED_CHAIN)).fallbacks;
     expect(laneWords(key!.lane)).toBe('OpenAI · gpt-4o-mini, with your OpenAI key');
     expect(laneWords(local!.lane)).toBe('Ollama · llama3, on http://127.0.0.1:11500');
     const [main] = readChain(JSON.stringify([{ kind: 'subscription', provider: 'codex' }, { kind: 'api_key', provider: 'xai' }])).entries;

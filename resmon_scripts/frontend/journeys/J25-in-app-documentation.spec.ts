@@ -8,8 +8,7 @@
  * is a request to a third party made by opening a tab. So the first assertion
  * is a count of frames, which is zero, and the second is that every
  * walk-through either is an ordinary link a person chooses to follow or is
- * drawn from the app's own files. The classic renderer links to its videos;
- * Atlas bundles its recordings.
+ * drawn from the app's own files: Atlas bundles its recordings.
  *
  * The third is the help block. "Its text names the page" is the difference
  * between help that was written for this screen and help that was pasted.

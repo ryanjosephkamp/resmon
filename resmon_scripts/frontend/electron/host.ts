@@ -141,9 +141,10 @@ export function startNoticeListener(onNotice: (notice: Notice) => boolean): Prom
   });
 }
 
-/** The renderer route that shows a run, for a notice about one. */
-export function routeForNotice(notice: Notice, atlas: boolean): string {
-  // Atlas has no run screen yet; Today is where a finished run's papers are.
-  if (atlas) return '/today';
-  return notice.executionId === null ? '/results' : `/results?exec=${notice.executionId}`;
+/**
+ * The renderer route that shows a run, for a notice about one: its run page,
+ * or the run log beside Ask the sources when the notice names no run.
+ */
+export function routeForNotice(notice: Notice): string {
+  return notice.executionId === null ? '/search/ask' : `/runs/${notice.executionId}`;
 }

@@ -45,7 +45,7 @@ print(json.dumps({"person": person["id"], "docs": docs}))
 test('People: the warning while typing, a person\'s matches and their bases, and which sources can be asked', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-people-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { person, docs } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { person: number; docs: number[] };

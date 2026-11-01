@@ -183,7 +183,7 @@ export class Demo {
     const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `resmon-demo-${title.slug}-`)));
     fs.cpSync(source, root, { recursive: true });
     const stateDir = path.join(root, 'state');
-    const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+    const env: Record<string, string> = { ...launchEnv(stateDir, true) };
     env.PYTHONPATH = [serviceGuard(root), env.PYTHONPATH].filter(Boolean).join(path.delimiter);
     // The copy's library is its own, wherever the collection was built, and the theme is the recording's.
     const library = path.join(root, 'library');

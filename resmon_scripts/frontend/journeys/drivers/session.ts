@@ -282,6 +282,8 @@ const LANDMARK = 'nav[aria-label="Sections"]';
 
 function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
   const env = launchEnv(stateDir, true);
+  // This build serves Atlas with nothing set; a build from before the
+  // switch-over, which RESMON_JOURNEY_APP can name, serves it only when asked.
   env.RESMON_UI = 'atlas';
   env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });

@@ -88,7 +88,7 @@ journey.describe('J28 Reading queue', () => {
     console.log(
       '[J28] NOT VERIFIED: paging past the default 50 and the selection-clearing rule. '
       + 'The authored source answers with two records, so this row says nothing about a '
-      + 'queue larger than one page; e2e/reading-queue.spec.ts drives 51.',
+      + 'queue larger than one page; e2e/atlas-reading-queue.spec.ts pages past the first.',
     );
 
     await resmon.takePicture('J28-reading-queue');

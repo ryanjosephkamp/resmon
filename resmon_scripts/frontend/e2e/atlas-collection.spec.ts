@@ -23,7 +23,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 
-/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot (embeddings.spec.ts says more). */
+/** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot. */
 async function vecLoaded(win: Page): Promise<boolean> {
   return win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
@@ -67,7 +67,7 @@ print(json.dumps({"ids": ids, "run": run}))
 test('the collection, a paper, and the reading queue', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-collection-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { ids, run } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[]; run: number };
@@ -186,7 +186,7 @@ conn.commit()
 test('a count the search stopped at its cap says so beside the number', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-cap-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MANY, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
 

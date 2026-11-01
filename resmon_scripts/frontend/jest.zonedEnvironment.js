@@ -34,10 +34,8 @@
  * class of failure that is much easier to prevent than to find.
  *
  * `exportConditions` is the second reason this file exists, unrelated to the
- * first. Under the default `browser` condition, `@fullcalendar/*` resolves
- * preact to an ESM build that Jest cannot parse, so `CalendarPage` could not
- * be rendered in a test at all — which is why there was no renderer test for
- * the calendar before `CalendarEventTime`. `node` picks preact's CommonJS entry.
+ * first. Under the default `browser` condition some packages resolve to an
+ * ESM build that Jest cannot parse; `node` picks their CommonJS entries.
  */
 
 const JSDOMEnvironment = require('jest-environment-jsdom').default;

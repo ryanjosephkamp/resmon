@@ -79,7 +79,7 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
   fs.writeFileSync(opener, `#!/bin/sh\nprintf "%s\\n" "$@" >> "${opened}"\n`, { mode: 0o755 });
 
   const env: Record<string, string> = {
-    ...launchEnv(stateDir, true), RESMON_UI: 'atlas', FAKE_CODEX_STATE: fakeState, RESMON_SIGN_IN_OPENER: opener,
+    ...launchEnv(stateDir, true), FAKE_CODEX_STATE: fakeState, RESMON_SIGN_IN_OPENER: opener,
   };
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const tools = path.join(root, 'Codex Tools');

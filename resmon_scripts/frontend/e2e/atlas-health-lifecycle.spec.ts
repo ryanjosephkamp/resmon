@@ -149,7 +149,7 @@ test('the check for retractions and updates: run, stopped, and read where the pa
   expect(port).not.toBe(8742);
   const base = `http://127.0.0.1:${port}`;
 
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { docs, person } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { docs: number[]; person: number };

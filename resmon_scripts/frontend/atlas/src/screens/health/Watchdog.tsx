@@ -12,7 +12,7 @@ import {
 } from './model';
 
 /**
- * Evidence keys a person can read, the classic page's labels. A key without
+ * Evidence keys a person can read, with their labels. A key without
  * one is machine detail the finding's own sentences already state, and is
  * left out rather than printed raw.
  */

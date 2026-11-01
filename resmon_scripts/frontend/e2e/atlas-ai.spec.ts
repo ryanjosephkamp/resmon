@@ -7,7 +7,7 @@
  * **Nothing here calls a model.** The command the chain names is a script in
  * this spec's state directory that resmon finds and never runs. The embedding
  * model is a Node server on loopback returning a hash-derived vector per text,
- * as `embeddings.spec.ts` uses; it waits a little before each answer so that a
+ * as journey J09's does; it waits a little before each answer so that a
  * backfill lasts long enough to be stopped. What is the app's own: the settings
  * writes, the engine's reading of the chain (checked with `resolve_chain`
  * itself), the probe, the estimate, the backfill and its stop, the index
@@ -116,7 +116,7 @@ async function api<T>(win: Page, method: string, route: string, body?: unknown):
 test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddings set up, priced, stopped, resumed, and ranked', async () => {
   test.setTimeout(300_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-ai-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const backend = path.join(FRONTEND_ROOT, '..');
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, backend], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
@@ -141,7 +141,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     win.on('pageerror', (e) => problems.push(e.message));
     await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
 
-    // A chain as the classic Settings stores one: a command first, then a key and a local model.
+    // A stored chain: a command first, then a key and a local model.
     const fallbacks = [
       { kind: 'api_key', provider: 'openai', model: 'gpt-4o-mini', label: 'OpenAI · gpt-4o-mini' },
       { kind: 'local', provider: 'local', model: 'llama3', endpoint: 'http://127.0.0.1:9' },
@@ -205,7 +205,7 @@ test('Settings → AI: a fallback chain kept, Ask in checked words, and embeddin
     const part = win.locator('section.embeddings');
     await expect(part.locator('[data-embeddings="embedded"] dd')).toHaveText('None: no embedding model is set up.');
     await expect(part.locator('[data-embeddings="missing"] dd')).toHaveText('4 papers: no embedding model is set up to make vectors.');
-    // The macos-15 runner's python3 cannot load SQLite extensions (embeddings.spec.ts says more).
+    // The macos-15 runner's python3 cannot load SQLite extensions.
     // There the screen must say so in both places, and nothing past this point can rank.
     const health = await api<{ embeddings?: { extension: string | null; reason?: string } }>(win, 'GET', '/api/health');
     if (!health.body.embeddings?.extension) {

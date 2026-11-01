@@ -246,7 +246,7 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Renderer tests
+      - name: Jest (Atlas, Electron, and the build scripts)
         run: npm test
 
       - name: Build renderer and Electron main

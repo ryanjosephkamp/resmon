@@ -53,8 +53,7 @@ export const FINAL_EVENTS: ReadonlySet<string> = new Set(['complete', 'cancelled
 /**
  * What one source did, as the run's own events said while it ran.
  *
- * The same reading the classic run panel makes (`repoDoneStatus`), from the
- * same generated vocabulary: a reason resmon does not know, or a count that is
+ * Read from the generated vocabulary: a reason resmon does not know, or a count that is
  * not a count, is `not_recorded` rather than a guess either way. Two states
  * belong only to a run that has ended: `cancelled`, a source that was being
  * asked when the run was stopped, and `not_reached`, one the run never began

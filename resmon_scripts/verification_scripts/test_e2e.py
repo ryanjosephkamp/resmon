@@ -738,7 +738,7 @@ def test_requirement_crosscheck(client):
     # Endpoint functional; 15 clients verified by prior IMPL tests.
 
     # ------------------------------------------------------------------ UI
-    # UI-1  Professional dashboard UI     → webpack build (IMPL-12)
+    # UI-1  Professional dashboard UI     → the Atlas build (vite)
     # UI-2  Navigation                    → Router with 8 pages (IMPL-12)
     # UI-3  Review/modify routines        → E2E-3
     # UI-4  Unlimited routines            → E2E-3
@@ -748,7 +748,7 @@ def test_requirement_crosscheck(client):
     assert client.get("/api/routines").status_code == 200
 
     # ------------------------------------------------------------------ CAL
-    # CAL-1  Calendar views              → FullCalendar (IMPL-13)
+    # CAL-1  Calendar views              → Watches › Calendar
     # CAL-2  Routines on calendar        → /api/calendar/events + /api/routines
     # CAL-3  Toggle visibility           → UI-side (IMPL-13)
     # CAL-4  Click → activate/deactivate → /api/routines/{id}/(de)activate

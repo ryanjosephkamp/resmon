@@ -84,7 +84,7 @@ async function go(win: Page, hash: string): Promise<void> {
 test('a long watch name stays whole in the Calendar, on Today, and in the run log', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-watch-names-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3',
     ['-c', SEED, path.join(FRONTEND_ROOT, '..'), JSON.stringify([[NAMES[0], 'arxiv'], [NAMES[1], 'crossref']])],
     { env, encoding: 'utf8' });

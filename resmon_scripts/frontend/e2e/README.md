@@ -33,30 +33,24 @@ under `release/` it skips, and says so.
 | `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that were found the hard way. |
 | `fixtures/electron-fuses.ts` | Reads the fuse wire out of a built app. Two fuses are what make a packaged app driveable at all. |
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
-| `routes.ts` | The routes, **imported** from `src/routes.ts` — the same table `App.tsx` renders from. 24 of them: 14 top-level plus the 10 Settings and About tabs those pages declare. |
-| `main-window.spec.ts` | P2–P4 — `electron/main.ts` itself: the window background, the in-app link window, the History menu. |
+| `screens.ts` | Atlas's screens, **imported** from `atlas/src/screenPaths.ts`, which its own test holds to the router: every screen at a fixed address, Settings' groups included. |
+| `main-window.spec.ts` | P3–P4 — `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
 | `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
-| `smoke.spec.ts` | One test per route: it loads, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
-| `search-record.spec.ts` | Q4 — the Results report viewer's *Search record* tab, which a previous attempt reported as unclickable under automation. |
-| `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something. |
-| `ipc-stubs.spec.ts` | Q5 — replacing the three IPC handlers from the main process, with counters proving nothing reached the OS. |
+| `smoke.spec.ts` | One test per Atlas screen: it loads and stays at its own address, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
+| `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something, in Atlas. |
+| `ipc-stubs.spec.ts` | Q5 — replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
 | `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
-| `zero-reason.spec.ts` | Phase 1.8.6 — `window_unanswerable` on all three surfaces. |
-| `zero-reasons.spec.ts` | P13 — `upstream_failure` (a dead loopback proxy), `answered_empty` (a live query nothing matches) and `not_recorded`, plus which of the nine reasons a real browser has seen. |
-| `window-manager.spec.ts` | The window itself — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
-| `third-party.spec.ts` | P9 — the YouTube embeds and the blog `<webview>`, asserted to have *loaded* rather than merely not failed. |
+| `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection, or answers 503), `answered_empty` (an authored empty feed), `parse_failure` (an unreadable reply), `window_unanswerable` (a window ERIC cannot express) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the reasons a real browser has seen. |
+| `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
 | `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
-| `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too. Skips when there is no build. |
+| `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
 
 ## Five things to know before adding a spec
 
-**A page cannot exist without a smoke test.** `src/routes.ts` is the one route
-table; `App.tsx` renders from it and `routes.ts` here imports it, so adding a
-page adds its spec. `src/__tests__/routes.test.tsx` fails when the two
-disagree — including when a `<Route>` is hand-written in `App.tsx` to go around
-the table, and when a Settings or About tab is declared in its own page and not
-in the table's `children`. Until phase 1.8.7 this file was a hand copy and a new
-route was unswept with nothing going red.
+**A screen cannot exist without a smoke test.** `atlas/src/screenPaths.ts` is
+the list of every screen at a fixed address, Settings' groups included;
+`atlas/src/__tests__/screenPaths.test.ts` holds it to the router, and
+`screens.ts` here imports it, so adding a screen adds its smoke case.
 
 **A bare X server has no window manager.** Under `xvfb-run`, `maximize()`,
 focus and stacking are silent no-ops, so a green CI tick from the ubuntu job
@@ -78,16 +72,10 @@ A committed screenshot is a merge conflict, not evidence.
 **8742** is a live launchd daemon over a different database; every spec asserts
 the backend port it found is not that one. Keep that assertion in a new spec.
 
-**Assertions are scoped to resmon's own origins.** The app embeds seventeen
-YouTube iframes and a GitHub Pages `<webview>`, and both produce console errors
-and aborted requests that no change to this repository can fix. `isOwnOrigin()`
-is the boundary; third-party events are printed, not asserted.
-
-That scoping used to mean a broken embed was invisible. `third-party.spec.ts`
-is the answer to it: a **positive** check, separate from "nothing failed" — it
-scrolls each embed into view, evaluates inside the cross-origin frame, and
-requires a player, no error overlay and a real video title. A removed video
-answers HTTP 200, so a status check would have called it healthy.
+**Assertions are scoped to resmon's own origins.** `isOwnOrigin()` is the
+boundary; third-party events are printed, not asserted. Atlas embeds nothing
+from another origin (`atlas-edges.spec.ts` asserts no frame, webview, object, or
+embed on the stage), so the boundary is a guard rather than a filter now.
 
 ## `RESMON_E2E`
 
@@ -134,7 +122,7 @@ flag has none of those to watch — no window ever reports focus, so the job wou
 keep passing while testing something nobody ships. That job sets
 `RESMON_WINDOW_BEHAVIOR_JOB=1`; `background-window.ts` declines to set the flag
 when it sees that, and throws if both arrive together, which takes the run down
-before the first spec. `src/__tests__/backgroundWindow.test.ts` is the static
+before the first spec. `tests/backgroundWindow.test.ts` is the static
 half and reads the workflow on every pull request.
 
 **What a local `npm run e2e` on macOS no longer verifies.** That exemption is
@@ -159,7 +147,7 @@ measured under the policy — so `main-window.spec.ts` P4 is unaffected.
 | `RESMON_BACKGROUND_WINDOW` | `1` shows windows inactive and, on macOS, runs under the `accessory` activation policy. Both Playwright configs set it; `0` opts out. |
 | `RESMON_WINDOW_BEHAVIOR_JOB` | `1` marks a run whose subject is the window. The configs never set the background flag for it and refuse to run if something else did. |
 | `RESMON_E2E_WIDTH` / `RESMON_E2E_HEIGHT` | The fixed window size. Defaults 1440x900. |
-| `RESMON_E2E_BREAK_ROUTE` | Appends a route `App.tsx` does not declare, so the suite goes red on purpose. `ui-smoke.yml` exposes it as a `workflow_dispatch` input. |
+| `RESMON_E2E_BREAK_ROUTE` | Appends an address the app does not route, so the suite goes red on purpose. `ui-smoke.yml` exposes it as a `workflow_dispatch` input. |
 | `RESMON_PYTHON` | Which interpreter runs the backend. Defaults to the checkout's `.venv`, falling back to `python3`. |
 | `RESMON_E2E_SCREENSHOT_DIR` | Where screenshots land. Defaults to `e2e/screenshots/`, which is gitignored. |
 | `RESMON_E2E_REVIEW_DIR` | Where `npm run e2e:review` writes. Defaults to a timestamped folder under the OS temp directory. |

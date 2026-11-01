@@ -48,7 +48,7 @@ describe('a saved search, read back', () => {
 describe('what Save this search stores', () => {
   const form = { sources: ['arxiv', 'springer'], keywords: ['perovskite'], dateFrom: '', dateTo: '', cap: 100 };
 
-  test('the classic pages\' shape, so a search saved in one interface opens in the other', () => {
+  test('the stored shape every saved search has, so one saved before opens here', () => {
     expect(savedParameters({ ...form, mode: 'sweep' })).toEqual({
       config_type: 'manual_sweep',
       parameters: { repositories: ['arxiv', 'springer'], date_from: '', date_to: '', keywords: ['perovskite'], max_results: 100, ai_enabled: false },
