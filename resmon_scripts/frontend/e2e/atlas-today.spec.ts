@@ -295,3 +295,85 @@ test('Today is kept between visits: the same answer is drawn at rest, and a new 
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+/** Sixty papers new from a person's own search, the last to arrive findable by its author. */
+const MANY = String.raw`
+import json, os, sys
+from datetime import datetime, timedelta, timezone
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import (init_db, get_connection, insert_document, insert_execution,
+    link_execution_document, update_execution_status, set_setting)
+now = datetime.now(timezone.utc)
+fmt = lambda t: t.strftime("%Y-%m-%d %H:%M:%S")
+path = os.environ["RESMON_DB_PATH"]
+init_db(path)
+conn = get_connection(path)
+words = "protein folding residue amino chain conformation binding structure".split()
+docs = []
+for n in range(60):
+    title = f"{words[n % 8].title()} {words[(n + 3) % 8]} study {n}"
+    doc = insert_document(conn, {"source_repository": "arxiv", "external_id": f"many-{n}", "title": title,
+        "authors": "Grace Hopper" if n == 59 else "Ada Lovelace", "abstract": " ".join(words[(n + k) % 8] for k in range(30)) + ".",
+        "metadata_hash": f"many-{n}"})
+    # Written in the order they arrived, which is the order Today numbers them.
+    conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(now - timedelta(minutes=120 - n)), doc))
+    docs.append(doc)
+e = insert_execution(conn, {"execution_type": "deep_sweep", "parameters": json.dumps({"repositories": ["arxiv"]}),
+    "start_time": fmt(now - timedelta(hours=3))})
+for d in docs:
+    link_execution_document(conn, e, d)
+update_execution_status(conn, e, "completed", end_time=fmt(now - timedelta(hours=2)), result_count=60, new_result_count=60)
+set_setting(conn, "today_looked_at", fmt(now - timedelta(days=1)))
+conn.commit()
+`;
+
+test('Today lists a group\'s first papers, more on request, and any paper chosen on the plate', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-many-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MANY, path.join(FRONTEND_ROOT, '..')],
+    { env, encoding: 'utf8' });
+  expect(seeded.status, seeded.stderr).toBe(0);
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 120_000 });
+    await expect(win.getByRole('heading', { name: '60 new papers' })).toBeVisible();
+    const group = win.getByRole('region', { name: 'From your own searches' });
+    const entries = group.locator('.entry');
+    // The first twenty-five to arrive, in order, and the way to the next ones.
+    await expect(entries).toHaveCount(25);
+    await expect(entries.first().locator('.badge')).toHaveText('1');
+    await expect(entries.last().locator('.badge')).toHaveText('25');
+    const more = group.getByRole('button', { name: /^Show 35 more of From your own searches, 35 not listed yet$/ });
+    await more.click();
+    await expect(entries).toHaveCount(60);
+    await expect(group.getByRole('button', { name: /^Show \d+ more/ })).toHaveCount(0);
+    // The caret is on the first paper it listed, so the keyboard goes on from there.
+    await expect(entries.nth(25).locator('.entry-title')).toBeFocused();
+
+    // Back again, the group starts from its first twenty-five; a paper found on
+    // the plate is listed and chosen however far down it is.
+    const sections = win.getByRole('navigation', { name: 'Sections' });
+    await sections.getByRole('link', { name: 'Watches' }).click();
+    await expect(win.getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible();
+    await sections.getByRole('link', { name: 'Today' }).click();
+    await expect(entries).toHaveCount(25);
+    const find = win.getByPlaceholder('Find a title or author');
+    await find.fill('Hopper');
+    // One match, counted once the engine has answered.
+    await expect(win.locator('.map-find-at')).toHaveText('1', { timeout: 10_000 });
+    await find.press('Enter');
+    const chosen = group.locator('.entry.sel');
+    await expect(chosen).toHaveCount(1, { timeout: 10_000 });
+    await expect(chosen.locator('.who')).toHaveText('Grace Hopper');
+    await expect(chosen.locator('.badge')).toHaveText('60');
+    await expect(entries).toHaveCount(60);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
