@@ -5,6 +5,7 @@ import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
 import { authors, number, publishedWords } from '../today/format';
+import { invalidateFor } from '../today/freshness';
 import { sourceName } from '../health/model';
 import { scheduleText } from '../watches/model';
 import { runWindowSentence } from '../watches/window';
@@ -84,6 +85,7 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ['run-papers', runId] });
       void client.invalidateQueries({ queryKey: ['reading-queue'] });
+      void invalidateFor(client, 'paper-changed');
     },
   });
   if (running) return <p className="record-cap">The run&rsquo;s papers are listed when it has finished storing them.</p>;

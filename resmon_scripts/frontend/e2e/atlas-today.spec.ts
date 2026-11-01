@@ -6,7 +6,9 @@
  * key) with each one's reason a click away, the numbers are lit again on
  * coming back to Today and the list is grouped as it was left, both themes
  * are pictured, and Mark all read starts the next window, as the engine then
- * reports too.
+ * reports too. Today and the map are kept between visits, and a run that
+ * ended meanwhile is read in on the next visit rather than at the minute's
+ * refresh.
  *
  * The collection is written through the engine's own database functions
  * before launch, so the counts asserted here are the ones it was given.
@@ -143,8 +145,8 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-today.png') });
 
-    // Coming back to Today draws the cached answer and reads it again at once;
-    // the opening runs to the end all the same, and no number is left dim.
+    // Coming back to Today draws the kept answer; the opening runs to the end
+    // all the same, and no number is left dim.
     // The list is grouped as it was left, and the engine keeps that.
     const byRegion = win.getByRole('group', { name: 'Group by' }).getByRole('button', { name: 'By region' });
     await byRegion.click();
@@ -179,6 +181,95 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     expect(engine).toMatchObject({ window: 'since_last_look', total: 0 });
 
     expect(problems, 'the page reported errors').toEqual([]);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+/** A run that ends while the window is elsewhere, as one the background service runs: two papers new now. */
+const FINISH = String.raw`
+import json, os, sys
+from datetime import datetime, timedelta, timezone
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import (get_connection, insert_document, insert_execution,
+    link_execution_document, update_execution_status)
+now = datetime.now(timezone.utc)
+fmt = lambda t: t.strftime("%Y-%m-%d %H:%M:%S")
+conn = get_connection(os.environ["RESMON_DB_PATH"])
+docs = []
+for n in range(2):
+    doc = insert_document(conn, {"source_repository": "arxiv", "external_id": f"late-{n}",
+        "title": f"Protein folding late arrival {n}", "authors": "Grace Hopper",
+        "abstract": "protein folding residue chain binding structure " * 6, "metadata_hash": f"late-{n}"})
+    conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(now), doc))
+    docs.append(doc)
+e = insert_execution(conn, {"execution_type": "deep_sweep", "parameters": json.dumps({"repositories": ["arxiv"]}),
+    "start_time": fmt(now - timedelta(seconds=30))})
+for d in docs:
+    link_execution_document(conn, e, d)
+update_execution_status(conn, e, "completed", end_time=fmt(now), result_count=2, new_result_count=2)
+conn.commit()
+print(json.dumps({"run": e, "papers": len(docs)}))
+`;
+
+test('Today is kept between visits, and a run that ended meanwhile is read in on the next one', async () => {
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-kept-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true), RESMON_UI: 'atlas' };
+  const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')],
+    { env, encoding: 'utf8' });
+  expect(seeded.status, seeded.stderr).toBe(0);
+  const counts = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { new: number };
+
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const reads: { path: string; at: number }[] = [];
+    win.on('request', (request) => {
+      const { pathname } = new URL(request.url());
+      if (pathname === '/api/today' || pathname === '/api/map') reads.push({ path: pathname, at: Date.now() });
+    });
+    const sections = win.getByRole('navigation', { name: 'Sections' });
+    const away = async () => {
+      await sections.getByRole('link', { name: 'Watches' }).click();
+      await expect(win.getByRole('heading', { name: 'Watches', level: 1 })).toBeVisible();
+    };
+    const back = async () => {
+      await sections.getByRole('link', { name: 'Today' }).click();
+      await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 30_000 });
+    };
+
+    // The first visit reads both, once the map is fitted.
+    await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 120_000 });
+    await expect(win.getByRole('heading', { name: `${counts.new} new papers` })).toBeVisible();
+
+    // Away and back: Today and the map are drawn from what was read, and neither is asked for again.
+    const kept = reads.length;
+    await away();
+    await back();
+    await expect(win.locator('.entry .badge')).toHaveCount(counts.new);
+    await expect.poll(() => win.locator('.plate-canvas').evaluate((c) => (c as HTMLCanvasElement).dataset.frameMs ?? ''))
+      .not.toBe('');
+    expect(reads.slice(kept), 'a revisit read Today or the map again').toEqual([]);
+
+    // A run ends while the window is elsewhere. The next visit reads it in at
+    // once, well inside the minute after which Today is read again anyway.
+    await away();
+    const finished = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', FINISH, path.join(FRONTEND_ROOT, '..')],
+      { env, encoding: 'utf8' });
+    expect(finished.status, finished.stderr).toBe(0);
+    const lastRead = Math.max(...reads.filter((r) => r.path === '/api/today').map((r) => r.at));
+    await back();
+    await expect(win.getByRole('heading', { name: `${counts.new + 2} new papers` })).toBeVisible({ timeout: 10_000 });
+    await expect(win.locator('.entry-title', { hasText: 'Protein folding late arrival 0' })).toBeVisible();
+    const reread = reads.filter((r) => r.at > lastRead);
+    expect(reread.map((r) => r.path)).toEqual(expect.arrayContaining(['/api/today', '/api/map']));
+    expect(Math.min(...reread.map((r) => r.at)) - lastRead, 'read in by the minute\'s refresh, not by the run ending')
+      .toBeLessThan(60_000);
   } finally {
     await app.close().catch(() => { /* already gone */ });
     fs.rmSync(stateDir, { recursive: true, force: true });

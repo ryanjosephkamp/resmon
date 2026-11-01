@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { exportReferences, FORMATS, type ReferenceFormat } from '../runs/references';
 import { authors, count, number } from '../today/format';
+import { invalidateFor } from '../today/freshness';
 import { queueWords } from '../collection/Paper';
 import { LibraryTabs } from './LibraryTabs';
 import { pageRange, pageToRead, QUEUE_PAGE, selectedOnPage } from './queueModel';
@@ -57,6 +58,7 @@ export function ReadingQueue() {
   const refresh = () => {
     client.removeQueries({ queryKey: ['reading-queue'], type: 'inactive' });
     void client.invalidateQueries({ queryKey: ['reading-queue'] });
+    void invalidateFor(client, 'paper-changed');
   };
   const mark = useMutation({
     mutationFn: ({ id, status }: { id: number; status: 'read' | 'to_read' }) => answer(engine().PUT('/api/reading-queue/{document_id}', {

@@ -4,8 +4,8 @@ import { answer, engine } from '../../api/client';
 import type { Sky } from '../today/model';
 import type { PlateLook } from '../today/Plate';
 import { DEFAULT_VIEW, FIND_MIN, joinFacts, lookOf, needsFacts, type MapView } from './look';
+import { FACETS_KEY } from '../today/freshness';
 
-export const FACETS_KEY = ['map-facets'] as const;
 /** How long typing rests before the engine is asked. */
 const FIND_SETTLE_MS = 220;
 
