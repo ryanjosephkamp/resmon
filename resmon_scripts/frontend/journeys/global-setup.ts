@@ -1,9 +1,9 @@
 /**
  * Say what this run is about to measure, and refuse to start if it cannot.
  *
- * Three facts decide what a journey run means, and all three are chosen from
- * the environment: which build is under test, which driver is driving it, and
- * which interpreter its backend will run under. A run that prints none of them
+ * Three facts decide what a journey run means: which build is under test (from
+ * the environment), which driver is driving it, and which interpreter its
+ * backend will run under (from the environment). A run that prints none of them
  * is a green tick nobody can trace back to a target, which is the failure this
  * whole suite exists to make impossible elsewhere.
  *
@@ -15,13 +15,12 @@
 import { spawnSync } from 'child_process';
 import * as path from 'path';
 import { resolveInterpreter } from '../e2e/fixtures/python-interpreter';
-import { driverName } from './drivers';
+import { DRIVER_NAME } from './drivers';
 import { targetAppRoot } from './drivers/session';
 import { JOURNEY_REGISTER, LATER_SLICES, builtRows, pendingRows } from './register';
 
 export default function globalSetup(): void {
   const root = targetAppRoot();
-  const driver = driverName();
   const { python, source } = resolveInterpreter();
 
   // Not `import resmon`: `resmon.py` builds the FastAPI app at import time and
@@ -47,7 +46,7 @@ export default function globalSetup(): void {
     .map((s) => `${pending.filter((r) => r.slice === s).length} in slice ${s}`)
     .join(', ');
   console.log(`[journeys] build under test: ${root.frontend}`);
-  console.log(`[journeys] driver: ${driver}`);
+  console.log(`[journeys] driver: ${DRIVER_NAME}`);
   console.log(`[journeys] backend interpreter: ${python} (from ${source}); imports ${(probe.stdout || '').trim()}`);
   console.log(
     `[journeys] ${builtRows().length} of ${JOURNEY_REGISTER.length} rows have a journey test; ` +

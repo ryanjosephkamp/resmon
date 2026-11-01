@@ -26,34 +26,18 @@
  * bring the copy back armed, on a schedule nobody chose on this machine. It
  * must arrive inactive, and the original must be left as it was.
  *
- * **What is not the person's is printed where it happens.** The classic
- * driver creates the routine over the API, as it creates every routine in this
- * suite (the candidate builds it in Atlas's watch editor); and the native file
+ * **What is not the person's is printed where it happens.** The native file
  * dialog is answered with the file rather than operated, because nothing
  * automated can operate one. What that dialog would have offered is still
  * read — the page's own `accept` list — and must admit the archive, because a
- * dialog that greys the file out is a round trip nobody can make.
- *
- * **The classic leg.** This spec also runs against the frozen `classic`
- * build, v2.3.0, whose Import refuses this archive: the defect #199 fixed. That
- * build cannot change, so failing on it would turn its leg red on every pull
- * request that touches this suite and say nothing new. Where the build under
- * test is *not* this checkout and the refusal is that build's own, word for
- * word, the spec prints it as NOT VERIFIED and stops before the round trip.
- * This checkout is never given that: here a refusal of any kind fails the row,
- * which is how the row's red was produced — against this checkout with #199's
- * import side reverted.
+ * dialog that greys the file out is a round trip nobody can make. A refusal of
+ * any kind fails the row, which is how the row's red was produced — with
+ * #199's import side reverted.
  */
-import { buildUnderTest, expect, journey } from './driver';
+import { expect, journey } from './driver';
 
 const SWEEP = 'journey sweep J21';
 const ROUTINE = 'journey routine J21';
-
-/**
- * v2.3.0's refusal of the archive its own Export Selected wrote, in that
- * build's words: `Invalid file type: <name>.zip. Only .json files accepted.`
- */
-const V2_3_0_REFUSES_THE_ARCHIVE = /Only \.json files accepted\./;
 
 /** Field names a credential would travel under. None belongs in an export. */
 const CREDENTIAL_SHAPED = ['api_key', 'apikey', 'credential', 'secret', 'token', 'bearer'];
@@ -115,21 +99,6 @@ journey.describe('J21 Saved configurations', () => {
     console.log(`[J21] Import was handed ${manual.path}. The chooser offered `
       + `${JSON.stringify(back.chooserAccepts)}; the page said ${JSON.stringify(back.said)} `
       + `and refused ${JSON.stringify(back.refusal)}; ${back.arrived} configuration(s) arrived.`);
-
-    const build = buildUnderTest();
-    if (back.refusal && !build.thisCheckout && V2_3_0_REFUSES_THE_ARCHIVE.test(back.refusal)) {
-      console.log(
-        '[J21] NOT VERIFIED (importConfigurations): the round trip, on this build. The build under '
-        + `test is ${build.frontend}, which is not this checkout, and its Import refused the archive `
-        + `its own Export Selected wrote: ${JSON.stringify(back.refusal)}. That is the refusal v2.3.0 `
-        + `gives and #199 fixed; the chooser was told to offer ${JSON.stringify(back.chooserAccepts)}. `
-        + 'Nothing after the import — the configuration coming back, the routine arriving inactive — '
-        + 'was measured on this build.',
-      );
-      expect(back.arrived, 'a refused import still created configurations').toBe(0);
-      expect(resmon.refusedConnections()).toEqual([]);
-      return;
-    }
 
     expect(back.refusal, 'Import refused the archive Export Selected wrote').toBe('');
     // "configuration" in the classic interface; Atlas calls a manual one a
@@ -205,17 +174,6 @@ journey.describe('J21 Saved configurations', () => {
       + `${JSON.stringify(back.chooserAccepts)}, which admits the archive — and how any one `
       + "platform's dialog draws that list is not observed here.",
     );
-    // The candidate builds the routine in Atlas's watch editor, so this line
-    // is the classic driver's alone.
-    if (resmon.name === 'classic') {
-      console.log(
-        '[J21] NOT VERIFIED (createRoutine): building the routine in the Routines editor. It was '
-        + 'created over the API, as every routine the classic driver makes is — it has no other verb '
-        + "that makes one — and then activated with its own row's button, which is what put "
-        + '"is_active": true into the file.',
-      );
-    }
-
     await resmon.takePicture('J21-saved-configurations-round-trip');
     expect(resmon.refusedConnections()).toEqual([]);
   });

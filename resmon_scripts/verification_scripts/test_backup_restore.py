@@ -617,6 +617,52 @@ def test_a_tampered_bundle_is_refused_at_startup_and_nothing_moves(corpus, monke
     assert backup_module.undo_copies(corpus["state_dir"]) == []
 
 
+#: The answers derived from the papers and kept beside the database, with what each holds.
+_DERIVED = {"-map.npz": b"map of the papers being replaced",
+            "-map.npz-fit.npz": b"a fit a stopped engine left unread",
+            "-wording.json": b'{"answer": "shared wording of the papers being replaced"}'}
+
+
+def _write_derived(db_path: Path) -> None:
+    for suffix, body in _DERIVED.items():
+        Path(str(db_path) + suffix).write_bytes(body)
+
+
+def test_a_restore_sets_aside_the_answers_derived_from_the_papers_it_replaces(corpus, monkeypatch, tmp_path):
+    """The map and the shared wording describe the papers being replaced, as an erase treats them."""
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    _write_derived(corpus["db_path"])
+
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome is not None and outcome["ok"], outcome
+    undo = Path(outcome["undo_copy"])
+    for suffix, body in _DERIVED.items():
+        assert not Path(str(corpus["db_path"]) + suffix).exists(), suffix
+        assert (undo / (corpus["db_path"].name + suffix)).read_bytes() == body, suffix
+
+
+def test_a_failed_restore_puts_the_derived_answers_back_with_the_database(corpus, monkeypatch, tmp_path):
+    manifest = _make_backup(corpus, tmp_path)
+    bundle = Path(manifest["path"])
+    report = backup_module.verify_bundle(bundle, this_schema_version=db.SCHEMA_VERSION)
+    backup_module.stage_restore(bundle, corpus["state_dir"], report)
+    corpus["conn"].close()
+    _write_derived(corpus["db_path"])
+
+    def explode(conn):
+        raise sqlite3.OperationalError("no such table: deliveries")
+
+    monkeypatch.setattr(backup_module, "_strip_process_state", explode)
+    outcome = _apply_restore_through_startup(corpus, monkeypatch, bundle)
+    assert outcome is not None and not outcome["ok"] and outcome["undone"]
+    for suffix, body in _DERIVED.items():
+        assert Path(str(corpus["db_path"]) + suffix).read_bytes() == body, suffix
+
+
 def test_the_undo_copy_can_be_deleted_and_the_restore_record_read(corpus, monkeypatch, tmp_path):
     manifest = _make_backup(corpus, tmp_path)
     bundle = Path(manifest["path"])

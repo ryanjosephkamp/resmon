@@ -169,77 +169,89 @@ export function pendingRows(): JourneyRow[] {
 }
 
 /**
- * Every page a person can reach, and the rows that carry what they do there.
+ * Every screen a person can reach, and the rows that carry what they do there.
  *
  * **Why this exists.** The guard below this file's rows compares the register
  * with the spec files, and until October 27, 2026 nothing compared it with the
  * app: the Source wall shipped as a page and had no row, and the suite stayed
- * green over a journey it did not measure. So every hash `allRouteHashes()` in
- * `src/routes.ts` returns — the same denominator the smoke suite sweeps,
- * Settings and About tabs included — has an entry here, and `register.spec.ts`
- * fails on a hash with none, on an entry that is not a hash, and on an entry
- * that names no carried row. A page added without a row is now a red run
- * rather than a nine-day silence.
+ * green over a journey it did not measure. So every path in `SCREEN_PATHS`
+ * (`atlas/src/screenPaths.ts`), the list the smoke suite and the performance
+ * harness sweep, Settings' groups included, has an entry here, and
+ * `register.spec.ts` fails on a path with none, on an entry that is not a
+ * path, and on an entry that names no carried row. A screen added without a
+ * row is now a red run rather than a nine-day silence.
  *
  * **What an entry claims.** That the row's journey is what a person does on
- * that page — not that the row's spec exercises every control on it. Where a
- * page and its row do not share a name, `why` says what the page is for and
- * why that is the row's journey rather than one of its own; where the row's
- * spec does not reach the page at all, `why` says that too. Those are the
- * places a reviewer should look first when deciding whether the register is
- * missing a journey.
+ * that screen, not that the row's spec exercises every control on it. Where a
+ * screen and its row do not share a name, `why` says what the screen is for
+ * and why that is the row's journey rather than one of its own; where the
+ * row's spec does not reach the screen at all, `why` says that too. Those are
+ * the places a reviewer should look first when deciding whether the register
+ * is missing a journey. A screen that needs an id (a run, a paper, a watch, a
+ * person) has no fixed address and is not here; it is reached from one that is.
  */
 export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?: string }>> = {
-  '/': {
-    rows: ['J15'],
-    why: 'The Dashboard summarizes routines and runs whose journeys are J03 and J18; what is its '
-      + 'own is the first-run card, J15. Its sentence when it cannot read routines or runs (#210) '
-      + 'is a property of that summary, not a journey of its own, and no spec reaches it.',
+  '/today': {
+    rows: ['J48', 'J47', 'J15'],
+    why: 'The papers since the person last looked, the collection map they sit on, and the '
+      + 'first-run card while the collection is empty.',
   },
-  '/dive': { rows: ['J01'] },
-  '/sweep': { rows: ['J02', 'J21'] },
-  '/routines': { rows: ['J03', 'J11', 'J39', 'J40'] },
-  '/calendar': { rows: ['J20'] },
-  '/results': { rows: ['J18', 'J38'] },
-  '/chats': { rows: ['J32'] },
-  '/reading-queue': { rows: ['J28'] },
-  '/library': { rows: ['J34'] },
-  '/evidence': { rows: ['J35', 'J36', 'J37'] },
-  '/analytics': { rows: ['J05'] },
-  '/watchdog': { rows: ['J06'] },
-  '/source-wall': { rows: ['J45'] },
-  '/explorer': { rows: ['J12', 'J09', 'J10'] },
-  '/profiles': { rows: ['J07', 'J08'] },
-  '/configurations': { rows: ['J21'] },
-  '/monitor': { rows: ['J19', 'J29'] },
-  '/repositories': { rows: ['J22', 'J08'] },
-  '/settings': { rows: ['J23'], why: 'Lands on the Email tab.' },
+  '/watches': {
+    rows: ['J03', 'J11', 'J39', 'J40'],
+    why: 'Every watch, each opening onto its own runs, coverage audit, and destinations.',
+  },
+  '/watches/calendar': { rows: ['J20'] },
+  '/watches/people': { rows: ['J07', 'J08'] },
+  '/watches/new': { rows: ['J03'], why: 'The watch editor, where J03 makes a watch.' },
+  '/search': {
+    rows: ['J12', 'J09', 'J10'],
+    why: 'Your collection is the explorer: search by meaning, and the near-duplicate links a scan stored.',
+  },
+  '/search/ask': {
+    rows: ['J01', 'J02', 'J18', 'J38', 'J19', 'J29', 'J22'],
+    why: 'Ask the sources is where a dive or a sweep starts, with every source and its limits; its '
+      + 'run log opens each run\'s live progress, outcomes, report, and Restart.',
+  },
+  '/search/saved': { rows: ['J21'] },
+  '/search/wording': { rows: ['J49'] },
+  '/library': { rows: ['J28'], why: 'Lands on the Reading queue.' },
+  '/library/files': { rows: ['J34'] },
+  '/library/evidence': { rows: ['J35', 'J36', 'J37'] },
+  '/ask': {
+    rows: ['J13', 'J14', 'J31', 'J32', 'J33'],
+    why: 'The assistant and its saved conversations in one place.',
+  },
+  '/health': {
+    rows: ['J45', 'J29'],
+    why: 'Lands on the Source wall: what every source did on recent runs, from the outcomes each '
+      + 'run recorded.',
+  },
+  '/health/watchdog': { rows: ['J06'] },
+  '/health/analytics': { rows: ['J05'] },
+  '/health/engine': { rows: ['J30'], why: 'Which engine this window is talking to, by its identity.' },
+  '/settings': { rows: ['J46'], why: 'Lands on Appearance.' },
+  '/settings/background': { rows: ['J04'] },
   '/settings/email': { rows: ['J23'] },
-  '/settings/ai': { rows: ['J13', 'J14', 'J17', 'J33'] },
+  '/settings/notifications': { rows: ['J23'] },
+  '/settings/ai': {
+    rows: ['J13', 'J14', 'J17', 'J33', 'J09'],
+    why: 'The assistant\'s lanes, the summary lanes, and the embeddings that search by meaning (J09).',
+  },
+  '/settings/sources': {
+    rows: ['J22', 'J08'],
+    why: 'Every source\'s keys and limits, including whether it can be asked about a person (J08).',
+  },
   '/settings/storage': {
     rows: ['J41', 'J24'],
     why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',
   },
-  '/settings/notifications': { rows: ['J23'] },
-  '/settings/advanced': { rows: ['J04', 'J26'] },
-  '/about-resmon': { rows: ['J25'], why: 'Lands on the Tutorials tab.' },
-  '/about-resmon/tutorials': { rows: ['J25'] },
-  '/about-resmon/issues': {
+  '/settings/tutorials': { rows: ['J25'] },
+  '/settings/about': {
     rows: ['J25'],
-    why: 'Composes a report and hands it to the person\'s own mail client or a GitHub issue page; '
-      + 'resmon sends nothing itself. Filed with the in-app documentation rather than given a row, '
-      + 'and J25\'s spec does not open this tab.',
+    why: 'Who made resmon, which build this is, what it keeps and sends, and where to report a '
+      + 'problem: documentation, filed with J25. J25\'s spec does not open this group.',
   },
-  '/about-resmon/blog': {
-    rows: ['J25'],
-    why: 'Reads the public site\'s posts in an origin-locked view: documentation about resmon, not '
-      + 'monitoring. J25\'s spec does not open this tab.',
-  },
-  '/about-resmon/about-app': {
-    rows: ['J25'],
-    why: 'The version and the author\'s links. The version a person can check against the backend '
-      + 'is J30\'s header; this tab is documentation, and J25\'s spec does not open it.',
-  },
+  '/settings/danger': { rows: ['J26'] },
 };
 
 /** `J01-deep-dive` from `J01` + `Deep Dive`: the spec file's stem. */

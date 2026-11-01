@@ -206,7 +206,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
   /**
    * Wait until the engine has stored what the screen was asked to write: its
-   * own record, read back over its API, as the classic driver's `stored` does.
+   * own record, read back over its API.
    * Every setup step here ends on this, and reads the screen only afterwards,
    * for a state the screen could not have shown before the write.
    */
@@ -270,6 +270,14 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     // Fresh: the list says it is busy while it re-reads the engine on arrival.
     await expect(win().locator('section.index')).toHaveAttribute('aria-busy', 'false', { timeout: 120_000 });
     await expect(win().locator('.index-bar h2')).toHaveText(/^New /);
+    // Current, which arriving is not: Today first draws the answer it kept
+    // from the last visit, and reads again once it sees a run has ended since
+    // (`useRunsEnded`). So the count is waited on until it is the engine's own.
+    const total = (await backend.today()).total;
+    await expect.poll(
+      async () => Number((await win().locator('.index-bar h2 span').innerText()).replace(/,/g, '')),
+      { timeout: 30_000, message: `Today never showed the engine's ${total} papers` },
+    ).toBe(total);
   };
 
   const openSearch = async (): Promise<void> => {
@@ -304,7 +312,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
   /**
    * Fill Ask the sources: the kind, these sources, these terms, the window and
    * the cap. Shared by `ask` and `saveConfiguration`, which press different
-   * buttons under the same form, as the classic driver's two do.
+   * buttons under the same form.
    */
   const fillAsk = async (kind: 'Deep Dive' | 'Deep Sweep', sources: string[], terms: string[],
     days: number | undefined, cap: number | undefined): Promise<void> => {
@@ -573,10 +581,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
   /**
    * The turn has finished, or is being held behind a card.
    *
-   * The engine's record decides, as the classic driver's does: a conversation
-   * whose turn is still claimed is still answering. Then the screen is given
-   * the time to draw the engine's saved copy, which is when Atlas drops its
-   * Working… line; Atlas keeps that line exactly until then, so here it is a
+   * The engine's record decides: a conversation whose turn is still claimed
+   * is still answering. Then the screen is given the time to draw the
+   * engine's saved copy, which is when Atlas drops its Working… line; Atlas keeps that line exactly until then, so here it is a
    * wait the screen owes, not a guess.
    */
   const theTurnHasSettled = async (): Promise<void> => {
@@ -665,9 +672,8 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
    * fields that provider shows, a key typed into the provider's key field and
    * stored by its button, then Save summary settings.
    *
-   * The key goes where the classic driver's PUT sends it, the credential
-   * store, which in this suite is an in-memory one inside this backend. The
-   * command and the custom address are the ones Ask and selected answers use
+   * The key goes to the credential store, which in this suite is an
+   * in-memory one inside this backend. The command and the custom address are the ones Ask and selected answers use
    * too: Atlas keeps one of each for every part of Settings › AI, as the
    * engine does (`ai_cli_path`, `ai_custom_base_url`).
    */
@@ -1013,8 +1019,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     // — library: your files ----------------------------------------------------
 
     chooseAParentFolderForTheLibrary: async (): Promise<string> => {
-      // A folder of this session's own, removed with it, as the classic driver
-      // does. The production IPC handler is untouched; only the OS dialog it
+      // A folder of this session's own, removed with it. The production IPC handler is untouched; only the OS dialog it
       // calls answers, because nothing automated can operate a native one.
       const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-library-')));
       session.alsoRemoveOnClose(parent);
@@ -1544,9 +1549,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         .toBeVisible({ timeout: 30_000 });
       await theDownloadHasCompleted(written);
       expect(fs.existsSync(written), `the export was never saved to ${written}`).toBe(true);
-      // Read out member by member, as the classic driver does: the archive is
-      // compressed, so a search of its bytes for a secret would pass for the
-      // wrong reason.
+      // Read out member by member: the archive is compressed, so a search of
+      // its bytes for a secret would pass for the wrong reason.
       const members = execFileSync(session.python, ['-c', `
 import json, sys, zipfile
 with zipfile.ZipFile(sys.argv[1]) as bundle:
@@ -1854,8 +1858,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const started = await said.getAttribute('data-run-started');
       const text = (await said.innerText()).trim();
       // The kind of refusal is a response header the renderer is not given
-      // cross-origin, so the app cannot read it either: '' here, as in the
-      // classic driver, and the sentence is what the row asserts.
+      // cross-origin, so the app cannot read it either: '' here, and the
+      // sentence is what the row asserts.
       return started
         ? { run: { id: Number(started) }, refusal: '', refusalKind: '' }
         : { run: null, refusal: text, refusalKind: '' };
@@ -1947,9 +1951,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     // — embeddings, in Settings → AI ------------------------------------------
 
     enableRankingByMeaning: async () => {
-      // The same deterministic model on loopback the classic driver uses, set
-      // up through Settings → AI → Embeddings as a person does: Ollama, the
-      // model, the endpoint, a probe that must answer, then Save.
+      // A deterministic model on loopback, set up through Settings → AI →
+      // Embeddings as a person does: Ollama, the model, the endpoint, a probe
+      // that must answer, then Save.
       const endpoint = await startEmbeddingEndpoint();
       session.alsoCloseOnClose(endpoint.close);
       const part = await openEmbeddings();
@@ -2489,7 +2493,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       // Ask takes a new conversation's connection from these defaults once per
       // window (`AskProvider` seeds its draft on the first status it reads), so
       // a default saved here reaches the composer only after the window is
-      // reopened, as the classic driver reopens it for the same reason.
+      // reopened.
       await session.relaunch();
       // The key after the reopen, and not as an ordering preference: this
       // suite's keyring lives inside the backend process, so a key stored
@@ -2528,8 +2532,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     readAiLaneStatus: async () => {
       await goto('AI settings');
       const status = win().locator('[data-ai="lane-status"]');
-      // As the classic driver does: the line exists where the engine reports
-      // a status for the provider the settings name, and is waited for on that.
+      // The line exists where the engine reports a status for the provider the
+      // settings name, and is waited for on that.
       const [settings, cli] = await Promise.all([
         session.api<{ ai_provider?: string }>('GET', '/api/settings/ai'),
         session.api<{ providers?: { provider: string }[] }>('GET', '/api/settings/ai/cli-status'),
@@ -2816,9 +2820,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
         await goto('Appearance settings');
         await goto(place);
         await expect.poll(() => seen.length, { timeout: 30_000 }).toBeGreaterThan(0);
-        // journeys:duration-ok an observation window, as the classic driver's
-        // is: a place keeps asking for as long as it is open, so this is how
-        // much of the stream the row claims to have looked at.
+        // journeys:duration-ok an observation window: a place keeps asking for
+        // as long as it is open, so this is how much of the stream the row
+        // claims to have looked at.
         await win().waitForTimeout(1_000);
       } finally {
         win().off('request', watch);

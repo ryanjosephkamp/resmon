@@ -4,21 +4,18 @@
  * A driver is the part that knows what a screen looks like. This is the part
  * underneath it that knows nothing about screens: which build to start, where
  * its state lives, how to ask its backend a question, how to kill it and how to
- * start it again over the same state. Both drivers share it, which is what
- * makes "the only difference between the two runs is two environment variables"
- * true rather than aspirational.
+ * start it again over the same state.
  *
  * **`RESMON_JOURNEY_APP`** is the `frontend/` directory of the build under
  * test, already built (`npm run build` there). This file builds nothing: a
- * suite that built its target would be measuring its own build script, and the
- * point of the classic leg is to run against an artifact somebody else
- * produced.
+ * suite that built its target would be measuring its own build script rather
+ * than an artifact somebody else produced.
  *
  * **The interpreter is this checkout's, on purpose.** The app spawns
  * `<python> <target>/resmon_scripts/resmon.py`, and the interpreter only has to
  * have `requirements.txt` installed — it is not part of the build under test.
  * Resolving it from the target would mean every target needed its own `.venv`,
- * which the classic CI leg does not have.
+ * which a build made elsewhere does not have.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -277,24 +274,15 @@ function seedTheTokenizer(stateDir: string): string {
 }
 
 /**
- * Which interface a session launches. `classic` is the renderer resmon ships;
- * `atlas` is the rebuilt one, which the same build serves when `RESMON_UI` is
- * `atlas`. The build under test is the same either way; only the window differs.
+ * The element that means Atlas has drawn its frame: the top bar's sections,
+ * drawn once the stored appearance has been read and the app has rendered,
+ * which is the moment a person can use it.
  */
-export type Interface = 'classic' | 'atlas';
+const LANDMARK = 'nav[aria-label="Sections"]';
 
-/** The element that means the interface has drawn its frame, per interface. */
-const LANDMARK: Record<Interface, string> = {
-  classic: '.app-main',
-  // The top bar's sections: drawn once the stored appearance has been read and
-  // the app has rendered, which is the moment a person can use it.
-  atlas: 'nav[aria-label="Sections"]',
-};
-
-function envFor(stateDir: string, root: AppRoot, sourceUrl: string, ui: Interface): Record<string, string> {
+function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
   const env = launchEnv(stateDir, true);
-  if (ui === 'atlas') env.RESMON_UI = 'atlas';
-  else delete env.RESMON_UI;
+  env.RESMON_UI = 'atlas';
   env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
@@ -333,15 +321,14 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string, ui: Interfac
   return env;
 }
 
-export async function startSession(options: { sourceReply: SourceReply; ui?: Interface }): Promise<Session> {
-  const ui: Interface = options.ui ?? 'classic';
+export async function startSession(options: { sourceReply: SourceReply }): Promise<Session> {
   const root = targetAppRoot();
   const source = await startSourceEndpoint(options.sourceReply);
   let stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-'));
   // Every state directory this session has used, so a journey that moves to a
   // fresh one (a restore) does not leave the first behind on the machine.
   const stateDirs = [stateDir];
-  let env = envFor(stateDir, root, source.url, ui);
+  let env = envFor(stateDir, root, source.url);
   registerStateDir(stateDir);
 
   let app!: ElectronApplication;
@@ -378,7 +365,7 @@ export async function startSession(options: { sourceReply: SourceReply; ui?: Int
     // here too, so the knob survives `reopenTheApp()`.
     await installLag(win, lags);
     await win.waitForLoadState('domcontentloaded');
-    await win.locator(LANDMARK[ui]).waitFor({ state: 'visible', timeout: 90_000 });
+    await win.locator(LANDMARK).waitFor({ state: 'visible', timeout: 90_000 });
     port = await win.evaluate(
       () => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort(),
     );
@@ -402,11 +389,11 @@ export async function startSession(options: { sourceReply: SourceReply; ui?: Int
     // `register.spec.ts` keeps specs from reaching past the driver to the
     // Electron application this reads.
     //
-    // Only for the build this checkout produced. The classic leg launches a
-    // build that predates the flag and would show its window, which is a true
-    // statement about that build and not a failure of this one. The comparison
-    // is on the resolved path rather than on `RESMON_JOURNEY_APP` being unset,
-    // so pointing that variable at this checkout still asserts — but
+    // Only for the build this checkout produced. Another build may predate the
+    // flag and show its window, which is a true statement about that build and
+    // not a failure of this one. The comparison is on the resolved path rather
+    // than on `RESMON_JOURNEY_APP` being unset, so pointing that variable at
+    // this checkout still asserts — but
     // `appRootAt` normalizes with `path.resolve`, not `realpathSync`, so a path
     // that reaches this same checkout through a symlink compares unequal and
     // silently skips. That direction is the safe one: it declines to assert
@@ -643,7 +630,7 @@ export async function startSession(options: { sourceReply: SourceReply; ui?: Int
       await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
       stateDirs.push(stateDir);
-      env = envFor(stateDir, root, source.url, ui);
+      env = envFor(stateDir, root, source.url);
       registerStateDir(stateDir);
       await bring();
     },
