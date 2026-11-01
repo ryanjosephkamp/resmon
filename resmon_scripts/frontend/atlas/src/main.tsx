@@ -9,6 +9,7 @@ import '@fontsource/spectral/500-italic.css';
 import './theme/tokens.css';
 import './atlas.css';
 import { App } from './App';
+import { keepBetweenVisits } from './screens/today/freshness';
 import {
   APPEARANCE_KEY, AppearanceProvider, FALLBACK_APPEARANCE, applyAppearance, readAppearance,
 } from './theme/appearance';
@@ -18,6 +19,7 @@ import {
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
 });
+keepBetweenVisits(queryClient);
 
 async function start(root: HTMLElement): Promise<void> {
   // The stored appearance is read before anything is drawn, so the page never

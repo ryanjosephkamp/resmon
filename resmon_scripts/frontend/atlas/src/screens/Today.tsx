@@ -4,7 +4,7 @@ import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
 import { FirstRun } from './today/FirstRun';
-import { useOpening } from './today/opening';
+import { answerKey, useOpening } from './today/opening';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
 import { TodayIndex, type IndexPaper, type Region } from './today/TodayIndex';
 import { authors, count, daysAgo, fullDate, number, when } from './today/format';
@@ -14,14 +14,12 @@ import { collectionSky } from './sky/collectionSky';
 import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
 import { filterCount } from './sky/look';
-import { FACETS_KEY, useMapLook } from './sky/useMapLook';
+import { useMapLook } from './sky/useMapLook';
+import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
 type Brief = components['schemas']['DocumentBrief'];
-
-export const MAP_KEY = ['map'] as const;
-export const TODAY_KEY = ['today'] as const;
 
 /**
  * Today, the morning edition: where last night's papers landed in the whole
@@ -76,9 +74,10 @@ export function Today() {
     const before = seenTotal.current;
     seenTotal.current = total;
     if (before === undefined || before === total) return;
-    void client.invalidateQueries({ queryKey: MAP_KEY });
-    void client.invalidateQueries({ queryKey: FACETS_KEY });
+    void invalidateFor(client, 'papers-arrived');
   }, [total, client]);
+  // Kept between visits (`freshness.ts`): a run that ended since is read in.
+  useRunsEnded();
   const plate = useRef<PlateHandle>(null);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [pointedId, setPointedId] = useState<number | null>(null);
@@ -133,15 +132,16 @@ export function Today() {
   const lifecycle = useLifecycleFor(listedIds);
 
   // The opening: the plate settles, then the new papers light in the order
-  // they arrived, their numbers in the index lighting with them (`opening.ts`).
-  // Without motion everything is lit from the start, and papers that arrive
-  // after the opening (a later read) are lit at once.
+  // they arrived, their numbers in the index lighting with them (`opening.ts`),
+  // once for each answer this window has not opened. Without motion everything
+  // is lit from the start, and papers that arrive after the opening (a later
+  // read) are lit at once.
   const [still] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  const opening = useOpening(!!sky && !!today.data, still);
+  const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
 
   const looked = useMutation({
     mutationFn: () => answer(engine().POST('/api/today/looked')),
-    onSuccess: () => client.invalidateQueries({ queryKey: TODAY_KEY }),
+    onSuccess: () => invalidateFor(client, 'looked'),
   });
   const save = useMutation({
     mutationFn: async ({ id, on }: { id: number; on: boolean }) => {
@@ -150,6 +150,7 @@ export function Today() {
       return { id, on };
     },
     onMutate: ({ id, on }) => setSaved((prev) => new Map(prev).set(id, on)),
+    onSuccess: () => invalidateFor(client, 'paper-changed'),
     onError: (_e, { id, on }) => setSaved((prev) => new Map(prev).set(id, !on)),
   });
 

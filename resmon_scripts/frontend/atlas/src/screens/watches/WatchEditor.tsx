@@ -15,6 +15,7 @@ import { NO_CHOICE, choiceOf, choiceSentence, type SummaryChoice } from '../sett
 import { AI_KEY, type AiSettings } from '../settings/summaryLanes';
 import { coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf, rateLong } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
+import { invalidateFor } from '../today/freshness';
 import {
   CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, startMissing,
   startMissingSentence, startOffer, summaryBody, watchBody, whatIsMissing,
@@ -158,6 +159,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
     // The engine keeps a saved copy of every watch, so Saved changes with it.
     void client.invalidateQueries({ queryKey: SAVED_KEY });
     void client.invalidateQueries({ queryKey: ['coverage', watchId] });
+    // Today groups its papers by watch, and says when each runs next.
+    void invalidateFor(client, 'watch-changed');
   };
 
   const save = useMutation({

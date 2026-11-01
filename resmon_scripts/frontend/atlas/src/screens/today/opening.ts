@@ -24,10 +24,14 @@ export const FADE_MS = 300;
  * turn. Nothing on the page is changed again until a read or a person changes
  * it, so a thousand papers do not mean a thousand renders of the index.
  *
- * It runs once per visit, and always to the end. Today and the map are read
- * again while it runs (Today's cached answer is drawn and asked for again at
- * once), and a new answer neither stops nor restarts it: it only moves the
- * schedule of the papers still to light.
+ * It plays once for each answer from the engine this window has not opened
+ * before, keyed by the answer's newest arrival (`answerKey`), and always to
+ * the end. The first visit after launch plays it; coming back to Today with
+ * the same answer draws it at rest at once; an answer with a newer arrival
+ * plays it again, on the visit that draws it. A new answer while it runs
+ * neither stops nor restarts it: it only moves the schedule of the papers
+ * still to light. The answers opened are held in this window's memory, so a
+ * relaunch plays it again.
  */
 export type Opening =
   | { state: 'waiting' }
@@ -64,21 +68,49 @@ export function nextLightAt(opening: Opening, total: number, now: number): numbe
   return lit >= total ? null : opening.start + lightsAt(lit + 1, total);
 }
 
+/** The answers this window has opened, by `answerKey`. */
+const opened = new Set<string>();
+
 /**
- * The opening for this visit: waiting until the plate and the papers are both
- * in, then running from that moment. Without motion there is none.
+ * What makes Today's answer new: its newest arrival, by id and the moment it
+ * was first seen. Two reads of the same papers are the same answer however
+ * they were asked for; an answer with nothing new has nothing to light.
  */
-export function useOpening(ready: boolean, still: boolean): Opening {
+export function answerKey(newest: { id: number; first_seen_at?: string | null } | undefined): string {
+  return newest ? `${newest.id}@${newest.first_seen_at ?? ''}` : 'none';
+}
+
+/**
+ * The opening for this visit. `answer` is the answer's key once the plate and
+ * the papers are both in, and null until then: an answer this window has not
+ * opened waits for them and then runs from that moment; one it has opened is
+ * drawn at rest. Without motion there is none.
+ */
+export function useOpening(answer: string | null, still: boolean): Opening {
   const [start, setStart] = useState<number | null>(null);
   useEffect(() => {
-    if (still || !ready || start !== null) return undefined;
+    if (still || answer === null) return undefined;
+    // A new answer while the opening runs joins it rather than starting it again.
+    if (start !== null || opened.has(answer)) {
+      opened.add(answer);
+      return undefined;
+    }
     // Started from a timer rather than in the effect's own pass, so the render
     // that made the plate ready is painted first.
-    const timer = window.setTimeout(() => setStart(performance.now()), 0);
+    const timer = window.setTimeout(() => {
+      opened.add(answer);
+      setStart(performance.now());
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [still, ready, start]);
+  }, [still, answer, start]);
+  const atRest = answer !== null && start === null && opened.has(answer);
   return useMemo(() => {
-    if (still) return NO_OPENING;
+    if (still || atRest) return NO_OPENING;
     return start === null ? WAITING : { state: 'running', start };
-  }, [still, start]);
+  }, [still, atRest, start]);
+}
+
+/** For tests: forget the answers opened. */
+export function forgetOpenings(): void {
+  opened.clear();
 }
