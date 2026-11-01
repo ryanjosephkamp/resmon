@@ -85,9 +85,27 @@ test('a webhook destination stored as a URL or as one carrying its files inside'
   expect(webhookUrl('{not json')).toBe('no address recorded');
 });
 
+test('a window longer than a source\'s own default start says it may not be read back to its start', () => {
+  const biorxiv = entry('biorxiv', {
+    constraints: {
+      default_start_days: 3, records_per_request: null,
+      notices: [{ kind: 'date_window', applies_when: 'beyond_default_start', effect: 'resmon reads bioRxiv newest first.', established: '' }],
+    },
+  } as unknown as Partial<CatalogEntry>);
+  const arxiv = entry('arxiv', { constraints: { default_start_days: null, records_per_request: null, notices: [] } } as unknown as Partial<CatalogEntry>);
+  const said = [{ slug: 'biorxiv', effect: 'resmon reads bioRxiv newest first.' }];
+  expect(formNotices([biorxiv, arxiv], { start: true, cap: 100, span: 30 })).toEqual(said);
+  expect(formNotices([biorxiv], { start: true, cap: 100, span: 4 })).toEqual(said);
+  // The default's own length, or none known, or no start (the default stands in): nothing.
+  expect(formNotices([biorxiv], { start: true, cap: 100, span: 3 })).toEqual([]);
+  expect(formNotices([biorxiv], { start: true, cap: 100, span: null })).toEqual([]);
+  expect(formNotices([biorxiv], { start: false, cap: 100, span: 30 })).toEqual([]);
+});
+
 test('a source that needs a start date says what the form filled in, or why Any time is not offered', () => {
   const needs = { entries: [entry('biorxiv', { name: 'bioRxiv' }), entry('medrxiv', { name: 'medRxiv' })], days: 3 };
-  const why = 'they list a date range oldest first, and asked from their first preprints a search stops long before recent ones.';
+  const why = 'resmon reads every preprint in their ranges itself, and their whole archives are far more than a search can '
+    + 'read in 45 seconds.';
   expect(askStartSentence(needs, { day: '2026-10-28', before: 'today' }))
     .toBe(`bioRxiv and medRxiv need a start date, so this search starts 3 days back, on October 28, 2026: ${why}`);
   expect(askStartSentence(needs, { day: '2026-09-28', before: 'end' }))

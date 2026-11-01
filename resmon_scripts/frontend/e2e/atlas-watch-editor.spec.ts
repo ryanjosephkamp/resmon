@@ -124,7 +124,7 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     // and the days its runs would otherwise be given are offered.
     await win.getByRole('radio', { name: 'No date limit' }).check();
     const needed = win.locator('[data-editor="start-needed"]');
-    await expect(needed).toContainText('bioRxiv needs a start date, and this window gives none: it lists a date range oldest first');
+    await expect(needed).toContainText('bioRxiv needs a start date, and this window gives none: resmon reads every preprint');
     await expect(win.locator('.ask-go .ask-facts p')).toHaveText([/^bioRxiv needs a start date, and this window gives none/]);
     await expect(save).toBeDisabled();
     // What it will do does not say what a run would ask bioRxiv in place of a start: it would not save.
@@ -134,7 +134,11 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     await expect(win.getByRole('radio', { name: 'In the last 3 days' })).toBeChecked();
     await expect(needed).toHaveCount(0);
     await expect(save).toBeEnabled();
+    // The default's own 3 days say nothing more; a longer window says it is read
+    // from its newest end back and may not reach its start.
+    await expect(win.locator('[data-will="notice"]')).toHaveCount(0);
     await win.getByRole('radio', { name: 'Papers published since the previous run' }).check();
+    await expect(win.locator('[data-will="notice"]')).toHaveText([/^resmon reads bioRxiv from the newest preprints in your window back/]);
     await win.getByRole('button', { name: 'Weekdays', exact: true }).click();
     await win.getByLabel('Time of day').fill('07:30');
     await win.getByLabel('Most papers per source').fill('25');
