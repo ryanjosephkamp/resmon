@@ -268,21 +268,6 @@ def test_a_workflow_the_parser_cannot_read_is_a_failure_not_a_pass(tmp_path):
     )
 
 
-def test_the_parser_reads_a_folded_condition(tmp_path):
-    """``journeys.yml``'s ``classic`` ANDs the guard in front of an event filter.
-
-    It is the only job here whose ``if:`` is a folded block, and a parser that
-    read only ``key: value`` would report it as unguarded. Asserted against the
-    real file rather than a constructed one.
-    """
-    jobs = {job.name: job for job in parse_jobs(
-        (WORKFLOWS_DIR / "journeys.yml").read_text(encoding="utf-8"), "journeys.yml")}
-    assert set(jobs) == {"candidate", "classic"}
-    assert jobs["classic"].condition is not None
-    assert REPOSITORY_GUARD in jobs["classic"].condition
-    assert "github.event_name == 'schedule'" in jobs["classic"].condition
-
-
 def test_a_steps_level_condition_is_not_mistaken_for_the_jobs(tmp_path):
     """``if: always()`` on a step must not satisfy the job's guard.
 

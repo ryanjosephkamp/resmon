@@ -626,6 +626,26 @@ def test_a_papers_own_pairs(db):
     assert sw.pairs_for(db, loner)["pairs"] == []
 
 
+def test_a_scan_that_ends_after_an_erase_saves_nothing(db, monkeypatch):
+    """The corpus is erased while a scan runs: its answer, about erased papers, is not kept."""
+    copied(db, random.Random(72), 30)
+    db.commit()
+    original = sw.find_pairs
+
+    def erased_meanwhile(conn, **kwargs):
+        result = original(conn, **kwargs)
+        sw.forget(conn)  # the erase lands while the scan is comparing
+        return result
+
+    monkeypatch.setattr(sw, "find_pairs", erased_meanwhile)
+    sw.scan_job.start(lambda: db, "full")
+    assert sw.scan_job.join()
+    path = sw.state_path(db)
+    assert path is not None and not path.exists()
+    assert sw.load_state(db) is None
+    assert sw.scan_job.status()["error"] is None
+
+
 # ---------------------------------------------------------------------------
 # Through the routes
 # ---------------------------------------------------------------------------

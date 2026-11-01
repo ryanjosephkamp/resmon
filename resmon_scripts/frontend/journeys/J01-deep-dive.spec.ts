@@ -26,16 +26,10 @@ journey.describe('J01 Deep Dive', () => {
 
     await resmon.waitForRunToSettle(run);
 
-    // The run's *status* is deliberately not asserted here, and re-adding it
-    // would break this suite rather than strengthen it.
-    //
-    // This file runs against two builds from one commit — this checkout's app
-    // and the `classic` branch's — so every assertion in it has to be true of
-    // both. The status is exactly where the two now differ: a one-source dive
-    // whose source does not answer records `failed` on this build and
-    // `completed` on classic, and the classic branch is frozen, so no
-    // expectation can be true of both. An earlier revision of this PR asserted
-    // `failed` here and turned the classic leg red for that reason alone.
+    // The run's *status* is not asserted here. While this file also ran
+    // against the frozen `classic` branch, a one-source dive whose source does
+    // not answer recorded `failed` on this build and `completed` there, so no
+    // expectation could be true of both.
     //
     // The status is asserted in the two places that are about one build, and
     // both are green: `verification_scripts/test_sweep_final_status.py` (six

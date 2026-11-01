@@ -214,17 +214,24 @@ def discover_cli(
     # and PATH from one finds the person's own signed-in CLI, and a test that
     # forgot to set a path then runs it: that happened once, from a journey
     # whose Ask turn went out with no command set. The e2e and journey harnesses
-    # set this, and a spec about discovery itself clears it.
-    if os.environ.get("RESMON_AI_CLI_DISCOVERY", "").strip().lower() == "configured-only":
+    # set this. A spec about discovery itself sets ``path-only`` instead, and
+    # pins PATH: the installers' locations include absolute paths no variable
+    # hides (``/Applications/ChatGPT.app/Contents/Resources/codex``), and
+    # Settings › AI runs the sign-in check on what discovery finds.
+    mode = os.environ.get("RESMON_AI_CLI_DISCOVERY", "").strip().lower()
+    if mode == "configured-only":
         tried.append("known locations and PATH not searched (RESMON_AI_CLI_DISCOVERY=configured-only)")
         return CLIDiscovery(provider, None, "not-found", tuple(tried))
 
     # 2. Where the installers put it.
-    for raw in known_locations(provider, platform):
-        candidate = Path(raw).expanduser()
-        tried.append(str(candidate))
-        if _usable(candidate):
-            return CLIDiscovery(provider, str(candidate), "known-location", tuple(tried))
+    if mode == "path-only":
+        tried.append("known locations not searched (RESMON_AI_CLI_DISCOVERY=path-only)")
+    else:
+        for raw in known_locations(provider, platform):
+            candidate = Path(raw).expanduser()
+            tried.append(str(candidate))
+            if _usable(candidate):
+                return CLIDiscovery(provider, str(candidate), "known-location", tuple(tried))
 
     # 3. PATH, last.
     binary = _BINARY_NAMES[provider]

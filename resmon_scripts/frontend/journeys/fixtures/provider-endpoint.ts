@@ -97,7 +97,7 @@ const pointedAt = new WeakMap<Session, ProviderEndpoint>();
  *
  * Remembered because pointing the app at it and reading what it received can
  * be two drivers' members: the candidate points Atlas at it through Settings ›
- * AI, and reads what it received with the classic driver's member, which
+ * AI, and reads what it received with the screenless driver's member, which
  * touches no screen.
  */
 export async function startProviderEndpointFor(session: Session, answer: string): Promise<ProviderEndpoint> {
