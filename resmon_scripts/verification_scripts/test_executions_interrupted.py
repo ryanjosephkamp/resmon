@@ -1,6 +1,6 @@
 """Schema 19: interrupted executions, ownership, and Restart.
 
-The 18 -> 19 step test AGENTS.md asks of every schema bump, plus the API
+The 18 -> 19 step test every schema bump has, plus the API
 properties that hang off it. The out-of-process boundary -- two real backends
 over one state directory, the first killed with SIGKILL mid-sweep -- lives in
 `test_executions_interrupted_boundary.py`, because it is the only thing here

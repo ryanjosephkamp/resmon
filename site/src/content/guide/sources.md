@@ -45,7 +45,7 @@ successful response remains distinct. Already normalized records are retained.
 DNS shutdown and blocking CPU work can exceed this budget; see
 [HAL request reliability](docs/hal-reliability.md).
 
-Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are documented in `.ai:/prep/repos.md` and are not queried at runtime.
+Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are not queried at runtime.
 
 ### Sources and their terms
 

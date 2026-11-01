@@ -5,12 +5,11 @@ import { glob } from 'astro/loaders';
  * Four content collections, three of which read Markdown that lives **outside**
  * this directory and stays where it is.
  *
- *   - ``docs/_posts/``      the 27 published update posts. ``AGENTS.md`` lists
- *                           this path as one Claude Code owns, and the posts'
- *                           URLs are already published, so the files are read
- *                           in place rather than moved.
- *   - ``docs/``             the reference documents. ``AGENTS.md`` and
- *                           ``README.md`` link to several of them by repository
+ *   - ``docs/_posts/``      the 27 published update posts. Their URLs are
+ *                           already published, so the files are read in place
+ *                           rather than moved.
+ *   - ``docs/``             the reference documents. ``README.md`` and
+ *                           ``CONTRIBUTING.md`` link to several of them by repository
  *                           path (``docs/adding-a-source.md`` and so on), so
  *                           moving them would break links in files this change
  *                           is not allowed to touch.

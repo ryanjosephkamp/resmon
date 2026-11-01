@@ -71,8 +71,8 @@ site/
 ```
 
 **Most of the content is not in this directory.** The posts, the reference documents and the
-API contract are read from `../docs/` where they already live, because `AGENTS.md`, the README
-and a Python test all point at those paths. One copy, no drift. `src/content.config.ts` has the
+API contract are read from `../docs/` where they already live, because the README and a Python
+test both point at those paths. One copy, no drift. `src/content.config.ts` has the
 reasoning per collection.
 
 ## Styling

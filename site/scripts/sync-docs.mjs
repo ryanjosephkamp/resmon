@@ -16,9 +16,8 @@
  *     test red for a reason nobody would look for in a site build.
  *   - `docs/adding-a-source.md`, `docs/source-landscape.md`,
  *     `docs/local-api-security.md` and the rest are linked by repository path
- *     from `AGENTS.md` and from the source tree.
- *   - `docs/_posts/` holds the 27 posts. `AGENTS.md` lists that path as one
- *     Claude Code owns.
+ *     from the README, CONTRIBUTING.md, and the source tree.
+ *   - `docs/_posts/` holds the 27 posts, at URLs already published.
  *
  * So those files stay exactly where they are, the site reads them in place, and
  * this script copies the build output around them. PROTECTED below is the list,

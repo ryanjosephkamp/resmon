@@ -1,8 +1,8 @@
 # Adding a source to resmon
 
 resmon queries scholarly sources and keeps what it finds. Adding another one is the most
-common contribution, and the most templated: `AGENTS.md` lists the files, and a suite of
-tests pins every part of the contract. This document is the long form — what the template
+common contribution, and the most templated: [the files it touches](#the-files-a-new-source-touches)
+are listed below, and a suite of tests pins every part of the contract. This document is the long form — what the template
 does not say on its own, and what four delegated source batches taught by getting it wrong.
 
 It is written to be usable by a person **or by an agent**. If you point your own harness at

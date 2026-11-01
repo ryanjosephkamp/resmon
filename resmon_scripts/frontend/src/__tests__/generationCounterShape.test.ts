@@ -11,8 +11,8 @@
  * This guard reads the renderer's own syntax tree, not its prose. It is
  * deliberately narrow: it names two shapes that are nearly always wrong rather
  * than every shape that could be. What it does **not** catch is written out in
- * `LIMITS` below and repeated in `AGENTS.md`, because a guard whose reach is
- * overstated is worse than no guard.
+ * `LIMITS` below, because a guard whose reach is overstated is worse than no
+ * guard.
  *
  * A file that genuinely needs one of these shapes goes in
  * `generationCounters.allow.json` with the reason, and the reason is the

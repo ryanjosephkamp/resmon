@@ -7,7 +7,7 @@ readmeLines:
 ---
 ## Contributing
 
-Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the short version, **[docs/adding-a-source.md](docs/adding-a-source.md)** for adding a scholarly source, and **[AGENTS.md](AGENTS.md)** if you are working this repository with an AI harness. resmon is a single-maintainer project, so the workflow below is deliberately lightweight; please open an issue before starting substantial work so the scope can be scoped and any related changes in the `.ai:/prep/` planning documents can be coordinated.
+Contributions are welcome — see **[CONTRIBUTING.md](CONTRIBUTING.md)** for the short version, **[docs/adding-a-source.md](docs/adding-a-source.md)** for adding a scholarly source. resmon is a single-maintainer project, so the workflow below is deliberately lightweight; please open an issue before starting substantial work so the scope can be agreed first.
 
 ### Reporting Issues
 
