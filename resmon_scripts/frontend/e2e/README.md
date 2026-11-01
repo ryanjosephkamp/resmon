@@ -35,7 +35,7 @@ under `release/` it skips, and says so.
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
 | `routes.ts` | The routes, **imported** from `src/routes.ts` — the same table `App.tsx` renders from. 24 of them: 14 top-level plus the 10 Settings and About tabs those pages declare. |
 | `main-window.spec.ts` | P2–P4 — `electron/main.ts` itself: the window background, the in-app link window, the History menu. |
-| `ai-settings.spec.ts` | P5, P10 and 1.8.5's controls — the file picker, the fresh-install proposal, and the primary provider list, with the machine's CLI answer pinned. |
+| `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
 | `smoke.spec.ts` | One test per route: it loads, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
 | `search-record.spec.ts` | Q4 — the Results report viewer's *Search record* tab, which a previous attempt reported as unclickable under automation. |
 | `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something. |

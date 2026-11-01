@@ -115,6 +115,34 @@ def test_a_test_instance_finds_only_the_command_it_names(tmp_path, monkeypatch):
     assert discover_cli("claude_code", named, platform="darwin").path == named
 
 
+def test_a_discovery_test_searches_path_and_nothing_installed(tmp_path, monkeypatch):
+    """With path-only, the installers' locations are not searched, and PATH is.
+
+    The Settings › AI spec about discovery sets it and pins PATH, so the only
+    command it can find, and so the only one a sign-in check can run, is a stub
+    the spec wrote. An installed command at an absolute path is never found.
+    """
+    installed = _make_executable(tmp_path / "installed-claude")
+    on_path_dir = tmp_path / "bin"
+    on_path_dir.mkdir()
+    monkeypatch.setenv("PATH", str(on_path_dir))
+    monkeypatch.setattr(
+        "implementation_scripts.ai_cli._KNOWN_LOCATIONS",
+        {"darwin": {"claude_code": (installed,)}},
+    )
+    monkeypatch.setenv("RESMON_AI_CLI_DISCOVERY", "path-only")
+
+    nothing = discover_cli("claude_code", platform="darwin")
+    assert not nothing.found
+    assert installed not in nothing.tried
+    assert "known locations not searched" in nothing.tried[0]
+    assert nothing.tried[-1] == "PATH (claude)"
+
+    stub = _make_executable(on_path_dir / "claude")
+    found = discover_cli("claude_code", platform="darwin")
+    assert found.path == stub and found.how == "path"
+
+
 # ---------------------------------------------------------------------------
 # Not finding things
 # ---------------------------------------------------------------------------
