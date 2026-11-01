@@ -104,7 +104,7 @@ from implementation_scripts.config_manager import (
 )
 from implementation_scripts.sweep_engine import SweepEngine
 from implementation_scripts.api_registry import list_repositories
-from implementation_scripts.zero_reason import answered as zero_answered
+from implementation_scripts.zero_reason import answered as zero_answered, in_part as zero_in_part
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
@@ -2471,7 +2471,8 @@ def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
     an outage, an unreadable reply, a window the source cannot express, a
     missing key, a retired source -- and ``not_recorded`` counts the zeros
     resmon never observed, which are deliberately not folded into either
-    number.
+    number. ``in_part`` counts, among the answered, the sources resmon's own
+    budget or the run's cap stopped after a stated stretch of the window.
     """
     if not exec_ids:
         return {}
@@ -2487,7 +2488,7 @@ def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
 
     summary: dict[int, dict] = {
         int(i): {
-            "selected": 0, "answered": 0,
+            "selected": 0, "answered": 0, "in_part": 0,
             "could_not_answer": 0, "not_recorded": 0,
             "sources_that_could_not_answer": [],
         }
@@ -2500,6 +2501,8 @@ def _source_outcomes(conn, exec_ids: list[int]) -> dict[int, dict]:
         count = int(row["result_count"] or 0)
         if zero_answered(row["status"], count, reason):
             entry["answered"] += 1
+            if zero_in_part(row["status"], reason):
+                entry["in_part"] += 1
         elif row["status"] == "ok" and count == 0 and reason in (None, "not_recorded"):
             entry["not_recorded"] += 1
         else:

@@ -47,9 +47,12 @@ DNS shutdown and blocking CPU work can exceed this budget; see
 
 bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints each lists for a date
 range, newest first, for up to 45 seconds a search, and matches your terms itself. A search that
-runs out of time has read the newest part of the range, and its record says how far back it got
-and that the older ones were not read; it does not count as an answer. Before a window longer than
-3 days, the search form and a watch's editor say it may not be read back to its start.
+runs out of that time, or reaches the run's cap, has read the newest part of the range and is
+**answered in part**: its record says which preprints were read and that the older ones were not.
+That is not an answer for the whole window, and it is not a failure of the source: a run whose
+only shortfalls are these completes, the Source wall draws them with a mark of their own, and the
+Watchdog does not count them against the source. Before a window longer than 3 days, the search
+form and a watch's editor say it may not be read back to its start.
 
 So neither source is asked without a start date. Ask the sources fills one in while either is
 chosen, and a watch on either is not saved without one. A run that sets none (a watch saved

@@ -263,7 +263,7 @@ test('P13f: window_unanswerable — a window the source cannot express is said, 
   }
 });
 
-test('P13d: the ten reasons, and which of them a real browser has now seen', async () => {
+test('P13d: the reasons, and which of them a real browser has now seen', async () => {
   // The denominator, taken from the code rather than counted here: a reason
   // added to `zero_reason.ZERO_REASONS` with no real-browser case shows up in
   // this list rather than being quietly absent.
@@ -280,17 +280,18 @@ test('P13d: the ten reasons, and which of them a real browser has now seen', asy
     'answered_empty', // P13b
     'not_recorded', // P13c
     'parse_failure', // P13e
+    'answered_in_part', // atlas-health.spec.ts: a Source wall cell and a run page
   ];
   const elsewhereOnly = all.filter((r) => !inRealBrowser.includes(r));
   console.log('P13d REASONS', JSON.stringify({ total: all.length, realBrowser: inRealBrowser, elsewhereOnly }));
 
-  expect(all.length).toBe(10);
+  expect(all.length).toBe(11);
   for (const reason of inRealBrowser) expect(all).toContain(reason);
   // Named, not hidden: these five reach the renderer only through data handed
   // to it. `missing_key` and `retired` need configuration state,
   // `rights_filtered` and `records_unusable` need a live source that really
   // drops records on rights, and `entity_unsupported` needs a watch that
-  // follows a person on a source that cannot be asked about one. A tenth
+  // follows a person on a source that cannot be asked about one. A new
   // reason cannot be added without this list saying so.
   expect(elsewhereOnly.sort()).toEqual([
     'entity_unsupported', 'missing_key', 'records_unusable', 'retired', 'rights_filtered',

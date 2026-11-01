@@ -119,10 +119,12 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(notice).toHaveCount(0);
     // A window longer than that is read from its newest end back and may not
     // reach its start, which the form says before the run.
+    // Said with why Any time is off, as one line about bioRxiv rather than two.
     await win.getByRole('button', { name: '30 days', exact: true }).click();
-    await expect(notice).toHaveText(['resmon reads bioRxiv from the newest preprints in your window back, for at most 45 '
-      + 'seconds, and a window longer than 3 days can hold more than that reads. A run may stop before it reaches the '
-      + 'start of your window, and says how far back it read.']);
+    await expect(startLine).toHaveText('bioRxiv needs a start date, so Any time is not offered while it is chosen. resmon '
+      + 'reads it from the newest preprints in your window back, for at most 45 seconds, so a window longer than 3 days '
+      + 'may not be read back to its start; the run says how far back it read.');
+    await expect(notice).toHaveCount(0);
     await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-long-window.png') });
     await from.fill('');
     await expect(notice).toHaveCount(0);

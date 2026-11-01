@@ -900,7 +900,7 @@ def sent_params(*keys: str, url: str | None = None):
 
 def note_read(*, records: int, total: int | None = None,
               first_date: str | None = None, last_date: str | None = None,
-              newest_first: bool = False) -> None:
+              newest_first: bool = False, cap: int | None = None) -> None:
     """Record how far a search read through a source it reads in order.
 
     For a source resmon cannot ask for words (bioRxiv, medRxiv): it lists a
@@ -910,10 +910,17 @@ def note_read(*, records: int, total: int | None = None,
     the earliest and latest dates among those read. ``newest_first`` says the
     range was read from its end back, so what was read is its newest part
     (``order`` in the record); a record without it was read from the start.
+    ``cap`` says the run's cap stopped the reading short of the range's end
+    (``stopped: "cap"``); a stop at resmon's time budget is the failed last
+    call, which the channel records already. Either one, after a stretch
+    recorded here, is ``zero_reason``'s ``answered_in_part``.
     """
     read: dict = {"records": int(records)}
     if newest_first:
         read["order"] = "newest_first"
+    if cap is not None:
+        read["stopped"] = "cap"
+        read["cap"] = int(cap)
     if total is not None:
         read["total"] = int(total)
     if first_date:

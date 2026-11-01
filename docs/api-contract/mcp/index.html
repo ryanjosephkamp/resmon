@@ -381,6 +381,29 @@ its response. <code>is_active</code> governs scheduling, not permission.</p>
 <table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.4 so are the 19 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
 <hr>
 <h2 id="amendments">Amendments</h2>
+<h3 id="answered-in-part-not-a-version--november-1-2026">Answered in part, not a version — November 1, 2026</h3>
+<p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, no field is removed or changes type, and the contract version does not change.</strong> Three
+reads say one more thing, and one run that failed now completes.</p>
+<p>A search that <strong>resmon’s own time budget, or the run’s cap,</strong> stopped after reading a stated,
+dated stretch of the window is <strong>answered in part</strong>. Today only bioRxiv and medRxiv record that
+stretch, and nothing is inferred for any other source. The source answered every page resmon
+asked for, so it is an answer, for that stretch alone: never an answered zero for the window, and
+never a non-answer. A provider’s failure part-way (an HTTP error, a request that timed out, a
+reply resmon could not read) is still a non-answer.</p>
+<ul>
+<li><code>get_execution</code> and <code>get_search_record</code>: the zero-reason vocabulary gains <code>answered_in_part</code>,
+which a source’s row can carry whether or not it returned papers. Each coverage source gains
+<code>in_part</code> (a boolean, <code>category</code> stays <code>answered</code>) and <code>coverage.counts</code> gains <code>in_part</code>, a
+subset of <code>answered</code> as <code>genuine_empty</code> and <code>partial</code> are. The coverage <code>summary</code> says “N
+answered (M in part)” only where M is not zero, followed by what each one read. <code>GET /api/executions</code> gains <code>source_outcomes.in_part</code>, which <code>list_executions</code> does not pass
+through.</li>
+<li><code>run_sweep</code> and <code>run_routine</code>: a run whose only shortfalls are sources answered in part
+completes. Before, a bioRxiv-only run cut short with no match was <code>failed</code>.</li>
+<li><code>get_watchdog_findings</code>: a source answered in part on its last three runs is reported as
+<code>advice</code>, kind <code>source_in_part</code>, never as an alarm, and a run answered in part is not counted as
+a failure or used as a baseline of what the source returns.</li>
+</ul>
 <h3 id="newest-first-not-a-version--november-1-2026">Newest first, not a version — November 1, 2026</h3>
 <p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
 changes, and the contract version does not change.</strong> What <code>run_sweep</code> and <code>run_routine</code> return

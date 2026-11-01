@@ -759,6 +759,8 @@ kbd {
 
 .omark, .lmark { width: 9px; height: 9px; border-radius: 50%; border: 1.25px solid var(--ink-3); align-self: center; justify-self: center; }
 .omark.on, .lmark.is-answered { background: var(--ink); border-color: var(--ink); }
+/* Answered in part: the right (newer) half filled, as the Source wall draws it. */
+.omark.part, .lmark.is-in_part { border-color: var(--ink); background: linear-gradient(90deg, transparent 50%, var(--ink) 50%); }
 .omark.fault { width: auto; height: auto; border: 0; color: var(--fault); display: inline-flex; }
 .lmark.is-no_answer, .lmark.is-error { border-color: var(--fault); background: var(--fault); }
 .lmark.is-not_queried, .lmark.is-not_reached { border-style: dashed; }
@@ -1367,6 +1369,7 @@ code.path {
 /* Marks: one shape per state, and a color that agrees with it, never instead of it. */
 .wall-mark { display: block; flex: none; color: var(--ink); }
 [data-state="answered_empty"] > .wall-mark, .wall-mark[data-mark="ring"] { color: var(--ink-2); }
+.wall-mark[data-mark="half"] { color: var(--ink); }
 .wall-mark[data-mark="struck"] { color: var(--fault); }
 .wall-mark[data-mark="dotted"], .wall-mark[data-mark="dash"], .wall-mark[data-mark="unknown"] { color: var(--ink-3); }
 

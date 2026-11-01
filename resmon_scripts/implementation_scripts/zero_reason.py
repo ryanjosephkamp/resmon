@@ -39,6 +39,7 @@ ZERO_REASONS = (
     "rights_filtered",
     "records_unusable",
     "entity_unsupported",
+    "answered_in_part",
     "answered_empty",
     "not_recorded",
 )
@@ -61,6 +62,20 @@ DID_NOT_ANSWER = frozenset({
     "entity_unsupported",
 })
 
+# A search that resmon's **own** time budget or the run's cap stopped, after
+# reading a definite, dated stretch of the window (``api_base.note_read``):
+# the source answered every page it was asked for, and resmon stopped. It is
+# neither of the two above. It is not an answer for the window -- a stretch
+# read with no match says nothing about the rest -- and it is not a
+# non-answer, so it never counts against the source's health. A provider's
+# failure part-way (an HTTP error, a request timeout, a reply resmon could not
+# read) is still ``upstream_failure`` or ``parse_failure``. Only a client that
+# records what it read can produce this (bioRxiv and medRxiv); coverage is
+# never inferred for any other.
+ANSWERED_IN_PART = frozenset({
+    "answered_in_part",
+})
+
 
 # The few words for each reason, where a sentence will not fit: a run's log
 # line for the source, the coverage row's label. A source that answered and
@@ -75,6 +90,7 @@ _LABELS = {
     "missing_key": "no API key configured",
     "retired": "withdrawn",
     "entity_unsupported": "entity unsupported",
+    "answered_in_part": "answered in part",
     "not_recorded": "zero, reason not recorded",
 }
 
@@ -114,6 +130,34 @@ def answered(status: str, result_count: int, reason: str | None) -> bool:
     if not reason or reason == "not_recorded":
         return False
     return reason not in DID_NOT_ANSWER
+
+
+def in_part(status: str, reason: str | None) -> bool:
+    """Was this source answered only in part (``ANSWERED_IN_PART``)?
+
+    ``answered`` is true of it too -- the source replied to everything resmon
+    asked -- so this is the question to ask first wherever an answer for the
+    whole window and an answer for a stretch of it must read differently.
+    """
+    return status == "ok" and reason in ANSWERED_IN_PART
+
+
+def coverage_words(source: str, detail: dict | None) -> str:
+    """What a search answered in part read, and why it stopped there.
+
+    "resmon read the newest 660 of the 1,824 records bioRxiv lists for the
+    window, posted between October 29, 2026 and October 31, 2026, and stopped
+    when its own time budget for the search ran out".
+    """
+    detail = detail or {}
+    read = detail.get("read") if isinstance(detail.get("read"), dict) else {}
+    if detail.get("detail") == "cap":
+        cap = read.get("cap")
+        why = (f"stopped when the run had the {int(cap):,} papers it asked for"
+               if isinstance(cap, int) and cap > 0 else "stopped at the run's cap")
+    else:
+        why = "stopped when its own time budget for the search ran out"
+    return f"resmon read {_read_words(source, detail)}, and {why}"
 
 
 def _attempts(detail: dict) -> str:
@@ -339,6 +383,13 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             "reply."
         )
 
+    if reason == "answered_in_part":
+        return (
+            f"{source} answered in part: {coverage_words(source, detail)}. None "
+            "of the records it read matched. The older ones were not read, so "
+            "this says nothing about them."
+        )
+
     raise ValueError(f"no sentence for zero reason {reason!r}")
 
 
@@ -347,8 +398,10 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
 
     This deliberately excludes empty-answer and filtering reasons. A positive
     result is partial only when the client observed a terminal parse failure,
-    its last request invocation failed, or a retained server cooldown stopped
-    it before another transport.
+    resmon itself stopped it after a recorded stretch of the window
+    (``answered_in_part``: its own time budget, or the run's cap), its last
+    request invocation failed, or a retained server cooldown stopped it before
+    another transport.
 
     **It does not fire on ``failures`` alone, and a branch that did was
     written and then removed on 2026-10-18.** The reasoning is worth keeping,
@@ -396,6 +449,10 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
             "attempts": snapshot.get("attempts") or 0,
         }
 
+    in_part = _stopped_by_resmon(snapshot)
+    if in_part is not None:
+        return "answered_in_part", in_part
+
     if snapshot.get("failures") and snapshot.get("last_call_failed"):
         detail = {
             "detail": snapshot.get("last_detail") or "request_error",
@@ -425,6 +482,36 @@ def terminal_issue(snapshot: dict | None) -> tuple[str, dict] | None:
     return None
 
 
+def _stopped_by_resmon(snapshot: dict) -> dict | None:
+    """The detail of a search resmon itself stopped after a dated stretch, or None.
+
+    Two stops are resmon's own: its time budget for the search (the last call
+    failed on ``operation_deadline``) and the run's cap (the client noted
+    ``stopped: "cap"``). Either counts only when the client recorded a
+    definite stretch it read -- records, with the earliest date among them --
+    short of the window's total. Without that record nothing is inferred: a
+    budget that ran out on a client that does not say what it read is still
+    an ``upstream_failure``.
+    """
+    read = snapshot.get("read")
+    if not isinstance(read, dict):
+        return None
+    records = int(read.get("records") or 0)
+    if records <= 0 or not read.get("first_date"):
+        return None
+    total = read.get("total")
+    if isinstance(total, int) and records >= total:
+        return None
+    if read.get("stopped") == "cap":
+        stop = "cap"
+    elif (snapshot.get("failures") and snapshot.get("last_call_failed")
+          and snapshot.get("last_detail") == "operation_deadline"):
+        stop = "budget"
+    else:
+        return None
+    return {"detail": stop, "attempts": snapshot.get("attempts") or 0, "read": dict(read)}
+
+
 def partial_sentence(
     source: str,
     reason: str,
@@ -435,6 +522,13 @@ def partial_sentence(
     detail = detail or {}
     count = int(returned)
     records = f"{count} usable record{'s' if count != 1 else ''}"
+    if reason == "answered_in_part":
+        # Not "may be incomplete": what was read is stated, and the rest of
+        # the window was not read, which is a fact rather than a doubt.
+        return (
+            f"{source} answered in part: it returned {records}, and "
+            f"{coverage_words(source, detail)}. The older ones were not read."
+        )
     if reason == "parse_failure":
         ending = "a later HTTP 200 reply could not be read"
     elif reason == "upstream_failure":

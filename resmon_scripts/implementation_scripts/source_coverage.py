@@ -80,9 +80,20 @@ def outcome(row: dict) -> dict:
         and detail.get("partial") is True
         and detail.get("returned") == count
     )
+    # Answered in part: resmon's own budget or the run's cap stopped a search
+    # after a stretch of the window the client recorded. Neither an answer for
+    # the window nor a non-answer, and said as what was read.
+    in_part = bool(valid and zero_reason.in_part(status, reason))
     if valid:
         try:
-            if partial:
+            if in_part:
+                saved_message = detail.get("message")
+                note = (
+                    saved_message if isinstance(saved_message, str) and saved_message
+                    else zero_reason.partial_sentence(named, reason, detail, count) if count
+                    else zero_reason.sentence(named, reason, detail)
+                )
+            elif partial:
                 saved_message = detail.get("message")
                 note = (
                     saved_message if isinstance(saved_message, str) and saved_message
@@ -115,6 +126,10 @@ def outcome(row: dict) -> dict:
         label = "answered, zero" if reason == "answered_empty" else "answered; nothing storable"
     if partial:
         label = "answered, partial"
+    if in_part:
+        # Answered, and only for the stretch the note states: never an
+        # answered zero for the window, and never a non-answer.
+        label = "answered in part"
     if valid and category == "non_answer":
         # Preserve the Search record's established distinctions, now rendered
         # once for both Markdown and React. A specific non-answer is more
@@ -127,7 +142,7 @@ def outcome(row: dict) -> dict:
             "outcome_recorded": True, "status": status, "result_count": count,
             "zero_reason": reason, "recorded_at": row.get("recorded_at"),
             "genuine_empty": category == "answered" and status == "ok" and count == 0 and reason == "answered_empty",
-            "partial": partial}
+            "partial": partial, "in_part": in_part}
 
 
 def sent_no_terms(params: dict) -> bool:
@@ -164,6 +179,29 @@ NO_TERMS_REFUSAL = (
     " This run had no search terms, so resmon sent this source an empty search, "
     "and the 400 is the source refusing it."
 )
+
+
+def _detail_of(row: dict) -> dict:
+    detail = row.get("zero_detail")
+    if isinstance(detail, str):
+        try:
+            detail = json.loads(detail) if detail else {}
+        except ValueError:
+            return {}
+    return detail if isinstance(detail, dict) else {}
+
+
+def _in_part_words(sources: list[dict], rows: dict[str, dict]) -> str:
+    """What each source answered in part read: " bioRxiv answered in part: resmon read ..."."""
+    said = []
+    for s in sources:
+        row = rows.get(s["source"])
+        if not s.get("in_part") or row is None:
+            continue
+        name = _name(s["source"]) if isinstance(s["source"], str) else s["source"]
+        said.append(f" {name} answered in part: "
+                    f"{zero_reason.coverage_words(name, _detail_of(row))}; the older ones were not read.")
+    return "".join(said)
 
 
 def _counted(n: int, singular: str) -> str:
@@ -208,15 +246,20 @@ def build(execution: dict, rows: list[dict]) -> dict:
                 "note": "Outcome not recorded; no attempt, failure or empty answer can be inferred.",
                 "outcome_recorded": False, "status": None, "result_count": None,
                 "zero_reason": None, "recorded_at": None, "genuine_empty": False,
-                "partial": False}) for slug in basis]
+                "partial": False, "in_part": False}) for slug in basis]
     extra = [v for k, v in recorded.items() if selected is not None and k not in selected]
     counts = {key: sum(s["category"] == key for s in sources) for key in ("answered", "non_answer", "unknown")}
     counts["genuine_empty"] = sum(s["genuine_empty"] for s in sources)
     counts["partial"] = sum(bool(s.get("partial")) for s in sources)
+    counts["in_part"] = sum(bool(s.get("in_part")) for s in sources)
     label = "selected sources" if selected is not None else "recorded sources"
     noun = "selected source" if selected is not None else "recorded source"
-    summary = (f"{_counted(len(sources), noun)}: {counts['answered']} answered, "
+    # "in part" is said only where it happened, so a run with none reads
+    # exactly as it always has.
+    in_part = f" ({counts['in_part']} in part)" if counts["in_part"] else ""
+    summary = (f"{_counted(len(sources), noun)}: {counts['answered']} answered{in_part}, "
                f"{_non_answers(sources, counts['non_answer'])}, {counts['unknown']} unknown.") if sources else "No source outcomes were recorded; the full selected set is unknown."
+    summary += _in_part_words(sources, {row["source"]: row for row in rows})
     unexplained = sum(s["outcome_recorded"] and s["category"] == "unknown" and s["result_count"] == 0
                       and s["zero_reason"] in (None, "not_recorded") for s in sources)
     if unexplained:
@@ -232,9 +275,14 @@ def build(execution: dict, rows: list[dict]) -> dict:
         notes.append(f"{len(extra)} additional recorded sources fall outside the saved selection and are excluded from selected-source counts.")
     if execution.get("status") != "completed":
         notes.append("This run is not completed; its recorded coverage may be incomplete.")
+    if counts["in_part"]:
+        notes.append(
+            "Answered in part means the source answered every page resmon asked for, and resmon stopped, at its own "
+            "time budget or the run's cap, after the stretch of the window it states. It is not a non-answer, and it "
+            "says nothing about the part of the window that was not read.")
     notes.extend([
         "A recorded non-answer means resmon could not count an answer to the query; an unreadable HTTP reply is a non-answer.",
-        "Genuine empty answers are a subset of answered sources, not an additional category. Rights-filtered or unusable records do not mean no papers were found.",
+        "Genuine empty answers, and answers in part, are subsets of answered sources, not additional categories. Rights-filtered or unusable records do not mean no papers were found.",
         "Recorded timestamps are recording times, not proven attempt-start times. Saved terms, window and cap are requests, not proof of final provider URLs or exhausted results; a cap alone does not prove truncation.",
         "This account is generated from saved facts at read time. It does not rewrite an older report or PDF."])
     return {"execution_id": execution["id"], "basis": "selected" if selected is not None else "recorded",

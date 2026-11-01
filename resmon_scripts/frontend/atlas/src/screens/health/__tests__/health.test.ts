@@ -1,16 +1,28 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { createElement } from 'react';
+import { render } from '@testing-library/react';
 import {
   MARK, RETIRED_NAMES, SEVERITY_MEANING, SEVERITY_WORDS, findingWords, lastAsked, markOf, pointRadius, runDays, scopeWords, thresholdWords, watchdogVerdict,
   windowSentence, type WallRun, type WallSource, type WatchdogFinding, type WatchdogReport,
 } from '../model';
+import { WallMark } from '../WallMark';
 
-const STATES = ['answered', 'answered_empty', 'could_not_be_asked', 'failed', 'not_recorded', 'not_selected'];
+const STATES = ['answered', 'answered_empty', 'answered_in_part', 'could_not_be_asked', 'failed', 'not_recorded', 'not_selected'];
 
 describe('the Source wall\'s marks', () => {
   test('every state the engine serves has a mark of its own', () => {
     expect(STATES.map(markOf)).toEqual(STATES.map((s) => MARK[s]));
     expect(new Set(STATES.map(markOf)).size).toBe(STATES.length);
+  });
+
+  test('an answer in part is a ring half filled, apart from an answer and an empty one', () => {
+    expect(markOf('answered_in_part')).toBe('half');
+    const { container } = render(createElement(WallMark, { state: 'answered_in_part' }));
+    const svg = container.querySelector('svg.wall-mark');
+    expect(svg?.getAttribute('data-mark')).toBe('half');
+    expect(svg?.querySelector('circle')?.getAttribute('fill')).toBe('none');
+    expect(svg?.querySelector('path')?.getAttribute('fill')).toBe('currentColor');
   });
 
   test('a state this build does not know is not drawn as one it does', () => {

@@ -12554,7 +12554,7 @@
       },
       "RunCoverageCounts": {
         "additionalProperties": true,
-        "description": "How the selected sources split. ``genuine_empty`` and ``partial`` are\nsubsets of ``answered``, not further categories.",
+        "description": "How the selected sources split. ``genuine_empty``, ``partial`` and\n``in_part`` are subsets of ``answered``, not further categories.\n``in_part`` counts the sources resmon's own time budget or the run's cap\nstopped after a stated stretch of the window: answered, and only for that\nstretch.",
         "properties": {
           "answered": {
             "title": "Answered",
@@ -12562,6 +12562,10 @@
           },
           "genuine_empty": {
             "title": "Genuine Empty",
+            "type": "integer"
+          },
+          "in_part": {
+            "title": "In Part",
             "type": "integer"
           },
           "non_answer": {
@@ -12582,14 +12586,15 @@
           "non_answer",
           "unknown",
           "genuine_empty",
-          "partial"
+          "partial",
+          "in_part"
         ],
         "title": "RunCoverageCounts",
         "type": "object"
       },
       "RunCoverageSource": {
         "additionalProperties": true,
-        "description": "One source's recorded outcome on one run, from ``source_coverage.outcome``.\n\n``category`` is ``answered``, ``non_answer`` or ``unknown``; ``label`` is\nthe short reason a person reads, and ``note`` the sentence that explains\nit. A selected source with no recorded row is ``unknown`` with\n``outcome_recorded`` false, and every recorded field ``None``: nothing about\nan attempt, a failure or an empty answer can be inferred from silence.",
+        "description": "One source's recorded outcome on one run, from ``source_coverage.outcome``.\n\n``category`` is ``answered``, ``non_answer`` or ``unknown``; ``in_part``\nmarks an answer for only the stretch of the window ``note`` states. ``label`` is\nthe short reason a person reads, and ``note`` the sentence that explains\nit. A selected source with no recorded row is ``unknown`` with\n``outcome_recorded`` false, and every recorded field ``None``: nothing about\nan attempt, a failure or an empty answer can be inferred from silence.",
         "properties": {
           "category": {
             "title": "Category",
@@ -12597,6 +12602,10 @@
           },
           "genuine_empty": {
             "title": "Genuine Empty",
+            "type": "boolean"
+          },
+          "in_part": {
+            "title": "In Part",
             "type": "boolean"
           },
           "label": {
@@ -12675,7 +12684,8 @@
           "zero_reason",
           "recorded_at",
           "genuine_empty",
-          "partial"
+          "partial",
+          "in_part"
         ],
         "title": "RunCoverageSource",
         "type": "object"
@@ -13346,7 +13356,7 @@
       },
       "RunSourceOutcomes": {
         "additionalProperties": true,
-        "description": "The compact per-run count the list shows on each row.\n\n``could_not_answer`` counts the zeros that were not answers; ``not_recorded``\nthe zeros resmon never observed, deliberately folded into neither.",
+        "description": "The compact per-run count the list shows on each row.\n\n``could_not_answer`` counts the zeros that were not answers; ``not_recorded``\nthe zeros resmon never observed, deliberately folded into neither.\n``in_part`` counts, among ``answered``, the sources resmon's own budget or\nthe run's cap stopped after a stated stretch of the window.",
         "properties": {
           "answered": {
             "title": "Answered",
@@ -13354,6 +13364,10 @@
           },
           "could_not_answer": {
             "title": "Could Not Answer",
+            "type": "integer"
+          },
+          "in_part": {
+            "title": "In Part",
             "type": "integer"
           },
           "not_recorded": {
@@ -13375,6 +13389,7 @@
         "required": [
           "selected",
           "answered",
+          "in_part",
           "could_not_answer",
           "not_recorded",
           "sources_that_could_not_answer"

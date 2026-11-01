@@ -19,6 +19,7 @@ export const ZERO_REASONS = [
   'rights_filtered',
   'records_unusable',
   'entity_unsupported',
+  'answered_in_part',
   'answered_empty',
   'not_recorded',
 ] as const;

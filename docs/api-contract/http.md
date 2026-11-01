@@ -551,9 +551,9 @@ Every list below is generated from the object named beside it and tested equal t
 
 `owner_dead` · `daemon_restart` · `unknown`
 
-**Zero reason** — from `zero_reason.ZERO_REASONS`. 10 values:
+**Zero reason** — from `zero_reason.ZERO_REASONS`. 11 values:
 
-`missing_key` · `retired` · `window_unanswerable` · `upstream_failure` · `parse_failure` · `rights_filtered` · `records_unusable` · `entity_unsupported` · `answered_empty` · `not_recorded`
+`missing_key` · `retired` · `window_unanswerable` · `upstream_failure` · `parse_failure` · `rights_filtered` · `records_unusable` · `entity_unsupported` · `answered_in_part` · `answered_empty` · `not_recorded`
 
 **Zero reasons that mean the source did not answer** — from `zero_reason.DID_NOT_ANSWER`. 6 values:
 

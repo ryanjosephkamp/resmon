@@ -449,9 +449,10 @@ def test_a_record_dated_without_padding_is_read_as_its_day(monkeypatch):
     assert (read["first_date"], read["last_date"]) == ("2026-08-19", "2026-10-31")
 
 
-def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
-    """A search can run out of time long before it has read a long range. It
-    has read the newest part, and the run says which."""
+def test_a_budget_that_runs_out_mid_range_is_answered_in_part(monkeypatch):
+    """A search can run out of resmon's own time long before it has read a
+    long range. It has read the newest part, the source answered every page it
+    was asked for, and the run says which part was read."""
     from implementation_scripts import zero_reason  # noqa: PLC0415
 
     expired = api_base.RequestDeadlineExceeded("The source operation deadline expired")
@@ -469,22 +470,23 @@ def test_a_budget_that_runs_out_mid_range_is_recorded_as_partial(monkeypatch):
     assert [r.title for r in results][:2] == ["Climate record 299999", "Climate record 299998"]
     assert len(results) == 30
     reason, detail = zero_reason.terminal_issue(snapshot)
-    assert (reason, detail["detail"]) == ("upstream_failure", "operation_deadline")
-    # How far it read is said with it: the records read, of how many the
-    # window holds, and the dates among them.
+    assert (reason, detail["detail"]) == ("answered_in_part", "budget")
+    # What it read is said with it: the records read, of how many the window
+    # holds, and the dates among them.
     assert detail["read"] == {"records": 30, "order": "newest_first", "total": 300000,
                               "first_date": "2024-01-31", "last_date": "2024-01-31"}
     assert zero_reason.partial_sentence("bioRxiv", reason, detail, len(results)) == (
-        "bioRxiv returned 30 usable records before the search operation budget "
-        "expired. It had read the newest 30 of the 300,000 records bioRxiv lists "
-        "for the window, posted on January 31, 2024. The retained set may be "
-        "incomplete.")
+        "bioRxiv answered in part: it returned 30 usable records, and resmon read the "
+        "newest 30 of the 300,000 records bioRxiv lists for the window, posted on "
+        "January 31, 2024, and stopped when its own time budget for the search ran "
+        "out. The older ones were not read.")
 
 
-def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
-    """A long window, and a word nothing in the first pages has: the run read
-    part of the window and none of it matched. That is neither an answered
-    zero nor a source that did not answer, and the record says which it is."""
+def test_a_budget_that_runs_out_with_no_match_is_answered_in_part(monkeypatch):
+    """A long window, and a word nothing in the newest pages has: the run read
+    part of the window and none of it matched. That is neither an answered zero
+    for the window nor a source that did not answer, and the record says which
+    part it read."""
     from implementation_scripts import source_coverage, zero_reason  # noqa: PLC0415
 
     first = _preprint_payload(count=30, total=262104, date="2013-11-07")
@@ -499,21 +501,77 @@ def test_a_budget_that_runs_out_with_no_match_says_how_far_it_read(monkeypatch):
     reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
 
     assert results == []
-    assert reason == "upstream_failure"
+    assert reason == "answered_in_part"
     assert zero_reason.sentence("bioRxiv", reason, detail) == (
-        "bioRxiv answered, and resmon stopped before it reached the start of your "
-        "window: the search operation budget expired after 4 attempts. It had read "
-        "the newest 30 of the 262,104 records bioRxiv lists for the window, posted "
-        "between October 30, 2026 and October 31, 2026, and none of them matched. "
-        "The older ones were not read, so this is not a zero for your window.")
-    # A record of a window read from its start, made before, keeps its words.
-    older = {**detail, "read": {k: v for k, v in detail["read"].items() if k != "order"}}
-    assert "It had read the first 30 of the 262,104" in zero_reason.sentence("bioRxiv", reason, older)
+        "bioRxiv answered in part: resmon read the newest 30 of the 262,104 records "
+        "bioRxiv lists for the window, posted between October 30, 2026 and October "
+        "31, 2026, and stopped when its own time budget for the search ran out. None "
+        "of the records it read matched. The older ones were not read, so this says "
+        "nothing about them.")
     outcome = source_coverage.outcome({
         "source": "biorxiv", "status": "ok", "result_count": 0,
         "zero_reason": reason, "zero_detail": json.dumps(detail)})
-    assert (outcome["category"], outcome["label"]) == ("non_answer", "read part of the window")
-    assert zero_reason.label(reason, detail) == "read part of the window"
+    # Answered, for the stretch it read: not an answered zero, not a non-answer.
+    assert (outcome["category"], outcome["label"], outcome["in_part"]) == (
+        "answered", "answered in part", True)
+    assert outcome["genuine_empty"] is False
+    assert zero_reason.label(reason, detail) == "answered in part"
+
+
+def test_a_provider_failure_part_way_is_still_not_an_answer(monkeypatch):
+    """resmon stopping is answered in part; the provider failing is not. A
+    request that timed out after a stretch was read stays a non-answer."""
+    from implementation_scripts import zero_reason  # noqa: PLC0415
+
+    timed_out = httpx.ReadTimeout("slow")
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=300)),
+        FakeResponse(_preprint_payload(count=30, total=300, start=270, date="2024-01-07")),
+        timed_out, timed_out,
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="nowhereword", date_from="2024-01-01", date_to="2024-01-07", max_results=5)
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+
+    assert results == []
+    assert (reason, detail["detail"]) == ("upstream_failure", "timeout")
+    assert reason in zero_reason.DID_NOT_ANSWER
+
+
+def test_a_cap_that_stops_a_read_is_answered_in_part(monkeypatch):
+    """The run's cap is resmon's own stop too: enough matches in the newest
+    pages, and the older ones were not read."""
+    from implementation_scripts import zero_reason  # noqa: PLC0415
+
+    _recording_sequence(monkeypatch, api_biorxiv, [
+        FakeResponse(_preprint_payload(count=30, total=300)),
+        FakeResponse(_preprint_payload(count=30, total=300, start=270, date="2024-01-07")),
+    ])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_from="2024-01-01", date_to="2024-01-07", max_results=5)
+    reason, detail = zero_reason.terminal_issue(api_base.search_outcome().snapshot())
+
+    assert len(results) == 5
+    assert (reason, detail["detail"]) == ("answered_in_part", "cap")
+    assert detail["read"] == {"records": 5, "order": "newest_first", "stopped": "cap", "cap": 5,
+                              "total": 300, "first_date": "2024-01-07", "last_date": "2024-01-07"}
+    assert zero_reason.partial_sentence("bioRxiv", reason, detail, len(results)).endswith(
+        "and stopped when the run had the 5 papers it asked for. The older ones were not read.")
+
+
+def test_a_window_read_to_its_start_is_answered_in_full(monkeypatch):
+    """No coverage to state when nothing was left unread, at the cap or not."""
+    from implementation_scripts import zero_reason  # noqa: PLC0415
+
+    _recording_sequence(monkeypatch, api_biorxiv, [FakeResponse(_preprint_payload(count=5, total=5))])
+
+    results = api_biorxiv.BiorxivClient().search(
+        query="climate", date_from="2024-01-01", date_to="2024-01-07", max_results=5)
+
+    assert len(results) == 5
+    assert zero_reason.terminal_issue(api_base.search_outcome().snapshot()) is None
 
 
 def test_partial_preprint_results_retain_later_parse_failure(monkeypatch):
