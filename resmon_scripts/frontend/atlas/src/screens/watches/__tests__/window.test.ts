@@ -155,8 +155,8 @@ describe('sources that need a start date', () => {
 
   test('a run says the start the engine gave them, and that every other source had no dates', () => {
     const sentence = 'bioRxiv was asked from October 28, 2026, 3 days before the run started, because the run set no '
-      + 'start date: bioRxiv lists a date range oldest first, so asked from its first preprints a search stops long '
-      + 'before recent ones.';
+      + 'start date: resmon reads every preprint in a bioRxiv range itself, and bioRxiv\'s whole archive is far more '
+      + 'than a search can read in 45 seconds.';
     const starts = { biorxiv: { date_from: '2026-10-28', days: 3, before: 'run', sentence } };
     expect(runWindowSentence(JSON.stringify({ date_from: null, default_starts: starts })))
       .toBe(`No start date was set. ${sentence} Every other source was asked with no dates.`);

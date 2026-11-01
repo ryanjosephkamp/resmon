@@ -258,6 +258,28 @@ Listed so the omissions are visible and arguable rather than silently missing.
 
 ## Amendments
 
+### Newest first, not a version — November 1, 2026
+
+**25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, and the contract version does not change.** What `run_sweep` and `run_routine` return
+from bioRxiv and medRxiv changes for a window longer than the search can read.
+
+resmon reads the preprints each of them lists for a date range itself, for at most 45 seconds a
+search. The endpoint lists a range oldest first, and resmon read it that way, so a search cut
+short had read the oldest part of the window and a watch read the same oldest records every run.
+It now reads each range from its end back, newest first, and a search that stops at its cap or
+its budget has the newest preprints of the window. The papers a run returns from these two
+sources are the newest matches rather than the oldest, and come newest first.
+
+A search the budget cuts short still does not count as an answer. Its zero's `zero_detail.read`
+gains `order: "newest_first"`, and its sentence says it read "the newest N of the M records" and
+that the older ones were not read; a record from before keeps "the first N" and its old words.
+An empty range, which the endpoint answers "no posts found", is now an answered zero rather than
+a failure. The catalog's `result_order` for both is `newest_first`, and each carries a notice
+scoped `beyond_default_start`, shown before a window longer than `default_start_days`: the
+search may not read back to its start. `applies_when` is a string in the HTTP contract, so its
+shape does not change, and `list_sources` passes no notices through.
+
 ### A start date resmon gives, not a version — November 1, 2026
 
 **25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument

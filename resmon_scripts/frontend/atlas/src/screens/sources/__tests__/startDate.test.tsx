@@ -1,6 +1,6 @@
 /**
- * bioRxiv and medRxiv need a start date: each lists a date range oldest first,
- * so asked from its first preprints a search stops long before recent ones.
+ * bioRxiv and medRxiv need a start date: resmon reads every preprint in their
+ * range itself, for at most 45 seconds, and their whole archives are far more.
  * Ask the sources fills one in and will not let it be cleared while either is
  * chosen; a watch's editor will not save a watch on words that asks either
  * with no start, and offers the days the engine would give them.
@@ -17,11 +17,16 @@ import { WatchEditor } from '../../watches/WatchEditor';
 import { PEOPLE_KEY } from '../../watches/people/model';
 import { dayWords, daysBefore } from '../../watches/window';
 
+const LONG = 'resmon reads bioRxiv from the newest preprints in your window back.';
+
 const source = (slug: string, name: string, days: number | null): CatalogEntry => ({
   slug, name, rate_limit: '2.0 req/s', keyword_combination: 'Explicit OR', date_granularity: 'day',
   api_key_requirement: 'none', credential_name: null, result_order: 'unstated',
   entity_search: { author_query: 'none' },
-  constraints: { notices: [], records_per_request: null, default_start_days: days },
+  constraints: {
+    records_per_request: null, default_start_days: days,
+    notices: days === null ? [] : [{ kind: 'date_window', applies_when: 'beyond_default_start', effect: LONG, established: '' }],
+  },
 } as unknown as CatalogEntry);
 
 const realFetch = globalThis.fetch;
@@ -73,8 +78,9 @@ describe('Ask the sources', () => {
     expect(anyTime).toBeDisabled();
     expect(anyTime).toHaveAttribute('aria-pressed', 'false');
     const line = () => container.querySelector('[data-ask="start-needed"]')?.textContent;
-    expect(line()).toBe(`bioRxiv needs a start date, so this search starts 3 days back, on ${dayWords(filled)}: it lists a `
-      + 'date range oldest first, and asked from its first preprints a search stops long before recent ones.');
+    expect(line()).toBe(`bioRxiv needs a start date, so this search starts 3 days back, on ${dayWords(filled)}: `
+      + 'resmon reads every preprint in its range itself, and its whole archive is far more than a search can read in '
+      + '45 seconds.');
 
     // Changed: kept, and the line no longer says the form chose it.
     fireEvent.change(from, { target: { value: '2026-10-01' } });
@@ -93,6 +99,19 @@ describe('Ask the sources', () => {
     expect(anyTime).toHaveAttribute('aria-pressed', 'true');
   });
 
+  test('a window longer than bioRxiv\'s own 3 days says it is read from the newest back', () => {
+    const { container, pick } = shown('/search/ask');
+    const notices = () => [...container.querySelectorAll('[data-ask="notice"]')].map((p) => p.textContent);
+    pick('biorxiv');
+    // A fresh form asks for the last 30 days.
+    expect(notices()).toEqual([LONG]);
+    fireEvent.click(screen.getByRole('button', { name: '7 days' }));
+    expect(notices()).toEqual([LONG]);
+    // Any time is not offered; the start the form fills in is the default's own 3 days.
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '' } });
+    expect(notices()).toEqual([]);
+  });
+
   test('a source that needs no start leaves Any time as it is', () => {
     const { container, pick } = shown('/search/ask');
     pick('arxiv');
@@ -104,8 +123,8 @@ describe('Ask the sources', () => {
 
 describe('a watch\'s editor', () => {
   const facts = (container: HTMLElement) => [...container.querySelectorAll('.ask-go .ask-facts p')].map((p) => p.textContent);
-  const NEEDS = 'bioRxiv needs a start date, and this window gives none: it lists a date range oldest first, and asked '
-    + 'from its first preprints a search stops long before recent ones.';
+  const NEEDS = 'bioRxiv needs a start date, and this window gives none: resmon reads every preprint in its range '
+    + 'itself, and its whole archive is far more than a search can read in 45 seconds.';
 
   test('a watch on bioRxiv is not saved with no start, and the last 3 days are offered', () => {
     const { container, pick } = shown('/watches/new');

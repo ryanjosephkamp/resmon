@@ -219,17 +219,18 @@ def default_start_words(source: str, start: dict) -> str:
     """Why a source was asked from a start the run did not set, after its name.
 
     ``start`` is what the source's client noted when the run gave it no start
-    date (``api_base.note_default_start``): bioRxiv and medRxiv list a range
-    oldest first, so each is asked for the catalog's ``default_start_days``
-    before the run, or before the run's end date when that is earlier. The
-    run's log puts these words after the source's id ("biorxiv: asked from
-    ..."), and its record after "{name} was".
+    date (``api_base.note_default_start``): resmon reads every record in a
+    bioRxiv or medRxiv range itself, for at most 45 seconds, so each is asked
+    for the catalog's ``default_start_days`` before the run, or before the
+    run's end date when that is earlier. The run's log puts these words after
+    the source's id ("biorxiv: asked from ..."), and its record after
+    "{name} was".
     """
     day = _words(date.fromisoformat(str(start["date_from"])))
     before = "the run's end date" if start.get("before") == "end_date" else "the run started"
     return (f"asked from {day}, {_days(int(start['days']))} before {before}, because the run "
-            f"set no start date: {source} lists a date range oldest first, so asked from its "
-            "first preprints a search stops long before recent ones.")
+            f"set no start date: resmon reads every preprint in a {source} range itself, and "
+            f"{source}'s whole archive is far more than a search can read in 45 seconds.")
 
 
 def resolve(

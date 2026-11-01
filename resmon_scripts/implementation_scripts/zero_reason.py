@@ -135,22 +135,30 @@ def _day(iso: object) -> str | None:
         return None
 
 
+def _newest_first(detail: dict) -> bool:
+    """Was the window read from its newest end back (``api_base.note_read``)?"""
+    read = detail.get("read") or {}
+    return isinstance(read, dict) and read.get("order") == "newest_first"
+
+
 def _read_words(source: str, detail: dict) -> str:
     """What a search that stopped part-way through a window had read.
 
-    "the first 1,200 of the 262,104 records bioRxiv lists for the window,
-    posted between November 7, 2013 and January 20, 2014". The dates are the
-    earliest and latest among the records read, whatever order the source
-    listed them in.
+    "the newest 750 of the 1,817 records bioRxiv lists for the window, posted
+    between October 29, 2026 and October 31, 2026". The dates are the earliest
+    and latest among the records read, whatever order the source listed them
+    in. A record from before bioRxiv was read newest first carries no
+    ``order``; its window was read from the start, and it says "the first".
     """
     read = detail.get("read") or {}
     records = int(read.get("records") or 0)
     total = read.get("total")
+    which = "newest" if _newest_first(detail) else "first"
     head = (
-        f"the first {records:,} of the {int(total):,} records {source} lists "
+        f"the {which} {records:,} of the {int(total):,} records {source} lists "
         "for the window"
         if isinstance(total, int) and total >= records
-        else f"the first {records:,} records {source} listed for the window"
+        else f"the {which} {records:,} records {source} listed for the window"
     )
     first, last = _day(read.get("first_date")), _day(read.get("last_date"))
     if first and last and first != last:
@@ -255,8 +263,16 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
             )
         if read_in_part(detail):
             # The source answered every page it was asked for; the search
-            # stopped before the end of the window, and the sentence says how
-            # far it got rather than that the source did not answer.
+            # stopped before it had read the whole window, and the sentence
+            # says how far it got rather than that the source did not answer.
+            if _newest_first(detail):
+                return (
+                    f"{source} answered, and resmon stopped before it reached "
+                    f"the start of your window: {what}. It had read "
+                    f"{_read_words(source, detail)}, and none of them matched. "
+                    "The older ones were not read, so this is not a zero for "
+                    "your window."
+                )
             return (
                 f"{source} answered, and resmon stopped before the end of your "
                 f"window: {what}. It had read {_read_words(source, detail)}, "
