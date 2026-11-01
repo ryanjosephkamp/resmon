@@ -441,9 +441,11 @@ def _fitting_children(database: Path) -> list[str]:
 
     ``-e`` and ``args`` are POSIX, so this reads every process on macOS and on
     Linux alike. ``-axo`` did not: on Linux ``-a`` leaves out processes with no
-    terminal, which is every process on a CI runner.
+    terminal, which is every process on a CI runner. ``-ww`` keeps each command
+    line whole: without a terminal to measure, Linux's ps cut it short, before
+    the database's path.
     """
-    listing = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, check=True).stdout
+    listing = subprocess.run(["ps", "-ww", "-eo", "pid=,args="], capture_output=True, text=True, check=True).stdout
     return [line for line in listing.splitlines()
             if "implementation_scripts.collection_map" in line and str(database) in line]
 
