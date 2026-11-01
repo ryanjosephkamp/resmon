@@ -437,8 +437,13 @@ def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tm
 
 
 def _fitting_children(database: Path) -> list[str]:
-    """The processes fitting this database's map, by their command line."""
-    listing = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True, check=True).stdout
+    """The processes fitting this database's map, by their command line.
+
+    ``-e`` and ``args`` are POSIX, so this reads every process on macOS and on
+    Linux alike. ``-axo`` did not: on Linux ``-a`` leaves out processes with no
+    terminal, which is every process on a CI runner.
+    """
+    listing = subprocess.run(["ps", "-eo", "pid=,args="], capture_output=True, text=True, check=True).stdout
     return [line for line in listing.splitlines()
             if "implementation_scripts.collection_map" in line and str(database) in line]
 
