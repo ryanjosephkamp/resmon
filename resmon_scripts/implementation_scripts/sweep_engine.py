@@ -23,7 +23,7 @@ from .api_registry import (
     get_client,
     list_repositories,
 )
-from . import entity_matching
+from . import date_window, entity_matching
 from .repo_catalog import REPOSITORY_CATALOG, required_credential_for
 from .config import REPORTS_DIR
 from .credential_manager import get_credential_for
@@ -74,7 +74,7 @@ _HEARTBEAT_SECONDS = 2.0
 
 # What a run records its sources were sent, under these keys in its stored
 # parameters. A restart copies the parameters and records its own.
-_SENT_QUERY_KEYS = ("author_queries", "queries_sent")
+_SENT_QUERY_KEYS = ("author_queries", "queries_sent", "default_starts")
 
 
 class _ExecutionCancelled(Exception):
@@ -307,6 +307,9 @@ class SweepEngine:
         # its client's words (``describe_request``); ``None`` for a client
         # that does not say.
         queries_sent: dict[str, dict | None] = {}
+        # A source that cannot usefully be asked without a start date, in a run
+        # that set none: the start its client gave it, and why, by slug.
+        default_starts: dict[str, dict] = {}
 
         def cancelled(
             stage: str,
@@ -341,6 +344,7 @@ class SweepEngine:
                     "date_from": query_params.get("date_from", "N/A"),
                     "date_to": query_params.get("date_to", "N/A"),
                     "date_window": query_params.get("date_window_computed"),
+                    "default_starts": dict(default_starts),
                     "total": len(docs),
                     "new": dedup["new"] if dedup else None,
                     "ai_model": ai_model,
@@ -410,7 +414,7 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "querying")
 
-            if self._query_sources(
+            stopped = self._query_sources(
                 exec_id=exec_id,
                 repositories=repositories,
                 query_params=query_params,
@@ -423,18 +427,21 @@ class SweepEngine:
                 source_counts=source_counts,
                 author_queries=author_queries,
                 queries_sent=queries_sent,
-            ):
-                self._record_sent_queries(
-                    exec_id,
-                    author_queries if query_params.get("entity_profile") is not None else None,
-                    queries_sent,
-                )
-                return cancelled("querying")
+                default_starts=default_starts,
+            )
+            # Filled as each source answered; kept, and reported, in the order
+            # the sources were selected, as the run's other records are.
+            ordered = {slug: default_starts[slug] for slug in repositories if slug in default_starts}
+            default_starts.clear()
+            default_starts.update(ordered)
             self._record_sent_queries(
                 exec_id,
                 author_queries if query_params.get("entity_profile") is not None else None,
                 queries_sent,
+                default_starts or None,
             )
+            if stopped:
+                return cancelled("querying")
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -840,6 +847,7 @@ class SweepEngine:
                 "date_from": query_params.get("date_from", "N/A"),
                 "date_to": query_params.get("date_to", "N/A"),
                 "date_window": query_params.get("date_window_computed"),
+                "default_starts": dict(default_starts),
                 "total": dedup_stats["total"],
                 "new": dedup_stats["new"],
                 "ai_model": ai_model_label,
@@ -1164,6 +1172,7 @@ class SweepEngine:
 
     def _record_sent_queries(
         self, exec_id: int, author_queries: Optional[dict], queries_sent: Optional[dict],
+        default_starts: Optional[dict] = None,
     ) -> None:
         """Store what the run's sources were sent, beside its request.
 
@@ -1179,6 +1188,10 @@ class SweepEngine:
         what it put into the request. Those notes are kept under
         ``author_queries``.
 
+        A run that set no start date gives bioRxiv and medRxiv one of their
+        own (``default_start_days`` in the catalog); the start each was given,
+        and the sentence saying why, are kept under ``default_starts``.
+
         ``None`` removes a key. Like the other bookkeeping writes here, a
         failure is logged and never fails the run.
         """
@@ -1190,7 +1203,8 @@ class SweepEngine:
             if not isinstance(params, dict):
                 return
             for key, value in (("author_queries", author_queries),
-                               ("queries_sent", queries_sent)):
+                               ("queries_sent", queries_sent),
+                               ("default_starts", default_starts)):
                 if value is None:
                     params.pop(key, None)
                 else:
@@ -1640,6 +1654,7 @@ class SweepEngine:
         source_counts: dict[str, int],
         author_queries: dict[str, dict],
         queries_sent: dict[str, dict | None],
+        default_starts: Optional[dict[str, dict]] = None,
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
@@ -1812,6 +1827,23 @@ class SweepEngine:
                     queries_sent[repo_name] = {"sent": list(sent["queries_sent"])}
                     if sent.get("queries_sent_omitted"):
                         queries_sent[repo_name]["omitted"] = int(sent["queries_sent_omitted"])
+            # The start a client gave a source the run gave none, said before
+            # what the source returned, and kept only when a request carrying
+            # it went out: the window is in ``queries_sent``, and this is why.
+            start = sent.get("default_start")
+            if start and int(sent.get("attempts") or 0) >= 1:
+                name = _source_display_name(repo_name)
+                words = date_window.default_start_words(name, start)
+                record = {**start, "sentence": f"{name} was {words}"}
+                if default_starts is not None:
+                    default_starts[repo_name] = record
+                task_log.log(f"  {repo_name}: {words}")
+                store.emit(exec_id, {
+                    "type": "log_entry",
+                    "repository": repo_name,
+                    "message": record["sentence"],
+                    "timestamp": now_iso(),
+                })
             try:
                 if "error" in holder:
                     raise holder["error"]

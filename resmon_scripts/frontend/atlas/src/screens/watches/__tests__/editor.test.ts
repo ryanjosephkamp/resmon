@@ -1,11 +1,13 @@
 import { NO_CHOICE, choiceOf } from '../../settings/summaryChoice';
 import type { AiSettings } from '../../settings/summaryLanes';
+import type { CatalogEntry } from '../../runs/model';
 import {
-  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, summaryBody,
-  watchBody, whatIsMissing,
+  blankForm, choiceFrom, clockValue, cronFor, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, startMissing,
+  startMissingSentence, startOffer, summaryBody, watchBody, whatIsMissing,
   type ScheduleChoice,
 } from '../editor';
 import { scheduleText, type Routine } from '../model';
+import type { StartNeeded } from '../window';
 
 const ROUTINE: Routine = {
   id: 7, name: 'Perovskites', schedule_cron: '30 7 * * 1-5',
@@ -217,6 +219,30 @@ describe('which papers each run asks for', () => {
     expect(whatIsMissing({ ...ready, window: 'between', dateTo: '2026-01-01' }, 1)).toEqual([]);
     expect(whatIsMissing({ ...ready, window: 'last_days', lastDays: 0 }, 1)).toEqual(['Choose a number of days from 1 to 3,650.']);
     expect(whatIsMissing({ ...ready, window: 'none' }, 1)).toEqual([]);
+  });
+
+  test('a source that needs a start date is not asked with none, and the days it would get are offered', () => {
+    const biorxiv = { slug: 'biorxiv', name: 'bioRxiv', constraints: { default_start_days: 3 } } as unknown as CatalogEntry;
+    const needs: StartNeeded = { entries: [biorxiv], days: 3 };
+    const ready = { ...blankForm(), name: 'x', keywords: ['y'], sources: ['biorxiv'] };
+    const said = 'bioRxiv needs a start date, and this window gives none: it lists a date range oldest first, and asked '
+      + 'from its first preprints a search stops long before recent ones.';
+    // No date limit, or fixed dates with no start.
+    expect(whatIsMissing({ ...ready, window: 'none' }, 1, needs)).toEqual([said]);
+    expect(whatIsMissing({ ...ready, window: 'between' }, 1, needs)).toEqual([said]);
+    expect(whatIsMissing({ ...ready, window: 'between', dateTo: '2026-01-01' }, 1, needs)).toEqual([said]);
+    // A start, or a window that moves, gives it one.
+    expect(whatIsMissing({ ...ready, window: 'between', dateFrom: '2026-01-01' }, 1, needs)).toEqual([]);
+    expect(whatIsMissing({ ...ready, window: 'previous_run' }, 1, needs)).toEqual([]);
+    expect(whatIsMissing({ ...ready, window: 'last_days', lastDays: 30 }, 1, needs)).toEqual([]);
+    // A watch on a person never asks its sources for a date range.
+    expect(startMissing({ ...ready, window: 'none', follows: 'new_papers', profileId: 2 }, needs)).toBeNull();
+    expect(startMissing({ ...ready, window: 'none' }, null)).toBeNull();
+    expect(startMissingSentence(needs)).toBe(said);
+    expect(startOffer(needs)).toEqual({ window: 'last_days', lastDays: 3, label: 'Ask for the last 3 days' });
+    // What the offer saves is a window that moves, with no fixed dates beside it.
+    const offered = { ...ready, window: 'last_days' as const, lastDays: startOffer(needs).lastDays };
+    expect(watchBody(offered, null).parameters).toMatchObject({ date_window: { last_days: 3 }, date_from: '', date_to: '' });
   });
 });
 

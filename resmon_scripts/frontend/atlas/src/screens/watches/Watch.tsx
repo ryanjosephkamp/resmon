@@ -7,6 +7,7 @@ import { Icon } from '../../shell/Icon';
 import { MapPaper } from '../sky/MapPaper';
 import { PaperSky, basisWords, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { RUNS_KEY } from '../runs/RunLog';
+import type { CatalogEntry } from '../runs/model';
 import { choiceOf, stateSentence } from '../settings/summaryChoice';
 import { AI_KEY } from '../settings/summaryLanes';
 import { count, number, when } from '../today/format';
@@ -236,7 +237,7 @@ function WatchPage({ raw }: { raw: string }) {
           <Switch label="Email the report" column="email_enabled" on={data.email_enabled}
             busy={flip.isPending} onFlip={(on) => flip.mutate({ column: 'email_enabled', on })} />
         </div>
-        <WatchDates routine={data} latestRun={latest?.id ?? null} />
+        <WatchDates routine={data} latestRun={latest?.id ?? null} catalog={catalog.data ?? []} />
         <WatchSummaries routine={data} />
       </header>
 
@@ -319,9 +320,12 @@ function SkippedFires({ routine, now, onOpen }: { routine: Routine; now: Date; o
 /**
  * Which papers each run asks for, in words. A window that moves is said in
  * the engine's sentence, with the dates a run starting now would ask for;
- * fixed dates and no dates are said as stored. Changed in the watch's editor.
+ * fixed dates and no dates are said as stored, with the start each run gives
+ * a source that needs one (bioRxiv, medRxiv). Changed in the watch's editor.
  */
-function WatchDates({ routine, latestRun }: { routine: Routine; latestRun: number | null }) {
+function WatchDates({ routine, latestRun, catalog }: {
+  routine: Routine; latestRun: number | null; catalog: readonly CatalogEntry[];
+}) {
   // Read again whenever a run settles: the run just finished may be the
   // previous run the next window starts from. Under the watch's own key, so
   // a save in the editor refreshes it too.
@@ -332,7 +336,7 @@ function WatchDates({ routine, latestRun }: { routine: Routine; latestRun: numbe
       params: { path: { routine_id: routine.id } },
     }))).date_window_next ?? null,
   });
-  const said = watchWindowSentence(parametersOf(routine.parameters), fresh.data ?? routine.date_window_next);
+  const said = watchWindowSentence(parametersOf(routine.parameters), fresh.data ?? routine.date_window_next, catalog);
   if (!said) return null;
   return (
     <p className="watch-dates" data-watch="window" data-window={said.window}>

@@ -1,7 +1,7 @@
 import type { CatalogEntry } from '../../runs/model';
 import {
-  WINDOWS, coarseMovingSentences, listed, noLimitWords, relevanceSentence, runWindowSentence, watchWindowSentence,
-  windowHint, windowOf, type DateWindowComputed,
+  WINDOWS, coarseMovingSentences, dayCount, daysBefore, formStart, listed, noLimitWords, relevanceSentence,
+  runWindowSentence, startNeeded, watchWindowSentence, windowHint, windowOf, type DateWindowComputed,
 } from '../window';
 
 type Order = CatalogEntry['result_order'];
@@ -110,5 +110,58 @@ describe('a watch’s page and a run’s page state the dates', () => {
     expect(runWindowSentence(JSON.stringify({ date_from: '2026-10-01', date_to: '' }))).toBe('Papers published from October 1, 2026 on.');
     expect(runWindowSentence(JSON.stringify({ date_from: '', date_to: '' }))).toBe('No date limit: each source was asked with no dates.');
     expect(runWindowSentence('not json')).toBeNull();
+  });
+});
+
+describe('sources that need a start date', () => {
+  const needing = (slug: string, name: string): CatalogEntry => ({
+    slug, name, result_order: 'unstated', date_granularity: 'day',
+    constraints: { window_rounding: 'none', default_start_days: 3 },
+  } as unknown as CatalogEntry);
+  const SOURCES = [...CATALOG, needing('biorxiv', 'bioRxiv'), needing('medrxiv', 'medRxiv')];
+
+  test('are the ones the catalog gives a start, with its days', () => {
+    expect(startNeeded(CATALOG)).toBeNull();
+    const needs = startNeeded(SOURCES);
+    expect(needs?.entries.map((e) => e.slug)).toEqual(['biorxiv', 'medrxiv']);
+    expect(needs?.days).toBe(3);
+    expect(daysBefore(3, new Date(2026, 2, 2, 9, 0))).toBe('2026-02-27');
+    expect(dayCount(1)).toBe('1 day');
+    // A form's start counts back from an end date already past, so the window never ends before it starts.
+    const now = new Date(2026, 9, 31, 12);
+    expect(formStart(3, '', now)).toEqual({ day: '2026-10-28', before: 'today' });
+    expect(formStart(3, '2026-10-01', now)).toEqual({ day: '2026-09-28', before: 'end' });
+    expect(formStart(3, '2026-12-01', now)).toEqual({ day: '2026-10-28', before: 'today' });
+  });
+
+  test('a watch with no start says what each run asks them for, and only them', () => {
+    const undated = { repositories: ['arxiv', 'biorxiv'], date_from: '', date_to: '' };
+    expect(watchWindowSentence(undated, null, SOURCES)?.text).toBe(
+      'Every run asks each source with no date limit, in the source’s own order, except bioRxiv, which needs a start '
+      + 'date: each run asks it for the 3 days before it starts.');
+    expect(watchWindowSentence({ repositories: ['biorxiv', 'medrxiv'], date_to: '2026-10-01' }, null, SOURCES)?.text).toBe(
+      'Every run asks for papers published up to October 1, 2026, the same dates each time, except bioRxiv and medRxiv, '
+      + 'which need a start date: each run asks them for the 3 days before its end date or the run, whichever is earlier.');
+    // A start set, a window that moves, a person followed, or no such source: as before.
+    expect(watchWindowSentence({ ...undated, date_from: '2026-10-01' }, null, SOURCES)?.text)
+      .toBe('Every run asks for papers published from October 1, 2026 on, the same dates each time.');
+    expect(watchWindowSentence({ ...undated, date_window: { last_days: 3 } }, null, SOURCES)?.text)
+      .toBe('Each run asks for papers published in the 3 days before it starts.');
+    expect(watchWindowSentence({ ...undated, entity: { mode: 'new_papers', profile_id: 1 } }, null, SOURCES)?.text)
+      .toBe('Every run asks each source with no date limit, in the source’s own order.');
+    expect(watchWindowSentence({ repositories: ['arxiv'] }, null, SOURCES)?.text)
+      .toBe('Every run asks each source with no date limit, in the source’s own order.');
+  });
+
+  test('a run says the start the engine gave them, and that every other source had no dates', () => {
+    const sentence = 'bioRxiv was asked from October 28, 2026, 3 days before the run started, because the run set no '
+      + 'start date: bioRxiv lists a date range oldest first, so asked from its first preprints a search stops long '
+      + 'before recent ones.';
+    const starts = { biorxiv: { date_from: '2026-10-28', days: 3, before: 'run', sentence } };
+    expect(runWindowSentence(JSON.stringify({ date_from: null, default_starts: starts })))
+      .toBe(`No start date was set. ${sentence} Every other source was asked with no dates.`);
+    expect(runWindowSentence(JSON.stringify({ date_to: '2026-10-31', default_starts: starts })))
+      .toBe(`Papers published up to October 31, 2026. ${sentence}`);
+    expect(runWindowSentence(JSON.stringify({ date_from: null }))).toBe('No date limit: each source was asked with no dates.');
   });
 });

@@ -17,8 +17,8 @@ import { coarseFor, coarseSentence, formNotices, noneAskableAboutAuthors, paceOf
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import { invalidateFor } from '../today/freshness';
 import {
-  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, summaryBody,
-  watchBody, whatIsMissing,
+  CADENCES, HOUR_STEPS, WEEKDAYS, clockValue, formFrom, fromClock, retractionsAsks, scheduleWords, seededForm, startMissing,
+  startMissingSentence, startOffer, summaryBody, watchBody, whatIsMissing,
   type Follows, type ScheduleChoice, type WatchForm, type WatchSeed,
 } from './editor';
 import {
@@ -26,7 +26,7 @@ import {
 } from './model';
 import { PEOPLE_KEY, type Profile } from './people/model';
 import {
-  MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, windowHint,
+  MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, startNeeded, windowHint,
   type DateWindowComputed,
 } from './window';
 
@@ -135,9 +135,14 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const current: WatchForm = { ...form, keywords: terms.all };
   const picked = form.sources.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
   const unknown = sources.length ? form.sources.filter((slug) => !sources.some((entry) => entry.slug === slug)) : [];
+  // bioRxiv and medRxiv cannot usefully be asked without a start date, so a
+  // watch on words that asks either is not saved without one; the window
+  // their runs would otherwise be given is offered beside the choices.
+  const needs = startNeeded(picked);
+  const startless = startMissing(current, needs);
   const summariesChanged = JSON.stringify(summaries) !== JSON.stringify(initialSummaries);
   const missing = [
-    ...whatIsMissing(current, form.follows === 'retractions' ? 0 : picked.length),
+    ...whatIsMissing(current, form.follows === 'retractions' ? 0 : picked.length, needs),
     ...[choiceProblem(summaries)].filter((m): m is string => !!m),
   ];
   // A changed choice is written from Settings › AI as read, so it waits for that read.
@@ -289,6 +294,15 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
                 </label>
               ))}
               <p className="form-hint window-hint" data-editor="window-hint">{windowHint(form.window, form.lastDays, sources)}</p>
+              {startless && (
+                <p className="form-hint window-start" data-editor="start-needed">
+                  <span>{startMissingSentence(startless)}</span>
+                  <button type="button" className="btn sm" data-editor="start-offer"
+                    onClick={() => { const offer = startOffer(startless); set({ window: offer.window, lastDays: offer.lastDays }); }}>
+                    {startOffer(startless).label}
+                  </button>
+                </p>
+              )}
             </fieldset>
             <div className="ask-window">
               {form.window === 'last_days' && (
@@ -502,8 +516,13 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
   const moving = form.window === 'previous_run' || form.window === 'last_days';
   const coarse = asks && between ? coarseFor(picked, form.dateFrom, form.dateTo) : [];
   const coarseMoving = asks && moving ? coarseMovingSentences(picked) : [];
-  // A moving window always has a start; no date limit, or fixed dates with none, does not.
-  const notices = asks ? formNotices(picked, { start: moving || (between && !!form.dateFrom), cap: form.cap }) : [];
+  // A moving window always has a start; no date limit, or fixed dates with none, does not. What
+  // bioRxiv and medRxiv are given in place of a blank start is not said here: a watch on words that
+  // asks either with none is not saved (the editor says so beside the window), and a watch on a
+  // person never asks either, because neither can be asked about one.
+  const startless = startMissing(form, startNeeded(picked));
+  const blankStart = !moving && !(between && !!form.dateFrom) && !startless && form.follows === 'words';
+  const notices = asks ? formNotices(picked, { start: !blankStart, cap: form.cap }) : [];
   const undated = asks && form.window === 'none';
   const ranked = undated ? relevanceSentence(picked) : null;
   const newest = undated ? byOrder(picked).newest_first : [];

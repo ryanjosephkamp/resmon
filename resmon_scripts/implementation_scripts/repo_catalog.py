@@ -314,6 +314,24 @@ class SourceNotice:
     applies_when: NoticeScope = "always"
 
 
+# Where bioRxiv and medRxiv start when a run sets no start date: this many days
+# before it. They list a date range oldest first and cannot be asked for words,
+# so resmon reads the range page by page for at most 45 seconds
+# (``api_biorxiv._SEARCH_BUDGET_SECONDS``); asked with no start, a run read from
+# 2013 and stopped there. Measured October 31, 2026: the /details list held 79
+# to 352 bioRxiv records a day from October 18 to 31 (medRxiv, 0 to 118). A
+# run that afternoon made 41 requests inside the budget, at most 1,230 records;
+# late that evening the client read 14 to 25 pages of 30 (420 to 750 records).
+# So the budget covers about one and a half to five days of bioRxiv. Three days
+# before a run (four calendar days with the run's own) held 681 to 1,235
+# bioRxiv records over October 21 to 31, inside the afternoon's pace on ten of
+# those eleven days; a week (1,817 for October 24 to 31) fits inside neither
+# pace. medRxiv read a week of its own in 23 seconds. On a slow evening even
+# one day of bioRxiv can outlast the budget, and the run then says how far it
+# read (``api_base.note_read``).
+DEFAULT_START_DAYS = 3
+
+
 @dataclass(frozen=True)
 class SourceConstraints:
     """Everything resmon can tell a user about a source before they search."""
@@ -330,6 +348,12 @@ class SourceConstraints:
     # ordinary pagination detail with no consequence for the caller: a number
     # here means a run asking for more than it changes shape.
     records_per_request: int | None = None
+    # A source that cannot usefully be asked without a start date: the number
+    # of days before the run (or before its end date, when that is earlier)
+    # resmon asks it from when the run sets no start. ``None`` for a source
+    # asked with no start as it is. The search forms fill in the same start
+    # and will not let it be cleared while such a source is chosen.
+    default_start_days: int | None = None
     notices: tuple[SourceNotice, ...] = ()
     # The citation for the typed fields above. Empty is the omitted default,
     # and it fails the guard rather than reading like an answer.
@@ -348,6 +372,7 @@ def _constraints(
     window_refiltered_locally: bool = False,
     keyword_search: KeywordSearch = "upstream",
     records_per_request: int | None = None,
+    default_start_days: int | None = None,
     notices: tuple[SourceNotice, ...] = (),
     established: str = "",
 ) -> SourceConstraints:
@@ -357,6 +382,7 @@ def _constraints(
         window_refiltered_locally=window_refiltered_locally,
         keyword_search=keyword_search,
         records_per_request=records_per_request,
+        default_start_days=default_start_days,
         notices=notices,
         established=established,
     )
@@ -598,18 +624,21 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`: `search()` pages through the `/details` "
-            "date-range endpoint with no sort parameter (from the archive's "
-            "first month when no start date is set) and matches the terms "
-            "itself; nothing in the client establishes the order within the "
-            "range."
+            "date-range endpoint with no sort parameter (from the start "
+            "`default_start_days` gives it when a run sets none) and matches "
+            "the terms itself; nothing in the client establishes the order "
+            "within the range."
         ),
         constraints=_constraints(
             keyword_search="client_side",
+            default_start_days=DEFAULT_START_DAYS,
             established=(
                 "`api_biorxiv.py`: the `_BIORXIV_API_BASE` URL in "
                 "`search()` is built from the two dates unrounded, and "
                 "`_matches_query` does the keyword matching because the "
-                "endpoint has no query parameter."),
+                "endpoint has no query parameter. A search with no start date "
+                "starts at `_default_start`, `default_start_days` before the "
+                "run."),
             notices=(
                 _notice(
                     "keyword_search",
@@ -624,14 +653,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 ),
                 _notice(
                     "applied_default",
-                    "With no start date, resmon asks bioRxiv for everything "
-                    "since its first preprints in November 2013. bioRxiv lists "
-                    "a range oldest first, so the run reads forward from 2013 "
-                    "and stops at your cap or after 45 seconds of asking, and "
-                    "does not reach recent preprints. Set a start date to "
-                    "search recent ones.",
-                    "`api_biorxiv.py`: the `_FIRST_MONTH` fallback for "
-                    "`d_from` in `search()`, and `_SEARCH_BUDGET_SECONDS`.",
+                    "With no start date, resmon asks bioRxiv for the "
+                    f"{DEFAULT_START_DAYS} days before the run starts, or "
+                    "before your end date when that is earlier. bioRxiv lists "
+                    "a range oldest first, so asked from its first preprints "
+                    "in 2013 a run stops at your cap or after 45 seconds, long "
+                    "before recent ones.",
+                    "`api_biorxiv.py`: `_default_start`, from the catalog's "
+                    "`default_start_days`, for `d_from` in `search()`, and "
+                    "`_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
                 ),
             ),
@@ -1281,17 +1311,21 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         result_order="unstated",
         result_order_established=(
             "`api_biorxiv.py`, as for bioRxiv: the `/details` date-range "
-            "endpoint with no sort parameter (from the archive's first month "
-            "when no start date is set), the terms matched by resmon; nothing "
-            "establishes the order within the range."
+            "endpoint with no sort parameter (from the start "
+            "`default_start_days` gives it when a run sets none), the terms "
+            "matched by resmon; nothing establishes the order within the "
+            "range."
         ),
         constraints=_constraints(
             keyword_search="client_side",
+            default_start_days=DEFAULT_START_DAYS,
             established=(
                 "`api_biorxiv.py`, shared with bioRxiv: the "
                 "`_BIORXIV_API_BASE` URL in `search()` is built from the "
                 "two dates unrounded, and `_matches_query` does the keyword "
-                "matching because the endpoint has no query parameter."),
+                "matching because the endpoint has no query parameter. A "
+                "search with no start date starts at `_default_start`, "
+                "`default_start_days` before the run."),
             notices=(
                 _notice(
                     "keyword_search",
@@ -1306,14 +1340,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 ),
                 _notice(
                     "applied_default",
-                    "With no start date, resmon asks medRxiv for everything "
-                    "since its first preprints in June 2019. medRxiv lists a "
-                    "range oldest first, so the run reads forward from 2019 "
-                    "and stops at your cap or after 45 seconds of asking, and "
-                    "does not reach recent preprints. Set a start date to "
-                    "search recent ones.",
-                    "`api_biorxiv.py`: the `_FIRST_MONTH` fallback for "
-                    "`d_from` in `search()`, and `_SEARCH_BUDGET_SECONDS`.",
+                    "With no start date, resmon asks medRxiv for the "
+                    f"{DEFAULT_START_DAYS} days before the run starts, or "
+                    "before your end date when that is earlier. medRxiv lists "
+                    "a range oldest first, so asked from its first preprints "
+                    "in 2019 a run stops at your cap or after 45 seconds, long "
+                    "before recent ones.",
+                    "`api_biorxiv.py`: `_default_start`, from the catalog's "
+                    "`default_start_days`, for `d_from` in `search()`, and "
+                    "`_SEARCH_BUDGET_SECONDS`.",
                     applies_when="without_start_date",
                 ),
             ),

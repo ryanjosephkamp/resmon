@@ -45,6 +45,15 @@ successful response remains distinct. Already normalized records are retained.
 DNS shutdown and blocking CPU work can exceed this budget; see
 [HAL request reliability](docs/hal-reliability.md).
 
+bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints each lists for a date
+range, oldest first, for up to 45 seconds a search, and matches your terms itself. So neither is
+asked without a start date. Ask the sources fills one in while either is chosen, and a watch on
+either is not saved without one. A run that sets none (a watch saved earlier, the command line,
+the HTTP API, or MCP) asks them for the 3 days before it starts, or before its end date when that
+is earlier, and its log and record say so. Three days is about what that budget reads of bioRxiv:
+on October 31, 2026, it listed 79 to 352 preprints a day, and 45 seconds read 420 to 750 of them
+that evening and at most 1,230 that afternoon.
+
 Sources previously evaluated but excluded from the active catalog (SSRN, RePEc/IDEAS) are not queried at runtime.
 
 ### Sources and their terms

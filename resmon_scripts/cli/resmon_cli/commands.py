@@ -442,6 +442,11 @@ def _run_detail(engine: Engine, row: Mapping[str, Any], out: Out) -> None:
     computed = params.get("date_window_computed") if isinstance(params, dict) else None
     if isinstance(computed, dict) and computed.get("sentence"):
         fields.append(("Dates", str(computed["sentence"])))
+    # bioRxiv and medRxiv, asked in a run that set no start date, were given one.
+    starts = params.get("default_starts") if isinstance(params, dict) else None
+    for start in (starts.values() if isinstance(starts, dict) else ()):
+        if isinstance(start, dict) and start.get("sentence"):
+            fields.append(("Start given", str(start["sentence"])))
     fields.append(("Results", f"{count(row.get('result_count'))}, of which "
                    f"{count(row.get('new_result_count'))} were new to the collection"))
     if row.get("error_message"):

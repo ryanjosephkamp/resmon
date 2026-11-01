@@ -93,6 +93,11 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
       name: 'Preprint firehose', schedule_cron: '*/15 * * * *', is_active: false, ai_enabled: false,
       parameters: { repositories: ['arxiv'], keywords: ['perovskite'], query: 'perovskite', max_results: 20, some_future_field: 'kept' },
     });
+    // A watch on bioRxiv saved with no dates, as one made before a start was required.
+    const undated = await api<{ id: number }>(win, 'POST', '/api/routines', {
+      name: 'Preprints with no dates', schedule_cron: '0 8 * * *', is_active: false, ai_enabled: false,
+      parameters: { repositories: ['arxiv', 'biorxiv'], keywords: ['perovskite'], query: 'perovskite', max_results: 20 },
+    });
     await api(win, 'POST', '/api/configurations', {
       name: 'Tandem cells, two servers', config_type: 'manual_sweep',
       parameters: { repositories: ['arxiv', 'biorxiv'], date_from: '2026-09-01', date_to: '2026-10-01', keywords: ['tandem'], max_results: 40, ai_enabled: false },
@@ -115,6 +120,21 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     await win.keyboard.press('Enter');
     await win.locator('.source[data-source="arxiv"] input').check();
     await win.locator('.source[data-source="biorxiv"] input').check();
+    // bioRxiv needs a start date: with no date limit the watch is not saved,
+    // and the days its runs would otherwise be given are offered.
+    await win.getByRole('radio', { name: 'No date limit' }).check();
+    const needed = win.locator('[data-editor="start-needed"]');
+    await expect(needed).toContainText('bioRxiv needs a start date, and this window gives none: it lists a date range oldest first');
+    await expect(win.locator('.ask-go .ask-facts p')).toHaveText([/^bioRxiv needs a start date, and this window gives none/]);
+    await expect(save).toBeDisabled();
+    // What it will do does not say what a run would ask bioRxiv in place of a start: it would not save.
+    await expect(win.locator('[data-will="notice"]')).toHaveCount(0);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-editor-start-needed.png') });
+    await needed.getByRole('button', { name: 'Ask for the last 3 days' }).click();
+    await expect(win.getByRole('radio', { name: 'In the last 3 days' })).toBeChecked();
+    await expect(needed).toHaveCount(0);
+    await expect(save).toBeEnabled();
+    await win.getByRole('radio', { name: 'Papers published since the previous run' }).check();
     await win.getByRole('button', { name: 'Weekdays', exact: true }).click();
     await win.getByLabel('Time of day').fill('07:30');
     await win.getByLabel('Most papers per source').fill('25');
@@ -187,6 +207,21 @@ test('the watch editor: made, changed, a person, destinations, from a search, an
     row = await stored(win, firehose.id);
     expect(row).toMatchObject({ schedule_cron: '*/15 * * * *', intent: 'Every perovskite preprint, as it appears' });
     expect(row.parameters).toMatchObject({ some_future_field: 'kept', max_results: 20 });
+
+    // — a watch on bioRxiv saved with no start says so, and is given one ------
+    await win.evaluate((id) => { window.location.hash = `#/watches/${id}`; }, undated.id);
+    await expect(win.locator('[data-watch="window"]')).toContainText(
+      'Every run asks each source with no date limit, in the source’s own order, except bioRxiv, which needs a start date: '
+      + 'each run asks it for the 3 days before it starts.', { timeout: 30_000 });
+    await win.locator('[data-watch="window"]').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watch-start-default.png') });
+    await win.evaluate((id) => { window.location.hash = `#/watches/${id}/edit`; }, undated.id);
+    await expect(win.getByRole('radio', { name: 'No date limit' })).toBeChecked({ timeout: 30_000 });
+    await expect(win.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+    await win.locator('[data-editor="start-offer"]').click();
+    await win.getByRole('button', { name: 'Save changes' }).click();
+    await expect(win.locator('.watch-page [data-editor="said"]')).toHaveText('Saved.', { timeout: 30_000 });
+    expect((await stored(win, undated.id)).parameters).toMatchObject({ date_window: { last_days: 3 }, date_from: '', date_to: '' });
+    await expect(win.locator('[data-watch="window"]')).not.toContainText('except bioRxiv');
 
     // — a person, from their page --------------------------------------------
     await win.evaluate((id) => { window.location.hash = `#/watches/people/${id}`; }, person.id);

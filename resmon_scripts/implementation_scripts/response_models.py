@@ -1501,6 +1501,10 @@ class RepositoryConstraints(LosslessModel):
     window_refiltered_locally: bool
     keyword_search: str
     records_per_request: Optional[int]
+    # A source that cannot usefully be asked without a start date (bioRxiv,
+    # medRxiv): the days before the run it is asked from when none is set,
+    # which the search forms also fill in. ``None`` for every other source.
+    default_start_days: Optional[int]
     notices: list[RepositorySourceNotice]
     established: str
 

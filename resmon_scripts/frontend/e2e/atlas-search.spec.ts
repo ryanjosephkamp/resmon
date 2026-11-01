@@ -94,23 +94,36 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const terms = win.getByLabel('Search terms');
     await terms.fill('graph learning');
     await terms.press('Enter');
-    await win.getByRole('button', { name: 'Any time', exact: true }).click();
+    const anyTime = win.getByRole('button', { name: 'Any time', exact: true });
+    await anyTime.click();
     await expect(win.locator('.ask-facts')).toContainText('Springer Nature has no API key here');
-    // bioRxiv with no start date is read from its first month forward, and the
-    // form says so before the run rather than after it fails; with a start
-    // date set, it does not.
+    // bioRxiv lists a date range oldest first, so asked from its first
+    // preprints a search stops long before recent ones. Chosen with Any time,
+    // the form fills in the start the engine would give it and says why, Any
+    // time is not offered, and a cleared start is filled in again.
     const biorxiv = win.locator('.source[data-source="biorxiv"] input');
+    const from = win.getByLabel('From', { exact: true });
     await biorxiv.check();
-    const notice = win.locator('.ask-facts [data-ask="notice"]');
-    await expect(notice).toHaveCount(1);
-    await expect(notice).toContainText('With no start date, resmon asks bioRxiv for everything since its first preprints');
-    await win.getByRole('button', { name: '30 days', exact: true }).click();
-    await expect(notice).toHaveCount(0);
-    await win.getByRole('button', { name: 'Any time', exact: true }).click();
-    await expect(notice).toHaveCount(1);
-    await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-notice.png') });
+    const back = new Date();
+    back.setDate(back.getDate() - 3);
+    const filled = `${back.getFullYear()}-${String(back.getMonth() + 1).padStart(2, '0')}-${String(back.getDate()).padStart(2, '0')}`;
+    const words = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' }).format(back);
+    await expect(from).toHaveValue(filled);
+    await expect(anyTime).toBeDisabled();
+    const startLine = win.locator('.ask-facts [data-ask="start-needed"]');
+    await expect(startLine).toHaveText(`bioRxiv needs a start date, so this search starts 3 days back, on ${words}: it lists a `
+      + 'date range oldest first, and asked from its first preprints a search stops long before recent ones.');
+    // The catalog's sentence for a blank start is never true here, so never shown.
+    await expect(win.locator('.ask-facts [data-ask="notice"]')).toHaveCount(0);
+    await from.fill('');
+    await expect(from).toHaveValue(filled);
+    await win.locator('.ask-facts').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-search-start-date.png') });
+    // Unchosen, the blank it stood in for comes back, and Any time with it.
     await biorxiv.uncheck();
-    await expect(notice).toHaveCount(0);
+    await expect(startLine).toHaveCount(0);
+    await expect(from).toHaveValue('');
+    await anyTime.click();
+    await expect(anyTime).toHaveAttribute('aria-pressed', 'true');
     const started = win.waitForResponse((r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST');
     await win.getByRole('button', { name: 'Ask 2 sources' }).click();
     const { execution_id: runId } = await (await started).json() as { execution_id: number };

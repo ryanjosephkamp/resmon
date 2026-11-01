@@ -10,7 +10,8 @@ import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
 import { RunLog } from './runs/RunLog';
 import { PlaceHelp } from './watches/people/People';
-import { coarseFor, coarseSentence, formNotices, paceOf, rateLong } from './sources/catalog';
+import { formStart, startNeeded } from './watches/window';
+import { askStartSentence, coarseFor, coarseSentence, formNotices, paceOf, rateLong } from './sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from './sources/SourceCatalog';
 import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
@@ -130,6 +131,18 @@ export function Search() {
   const allTerms = terms.all;
   // In the order they were chosen, which is the order the run asks and records them.
   const picked = chosen.flatMap((slug) => sources.filter((entry) => entry.slug === slug));
+
+  // bioRxiv and medRxiv cannot usefully be asked without a start date: each
+  // lists a date range oldest first, so from its first preprints a search
+  // stops at its cap or its time budget long before recent ones. While one is
+  // chosen the start is never blank: a blank one, from Any time, a cleared
+  // field, or a saved search with none, is the start the engine would give
+  // them (`filled`), shown in the field, asked, and saved, and the line under
+  // the button says so. Unchosen, the blank comes back.
+  const needs = useMemo(() => startNeeded(picked), [picked]);
+  const filled = useMemo(() => (needs && !dates.from ? formStart(needs.days, dates.to) : null), [needs, dates.from, dates.to]);
+  const askedFrom = filled ? filled.day : dates.from;
+
   // A saved search can name a source this copy of resmon cannot ask (one
   // retired since, or from a newer build). It is said and left out, rather
   // than counted as chosen and asked of nothing.
@@ -141,7 +154,7 @@ export function Search() {
       const base = {
         query: allTerms.join(' '),
         keywords: allTerms,
-        date_from: dates.from || null,
+        date_from: askedFrom || null,
         date_to: dates.to || null,
         max_results: cap,
         ai_enabled: summaries.on,
@@ -166,7 +179,7 @@ export function Search() {
   const keep = useMutation({
     mutationFn: (name: string) => {
       const { config_type, parameters } = savedParameters({
-        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: dates.from, dateTo: dates.to, cap,
+        mode, sources: picked.map((e) => e.slug), keywords: allTerms, dateFrom: askedFrom, dateTo: dates.to, cap,
         summarize: summaries.on,
       });
       return answer(engine().POST('/api/configurations', { body: { name, config_type, parameters } }));
@@ -203,8 +216,8 @@ export function Search() {
 
   // The two facts derived from the catalog for this selection.
   const pace = useMemo(() => paceOf(picked), [picked]);
-  const coarse = useMemo(() => coarseFor(picked, dates.from, dates.to), [picked, dates]);
-  const notices = useMemo(() => formNotices(picked, { start: !!dates.from, cap }), [picked, dates, cap]);
+  const coarse = useMemo(() => coarseFor(picked, askedFrom, dates.to), [picked, askedFrom, dates.to]);
+  const notices = useMemo(() => formNotices(picked, { start: !!askedFrom, cap }), [picked, askedFrom, cap]);
 
   const refusal = start.error instanceof EngineError && start.error.status === 429
     ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
@@ -239,6 +252,11 @@ export function Search() {
             shorter window, and says so in the run’s search record.
           </p>
           <p>
+            bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints they list for your dates, oldest
+            first, for up to 45 seconds, and matches your terms itself. So they need a start date, and while either is
+            chosen the form fills one in rather than leave it blank.
+          </p>
+          <p>
             A source that requires an API key and has none here is recorded as not asked. Keys are stored in
             {' '}<Link to="/settings/sources">Settings › Sources</Link>, in this computer’s keychain, and sent only to
             their source.
@@ -268,7 +286,8 @@ export function Search() {
                 <button
                   key={w.label}
                   type="button"
-                  aria-pressed={windowDays === w.days}
+                  aria-pressed={windowDays === w.days && !(w.days === null && needs)}
+                  disabled={w.days === null && !!needs}
                   onClick={() => { setWindowDays(w.days); setDates(windowDates(w.days)); }}
                 >
                   {w.label}
@@ -277,7 +296,7 @@ export function Search() {
             </div>
             <label className="date">
               <span>From</span>
-              <input type="date" value={dates.from} onChange={(e) => { setWindowDays(undefined); setDates({ ...dates, from: e.target.value }); }} />
+              <input type="date" value={askedFrom} onChange={(e) => { setWindowDays(undefined); setDates({ ...dates, from: e.target.value }); }} />
             </label>
             <label className="date">
               <span>To</span>
@@ -320,6 +339,9 @@ export function Search() {
               </p>
             )}
             {coarse.length > 0 && <p>{coarseSentence(coarse)}</p>}
+            {needs && (
+              <p data-ask="start-needed">{askStartSentence(needs, filled)}</p>
+            )}
             {notices.map((notice) => <p key={`${notice.slug}:${notice.effect}`} data-ask="notice">{notice.effect}</p>)}
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>

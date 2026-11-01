@@ -662,6 +662,9 @@ class SearchOutcome:
     # How far a source that is read in order got before the search stopped;
     # see ``note_read``.
     read: dict | None = None
+    # The start a client gave a search the run gave none; see
+    # ``note_default_start``.
+    default_start: dict | None = None
 
     def reset(self) -> None:
         self.attempts = 0
@@ -680,6 +683,7 @@ class SearchOutcome:
         self.queries_sent = []
         self.queries_sent_omitted = 0
         self.read = None
+        self.default_start = None
 
     # -- written by safe_request ------------------------------------------
 
@@ -817,6 +821,7 @@ class SearchOutcome:
                              if self.describe_request is not None else None),
             "queries_sent_omitted": self.queries_sent_omitted,
             "read": dict(self.read) if self.read else None,
+            "default_start": dict(self.default_start) if self.default_start else None,
         }
 
 
@@ -911,6 +916,23 @@ def note_read(*, records: int, total: int | None = None,
     if last_date:
         read["last_date"] = str(last_date)
     search_outcome().read = read
+
+
+def note_default_start(*, date_from: str, days: int, before: str) -> None:
+    """Record the start a client gave a search that the run gave none.
+
+    For a source that cannot usefully be asked without one (the catalog's
+    ``default_start_days``: bioRxiv, medRxiv): the search was asked from
+    ``date_from``, ``days`` days before the run (``before="run"``) or before
+    the run's end date (``before="end_date"``). Written by the client, which
+    is what decides it, so the run's log and record say the start that was
+    sent rather than one worked out again beside it.
+    """
+    if before not in ("run", "end_date"):
+        raise ValueError(f"unknown default start anchor {before!r}")
+    search_outcome().default_start = {
+        "date_from": str(date_from), "days": int(days), "before": before,
+    }
 
 
 def note_retry_wait(seconds: float) -> None:

@@ -8,6 +8,7 @@
  * an author. Nothing here estimates how many papers a source will return.
  */
 import type { CatalogEntry } from '../runs/model';
+import { dayCount, dayWords, listed, startWhy, type StartNeeded } from '../watches/window';
 
 /** Requests per second, from the catalog's stated limit ("0.33 req/s (1 per 3 s)"). */
 export function ratePerSecond(rate: string): number | null {
@@ -85,6 +86,23 @@ export function noneAskableAboutAuthors(picked: readonly CatalogEntry[]): boolea
   return picked.length > 0 && picked.every((entry) => entry.entity_search.author_query === 'none');
 }
 
+/**
+ * Ask the sources' line for a chosen source that needs a start date: the start
+ * the form filled in, when it did (`filled`), or why Any time is not offered.
+ */
+export function askStartSentence(needs: StartNeeded, filled: { day: string; before: 'today' | 'end' } | null): string {
+  const names = listed(needs.entries.map((entry) => entry.name));
+  const need = needs.entries.length === 1 ? 'needs' : 'need';
+  if (!filled) {
+    return `${names} ${need} a start date, so Any time is not offered while ${needs.entries.length === 1 ? 'it is' : 'they are'} `
+      + `chosen: ${startWhy(needs)}.`;
+  }
+  const when = filled.before === 'end'
+    ? `on ${dayWords(filled.day)}, ${dayCount(needs.days)} before its end date`
+    : `${dayCount(needs.days)} back, on ${dayWords(filled.day)}`;
+  return `${names} ${need} a start date, so this search starts ${when}: ${startWhy(needs)}.`;
+}
+
 /** A sentence the catalog says a chosen source carries in the form's present state. */
 export interface FormNotice {
   slug: string;
@@ -94,10 +112,10 @@ export interface FormNotice {
 /**
  * The catalog's notices that the form's own state makes true, before anything
  * is asked: what resmon does in place of a start date that is not set
- * (bioRxiv and medRxiv read their archives from the first month forward, and
- * stop at the cap or their time budget long before recent preprints), and how
- * it asks a source for more than it returns in one request. A notice is shown
- * only in the state its `applies_when` names, as the catalog requires.
+ * (bioRxiv and medRxiv are asked for the days before the run, which a form
+ * fills in rather than leave blank), and how it asks a source for more than it
+ * returns in one request. A notice is shown only in the state its
+ * `applies_when` names, as the catalog requires.
  */
 export function formNotices(
   picked: readonly CatalogEntry[], state: { start: boolean; cap: number },
