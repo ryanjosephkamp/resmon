@@ -899,16 +899,21 @@ def sent_params(*keys: str, url: str | None = None):
 
 
 def note_read(*, records: int, total: int | None = None,
-              first_date: str | None = None, last_date: str | None = None) -> None:
+              first_date: str | None = None, last_date: str | None = None,
+              newest_first: bool = False) -> None:
     """Record how far a search read through a source it reads in order.
 
     For a source resmon cannot ask for words (bioRxiv, medRxiv): it lists a
     date range in order and resmon reads it page by page. When the search
-    stops before the end of the range, this is what was covered: how many
-    records were read, of how many the source said the range holds, and the
-    earliest and latest dates among those read.
+    stops before it has read the whole range, this is what was covered: how
+    many records were read, of how many the source said the range holds, and
+    the earliest and latest dates among those read. ``newest_first`` says the
+    range was read from its end back, so what was read is its newest part
+    (``order`` in the record); a record without it was read from the start.
     """
-    read = {"records": int(records)}
+    read: dict = {"records": int(records)}
+    if newest_first:
+        read["order"] = "newest_first"
     if total is not None:
         read["total"] = int(total)
     if first_date:

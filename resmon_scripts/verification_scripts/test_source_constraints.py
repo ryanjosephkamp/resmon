@@ -516,11 +516,12 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     scopes = Counter(
         n.applies_when for e in REPOSITORY_CATALOG for n in e.constraints.notices
     )
-    assert sum(scopes.values()) == 21, sum(scopes.values())
+    assert sum(scopes.values()) == 23, sum(scopes.values())
     assert dict(scopes) == {
         "with_date_window": 14,
         "always": 3,
         "without_start_date": 2,
+        "beyond_default_start": 2,
         "above_record_cap": 1,
         "with_end_date": 1,
     }, dict(scopes)
@@ -539,7 +540,7 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     # can be shown in, written down rather than done once by eye: the first
     # round of this change did it by eye and shipped DBLP contradicting
     # itself.
-    def speaks(entry, *, has_from, has_to, max_results):
+    def speaks(entry, *, has_from, has_to, max_results, long_window=False):
         cap = entry.constraints.records_per_request
         for notice in entry.constraints.notices:
             scope = notice.applies_when
@@ -548,6 +549,10 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
             if scope == "with_end_date" and not has_to:
                 continue
             if scope == "without_start_date" and has_from:
+                continue
+            # Only a start set further back than the source's own default:
+            # with none, the window is that default.
+            if scope == "beyond_default_start" and not (has_from and long_window):
                 continue
             if scope == "above_record_cap" and not (
                 cap is not None and max_results is not None and max_results > cap
@@ -622,6 +627,18 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
             has_from=has_from, has_to=has_to, max_results=500)
         assert ("ndl_search", "result_cap") in shown(
             has_from=has_from, has_to=has_to, max_results=2000)
+
+    # A window longer than bioRxiv's and medRxiv's own default: each says it
+    # is read from the newest end back and may not reach the start. Only
+    # then, and never without a start, which is the default itself.
+    long_window = shown(has_from=True, has_to=False, max_results=100, long_window=True)
+    assert sorted(set(long_window) - set(from_only)) == [
+        ("biorxiv", "date_window"), ("medrxiv", "date_window")]
+    for has_from, has_to in STATES:
+        assert ("biorxiv", "date_window") not in shown(
+            has_from=has_from, has_to=has_to, max_results=100)
+    assert ("biorxiv", "date_window") not in shown(
+        has_from=False, has_to=True, max_results=100, long_window=True)
 
 
 def test_a_mislabeled_notice_moves_between_states_and_the_table_sees_it():
