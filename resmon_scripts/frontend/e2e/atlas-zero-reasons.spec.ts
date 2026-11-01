@@ -235,6 +235,34 @@ for (const mode of ['503', 'malformed'] as const) {
   });
 }
 
+test('P13f: window_unanswerable — a window the source cannot express is said, in the source\'s own words', async () => {
+  // ERIC filters by publication year only, so a two-week window cannot be
+  // answered: the client refuses it and makes no HTTP call at all.
+  const sentence = 'ERIC filters by publication year only, so a window shorter than one whole '
+    + 'calendar year cannot be answered. resmon did not widen your window.';
+  const source = await launchSourceApp('empty', { ui: 'atlas' });
+  const { win, close } = source;
+  try {
+    const id = await startDive(win, {
+      repository: 'eric', query: 'reading comprehension', keywords: ['reading comprehension'],
+      date_from: '2026-01-01', date_to: '2026-01-14', max_results: 5, ai_enabled: false,
+    });
+    await openSettled(win, id);
+    const record = await recorded(win, 'eric');
+    console.log('P13f RECORDED', JSON.stringify(record));
+    expect(record.label).toBe('could not answer this window');
+    expect(record.note).toContain(sentence);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-zero-window-unanswerable.png') });
+    const live = await progress(win, 'eric');
+    console.log('P13f PROGRESS', JSON.stringify(live));
+    expect(live.label).toBe('could not answer this window');
+    expect(source.evidence(id).requests).toHaveLength(0);
+    expect(await logLine(win, id)).toContain('0 of 1 source answered');
+  } finally {
+    await close();
+  }
+});
+
 test('P13d: the ten reasons, and which of them a real browser has now seen', async () => {
   // The denominator, taken from the code rather than counted here: a reason
   // added to `zero_reason.ZERO_REASONS` with no real-browser case shows up in
@@ -247,7 +275,7 @@ test('P13d: the ten reasons, and which of them a real browser has now seen', asy
 
   // Driven through the assembled app against a real backend.
   const inRealBrowser = [
-    'window_unanswerable', // zero-reason.spec.ts
+    'window_unanswerable', // P13f
     'upstream_failure', // P13a
     'answered_empty', // P13b
     'not_recorded', // P13c

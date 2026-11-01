@@ -257,10 +257,10 @@ export async function sourceApi(win: Page, route: string): Promise<Record<string
   }, route);
 }
 
-/** Which renderer the launch serves: the classic one unless a spec asks for Atlas. */
-export interface SourceLaunch { ui?: 'classic' | 'atlas' }
+/** Which renderer the launch serves: Atlas. */
+export interface SourceLaunch { ui?: 'atlas' }
 
-export async function launchSourceApp(mode: Mode, launch: SourceLaunch = {}) {
+export async function launchSourceApp(mode: Mode, _launch: SourceLaunch = {}) {
   const authored = mode.startsWith('authored');
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-source-boundary-'));
   const requests: SourceRequest[] = [];
@@ -317,7 +317,7 @@ export async function launchSourceApp(mode: Mode, launch: SourceLaunch = {}) {
   // so their replies are not gated behind a caller's `release()`. The existing
   // transport cases keep the gate they were written for.
   if (authored) release();
-  const env = launch.ui === 'atlas' ? atlasEnv(launchEnv(stateDir, true)) : launchEnv(stateDir, true);
+  const env = atlasEnv(launchEnv(stateDir, true));
   const hookDir = path.join(stateDir, 'python-source-boundary');
   fs.mkdirSync(hookDir);
   // Startup hook is private to this child's PYTHONPATH; no production file or
@@ -436,9 +436,7 @@ print(json.dumps(refusals))
       cwd: FRONTEND_ROOT, env, timeout: 180_000 });
     const win = await app.firstWindow({ timeout: 180_000 });
     await win.waitForLoadState('domcontentloaded');
-    // Atlas has no `.app-main`; its specs wait for the sections, as every one does.
-    await (launch.ui === 'atlas' ? win.getByRole('navigation', { name: 'Sections' }) : win.locator('.app-main'))
-      .waitFor({ state: 'visible', timeout: 60_000 });
+    await win.getByRole('navigation', { name: 'Sections' }).waitFor({ state: 'visible', timeout: 60_000 });
     const hook = JSON.parse(fs.readFileSync(path.join(stateDir, 'source-hook.json'), 'utf8'));
     expect(hook.parent_pid).toBe(app.process().pid);
     expect(hook.endpoint).toBe(endpoint);

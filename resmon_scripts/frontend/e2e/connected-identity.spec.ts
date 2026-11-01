@@ -1,4 +1,9 @@
-/** Actual Electron header, two owned serving processes and a legacy HTTP adapter. */
+/** Actual Electron header, two owned serving processes and a legacy HTTP adapter.
+ *
+ * Classic only, and the last spec that opens the classic renderer: Atlas has no
+ * engine-changed flow, and whether it needs one is the owner's decision. Until
+ * then this keeps its own launch without `atlasEnv`; it is deleted with the
+ * classic renderer, or replaced by an Atlas spec if Atlas gains the flow. */
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';

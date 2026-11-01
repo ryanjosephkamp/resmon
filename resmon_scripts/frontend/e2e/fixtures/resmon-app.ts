@@ -223,7 +223,11 @@ export interface FailedRequest {
 }
 
 export interface WorkerFixtures {
-  /** Which renderer the worker's app serves. A spec that drives Atlas says `test.use({ ui: 'atlas' })`. */
+  /**
+   * Which renderer the worker's app serves: Atlas. `classic` is kept only for
+   * `connected-identity.spec.ts` while the owner decides whether Atlas needs an
+   * engine-changed flow; it goes with the classic renderer.
+   */
   ui: 'classic' | 'atlas';
   app: ElectronApplication;
   win: Page;
@@ -329,7 +333,7 @@ export function atlasEnv(base: Record<string, string>): Record<string, string> {
 }
 
 export async function launchResmon(
-  e2e = true, ui: 'classic' | 'atlas' = 'classic',
+  e2e = true, ui: 'classic' | 'atlas' = 'atlas',
 ): Promise<{ app: ElectronApplication; stateDir: string }> {
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-'));
   const env = launchEnv(stateDir, e2e);
@@ -343,7 +347,7 @@ export async function launchResmon(
 }
 
 export const test = base.extend<TestFixtures, WorkerFixtures>({
-  ui: ['classic', { option: true, scope: 'worker' }],
+  ui: ['atlas', { option: true, scope: 'worker' }],
   currentRoute: [async ({}, use) => { await use({ value: 'launch' }); }, { scope: 'worker' }],
   consoleErrors: [async ({}, use) => { await use([]); }, { scope: 'worker' }],
   failedRequests: [async ({}, use) => { await use([]); }, { scope: 'worker' }],

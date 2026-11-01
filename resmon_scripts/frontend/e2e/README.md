@@ -37,12 +37,10 @@ under `release/` it skips, and says so.
 | `main-window.spec.ts` | P3–P4 — `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
 | `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
 | `smoke.spec.ts` | One test per Atlas screen: it loads and stays at its own address, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
-| `search-record.spec.ts` | Q4 — the Results report viewer's *Search record* tab, which a previous attempt reported as unclickable under automation. |
 | `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something, in Atlas. |
 | `ipc-stubs.spec.ts` | Q5 — replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
 | `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
-| `zero-reason.spec.ts` | Phase 1.8.6 — `window_unanswerable` on all three surfaces. |
-| `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection), `answered_empty` (an authored empty feed) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the ten reasons a real browser has seen. |
+| `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection, or answers 503), `answered_empty` (an authored empty feed), `parse_failure` (an unreadable reply), `window_unanswerable` (a window ERIC cannot express) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the ten reasons a real browser has seen. |
 | `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
 | `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
 | `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
