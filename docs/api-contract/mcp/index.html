@@ -381,6 +381,24 @@ its response. <code>is_active</code> governs scheduling, not permission.</p>
 <table><thead><tr><th>Excluded</th><th>Why</th></tr></thead><tbody><tr><td><code>/api/admin/*</code> — erase corpus, erase app data, factory reset, erase keys</td><td>Destructive and irreversible. No confirmation model a tool call can satisfy.</td></tr><tr><td><code>PUT</code> / <code>DELETE /api/credentials/{name}</code></td><td>Writing credentials through a tool surface means a credential passing through a harness. Never.</td></tr><tr><td><del><code>PUT /api/settings/*</code></del></td><td><strong>Lifted in v2.0</strong> as <code>update_settings</code>, on the condition this row named: a person in the conversation confirms it. Settings outside the group allowlist are still out of reach — see the v2.0 and v2.1 amendments — and since v2.4 so are the 19 keys inside it that choose where resmon sends things, what resmon runs, where resmon writes, what resmon is told, or whether the user is told how a result was produced.</td></tr><tr><td><code>PUT /api/settings/execution</code></td><td>Deliberately <em>not</em> in <code>update_settings</code>’s allowlist. Admission control — how many executions run at once, how deep the routine fire queue goes — is a decision about the machine rather than about the research, and the endpoint does not take <code>SettingsBody</code>.</td></tr><tr><td><code>DELETE /api/routines/{id}</code>, <code>DELETE /api/executions/{id}</code></td><td>Destructive. Same reasoning.</td></tr><tr><td><code>/api/service/install</code>, <code>/api/service/uninstall</code></td><td>Touches launchd / systemd on the user’s machine.</td></tr><tr><td><code>/api/executions/{id}/progress/stream</code></td><td>SSE does not fit a request/response tool surface. Poll <code>get_execution</code>.</td></tr><tr><td><code>/api/lifecycle/check</code></td><td>Long-running corpus-wide job. A tool call that runs for an hour is a trap; revisit with a job-handle model.</td></tr></tbody></table>
 <hr>
 <h2 id="amendments">Amendments</h2>
+<h3 id="a-start-date-resmon-gives-not-a-version--november-1-2026">A start date resmon gives, not a version — November 1, 2026</h3>
+<p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no argument
+changes, and the contract version does not change.</strong> What <code>run_sweep</code> and <code>run_routine</code> ask two
+sources changes when the caller sets no start date.</p>
+<p>bioRxiv and medRxiv cannot be asked for words: resmon reads the preprints each lists for a date
+range, oldest first, for at most 45 seconds a search, and matches the terms itself. Asked with no
+<code>date_from</code>, they were read from their first preprints (2013 and 2019) and stopped long before
+recent ones; one term with no dates failed after 45 seconds. A run with no start date now asks
+each of them for the <strong>3 days before the run starts</strong>, or before its <code>date_to</code> when that is
+earlier. Every other source in the same run is asked exactly as before. The number is the
+catalog’s <code>constraints.default_start_days</code> (<code>null</code> for every other source), which <code>GET /api/repositories/catalog</code> now carries; <code>list_sources</code> does not pass constraints through, so it
+does not show it.</p>
+<p>What the run did is on its record. <code>get_execution</code>’s <code>parameters</code> keeps the start each was given
+under <code>default_starts</code>, by source slug: <code>date_from</code>, <code>days</code>, <code>before</code> (<code>run</code> or <code>end_date</code>), and
+<code>sentence</code>, which says why in the app’s words. <code>get_search_record</code>’s <code>search.queries_as_sent</code> row
+for the source carries the window it was sent, and the run’s log says the same sentence. The
+run’s own <code>date_from</code> stays as it was sent, empty. A watch saved with no start date runs this
+way too; Atlas’s editor will not save a watch on words that asks either source without one.</p>
 <h3 id="two-reads-say-more-not-a-version--october-31-2026">Two reads say more, not a version — October 31, 2026</h3>
 <p><strong>25 tools, 44 distinct method-and-path pairs; no tool arrives, none is removed, no field is
 removed or changes type, and the contract version does not change.</strong> Two reads say more than
