@@ -21,7 +21,7 @@ ffmpeg on hand:
 npm run build                                   # the demos launch the built app
 
 # 1. The collection: about 1,700 public papers, most from arXiv, three watches and their runs,
-#    two searches, a library of three PDFs, and the map. Needs the network; about
+#    three searches, a library of three PDFs, and the map. Needs the network; about
 #    half an hour, most of it waiting on arXiv's rate limit while the library's
 #    papers are checked for their licenses. The folder must not exist.
 ../../.venv/bin/python demos/build_collection.py ~/resmon-demo-collection

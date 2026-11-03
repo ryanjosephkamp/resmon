@@ -23,9 +23,10 @@ Real, public papers, so the map has a true shape:
    is recorded on each as the engine records a source with no key. The papers
    are arXiv's; the times are a reconstruction, which is why the newest papers
    are left out of it.
-3. **Two searches, for real.** The engine is started headless and asked a
-   Deep Sweep over several sources and a Deep Dive, so the Source wall has
-   more than arXiv to show. Today is then marked as looked at.
+3. **Three searches, for real.** The engine is started headless and asked a
+   Deep Sweep over several sources, a Deep Dive, and a Deep Sweep of ten
+   sources over the last three days, so the Source wall has more than arXiv
+   to show, and more kinds of answer. Today is then marked as looked at.
 4. **Today's runs, for real.** Each watch is run once, now. Those runs find
    the papers the history left out, so Today's new papers came from runs the
    engine really made, and the protein watch's second source, CORE, is
@@ -89,12 +90,20 @@ WATCHES = [
 ]
 #: How long ago the watches were made, in days. Their first run took everything older.
 HISTORY_DAYS = 18
-#: Two searches made by hand. The sweep's sources answer without a key, and the
-#: dive asks OpenAlex so arXiv is asked no more than the watches need.
+#: Three searches made by hand. The first sweep's sources answer without a key,
+#: and the dive asks OpenAlex so arXiv is asked no more than the watches need.
+#: The last sweep asks ten sources about the last three days, as a person
+#: checking a topic for the week might: a window that short is one some sources
+#: date too coarsely to answer, and one where a quiet field may have nothing,
+#: so the Source wall shows how each source answered, whatever that is on the
+#: day. None of them needs a key.
 SEARCHES = [
     {"kind": "sweep", "query": "protein language models",
      "sources": ["arxiv", "europepmc", "openalex", "crossref"], "max_results": 60},
     {"kind": "dive", "query": "equivariant graph neural networks", "sources": ["openalex"], "max_results": 80},
+    {"kind": "sweep", "query": "protein structure", "days": 3, "max_results": 20,
+     "sources": ["openalex", "crossref", "europepmc", "pubmed", "plos", "hal", "zenodo", "dblp", "doaj",
+                 "semantic_scholar"]},
 ]
 #: arXiv asks for one request every three seconds and answers a burst with 429s
 #: for a while after; the pause between topics, and before the engine asks again.
@@ -502,6 +511,9 @@ def main() -> None:
             if search["kind"] == "sweep":
                 body = {"repositories": search["sources"], "query": search["query"],
                         "max_results": search["max_results"]}
+                if "days" in search:
+                    body["date_from"] = (now - timedelta(days=search["days"])).date().isoformat()
+                    body["date_to"] = now.date().isoformat()
                 start = lambda body=body: engine.call("POST", "/api/search/sweep", body)  # noqa: E731
             else:
                 body = {"repository": search["sources"][0], "query": search["query"],
