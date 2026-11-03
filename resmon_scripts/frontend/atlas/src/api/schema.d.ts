@@ -32,8 +32,8 @@ export interface paths {
          * Admin Erase App Data
          * @description Erase the corpus + configs + executions + every API key.
          *
-         *     The corpus is included as of 1.7.0. "All app data" that left every collected
-         *     paper behind was not a description of what this did.
+         *     The corpus is included: "All app data" that left every collected paper
+         *     behind would not describe what this does.
          */
         post: operations["admin_erase_app_data_api_admin_erase_app_data_post"];
         delete?: never;
@@ -146,8 +146,8 @@ export interface paths {
          * Admin Factory Reset
          * @description Erase every secret, config, execution, setting, and collected paper.
          *
-         *     The corpus is included as of 1.7.0 — a "factory reset" that left tens of
-         *     thousands of papers on disk was the single most misleading label in the app.
+         *     The corpus is included: a "factory reset" that left tens of thousands of
+         *     papers on disk would be the most misleading label in the app.
          */
         post: operations["admin_factory_reset_api_admin_factory_reset_post"];
         delete?: never;
@@ -615,8 +615,8 @@ export interface paths {
          *
          *     Exists for the daemon. launchd starts it long before any window exists, so
          *     unlike an Electron-spawned backend it cannot be told its renderer's origin
-         *     at spawn — and "any loopback origin" is what the old Library guard trusted
-         *     and what this lock-down removes. Electron's main process, which read the
+         *     at spawn — and "any loopback origin" is not trusted, because every other local web
+         *     server has one. Electron's main process, which read the
          *     token from the daemon's token file, registers its renderer's origin here
          *     once it has bound the renderer server.
          *
@@ -877,8 +877,8 @@ export interface paths {
          *
          *     Each entry carries ``present`` (kept for compatibility) and ``status``,
          *     which is ``present``, ``absent`` or ``unreadable``. The last one matters:
-         *     an unsigned macOS build is denied access to keychain items an earlier
-         *     build stored, and reporting that as "absent" tells the user their keys
+         *     an unsigned macOS build is denied access to keychain items stored under a
+         *     different code signature, and reporting that as "absent" tells the user their keys
          *     are gone when they are simply unreachable. ``keyring_responsive`` is
          *     False once a read has timed out, so the interface can say so once at the
          *     top rather than fifteen times over. Each webhook destination's signing
@@ -1247,7 +1247,7 @@ export interface paths {
          *     ``PROVIDER_EMBEDDING`` says what a vendor serves; only a probe says whether
          *     this endpoint, this key and this model answer — and for a local server that
          *     lists models and still refuses to embed, the probe is the entire difference
-         *     between a usable lane and a corpus with nothing to rank (P9).
+         *     between a usable lane and a corpus with nothing to rank.
          */
         post: operations["probe_embedding_lane_api_embeddings_probe_post"];
         delete?: never;
@@ -1701,7 +1701,7 @@ export interface paths {
          * @description Request cooperative cancellation of a running execution.
          *
          *     A row that is not in the in-memory ``ProgressStore`` is not cancellable,
-         *     and this used to say only "Execution not running" -- which read, on an
+         *     and saying only "Execution not running" would read, on an
          *     interrupted row, as if resmon had lost track of something. The row's own
          *     state belongs in the sentence.
          *
@@ -1774,7 +1774,7 @@ export interface paths {
          *     whole file. Neither gives a user something to click, and an execution id is
          *     not a paper id -- so the Papers tab needed a route that hands back the
          *     corpus-local document ids the rest of the app is keyed on (the same ids
-         *     ``include_ids`` carries into a JSON export, phase 2.1a).
+         *     ``include_ids`` carries into a JSON export).
          *
          *     Paged rather than whole: a sweep can return thousands, and a renderer that
          *     holds all of them is a renderer that stops responding on the run that
@@ -2036,7 +2036,7 @@ export interface paths {
          *     ``embeddings`` reports whether *this* backend can load the vector extension,
          *     and why not when it cannot. It is here rather than on a route of its own
          *     because the renderer already reads health on startup to decide what to show,
-         *     and phase 1.9's rule is that a feature whose dependency is missing is
+         *     and the rule is that a feature whose dependency is missing is
          *     **absent** rather than present-and-broken: the Explorer's similarity sort and
          *     the similar-papers panel are not rendered when this says ``null``. A user is
          *     told the reason in Settings, not by a control that does nothing.
@@ -3128,10 +3128,9 @@ export interface paths {
          * Run Routine Now
          * @description Run a routine immediately, outside its schedule.
          *
-         *     Writing the MCP contract found that resmon had no way to do this at all:
-         *     routines could be activated or deactivated, and running one now meant
-         *     rebuilding its configuration by hand as a sweep. That is a gap in the
-         *     application rather than only in the tool surface -- "run my arXiv routine
+         *     Routines can be activated or deactivated, and without this route running
+         *     one now would mean rebuilding its configuration by hand as a sweep. That
+         *     would be a gap in the application rather than only in the tool surface -- "run my arXiv routine
          *     now" is something a person should be able to do from the interface too.
          *
          *     Deliberately a thin wrapper over ``_dispatch_routine_fire``, the same
@@ -3188,7 +3187,7 @@ export interface paths {
          *
          *     The Routines page showed **Active** for a routine nothing would ever fire,
          *     and it looked exactly like one that would. The packaged app starts its own
-         *     backend with ``RESMON_DISABLE_SCHEDULER=1`` (Update 4 / Fix D) and attaches
+         *     backend with ``RESMON_DISABLE_SCHEDULER=1`` and attaches
          *     to the background service only when that service is live, has a token file
          *     and runs the same version. When it does not attach, nothing fires -- and
          *     ``_record_missed_fires`` never runs, because it runs only where a scheduler
@@ -3296,7 +3295,7 @@ export interface paths {
          * Service Daemon Status
          * @description Return ground-truth daemon status read from ``daemon.lock``.
          *
-         *     Update 4 / Fix E. Unlike ``/api/health`` (which always describes the
+         *     Unlike ``/api/health`` (which always describes the
          *     *current* backend), this endpoint reads the on-disk daemon lock file
          *     and probes the daemon's actual port. The Advanced tab uses it so that
          *     a renderer-spawned fallback backend cannot masquerade as the daemon.
@@ -3521,7 +3520,7 @@ export interface paths {
          * Update Embedding Settings
          * @description Store the settings, refusing a provider that cannot embed.
          *
-         *     The refusal is **here**, at configuration, and not at backfill: P8. A user
+         *     The refusal is **here**, at configuration, and not at backfill. A user
          *     who picks Anthropic learns it when they pick it, with the reason, rather than
          *     after waiting for a run that was never going to produce anything.
          */
@@ -5133,7 +5132,7 @@ export interface components {
          *     which need not hold a bundle this resmon wrote, and reports what is wrong
          *     with it rather than failing. For a bundle this version wrote it holds
          *     ``BackupManifest``'s fields except the three added after the file was
-         *     written, and one resmon 2.3.0 wrote has no ``fk_violations_rows``.
+         *     written, and one written without ``fk_violations_rows`` has none.
          *     Python's JSON parser accepts ``NaN`` and ``Infinity``, so one written
          *     into a manifest by hand, where the handler only copies it, is answered
          *     here as ``null`` where the route answered 500 before it was modeled.
@@ -5563,9 +5562,9 @@ export interface components {
          *
          *     ``status`` is ``present``, ``absent`` or ``unreadable``, and the third is
          *     the one that matters: an unsigned macOS build is denied access to keychain
-         *     items an earlier build stored, and reporting that as absent tells a user
+         *     items a signed build stored, and reporting that as absent tells a user
          *     their keys are gone when they are merely unreachable. ``present`` is the
-         *     older boolean, kept beside it for compatibility.
+         *     plain boolean, kept beside it for callers that need only that.
          */
         CredentialPresence: {
             /** Present */
@@ -7152,7 +7151,7 @@ export interface components {
         };
         /**
          * LibraryPaperLink
-         * @description A paper the owner associated a file with: an association, not an identification.
+         * @description A paper the user associated a file with: an association, not an identification.
          */
         LibraryPaperLink: {
             /** Basis */
@@ -7869,9 +7868,9 @@ export interface components {
          * @description One first-run step, as a fact rather than as prose.
          *
          *     ``done`` is **three-valued**, and declaring it ``bool`` is a real mistake
-         *     that this file made and ``test_onboarding.py`` caught: the two credential
+         *     that ``test_onboarding.py`` catches: the two credential
          *     steps call ``_credential_present``, which answers ``None`` when the keyring
-         *     will not say. An unsigned macOS build is denied the items an earlier build
+         *     will not say. An unsigned macOS build is denied the items a signed build
          *     stored, and "no key" there would tell somebody to add a key they already
          *     have — so the backend declines to answer, and the model has to be able to
          *     carry that. ``done: bool`` did not merely mis-describe it; it turned a 200
@@ -8350,8 +8349,8 @@ export interface components {
          *     Deliberately not here: whether the source requires a credential. That is
          *     on ``api_key_requirement`` and ``credential_name`` of the entry carrying
          *     this object, and a second copy is the exact drift this record exists to
-         *     prevent — the sweep engine's own list of keyed sources disagreed with the
-         *     catalog's for three releases and a source fell through the gap.
+         *     prevent — a separate list of keyed sources in the sweep engine can disagree
+         *     with the catalog's, and a source falls through the gap.
          *
          *     Also deliberately not here: whether the source is up. An outage is not
          *     something a user can act on while composing a query, it belongs to
@@ -8495,7 +8494,7 @@ export interface components {
          *     code. ``undone`` is present, and true, when the restore had begun moving
          *     files and its undo ran; ``vault_copy_kept`` is then the path of a vault
          *     copy the undo could not put back by itself, normally ``None``, and is
-         *     absent from a record resmon 2.3.0 wrote. ``acknowledged`` is absent until
+         *     absent from a record written without it. ``acknowledged`` is absent until
          *     the person dismisses the card.
          */
         RestoreFailed: {
@@ -8531,7 +8530,7 @@ export interface components {
          *     ``accept_fk_violations`` is whether the person accepted the bundle's
          *     orphan rows. ``vault_parent`` is the folder the vault is to go into on
          *     this machine, ``None`` for the path the bundle's database records; a
-         *     pointer resmon 2.3.0 staged has no such key.
+         *     pointer staged without one has no such key.
          */
         RestorePointer: {
             /** Accept Fk Violations */
@@ -8634,7 +8633,7 @@ export interface components {
          *
          *     Read from the state directory, where it outlives the version that wrote
          *     it: ``undo_includes_vault``, ``vault_parent`` and ``fk_violations_rows``
-         *     are absent from a record resmon 2.3.0 wrote. ``ok`` says the restore's own
+         *     are absent from a record written without them. ``ok`` says the restore's own
          *     checks passed: SQLite's ``integrity_check``, and its foreign-key check
          *     unless the orphan rows were accepted. It does not say the corpus is as the
          *     person remembers it.
@@ -8708,7 +8707,7 @@ export interface components {
          *     ``restored`` is false, with ``reason`` ``no_vault_in_backup``, when the
          *     bundle carried no vault. Otherwise ``root_path`` is where the vault now is
          *     and ``replaced_kept_at`` where the vault that was there before was moved,
-         *     ``None`` when that folder held none. A record resmon 2.3.0 wrote has no
+         *     ``None`` when that folder held none. A record written without it has no
          *     ``replaced_kept_at``.
          */
         RestoredVault: {
@@ -9035,12 +9034,12 @@ export interface components {
          * @description One row of ``GET /api/routines``: the ``routines`` row as stored, and
          *     what its latest run did.
          *
-         *     The five switches are SQLite's ``0`` and ``1`` here, as this list has always
-         *     sent them; the single-routine read below coerces them to booleans. Typed as
+         *     The five switches are SQLite's ``0`` and ``1`` here, as this list sends
+         *     them; the single-routine read below coerces them to booleans. Typed as
          *     sent rather than as meant, so neither body changes. ``parameters``,
          *     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
          *     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-         *     name the classic table reads.
+         *     name the renderer reads.
          */
         RoutineRow: {
             /** Ai Enabled */
@@ -11732,15 +11731,13 @@ export interface components {
          *     that fits.
          *
          *     ``scope`` is ``dict`` because a source's scope carries a **string** id and
-         *     a routine's carries an **integer** one, and this docstring used to claim
-         *     that a model declaring either would silently coerce the other. It would
-         *     not: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather
-         *     than stringifying it, so the mistake would be a 500 the equality sweep
-         *     catches and not a wrong body nobody notices. ``Union[str, int]`` is the
-         *     right annotation, keeps both runtime types, and would give a client a real
-         *     shape instead of ``object``. It is not here because the premise was found
-         *     to be wrong after this slice was reviewed, and adding an unreviewed model
-         *     to an accepted change is the worse trade. See the module docstring.
+         *     a routine's carries an **integer** one. A model declaring either does not
+         *     silently coerce the other: on the pinned pydantic 2.12.4, ``id: str`` fed
+         *     ``1`` raises rather than stringifying it, so the mistake would be a 500
+         *     the equality sweep catches and not a wrong body nobody notices.
+         *     ``Union[str, int]`` is the right annotation, keeps both runtime types, and
+         *     would give a client a real shape instead of ``object``. It is not here yet
+         *     because typing it adds a model of its own. See the module docstring.
          *
          *     ``what_to_do`` is a field, not prose the renderer composes, because the
          *     sentence depends on the finding and a generic one would be advice resmon
