@@ -290,7 +290,7 @@ def test_the_contracts_safety_section_states_the_counts_the_code_has():
 
     assert f"{len(mcp.WRITE_TOOLS)} tools of the {len(mcp.TOOLS)}" in safety, safety
     assert "limited to three tools" not in safety
-    assert "Nothing destructive in v1" not in safety
+    assert "Nothing destructive" not in safety
 
     writable, withheld = len(mcp.SETTINGS_KEYS_WRITABLE), len(mcp.SETTINGS_KEYS_WITHHELD)
     total = writable + withheld
@@ -304,8 +304,8 @@ def test_the_contract_names_every_withheld_key():
     The document is the surface a harness author reads; a key refused there
     without being listed reads as a bug in the server.
     """
-    amendment = CONTRACT.split("## v2.4 — `update_settings` admits a key by name", 1)[1]
-    missing = [key for key in mcp.SETTINGS_KEYS_WITHHELD if f"`{key}`" not in amendment]
+    settings = CONTRACT.split("## The settings `update_settings` may change", 1)[1].split("\n## ", 1)[0]
+    missing = [key for key in mcp.SETTINGS_KEYS_WITHHELD if f"`{key}`" not in settings]
     assert missing == [], missing
 
 

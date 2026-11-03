@@ -55,12 +55,12 @@ from implementation_scripts.runtime_identity import valid_runtime_id, valid_iden
 #
 # The versioning rule in the contract points both ways for a narrowing. By its
 # enumeration -- removing a tool, renaming an argument, changing a return shape
-# -- nothing changes: 25 tools, every argument and every return shape the same.
-# By its test, "are callers unaffected", a caller that was setting
-# ``ai_cli_path`` is affected. The version moves as a minor, because a new major
-# and a new contract document would be out of proportion to a guard that takes
-# nothing off the surface and that the document's Safety section already implies.
-CONTRACT_VERSION = "2.4"
+# -- nothing changes. By its test, "are callers unaffected", a caller that was
+# setting ``ai_cli_path`` is affected. A narrowing moves the version as a
+# minor, because a new major and a new contract document would be out of
+# proportion to a guard that takes nothing off the surface and that the
+# document's Safety section already implies.
+CONTRACT_VERSION = "1.0"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -1022,8 +1022,7 @@ def t_get_execution_results(args: dict) -> Any:
     endpoint returns ``{"report_text": ...}`` -- the entire rendered Markdown
     report. Returning it would break the contract's own token-efficiency
     guarantee in the same document that states it, so this uses the structured
-    reference export instead. Recorded as a contract amendment rather than a
-    silent deviation.
+    reference export instead, as the contract's tool table says.
     """
     exec_id = _require_int(args, "exec_id")
     raw = backend.request(

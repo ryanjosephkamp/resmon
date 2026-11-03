@@ -161,9 +161,10 @@ def test_tools_list_matches_the_contract():
     # that ignores that flag is running writes the contract says a person
     # approves first. The four watch-profile tools are among the 25.
     assert len(names) == 25
-    # The version string moves with ``update_settings`` admitting a key by name:
-    # a harness has to be able to tell an accepting server from a refusing one.
-    assert mcp.CONTRACT_VERSION == "2.4"
+    # The version string is the contract's: a harness tells one server from
+    # another by what each accepts, so it moves with any observable change,
+    # including a narrowing such as the settings allowlist.
+    assert mcp.CONTRACT_VERSION == "1.0"
 
 
 def test_a_read_only_server_lists_the_reads_and_nothing_else(monkeypatch):
