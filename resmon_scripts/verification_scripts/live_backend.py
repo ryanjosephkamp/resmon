@@ -1,13 +1,12 @@
 """Reaching a backend a test started itself, with the token that backend minted.
 
 Two live modules spawn their own ``resmon.py`` and talk to it over a real
-socket. Since 2.2 every route refuses a request that does not carry that
-instance's token, and ``AUTH_EXEMPT_PATHS`` is empty -- ``/api/health``
-included. A readiness poll written before the lock-down therefore never sees a
-200: it sees 401 after 401 until its deadline runs out and then reports that the
-backend never became ready. The backend was ready the whole time; it was
-refusing an anonymous caller. That one sentence was all forty errors in the
-weekly live run of 2026-09-20.
+socket. Every route refuses a request that does not carry that instance's
+token, and ``AUTH_EXEMPT_PATHS`` is empty -- ``/api/health`` included. A
+readiness poll that sends no token therefore never sees a 200: it sees 401
+after 401 until its deadline runs out and then reports that the backend never
+became ready. The backend was ready the whole time; it was refusing an
+anonymous caller.
 
 Two things follow, and they are why this module exists rather than a header
 added in two places.

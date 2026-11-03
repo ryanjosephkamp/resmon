@@ -213,7 +213,7 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect.poll(() => win.locator(runCanvas).getAttribute('data-view')).not.toBeNull();
     expect(await findAndOpen(win, runMap, runCanvas, inRunTitle)).toBe(inRun);
     await shot(win, `run-map-${other}`);
-    // CI's macOS job runs in a 1024 by 684 window; the owner's is 1728 wide.
+    // CI's macOS job runs in a 1024 by 684 window; a large desktop display is 1728 wide.
     for (const [width, height] of [[1024, 768], [1280, 800], [1728, 1080], [1920, 1080]] as const) {
       await resize(app, width, height);
       await win.evaluate(() => { window.location.hash = '#/'; });

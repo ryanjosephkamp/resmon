@@ -206,8 +206,7 @@ function localDay(at: Date): string {
 
 /**
  * What a watch's stored parameters keep it from finding, in words, from the
- * parameters and the catalog; nothing stored is changed. Three cases, all
- * found in watches made in the earlier interface:
+ * parameters and the catalog; nothing stored is changed. Three cases:
  *
  * - A watch on words with no words. Every run sends its sources an empty
  *   query, which some sources refuse outright.

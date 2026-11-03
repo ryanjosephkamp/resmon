@@ -1,9 +1,9 @@
 # resmon_scripts/implementation_scripts/ai_chain.py
 """Running an ordered list of lanes, and recording what each one did.
 
-1.8a made a chain *expressible*: configuration resolves to an ordered list of
-lanes, and failures are classified as lane-fatal or document-local. This module
-is what actually runs one.
+Configuration resolves to an ordered list of lanes (a chain), and failures are
+classified as lane-fatal or document-local. This module is what actually runs
+a chain.
 
 The whole design is that those two failure kinds get opposite responses:
 
@@ -23,8 +23,7 @@ facts and the user is entitled to both.
 
 **There is no summarizer of last resort.** If every lane fails, the documents
 have no AI summary and the stored rows say why. resmon has never had a
-keyless extractive fallback -- the Master Plan said otherwise and was wrong --
-so this module does not pretend to one.
+keyless extractive fallback, so this module does not pretend to one.
 """
 
 from __future__ import annotations
@@ -112,7 +111,7 @@ class ChainRunner:
         # Every lane's row is opened here, on the thread that constructed the
         # runner, rather than lazily when the lane is first reached.
         #
-        # 1.8.5 runs summarization on a worker thread so a batched CLI call can
+        # Summarization runs on a worker thread so a batched CLI call can
         # be cancelled while it is in flight, and ``sqlite3`` objects belong to
         # the thread that made them. Opening lazily meant the first lane's
         # INSERT happened on that worker — which raised outright on a

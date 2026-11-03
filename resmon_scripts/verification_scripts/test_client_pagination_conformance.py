@@ -1,19 +1,16 @@
 """Asking for N records fetches N distinct records, and asks for the tail.
 
-The third row of the connector conformance harness, and the one that would
-have caught a shipped defect on the day the client was written. ``api_openalex``
-and ``api_doaj`` both paginated by page *number* while shrinking the page
-*size* on the final request. A page number is an offset over the page size, so
-asking for 250 fetched page 1 at 200 per page and then page 2 at 50 -- records
-51 to 100 a second time -- and records 201 to 250 were never requested at all.
-Deduplication downstream collapsed the duplicates, so the only visible symptom
-was a result set quietly short of what the user asked for.
+The third row of the connector conformance harness. A client that paginates by
+page *number* while shrinking the page *size* on the final request fetches
+records twice and never requests the tail. A page number is an offset over the
+page size, so asking for 250 fetches page 1 at 200 per page and then page 2 at
+50 -- records 51 to 100 a second time -- and records 201 to 250 are never
+requested at all. Deduplication downstream collapses the duplicates, so the
+only visible symptom is a result set quietly short of what the user asked for.
 
 ``api_zenodo.py`` documents that exact hazard and pins its page size for it.
-The other two never got the fix until a live run found them, one at a time, on
-2026-10-18. Nine of the twenty-six client modules paginate by page number;
-two were broken; nobody had checked the other seven. This row checks all of
-them on every run, with its denominator read from
+Nine of the twenty-six client modules paginate by page number. This row checks
+all of them on every run, with its denominator read from
 ``api_registry.list_repositories()`` so a twenty-seventh source is covered on
 the day it is registered.
 
@@ -338,11 +335,11 @@ _NOT_SERVED = {
         "second page at all, so 'asks for the tail' is not a property it can "
         "have, and asserting it would be asserting that the source should be "
         "rewritten. Recorded here rather than fixed: a source that cannot be "
-        "paged is a capability question for the owner, not a defect."),
+        "paged is a capability question, not a defect."),
     "openaire": (
         "OpenAIRE's reply nests every scalar in a one-key '$' object inside "
         "repeated single-element lists. Synthesizing it faithfully enough to "
-        "be evidence was judged a larger job than this change had room for, "
+        "be evidence is a larger job than this row covers, "
         "and a fixture that got the nesting subtly wrong would report a "
         "pagination defect that is really a fixture bug. It paginates by page "
         "number with a fixed size, so it is in the family this row exists "
@@ -581,6 +578,6 @@ def test_the_paging_scheme_each_client_uses_is_recorded():
         "datacite", "doaj", "dryad", "inspire_hep", "openalex", "openlibrary",
         "osti", "zenodo",
     }, (f"the set of clients paginating by page number changed: "
-        f"{sorted(by_page)}. This is the family that carried the 2026-10-18 "
-        f"defect; a client joining it needs its page size held fixed for the "
+        f"{sorted(by_page)}. This is the family exposed to the "
+        f"page-window defect; a client joining it needs its page size held fixed for the "
         f"whole search, and a client leaving it should say why in its diff.")

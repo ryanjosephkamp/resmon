@@ -1,14 +1,13 @@
 """The embedding lane: what can embed, what happens when it cannot, and the job.
 
-Properties from phase 1.9 checked here: **P3** (backfill completeness under
+Properties checked here: **P3** (backfill completeness under
 cancel and restart), **P8** (an explicit *can embed* answer for every provider
 resmon lists), **P9** (a server that lists models and refuses to embed reads as
 "this server cannot embed").
 
 Everything that talks to a model talks to :mod:`embedding_server` — a real HTTP
-server on a real socket, driven by the unmodified client. In the ledger that is
-**real dependency, in-process**. The one thing it cannot see is a real provider's
-own quirks, and section 4 of the handback says so.
+server on a real socket, driven by the unmodified client: a real dependency,
+in-process. The one thing it cannot see is a real provider's own quirks.
 """
 
 from __future__ import annotations
@@ -99,10 +98,10 @@ def _provider_denominator() -> set[str]:
 def test_every_provider_resmon_lists_has_an_embedding_answer():
     """P8, the denominator. 11 of 11, taken from the code's own provider lists.
 
-    **The brief's P8 denominator omitted ``google``** — it named
-    ``_PROVIDER_SPECS`` plus anthropic, local and custom, and Google is neither
-    in ``_PROVIDER_SPECS`` (it is not OpenAI-compatible) nor in that list. It is
-    a provider a user can select, so it needs an answer. It has one.
+    **The denominator must include ``google``.** ``_PROVIDER_SPECS`` plus
+    anthropic, local and custom would leave it out, because Google is not in
+    ``_PROVIDER_SPECS`` (it is not OpenAI-compatible). It is a provider a user
+    can select, so it needs an answer. It has one.
     """
     expected = _provider_denominator()
     assert expected == set(embeddings.PROVIDER_EMBEDDING), (
@@ -374,7 +373,7 @@ def test_the_disk_estimate_is_derived_from_the_measured_cost_per_paper(server):
     estimate = embeddings.estimate_cost(lane, ["a" * 400] * 1000)
     assert estimate["disk_bytes"] is not None
     per_paper = estimate["disk_bytes"] / 1000
-    # Within a byte of the field test's 8,951, because that is where it comes from.
+    # Within a byte of the measured 8,951, because that is where it comes from.
     assert 8_900 < per_paper < 9_000, per_paper
     assert "MiB of database growth" in estimate["disk_note"]
     assert "768-dimensional" in estimate["disk_note"]

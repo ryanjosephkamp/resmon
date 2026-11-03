@@ -126,13 +126,13 @@ def test_the_states_are_the_seven_the_screen_draws():
 
 
 def test_the_legend_word_for_a_state_is_the_backend_s_own_word():
-    """The renderer holds no copy of this vocabulary, and neither does a brief.
+    """The renderer holds no copy of this vocabulary.
 
     A zero that is a real answer is called *answered, zero* by
     `source_coverage.outcome`, and the legend on the wall has to call it that
-    too. The renderer was burned this week by keeping its own copy of exactly
-    this vocabulary; the fix direction is that the backend owns the word and
-    every surface takes it, not that the backend is edited to match a screen.
+    too. A renderer that keeps its own copy of this vocabulary drifts from it;
+    the backend owns the word and every surface takes it, rather than the
+    backend being edited to match a screen.
     """
     legend = {entry["state"]: entry["label"] for entry in source_wall.STATE_LEGEND}
     assert [entry["state"] for entry in source_wall.STATE_LEGEND] == list(source_wall.WALL_STATES)
@@ -235,8 +235,8 @@ def test_the_two_silences_are_drawn_apart(conn):
     """"I did not ask" and "I asked and do not know" are different marks.
 
     The first is a choice the user made; the second is a hole in the record.
-    Both used to draw as `not_recorded` with different hover text, which put
-    the whole distinction behind a mouse.
+    Drawing both as `not_recorded` with different hover text would put the
+    whole distinction behind a mouse.
     """
     run = make_run(conn, started="2026-10-01T09:00:00", repositories=["arxiv", "doaj"])
     record(conn, run, "arxiv", count=4)

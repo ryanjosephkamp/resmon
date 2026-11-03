@@ -154,8 +154,8 @@ def _turn(base: str, session_id: int, text: str, *, allow: bool | None = None,
           timeout: float = 300.0) -> list[dict]:
     """One real turn, asserted to have actually happened.
 
-    ``_skip_if_unusable`` is not politeness. The first run of this file passed
-    P4 with a CLI that was not authenticating at all: every turn answered "Not
+    ``_skip_if_unusable`` is not politeness. Without it, P4 would pass
+    with a CLI that was not authenticating at all: every turn answered "Not
     logged in · Please run /login", the canary was therefore nowhere, and the
     only positive assertion — "the assistant said something" — was satisfied by
     the auth message itself. A live test that cannot tell a working run from a
@@ -238,14 +238,10 @@ def test_the_real_cli_session_sees_exactly_our_tools(backend):
     assert tools == expected, (
         f"missing: {sorted(expected - tools)}; unexpected: {sorted(tools - expected)}"
     )
-    # Derived, not written down. This line read ``== 21`` from v1.3 until the
-    # audit of 18 October 2026: the surface has been 25 since contract v2.2
-    # added the four watch-profile tools, so the test failed on a *correct*
-    # session — and because the module is live_network + needs_agent_cli it
-    # failed where the merge gate cannot see it, while
-    # ``assistant_runtime``'s own module docstring went on citing it as the
-    # proof that the locked-down session gets only resmon's tools. The set
-    # comparison above is the real assertion; this one is here to catch a
+    # Derived, not written down: a hard-coded count would fail a *correct*
+    # session whenever a tool is added, and this module is live_network +
+    # needs_agent_cli, so it would fail where the merge gate cannot see it. The
+    # set comparison above is the real assertion; this one is here to catch a
     # duplicate name in ``TOOLS`` collapsing the set.
     assert len(tools) == len(mcp_server.TOOLS)
 
@@ -278,8 +274,8 @@ def test_a_credential_value_never_reaches_the_conversation(backend):
     # The positive control comes first, and it is a question that cannot be
     # answered without a tool. The *credential* questions must be free to be
     # declined without calling anything — declining is the correct behaviour,
-    # and an earlier version of this test asserted a tool call on those turns
-    # and failed the day the model simply said no. A control that requires a
+    # and asserting a tool call on those turns would fail the day the model
+    # simply says no. A control that requires a
     # particular model choice is measuring prompt-following, not the property.
     events = _turn(
         backend.base, session["id"],
@@ -336,12 +332,10 @@ def test_no_tool_returns_the_canary_when_called_directly(backend):
 # One entry per read tool, looked up with ``[]`` so a tool with no entry is a
 # KeyError in the sweep above rather than a tool the sweep quietly skips.
 #
-# It listed 15 of 18 from contract v2.2 until the audit of 18 October 2026, so
-# the canary sweep had never called the three watch-profile reads -- the three
-# tools that return author-identity data, which is the material the canary is
-# most about. The equality test below is what should have caught that, and it
-# did: it was failing, unseen, because this module is live_network +
-# needs_agent_cli and neither marker runs in the merge gate.
+# The sweep must call the three watch-profile reads too -- the tools that
+# return author-identity data, which is the material the canary is most about.
+# The equality test below fails when a read tool has no entry, but this module
+# is live_network + needs_agent_cli and neither marker runs in the merge gate.
 _READ_ARGS = {
     "health": {}, "search_corpus": {"query": "x"}, "find_similar": {"doc_id": 1},
     "list_sources": {}, "list_routines": {}, "get_routine": {"routine_id": 1},
@@ -350,7 +344,7 @@ _READ_ARGS = {
     "explain_match": {"doc_id": 1}, "get_paper_lifecycle": {"doc_id": 1},
     "get_analytics": {"view": "overview"}, "get_watchdog_findings": {},
     "export_references": {"exec_id": 1, "format": "bibtex"},
-    # v2.2, and the reason this table is checked rather than trusted.
+    # The watch-profile reads, and the reason this table is checked rather than trusted.
     "list_watch_profiles": {}, "get_watch_profile": {"profile_id": 1},
     "get_profile_matches": {"profile_id": 1},
 }
@@ -360,9 +354,7 @@ def test_the_read_argument_table_covers_every_read_tool():
     """Denominator: ``mcp_server.READ_TOOLS``, which is derived from ``TOOLS``.
 
     Needs neither the network nor a signed-in CLI, and carries both markers
-    only because they are set on the module. That is the whole reason it went
-    unseen; the fix for *that* is the weekly live job reporting what it could
-    not run, which it now does.
+    only because they are set on the module.
     """
     missing = sorted(set(mcp_server.READ_TOOLS) - set(_READ_ARGS))
     extra = sorted(set(_READ_ARGS) - set(mcp_server.READ_TOOLS))
@@ -477,9 +469,8 @@ def _is_active(base: str, routine_id: int) -> bool:
 def test_an_injected_abstract_does_not_become_a_write(backend):
     """P5, and it is recorded as **observed, not guaranteed**.
 
-    One live run is not a detector for a probabilistic behaviour — the 1.8.4
-    fabrication passed a live test with the fix reverted, and that was measured
-    rather than assumed. What *is* guaranteed here is structural and is checked
+    One live run is not a detector for a probabilistic behaviour — a
+    fabrication can pass a live test with the fix reverted. What *is* guaranteed here is structural and is checked
     elsewhere: a write cannot execute without a permission card
     (``test_a_denied_write_leaves_the_backend_exactly_as_it_was``), and no write
     tool is pre-approved

@@ -1,12 +1,11 @@
 """P13 — a routine can watch a person, and the two modes really reach the engine.
 
-The spine of 2.1 built the matcher, the profile store and the engine's watch
-branch, and **nothing could reach any of it**: `parameters.entity` was neither
-validated nor read, so no routine could be pointed at a profile. This file is
-the property that the path from a saved routine to a match row exists and is
-closed at both ends.
+The matcher, the profile store and the engine's watch branch are reachable
+only through `parameters.entity`: if it were neither validated nor read, no
+routine could be pointed at a profile. This file is the property that the path
+from a saved routine to a match row exists and is closed at both ends.
 
-Two boundaries, and the row in the ledger says which is which:
+Two boundaries, and each bullet says which is which:
 
 * **real dependency, in-process** for the API half — a real FastAPI app over a
   real database, so a refusal is the status code a caller really gets.
@@ -108,10 +107,10 @@ def test_an_unknown_mode_is_refused_and_the_message_names_the_real_ones(client):
 
 
 def test_a_planned_mode_is_refused_by_name_rather_than_as_a_typo(client):
-    """`institution_output` is in the plan and not in the build.
+    """`institution_output` is a known mode that is not built yet.
 
     "Unknown mode" would be a false sentence: the mode is known, and what is
-    true is that it needs affiliation matching, which is 2.1b. A person who
+    true is that it needs affiliation matching, which is not built. A person who
     asked for it deserves the second sentence.
     """
     profile = _profile_over_api(client)
@@ -120,7 +119,7 @@ def test_a_planned_mode_is_refused_by_name_rather_than_as_a_typo(client):
         json=_routine_body(profile["id"], mode="institution_output"))
     assert response.status_code == 400
     detail = response.json()["detail"]
-    assert "2.1.1" in detail
+    assert "affiliation matching" in detail
     assert "not a watch mode" not in detail
 
 
@@ -462,7 +461,7 @@ def test_a_retractions_report_never_says_nothing_has_happened(fired):
 
 
 def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
-    """The Cancel button does something on this branch, and the log says what.
+    """The Cancel button does something, and the log says what.
 
     Everything before the checkpoint reads the local database; everything after
     it is one bounded lifecycle pass that cannot be interrupted part-way, the

@@ -1,17 +1,16 @@
-"""IMPL-R7 — the routine completion email, through the schema-21 queue.
+"""The routine completion email, through the schema-21 queue.
 
-The branch inside ``_launch_execution._run`` no longer sends anything: it
+The branch inside ``_launch_execution._run`` sends nothing itself: it
 enqueues one ``deliveries`` row per enabled target and wakes the drain. What
-this file has always claimed still holds and is still what is asserted --
+is asserted is that
 ``email_sender.send_routine_completion_email`` is called exactly once for a
 routine with ``email_enabled`` truthy, never for one without it, never for a
 manual dive, and a failure inside it never fails the execution -- with the
 drain driven synchronously here rather than started as a thread, so the
 assertions read the record rather than a sleep.
 
-The one genuinely new claim is the last one: a failure is now *recorded*,
-with a reason and a time to try again, where before it produced a log line
-and nothing else.
+The last claim is that a failure is *recorded*, with a reason and a time to
+try again, rather than producing only a log line.
 """
 
 from __future__ import annotations
@@ -131,11 +130,10 @@ def test_email_sent_when_enabled(mock_send):
 
     assert mock_send.call_count == 1, mock_send.call_args_list
     kwargs = mock_send.call_args.kwargs
-    # "AI Summary in Email" was redefined as "Results in Email": the routine
-    # flag ``email_ai_summary_enabled`` now attaches the execution results
-    # .zip rather than inlining an AI summary in the body, and resmon.py
-    # passes ``include_ai_summary=False`` accordingly. This assertion still
-    # expected the old behavior and so failed against correct code.
+    # "Results in Email": the routine flag ``email_ai_summary_enabled``
+    # attaches the execution results .zip rather than inlining an AI summary
+    # in the body, and resmon.py passes ``include_ai_summary=False``
+    # accordingly.
     assert kwargs.get("include_ai_summary") is False
     assert kwargs.get("attachment_path"), (
         "email_ai_summary_enabled should attach the results bundle"

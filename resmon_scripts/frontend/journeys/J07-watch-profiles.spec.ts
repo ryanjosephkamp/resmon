@@ -71,7 +71,7 @@ journey.describe('J07 Watch profiles', () => {
         + 'in a report. Matches are written by the watch path — a routine pointed at a '
         + 'profile — and this journey seeds with a keyword dive, which stores the same '
         + 'papers and records nothing about the people on them. Building a watch run is '
-        + 'its own journey and is not in this slice. What is established here is the '
+        + 'its own journey and is not covered here. What is established here is the '
         + 'half a person meets first: the warning at creation, and the same warning '
         + 'carried in the list without the profile being opened.',
       );

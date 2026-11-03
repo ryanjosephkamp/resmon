@@ -23,7 +23,7 @@ test('Atlas\'s vocabulary is still the backend vocabulary', () => {
   expect(committed).toBe(generator.renderModule());
   const { zeroReasons, didNotAnswer } = generator.pythonVocabulary();
   expect(committed).toContain(`'${zeroReasons[0]}'`);
-  // The one that was once missing, named so a regression reads as itself.
+  // Named so that dropping it reads as itself.
   expect(didNotAnswer).toContain('entity_unsupported');
 });
 

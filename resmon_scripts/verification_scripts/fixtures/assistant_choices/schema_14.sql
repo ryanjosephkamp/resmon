@@ -1,4 +1,4 @@
--- Authored synthetic schema-14 fixture; built by public ca881b92d594a2fd207634195d9dd454d9829b00.
+-- Authored synthetic schema-14 fixture.
 PRAGMA foreign_keys=OFF;
 BEGIN;
 CREATE TABLE app_settings (
@@ -40,7 +40,7 @@ CREATE TABLE cloud_sync (
 CREATE TABLE document_authors (
     document_id       INTEGER NOT NULL,
     author            TEXT NOT NULL,
-    -- Schema 13 (2.1). All three are nullable and are NULL far more often than
+    -- Schema 13. All three are nullable and are NULL far more often than
     -- not: measured on 2026-09-06, OpenAlex carried an ORCID on 9 of 17
     -- authorships and Crossref on 2 of 84. NULL means **the source did not
     -- say**, never "this person has no ORCID", and nothing downstream may read

@@ -13,14 +13,14 @@
  * for: `register.spec.ts` greps every spec file in this directory for a
  * renderer call and for an import of anything but this module, and fails on a
  * hit. A spec that reaches the renderer directly is a spec that will have to be
- * rewritten, and the cost of rewriting forty-five of them is the reason the 3.0
- * redesign has a parity register at all.
+ * rewritten, and the cost of rewriting forty-five of them is the reason the
+ * suite has a register at all.
  *
  * **Backend facts do not come off the screen.** `resmon.backend` reads them
  * over the app's own local HTTP API, with the app's own token, because the API
- * is the contract a renderer rebuild does not change and a database file is not
+ * is the contract a change of renderer does not touch and a database file is not
  * a user journey. Reading SQLite directly would also make the suite unable to
- * run against an installed app, which it one day has to.
+ * run against an installed app.
  */
 import { test as base, expect } from '@playwright/test';
 import { createDriver } from './drivers';
@@ -41,10 +41,9 @@ export type Place =
   | 'Calendar'
   | 'Saved configurations'
   | 'Storage settings'
-  // — slice 2a ---------------------------------------------------------------
-  // Kept in their own block so slice 2b's additions are a union rather than a
-  // conflict. Each is a place a person reaches; `drivers/atlas.ts` maps each to
-  // Atlas's screen for it.
+  // — settings and tools ------------------------------------------------------
+  // Each is a place a person reaches; `drivers/atlas.ts` maps each to Atlas's
+  // screen for it.
   | 'Analytics'
   | 'Watchdog'
   | 'Watch Profiles'
@@ -54,13 +53,12 @@ export type Place =
   | 'Notification settings'
   | 'Advanced settings'
   | 'Tutorials'
-  // — slice 3 -----------------------------------------------------------------
+  // — chats and the library ---------------------------------------------------
   | 'Chats'
-  // — the register refresh ----------------------------------------------------
   | 'Library'
   | 'Evidence'
   | 'Source wall'
-  // — the Atlas interface (rebuild phase 2) -----------------------------------
+  // — Today and appearance ----------------------------------------------------
   | 'Today'
   | 'Appearance settings';
 
@@ -80,8 +78,8 @@ export interface DiveRequest {
   /**
    * Tick "Enable AI Summarization" on the form before running.
    *
-   * Slice 3, for J17. Optional and defaulting to off, so every spec written
-   * before it means exactly what it meant.
+   * Optional and defaulting to off, so a spec that omits it means exactly what
+   * it always meant.
    */
   summarize?: boolean;
 }
@@ -254,7 +252,7 @@ export interface BackendFacts {
    */
   ownedByThisApp(): Promise<boolean | null>;
 
-  // — slice 2a ---------------------------------------------------------------
+  // — the backend's surface ----------------------------------------------------
 
   /**
    * Every route the backend under test actually serves, from its own OpenAPI
@@ -273,8 +271,8 @@ export interface BackendFacts {
    *
    * Independent of `serviceStatus()` on purpose: that one answers "is a unit
    * installed for this user", which is a fact about the machine, and this one
-   * answers "is one listening for this state directory", which is the fact B3
-   * cares about.
+   * answers "is one listening for this state directory", which is the fact the
+   * rule never to touch port 8742 depends on.
    */
   daemonStatus(): Promise<Record<string, any>>;
   /** Every source the catalog holds, as the Repositories page is served it. */
@@ -311,12 +309,9 @@ export interface BackendFacts {
   eraseCorpus(word: string): Promise<Record<string, any>>;
 }
 
-// — slice 2a ---------------------------------------------------------------
-//
-// Kept in one block, with slice 2b building its own alongside, so the two
-// deliveries merge as a union. Every name below is what the *person* does or
-// reads; where the app has no user path for a step, the method says so in its
-// comment and the spec's ledger row records it.
+// Every name below is what the *person* does or reads; where the app has no
+// user path for a step, the method says so in its comment and the spec's header
+// records it.
 
 /** What the Advanced tab says about the background service. */
 export interface DaemonPanel {
@@ -586,7 +581,7 @@ export interface JourneyDriver {
    * The chooser is the page's own and so is everything after it; the native
    * dialog is not. No automated suite can operate one, so the chooser is
    * answered with the file rather than a person picking it, and the spec's
-   * ledger records that. What the dialog would have offered is reported as
+   * header records that. What the dialog would have offered is reported as
    * `chooserAccepts`.
    */
   importConfigurations(exported: ConfigurationExport): Promise<ImportOutcome>;
@@ -619,9 +614,7 @@ export interface JourneyDriver {
   // — facts ------------------------------------------------------------------
   readonly backend: BackendFacts;
 
-  // — slice 2a ---------------------------------------------------------------
-  //
-  // One block, so slice 2b's verbs merge beside these rather than through them.
+  // — what a place says --------------------------------------------------------
 
   /** Everything the place a person is looking at actually says. */
   readWhatThisPlaceSays(): Promise<string>;
@@ -791,13 +784,8 @@ export const journey = base.extend<JourneyOptions & JourneyFixtures, JourneyWork
 });
 
 /* ========================================================================== *
- *  Slice 2b — the reading queue, the local API's own boundary, and the two
- *  rows whose journey is a gate rather than a screen.
- *
- *  Kept in one block at the end of the file on purpose: slice 2a is adding its
- *  own verbs to the same interface on its own branch, and two appended blocks
- *  merge where two interleaved edits would not. Nothing above this line
- *  changed meaning — a verb slice 1 wrote still does what its spec assumed.
+ *  The reading queue, the local API's own boundary, and the two rows whose
+ *  journey is a gate rather than a screen.
  * ========================================================================== */
 
 /** One paper in the reading queue, as the queue names it. */
@@ -935,25 +923,20 @@ export interface JourneyDriver {
 }
 
 /**
- * The two rows whose journey is a gate rather than a screen (J43, and J16 next
- * door in slice 2a).
+ * The two rows whose journey is a gate rather than a screen (J43 and J16).
  *
  * Re-exported from the seam because a spec may import this module and nothing
  * else — `register.spec.ts` enforces that, and it is what stops a spec reaching
  * for `child_process` and building its own idea of what the gate is. There is
- * no renderer in this path and therefore no driver: a candidate build runs
+ * no renderer in this path and therefore no driver: a build under test runs
  * exactly the same gate out of its own checkout.
  */
 export { runGate } from './fixtures/gates';
 export type { GateOutcome } from './fixtures/gates';
 
 /* ========================================================================== *
- *  Slice 3 — the rows slices 2a and 2b left pending, and the launch-time
- *  levers two of them needed.
- *
- *  Appended in one block for the same reason the two blocks above are: a slice
- *  that adds its verbs at the end merges, and one that threads them through the
- *  interface does not. Nothing above this line changed meaning.
+ *  Routines run now, chats, AI lanes, and the launch-time levers two of those
+ *  journeys need.
  * ========================================================================== */
 
 /**
@@ -992,7 +975,7 @@ export interface JourneyDriver {
   /**
    * Whether the `Run now` control is on this routine's row at all.
    *
-   * The register row's journey is a person pressing a button, and in this suite
+   * The journey is a person pressing a button, and in this suite
    * that button is not reachable: it appears only on a routine that has missed
    * a fire, and the app spawns its backend with the scheduler disabled, so
    * nothing here can miss one. The spec asks, reports the answer, and says what
@@ -1009,7 +992,7 @@ export interface JourneyDriver {
    * protocol, a different double. What it replaces is the sign-in — the
    * discovery, the argv, the exit handling, the classification of the failure
    * and everything the lane then does about it are the app's own. What no
-   * double can see is a real CLI's own behaviour, and the ledger says so.
+   * double can see is a real CLI's own behaviour, and the spec says so.
    */
   useAnAuthoredSummarizerThatIsNotSignedIn(): Promise<void>;
   /** What Settings → AI says about the lane it would use. */
@@ -1140,11 +1123,7 @@ export interface NotificationPreferences {
 }
 
 /* ========================================================================== *
- *  Slice 4 — the five rows slices 2b and 3 left pending.
- *
- *  Appended in a block of its own for the reason the three blocks above are:
- *  a slice that adds its verbs at the end merges, and one that threads them
- *  through the interface does not. Nothing above this line changed meaning.
+ *  The assistant composer, the library, and the managed vault.
  * ========================================================================== */
 
 /**
@@ -1291,13 +1270,7 @@ export interface JourneyDriver {
 }
 
 /* ========================================================================== *
- *  The register refresh — the three Evidence rows slice 2b left pending, and
- *  the Source wall, which arrived after the register was written and had no
- *  row at all.
- *
- *  Appended in a block of its own for the reason every block above is: a
- *  delivery that adds its verbs at the end merges, and one that threads them
- *  through the interface does not. Nothing above this line changed meaning.
+ *  The Evidence rows and the Source wall.
  * ========================================================================== */
 
 /**
@@ -1603,7 +1576,7 @@ export interface JourneyDriver {
   readTheSourceWallCell(source: string, column: number): Promise<SourceWallReading>;
 }
 
-// — the Atlas interface (rebuild phase 2): J46, J47, J48 ----------------------
+// — Today, the collection map, and appearance: J46, J47, J48 -------------------
 
 /** What a person chooses for the theme: follow the system, or one of the two. */
 export type ThemeChoice = 'system' | 'light' | 'dark';

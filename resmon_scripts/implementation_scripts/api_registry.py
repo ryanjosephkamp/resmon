@@ -12,7 +12,7 @@ _REGISTRY: dict[str, type] = {}
 # entitled to the actual reason, so it is stored here and surfaced verbatim.
 RETIRED_REPOSITORIES: dict[str, str] = {
     "ieee": (
-        "IEEE Xplore was withdrawn in v1.8.1. Its API Terms of Use limit the "
+        "IEEE Xplore was withdrawn. Its API Terms of Use limit the "
         "grant to non-commercial activity within the licensee's institution, "
         "forbid using a search/retrieval application against the content "
         "(4(c)), forbid retaining it in bulk (4(f)), and require deleting it "
@@ -57,9 +57,9 @@ def register_client(name: str, client_class: type) -> None:
     function at import time, so anything that imports the module directly —
     a test, a debug session, a future caller reaching for the class — puts the
     source back into this process-wide registry and a sweep can reach it again.
-    That is exactly how ``api_ieee`` stayed reachable after being dropped from
-    the import list, and it was found because the tier-2/3 tests kept passing
-    when they should have failed. Retirement belongs to the registry, not to
+    That is exactly how a retired module such as ``api_ieee`` would stay
+    reachable after being dropped from the import list, with the tier-2/3 tests
+    passing when they should fail. Retirement belongs to the registry, not to
     the import list.
     """
     if name in RETIRED_REPOSITORIES:
@@ -133,21 +133,20 @@ def _ensure_loaded():
         # bot-challenge 403s; RePEc/IDEAS htsearch CGI is no longer publicly
         # reachable) — they never worked.
         #
-        # IEEE Xplore worked, and was withdrawn in v1.8.1 on its terms rather
-        # than on its behavior: 4(c) forbids using a retrieval application
+        # IEEE Xplore worked, and was withdrawn on its terms rather than on
+        # its behavior: 4(c) forbids using a retrieval application
         # against the content at all, so no field-level gate makes the
         # integration compliant. See RETIRED_REPOSITORIES above for the wording
         # the user is shown, and docs/source-landscape.md for the full reading.
         #
-        # OAPEN answered when it shipped in September 2026, and was withdrawn
-        # in October 2026 once its search API answered HTTP 403 from both
-        # places resmon's requests were sent: GitHub's hosted runners in the
-        # weekly live run of October 19 and a workstation on October 25. Unlike
-        # RePEc and SSRN it did work, and unlike IEEE Xplore its terms are not
-        # the problem. The client itself is unchanged.
+        # OAPEN answered, and was withdrawn in October 2026 once its search
+        # API answered HTTP 403 from both places resmon's requests were sent:
+        # GitHub's hosted runners in the weekly live run and a workstation.
+        # Unlike RePEc and SSRN it did work, and unlike IEEE Xplore its terms
+        # are not the problem. The client itself is unchanged.
         #
         # All four client modules are retained on disk for reference but are
-        # not loaded. See .ai/prep/repos.md → "Excluded Repositories".
+        # not loaded. See docs/source-landscape.md for the full rationale.
     ]
     for mod_name in _CLIENT_MODULES:
         import_module(f".{mod_name}", package=__package__)

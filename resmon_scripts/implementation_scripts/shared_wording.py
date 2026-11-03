@@ -41,8 +41,8 @@ checked word by word against both texts.
 
 Why 8 words
 -----------
-Measured on the owner's collection on October 30, 2026: 16,061 papers, of which
-12,294 have an abstract of 40 words or more. Short phrases meet by chance.
+Measured on a real collection of 16,061 papers, of which 12,294 have an abstract
+of 40 words or more. Short phrases meet by chance.
 Pairs by different authors that share at least one phrase found in no more than
 three works numbered 15,746 at 5 words, 4,610 at 6, 499 at 8, 87 at 10, and 29
 at 12, and at 8 words nearly all of the 499 are one stock run of 8 to 14 words:
@@ -101,7 +101,7 @@ those papers rather than leaving them out silently.
 
 The thresholds are claims
 -------------------------
-Each was set from the owner's collection and from authored pairs, and graded
+Each was set from that collection and from authored pairs, and graded
 by reading both texts of every pair concerned.
 
 *Where chance ends.* With commonness counted as above, the longest run of
@@ -113,7 +113,7 @@ nearly twice that. An abstract under 40 words is not compared, because a
 shorter, 533 of them from PubMed, where a structured abstract can arrive as its
 first few words.
 
-*Precision on real data.* The shipped rule shows 414 pairs on the owner's
+*Precision on real data.* The shipped rule shows 414 pairs on that
 collection: 396 set aside as the same work (317 by title, 77 by DOI, 2 as
 versions of one arXiv paper), 1 set aside as a notice, 17 with an author in
 common, and none with no author in common. All 17 with an author in common
@@ -142,7 +142,7 @@ passage the method reliably finds is 20 consecutive words.
 meaningless text). A full scan of 16,061 papers: 1.2 s, peak 141 MB for the
 whole process; of 100,000: 8.2 s, 416 MB. New papers after a run: 200 against
 16,061 in 1.2 s and 99 MB, against 100,000 in 7.5 s and 202 MB, because every
-abstract is still read once to count the new papers' phrases. On the owner's
+abstract is still read once to count the new papers' phrases. On that
 collection a full scan takes 1.6 s and 133 MB.
 
 Stored, with the method's version

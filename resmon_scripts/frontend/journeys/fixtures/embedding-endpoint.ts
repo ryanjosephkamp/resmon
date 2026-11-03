@@ -14,7 +14,7 @@
  *
  * **The vectors are derived from a hash, not from meaning**, so "close" here is
  * a fact about this fixture rather than about the two papers. Every spec that
- * uses it says so in its ledger row: a journey can establish that the app ranks,
+ * uses it says so in its header: a journey can establish that the app ranks,
  * labels and counts what a model gave it — not that the ranking is good.
  */
 import * as crypto from 'crypto';
@@ -78,7 +78,7 @@ export async function startEmbeddingEndpoint(): Promise<EmbeddingEndpoint> {
     server.listen(0, '127.0.0.1', resolve);
   });
   const { port } = server.address() as net.AddressInfo;
-  // B3, here as everywhere: the OS picks the port and this refuses the one
+  // Here as everywhere: the OS picks the port and this refuses the one
   // carrying somebody's real corpus rather than trusting it will not be chosen.
   if (port === 8742) throw new Error('the authored embedding model was given the live daemon port');
 

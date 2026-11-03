@@ -44,7 +44,7 @@ body:
     attributes:
       label: resmon version
       description: Found on the About resmon → About App tab, or in the Diagnostics block when filed from the app.
-      placeholder: "1.1.0"
+      placeholder: "1.0.0"
   - type: dropdown
     id: platform
     attributes:

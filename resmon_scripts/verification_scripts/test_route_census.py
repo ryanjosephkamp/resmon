@@ -1,10 +1,9 @@
 """The route total is derived in one place, and nothing else types it.
 
-Four counters in this tree held the number of HTTP routes by hand. Only one was
-the API-contract guard everybody knows about; the other three were discovered
-one at a time, by three different people, each as a red that looked like a real
-regression and each time turning out to be a counter nobody had been told to
-move. The number itself was never wrong — the fourth copy of it was.
+A counter that holds the number of HTTP routes by hand goes red whenever a
+route is added, looking like a real regression when it is only a counter
+nobody had been told to move. The number itself is never wrong — a copy of it
+is.
 
 ``route_census.py`` derives it three independent ways. This module requires the
 three to agree, requires the derivation to be able to notice a missing route,
@@ -96,12 +95,11 @@ def test_a_non_route_app_decorator_is_not_counted_as_a_route():
     """``@app.on_event("startup")`` is a decorator on ``app`` with a string arg.
 
     It is not a route, and the census must not count it. This is not
-    hypothetical bookkeeping: the walk in
-    ``test_selected_evidence_boundary.py`` used to collect every
-    ``@app.<anything>("...")``, so the first one of these anybody added would
-    have made that file disagree with the contract and blame a stale document
-    for it. Two walks with two filters is the same defect as two hand-written
-    totals, one layer down -- which is why there is now one walk.
+    hypothetical bookkeeping: a walk that collected every
+    ``@app.<anything>("...")`` would, on the first one of these anybody added,
+    disagree with the contract and blame a stale document for it. Two walks
+    with two filters is the same defect as two hand-written totals, one layer
+    down -- which is why there is one walk.
     """
     source = route_census.RESMON_SOURCE.read_text(encoding="utf-8")
     before = route_census.declared_in(source)

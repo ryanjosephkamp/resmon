@@ -145,18 +145,18 @@ APP_LAUNCH_ARGS = ("--service",)
 # A packaged app's Electron main process sets both on the backend it spawns,
 # pointing them at the per-user state directory, because the bundle is replaced
 # on every update. A service unit is started by the OS, not by Electron, so it
-# inherits neither. Before this, a service installed from the packaged app ran
-# the bundled daemon with config.py's checkout-relative defaults: a database
+# inherits neither. Without them, a service installed from the packaged app would
+# run the bundled daemon with config.py's checkout-relative defaults: a database
 # and a reports folder *inside the app bundle*, empty, and wiped by the next
-# update. The app then attached to it, because it was the same version, and
-# showed that empty database in place of the user's own. Measured on 2.3.0:
-# the rendered plist named no database, and the bundled interpreter resolved
-# DEFAULT_DB_PATH to ``resmon.app/Contents/Resources/backend/resmon.db``.
+# update. The app would then attach to it, because it is the same version, and
+# show that empty database in place of the user's own. The rendered plist would
+# name no database, and the bundled interpreter resolves DEFAULT_DB_PATH to
+# ``resmon.app/Contents/Resources/backend/resmon.db``.
 #
 # Flags rather than environment entries because Task Scheduler's Exec action
 # has no environment, and one mechanism on all three platforms is one thing to
 # test. A dev checkout's backend sets neither variable, so its unit carries no
-# flags and its daemon keeps the checkout database, as before.
+# flags and its daemon keeps the checkout database.
 STATE_ARGUMENTS = (
     ("RESMON_DB_PATH", "--db-path"),
     ("RESMON_REPORTS_DIR", "--reports-dir"),

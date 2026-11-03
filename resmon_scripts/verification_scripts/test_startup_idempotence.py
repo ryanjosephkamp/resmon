@@ -1,33 +1,34 @@
 """What a second launch must not do: re-index the corpus, or undo the user.
 
 ``init_db`` runs on every start of the backend, and every step in it is meant
-to be safe to re-run. Two were not, and neither failure is visible from a fresh
+to be safe to re-run. Two ways to get that wrong are invisible from a fresh
 database -- the only place they show is the *second* launch of a database that
 has rows in it, which is every launch a real user makes.
 
-* **The facet backfill re-indexed the whole corpus, every time.** It decided
-  whether it had work to do by comparing
+* **A facet backfill that re-indexes the whole corpus, every time.** One that
+  decides whether it has work to do by comparing
   ``COUNT(DISTINCT document_id) FROM document_authors`` against
-  ``COUNT(*) FROM documents``. A document with no authors -- OSTI, GovInfo and
-  dataset records produce them, and the shipped v2.1.0 fixture already has one
-  -- contributes no author rows, so the two counts can never converge. Every
-  launch then re-read every document and re-ran ``index_document_facets`` over
-  all of them inside a write transaction, repairing nothing: every insert is an
-  ``INSERT OR IGNORE`` that conflicts. Measured on synthetic corpora differing
-  only in whether one document has an empty author string, ``init_db`` went
-  from 6 ms to 291 ms at 50,000 documents and to 1,176 ms at 200,000, on every
-  launch, with peak RSS rising from 58 MB to 188 MB.
+  ``COUNT(*) FROM documents`` never converges. A document with no authors --
+  OSTI, GovInfo and dataset records produce them, and the schema 13 fixture
+  already has one -- contributes no author rows, so the two counts can never
+  match. Every launch would then re-read every document and re-run
+  ``index_document_facets`` over all of them inside a write transaction,
+  repairing nothing: every insert is an ``INSERT OR IGNORE`` that conflicts.
+  Measured on synthetic corpora differing only in whether one document has an
+  empty author string, ``init_db`` went from 6 ms to 291 ms at 50,000 documents
+  and to 1,176 ms at 200,000, on every launch, with peak RSS rising from 58 MB
+  to 188 MB.
 
-* **The schema-21 email-target seed re-created a target the user had
-  deleted.** The seed was guarded only by "does this routine already have an
-  email target", not by whether the upgrade that introduced it had already
-  run, so ``delivery.delete_target`` held until the next launch and no longer.
+* **A schema-21 email-target seed that re-creates a target the user deleted.**
+  A seed guarded only by "does this routine already have an email target", and
+  not by whether the upgrade that introduced it has already run, makes
+  ``delivery.delete_target`` hold until the next launch and no longer.
 
-Both are exercised on a fresh database *and* on the released v2.1.0 fixture
-walked to today's schema by one ``init_db``, because a migration that has only
-ever been run against a fresh database is a migration nobody has tested -- the
-lesson schema 13 taught, where an index over a new column aborted ``init_db``
-on every existing corpus while passing on every fresh one.
+Both are exercised on a fresh database *and* on the schema 13 fixture walked to
+today's schema by one ``init_db``, because a migration that has only ever been
+run against a fresh database is a migration nobody has tested -- an index over
+a new column aborts ``init_db`` on every existing corpus while passing on every
+fresh one.
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ sys.path.insert(0, str(ROOT / "resmon_scripts"))
 
 from implementation_scripts import database as db  # noqa: E402
 
-FIXTURE = Path(__file__).parent / "fixtures/v2.1.0/corpus_schema_13.sql"
+FIXTURE = Path(__file__).parent / "fixtures/schema-13/corpus.sql"
 
 #: The one-shot marker the facet backfill writes, named here rather than
 #: imported: the key is the user-visible half of the contract -- it is what the
@@ -55,7 +56,7 @@ FACETS_MARKER = "document_facets_backfilled"
 
 
 # ---------------------------------------------------------------------------
-# Two databases: one fresh, one a released corpus walked up to today
+# Two databases: one fresh, one a committed schema-13 corpus walked up to today
 # ---------------------------------------------------------------------------
 
 
@@ -65,10 +66,10 @@ def _fresh(path: Path) -> Path:
 
 
 def _upgraded(path: Path) -> Path:
-    """A v2.1.0 (schema 13) corpus, taken to today's schema by one ``init_db``.
+    """A schema 13 corpus, taken to today's schema by one ``init_db``.
 
     The same fixture ``test_cumulative_upgrade.py`` walks, and it is the fixture
-    that matters here: it was written by v2.1.0's own code and it already
+    that matters here: it was written by schema 13's own code and it already
     contains a document with no author rows, which is the shape that made the
     count comparison permanently unequal.
     """

@@ -1,4 +1,4 @@
-"""Update 4 / Batch 2 / Fix D — RESMON_DISABLE_SCHEDULER env-var gate.
+"""RESMON_DISABLE_SCHEDULER env-var gate.
 
 When the Electron main process spawns the backend as a fallback (because
 no live daemon was found), it sets ``RESMON_DISABLE_SCHEDULER=1`` so the

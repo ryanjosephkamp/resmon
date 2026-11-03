@@ -5,20 +5,20 @@
  * "install a newer resmon over an older one" — what the user does is double
  * click an installer, and what has to stay true is that the corpus they already
  * have walks every migration on the first launch. J16 is the weekly
- * live-network job. Neither has a screen, and `README.md` records the pattern
- * the harness was born with: **run the existing gate as a subprocess and assert
- * its exit status and the denominators it prints.** The row's evidence stays
- * the real gate. Re-implementing a migration walk in TypeScript would be a
- * second thing to keep in step with `database.py`, and the second thing is
- * always the one that goes stale.
+ * live-network job. Neither has a screen, and `README.md` records the pattern:
+ * **run the existing gate as a subprocess and assert its exit status and the
+ * denominators it prints.** The row's evidence stays the real gate.
+ * Re-implementing a migration walk in TypeScript would be a second thing to
+ * keep in step with `database.py`, and the second thing is always the one that
+ * goes stale.
  *
  * So this is deliberately thin. It knows how to start a pytest file in the
  * build under test, under an isolated state directory, and how to hand back
  * everything it wrote. What that output has to contain is the spec's business.
  *
  * It lives here rather than on `JourneyDriver` because it is not something a
- * renderer can do: there is no screen to drive and no driver to pick. A 3.0
- * candidate build runs exactly this gate, from its own checkout, unchanged.
+ * renderer can do: there is no screen to drive and no driver to pick. Any build
+ * under test runs exactly this gate, from its own checkout, unchanged.
  */
 import * as fs from 'fs';
 import * as os from 'os';
@@ -47,7 +47,7 @@ export interface GateOutcome {
 /**
  * How long a gate may take.
  *
- * The cumulative upgrade walk opens a released corpus, runs every migration and
+ * The cumulative upgrade walk opens a corpus at an older schema, runs every migration and
  * then compares the result object for object against a fresh install. On a
  * loaded runner that is minutes, not seconds — but it is bounded work, and a
  * gate that has not finished in this long has stopped rather than slowed.
@@ -64,7 +64,7 @@ const GATE_DEADLINE_MS = 600_000;
  * `print` lines through, which is where its denominators are.
  *
  * The run gets its own `RESMON_STATE_DIR`. The suite's other launches are
- * isolated because B3 requires it, and a subprocess that inherited this
+ * isolated so that nothing reaches the live daemon, and a subprocess that inherited this
  * session's environment would be the one exception.
  */
 export function runGate(gate: string): GateOutcome {

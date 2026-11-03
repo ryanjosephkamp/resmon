@@ -1,11 +1,11 @@
 # resmon_scripts/verification_scripts/test_api_credentials_presence.py
 """Tests for GET /api/credentials (status-only; no raw values) — IMPL-23.
 
-The response gained a ``status`` per credential and a top-level
-``keyring_responsive`` in 1.7, so that an unreadable keyring is never reported
+The response carries a ``status`` per credential and a top-level
+``keyring_responsive``, so that an unreadable keyring is never reported
 as "no key set" (see test_keyring_honesty.py). The contract these tests exist
-to protect is unchanged and is the important one: the endpoint reports
-*whether* a credential exists and never what it is.
+to protect is the important one: the endpoint reports *whether* a credential
+exists and never what it is.
 """
 
 import sys

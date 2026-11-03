@@ -16,7 +16,7 @@
  * — what the row refuses to accept is a panel with no keyboard route at all, so
  * the fallback path is asserted too. The geometry is asserted at the window
  * size this suite launches; zoom and small windows are `e2e/`'s, which has the
- * Electron handles for them, and the ledger says so.
+ * Electron handles for them, and this journey does not claim to cover them.
  */
 import { expect, journey } from './driver';
 
@@ -69,8 +69,8 @@ journey.describe('J31 Readable Ask', () => {
     if (!byKeyboard) {
       console.log('[J31] NOT VERIFIED: the documented keyboard shortcut. It did not open the '
         + 'panel in this build under this driver, so the row went in through the trigger '
-        + 'instead and asserts the rest. Whether the shortcut or the register is wrong is the '
-        + "lead's to decide.");
+        + 'instead and asserts the rest. The shortcut and the register '
+        + 'disagree.');
     }
     console.log('[J31] NOT VERIFIED: zoom, small windows and color contrast. Those need '
       + 'Electron handles this suite deliberately does not give a spec; '

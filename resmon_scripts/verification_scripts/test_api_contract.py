@@ -231,10 +231,9 @@ def test_the_contract_carries_no_app_version(committed_openapi):
 def test_the_index_counts_the_routes_that_describe_their_response():
     """The index says how many routes declare a model, and it says it right.
 
-    This test used to assert that *none* did, because none did and the index
-    said so in prose. The prose has become a count — "the 11 of 184 routes that
-    declare one" — generated from ``app.routes`` rather than typed, and what is
-    worth guarding is now that the sentence and the application agree. A route
+    The index states a count — "the 11 of 184 routes that declare one" —
+    generated from ``app.routes`` rather than typed, and what is worth
+    guarding is that the sentence and the application agree. A route
     modeled without regenerating the index fails
     ``test_the_http_index_is_what_the_app_generates`` above; this one fails if
     the sentence itself stops being computed.
@@ -485,9 +484,10 @@ def test_the_auth_class_comes_from_the_guards_own_constants():
 def test_two_generations_are_byte_identical():
     """The same process, twice. Sorted keys are what make this true.
 
-    CI runs this file on Python 3.10, 3.11 and 3.12, which is the part of P4
-    this cannot reach from one interpreter: three versions agreeing on the
-    committed bytes is three green columns, not an assertion here.
+    CI runs this file on Python 3.10, 3.11 and 3.12, which is the part of this
+    property that cannot be reached from one interpreter: three versions
+    agreeing on the committed bytes is three green columns, not an assertion
+    here.
     """
     assert api_contract.contract_json() == api_contract.contract_json()
     assert api_contract.render_http_md() == api_contract.render_http_md()

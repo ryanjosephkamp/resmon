@@ -1,8 +1,8 @@
 """Watch profiles: the people a routine can be pointed at.
 
-Until 2.1 a routine watched *words*. A researcher who wants to know when a
-particular person publishes had to guess a keyword query and live with whatever
-it caught. A profile is the thing you point a routine at instead: a name, the
+A keyword routine watches *words*. A researcher who wants to know when a
+particular person publishes would have to guess a keyword query and live with
+whatever it caught. A profile is the thing you point a routine at instead: a name, the
 identifiers you have for that person, where they work, and nothing resmon
 invented.
 
@@ -24,7 +24,7 @@ the product says so.** Everything here is arranged around making that sayable:
 
 ## SQLite is the truth; JSON is the interchange
 
-Decision 2. The table is the source of truth because matching joins against
+The table is the source of truth because matching joins against
 ``document_authors`` and the lifecycle tables; the JSON shape below is what
 ``export`` writes, ``import`` reads, and the starter directory ships. It carries
 a ``schema`` field so a file written today can be read by a resmon that has
@@ -75,14 +75,14 @@ JSON_SCHEMA_VERSION = 1
 
 KINDS = ("person", "institution", "group")
 
-# The three things a routine can watch a profile for (decision 6). One routine,
-# one profile, one mode.
+# The three things a routine can watch a profile for. One routine, one profile,
+# one mode.
 ENTITY_MODES = ("new_papers", "retractions", "institution_output")
 
-# The two that 2.1a ships. ``institution_output`` needs affiliation matching and
-# institution profiles, which are 2.1b, and it is refused **by name** rather than
-# omitted from the list: a mode the plan has and the build has not is a
-# different fact from a typo, and the person asking for it deserves the first
+# The two that are available. ``institution_output`` needs affiliation matching
+# and institution profiles, which are not built, and it is refused **by name**
+# rather than omitted from the list: a mode the plan has and the build has not is
+# a different fact from a typo, and the person asking for it deserves the first
 # sentence rather than "unknown mode".
 AVAILABLE_ENTITY_MODES = ("new_papers", "retractions")
 
@@ -398,7 +398,7 @@ def validate_entity_parameters(conn: sqlite3.Connection, entity: Any) -> dict:
     if mode not in AVAILABLE_ENTITY_MODES:
         raise ProfileError(
             f"'{mode}' is planned and not built yet. It needs affiliation "
-            f"matching and institution profiles, which arrive in resmon 2.1.1. "
+            f"matching and institution profiles. "
             f"Today a routine can watch a person for "
             f"{' or '.join(AVAILABLE_ENTITY_MODES)}.")
 
@@ -409,7 +409,7 @@ def validate_entity_parameters(conn: sqlite3.Connection, entity: Any) -> dict:
         raise ProfileError(
             f"'{profile['display_name']}' is a {profile['kind']} profile, and a "
             f"routine can only watch a person today. Watching an institution "
-            f"arrives with affiliation matching in resmon 2.1.1.")
+            f"needs affiliation matching, which is not built yet.")
 
     return {"profile_id": profile_id, "mode": mode}
 

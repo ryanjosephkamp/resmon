@@ -1,4 +1,4 @@
-"""Watch profiles: the model, the warning, and the round trip (P7, P8).
+"""Watch profiles: the model, the warning, and the round trip.
 
 Hermetic throughout — a profile is a record, and everything here is about what
 resmon will and will not store. The parts that need a real backend (the API's
@@ -31,7 +31,7 @@ def conn():
 
 
 # ---------------------------------------------------------------------------
-# P8 — a profile that can only ever match by name says so at creation
+# A profile that can only ever match by name says so at creation
 # ---------------------------------------------------------------------------
 
 def test_a_profile_with_nothing_but_a_name_is_told_every_match_is_name_only(conn):
@@ -149,7 +149,7 @@ def test_field_hints_are_stored_and_are_documented_as_disambiguation_only(conn):
 
 
 # ---------------------------------------------------------------------------
-# P7 — export and import round-trip
+# Export and import round-trip
 # ---------------------------------------------------------------------------
 
 def test_export_then_import_round_trips_the_profile(conn):
@@ -191,7 +191,7 @@ def test_a_file_with_no_schema_field_is_refused(conn):
 
 
 # ---------------------------------------------------------------------------
-# P7's denominator — the starter directory
+# The denominator — the starter directory
 # ---------------------------------------------------------------------------
 
 def test_every_starter_profile_loads_and_validates():
@@ -257,8 +257,8 @@ def test_deleting_a_profile_takes_its_matches_and_leaves_the_corpus(conn):
     """A match row is a statement about a paper, not the paper.
 
     Deleting the person you were watching must not delete their work out of your
-    library, and `Nothing is deleted from the corpus by any 2.1 path` is a
-    constraint of the phase rather than a hope about the foreign keys.
+    library, and leaving the corpus untouched is a constraint rather than a
+    hope about the foreign keys.
     """
     profile = wp.create_profile(conn, {"display_name": "Jane Doe"})
     conn.execute(

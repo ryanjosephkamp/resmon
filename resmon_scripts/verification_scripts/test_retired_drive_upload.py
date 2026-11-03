@@ -1,14 +1,12 @@
-"""An install that had the upload to Google Drive on, after the upload was removed.
+"""An install that carries the settings of a Google Drive upload resmon does not perform.
 
-resmon used to sign in to Google and, with Settings › Cloud Storage's *Upload
-each run's report and log* switched on, upload each finished run's report and
-log to Google Drive. The sign-in and the upload are gone: a backup is written
-into a folder the person chooses, Google Drive for desktop's among them. A
-database from before that still holds ``cloud_auto_backup = true``, and the
-keyring may still hold the sign-in. These hold the engine to starting over
-both, reading the setting only for the notice that says the upload has gone,
-never asking the keyring for the sign-in, and saying nothing about an upload
-anywhere a person reads.
+resmon does not sign in to Google or upload each finished run's report and log
+to Google Drive: a backup is written into a folder the person chooses, Google
+Drive for desktop's among them. A database can still hold
+``cloud_auto_backup = true``, and the keyring can still hold a sign-in. These
+hold the engine to starting over both, reading the setting only for the notice
+that says the upload has gone, never asking the keyring for the sign-in, and
+saying nothing about an upload anywhere a person reads.
 """
 
 from __future__ import annotations

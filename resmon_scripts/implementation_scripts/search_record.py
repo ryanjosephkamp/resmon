@@ -365,8 +365,8 @@ def _source_note(source: dict) -> str | None:
 
 
 # Why a run's deduplication figure can be absent besides its age: it stopped
-# before that step. A record that called a cancelled 2.3.0 run "older than the
-# version that stored this figure" was found in a walk on October 26, 2026.
+# before that step. A cancelled run must not be described as "older than the
+# version that stored this figure".
 _STOPPED_BEFORE_DEDUP = {
     "cancelled": "The run was cancelled before deduplication, so this figure was never computed.",
     "failed": "The run failed before deduplication, so this figure was never computed.",
@@ -496,8 +496,7 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
         names = ", ".join(_display_name(s["source"]) for s in unrecorded)
         caveats.append(
             f"resmon did not record why {len(unrecorded)} of the "
-            f"{len(sources)} sources returned nothing ({names}). Runs from "
-            "before resmon 1.8.6 have no such record. Those zeros are "
+            f"{len(sources)} sources returned nothing ({names}). Those zeros are "
             "unexplained, not measured — do not report them as evidence that "
             "there was nothing to find."
         )
@@ -514,9 +513,9 @@ def _n(value) -> str:
     return "not recorded" if value is None else f"{value:,}"
 
 
-# The outcome column used to read "answered" for every ``ok`` row, including
-# the ones where the source never answered at all. These are the short labels;
-# the sentence underneath each table carries the reason.
+# The outcome column must not read "answered" for every ``ok`` row, because
+# some of those rows are ones where the source never answered at all. These are
+# the short labels; the sentence underneath each table carries the reason.
 _OUTCOME_LABELS = {
     "window_unanswerable": "could not answer this window",
     "upstream_failure": "did not answer",

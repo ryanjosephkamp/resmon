@@ -1,14 +1,14 @@
 """P13 — the packaged app can start its own MCP servers for the CLI.
 
-The risk is specific and has bitten this project before. The packaged app ships
+The risk is specific. The packaged app ships
 a bundled interpreter and spawns the backend with it (`main.ts` builds
 ``Contents/Resources/backend/python/bin/python3`` explicitly), so
 ``sys.executable`` inside the backend *is* that interpreter. resmon then hands
 the CLI an MCP config naming a command and two scripts — and if that command
 were ``python3``, it would resolve against the PATH a Finder-launched app
 inherits, which is ``/usr/bin:/bin:/usr/sbin:/sbin`` and contains no resmon
-environment at all. The same class of failure as 1.8's CLI discovery, one layer
-down.
+environment at all. The same class of failure as the CLI discovery in
+``test_ai_cli_discovery.py``, one layer down.
 
 Two halves, and they run in different circumstances:
 
@@ -19,8 +19,7 @@ Two halves, and they run in different circumstances:
   packaged copies of the scripts. It **skips rather than passes** when there is
   no packaged app or when the one there predates the assistant, and the skip
   says which. A stale bundle reporting a pass would be worse than no check:
-  ``packaged.spec.ts`` learned that when a months-old 1.6.0 build was walked and
-  called verified.
+  an old build would be called verified.
 """
 
 from __future__ import annotations

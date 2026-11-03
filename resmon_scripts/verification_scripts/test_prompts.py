@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_prompts.py
-"""Verification tests for prompt_templates constitution loader (IMPL-AI2)."""
+"""Verification tests for prompt_templates constitution loader."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ def test_runtime_error_when_constitution_missing(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# IMPL-AI3 — tightened templates + length-band mapping
+# Tightened templates + length-band mapping
 # ---------------------------------------------------------------------------
 
 

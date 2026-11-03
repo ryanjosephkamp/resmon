@@ -1,12 +1,12 @@
 """The performance harness's own parts (``resmon_scripts/perf``).
 
-The harness is how the rebuild's performance gate is decided, so the parts a
-wrong number would come from are tested here: the replay transport (a request
-with no recording must be refused, never answered from the network), the gate
-arithmetic (a throughput that drops is worse, a duration that drops is
-better), the soak's reading of a sawtooth (a leak is a rising floor, not a
-high last peak), the seeded corpus (the same every time), and the isolation of
-every process the harness starts.
+The harness decides the performance gate, so the parts a wrong number would
+come from are tested here: the replay transport (a request with no recording
+must be refused, never answered from the network), the gate arithmetic (a
+throughput that drops is worse, a duration that drops is better), the soak's
+reading of a sawtooth (a leak is a rising floor, not a high last peak), the
+seeded corpus (the same every time), and the isolation of every process the
+harness starts.
 """
 
 from __future__ import annotations

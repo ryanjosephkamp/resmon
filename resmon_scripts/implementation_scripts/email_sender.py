@@ -138,7 +138,6 @@ def send_routine_completion_email(
     email_notifier.send_email(smtp_config, message)
 
 
-#: The name this function had before the delivery queue needed to call it from
-#: outside the module. ``resmon.py``'s Settings -> Email test route imports it
-#: under the old name.
+#: Alias for ``load_smtp_config``: ``resmon.py``'s Settings -> Email test route
+#: imports it under this name.
 _load_smtp_config = load_smtp_config

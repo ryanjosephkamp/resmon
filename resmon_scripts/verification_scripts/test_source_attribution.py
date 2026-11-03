@@ -1,13 +1,12 @@
 """Sources whose credit is a license condition must actually be credited.
 
-Delegation 03's terms survey found that four shipped sources make attribution a
-condition of reuse — OpenAIRE's Graph metadata is CC BY, PLOS's API display
-policy names an exact phrase, CORE asks discovery products to carry its
-snippet, and the Semantic Scholar API license requires its credit — and that
-resmon met **none** of them. The obligations were real, the catalog had nowhere
-to record them, and nothing rendered them.
+Four sources make attribution a condition of reuse — OpenAIRE's Graph metadata
+is CC BY, PLOS's API display policy names an exact phrase, CORE asks discovery
+products to carry its snippet, and the Semantic Scholar API license requires
+its credit. The obligations are real, so the catalog has to record them and
+something has to render them.
 
-These tests pin the two things that make the fix real rather than cosmetic: the
+These tests pin the two things that make that real rather than cosmetic: the
 obligation is recorded with the clause that imposes it, and a *required* credit
 is held apart from one the upstream merely asks for.
 """
@@ -27,7 +26,7 @@ from implementation_scripts.repo_catalog import (  # noqa: E402
 
 _BY_SLUG = {e.slug: e for e in REPOSITORY_CATALOG}
 
-# Established from each provider's own clause during the v1.8.1 terms review.
+# Established from each provider's own terms clause.
 # A source is listed here only where the credit is a *condition*, not a request.
 REQUIRED = {
     "core": "Powered by CORE",
@@ -95,15 +94,13 @@ def test_attribution_reaches_the_api_payload():
 
 
 # ---------------------------------------------------------------------------
-# Delegation 04's two sources
+# NDL Search and NIST RMM
 # ---------------------------------------------------------------------------
 #
-# NDL Search and NIST RMM both make a credit a condition of reuse. They arrived
-# with those obligations recorded verbatim in `notes`, because the attribution
-# fields did not exist when their brief was written -- the brief said so, and
-# the delivering PR said plainly that a catalog note does not discharge an
-# obligation. These pin the move into the fields, so the credits actually
-# render rather than sitting in prose nobody is shown.
+# NDL Search and NIST RMM both make a credit a condition of reuse. A catalog
+# note does not discharge an obligation, so these pin the credits into the
+# attribution fields, where they actually render rather than sitting in prose
+# nobody is shown.
 
 def test_ndl_credits_both_the_api_and_the_contributing_institution():
     """NDL asks for two credits, not one: the API and the metadata provider."""
@@ -123,8 +120,8 @@ def test_nist_acknowledgment_is_recorded_as_a_condition():
 def test_nist_says_its_field_mapping_is_unverified():
     """Someone seeing zero NIST results is entitled to know why.
 
-    The endpoint has been returning HTTP 500 since the source was added, so the
-    record-field mapping has never met a live response. The parser skips what it
+    The endpoint returns HTTP 500, so the record-field mapping has never met a
+    live response. The parser skips what it
     cannot map, so the failure mode is no results rather than wrong ones -- and
     the catalog says both halves of that.
     """

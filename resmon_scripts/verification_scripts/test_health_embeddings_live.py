@@ -14,7 +14,7 @@ uses that file's fixture shape deliberately.
 
 **What this cannot see:** whether the *packaged* app can load it. This runs the
 development interpreter against a development checkout. ``e2e/packaged.spec.ts``
-carries that half, and Delegation 05's probe workflow
+carries that half, and the sqlite-vec probe workflow
 (``.github/workflows/sqlite-vec-probe.yml``) carries the four release targets.
 
 Marked ``live_network`` because it binds a real socket. It never leaves loopback
@@ -37,8 +37,8 @@ import live_backend  # noqa: E402
 
 pytestmark = pytest.mark.live_network
 
-# Every call below goes through this rather than ``httpx`` directly: since 2.2
-# the backend refuses an anonymous request to any route, ``/api/health``
+# Every call below goes through this rather than ``httpx`` directly: the
+# backend refuses an anonymous request to any route, ``/api/health``
 # included. The fixture fills in the token the backend it starts publishes.
 _API = live_backend.TokenedHttpx()
 
@@ -118,7 +118,7 @@ def test_health_answers_per_call_rather_than_from_a_cached_first_answer(backend)
     second = _API.get(f"{backend}/api/health", timeout=10).json()["embeddings"]
     assert first == second
     # The backend serves requests on a thread pool and each thread holds its own
-    # connection (BUG-020), so this also establishes that the load is not tied to
+    # connection, so this also establishes that the load is not tied to
     # whichever thread happened to answer first.
     answers = {
         _API.get(f"{backend}/api/health", timeout=10).json()["embeddings"]["extension"]

@@ -24,7 +24,7 @@
  * app's own credential route into the same in-memory store every journey uses,
  * and it is the app's own code that reads the key back out when it builds the
  * request. What no authored provider can see is a real provider's behaviour —
- * a rate limit, a model that was withdrawn — and the ledger says so.
+ * a rate limit, a model that was withdrawn — and this journey does not claim to.
  */
 import { expect, journey } from './driver';
 

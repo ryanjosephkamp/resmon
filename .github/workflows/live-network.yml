@@ -2,12 +2,12 @@ name: Live network (weekly)
 
 # The live suite, minus the part no runner can run.
 #
-# **Why this exists.** `live_network` is deselected by default and nothing ran it
-# on a schedule. In 1.9 a live test that contradicted the shipped MCP contract
-# sat red on `main` through two releases and nobody heard about it, because the
-# only thing that ever ran it was a person who happened to type the command.
-# The guarantees this project makes about its sources, its tool surface and its
-# packaging all rest on tests that were, in effect, unrun.
+# **Why this exists.** `live_network` is deselected by default, so without a
+# schedule a live test that contradicts the shipped MCP contract can sit red on
+# `main` unheard, because the only thing that would run it is a person who
+# happens to type the command. The guarantees this project makes about its
+# sources, its tool surface and its packaging all rest on tests that would
+# otherwise be, in effect, unrun.
 #
 # **What it does not run.** The tests that need an agent CLI the *person*
 # installed and signed into. A runner has no such CLI and cannot be given one,

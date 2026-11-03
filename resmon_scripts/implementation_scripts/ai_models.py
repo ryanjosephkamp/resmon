@@ -217,14 +217,13 @@ def list_available_models(
 
 
 # ---------------------------------------------------------------------------
-# Subscription lanes (1.8.5)
+# Subscription lanes
 # ---------------------------------------------------------------------------
 #
 # ``list_available_models`` above raises ``Unsupported provider`` for
-# ``claude_code`` and ``codex``, which was correct while nothing could answer
-# for them and is not correct now. But the two CLIs answer in genuinely
-# different ways, and flattening that into one list would be the overclaim this
-# project rejects:
+# ``claude_code`` and ``codex``, because those two are not API providers. The
+# two CLIs answer a models question in genuinely different ways, and
+# flattening that into one list would be the overclaim this project rejects:
 #
 # ``claude``  has **no** models-listing command. What it documents is aliases —
 #             ``--help`` names 'fable', 'opus' and 'sonnet', and 'haiku' was

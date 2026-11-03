@@ -30,9 +30,8 @@ def conn(tmp_path):
 
 
 def test_schema_12_creates_the_assistant_tables(conn):
-    # Named for the version that introduced these tables; the assertion tracks
-    # the current one, which is 16 since Library (13 was 2.1's
-    # author-identity columns). The pin is deliberate rather than a comparison
+    # Named for the schema version that introduced these tables; the assertion
+    # tracks the current one. The pin is deliberate rather than a comparison
     # against the constant: a schema bump should have to touch this file, so
     # that whoever bumps it re-reads what the assistant tables promise.
     assert database.SCHEMA_VERSION == 24

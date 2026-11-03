@@ -1,13 +1,13 @@
 """The vector index: loading, the lifecycle, and what a ranking must never do.
 
-Two properties in phase 1.9's list live here.
+Two properties live here.
 
-**P5 — absence is a first-class state.** When the extension will not load, every
+**Absence is a first-class state.** When the extension will not load, every
 entry point returns a "not available" answer with a reason and nothing raises.
 The test does not mock the answer; it makes the real load site fail, by hiding
 the module the real code imports, and then drives the real functions.
 
-**P7 — vectors from two models never mix.** The index holds one model at a time,
+**Vectors from two models never mix.** The index holds one model at a time,
 so the obvious test would pass without the guard that matters. This builds the
 situation the guard exists for instead: an index that *does* hold both models'
 rows, which is what a partial re-embed or a hand-edited database leaves behind.
@@ -30,7 +30,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 from implementation_scripts import vector_index  # noqa: E402
 from implementation_scripts.database import init_db  # noqa: E402
 
-pytest.importorskip("sqlite_vec", reason="sqlite-vec is a runtime dependency of 1.9")
+pytest.importorskip("sqlite_vec", reason="sqlite-vec is a runtime dependency")
 
 
 DIMS = 4
@@ -74,8 +74,8 @@ def test_schema_11_creates_the_three_additions(conn):
     """The migration's own contract, on a database ``init_db`` just built."""
     from implementation_scripts import database
 
-    # 12 since 2.0a's assistant tables. The three additions this test names are
-    # still what schema 11 brought; the version constant has moved past it.
+    # The three additions this test names are what schema 11 brought; the
+    # version constant has moved past it.
     assert database.SCHEMA_VERSION >= 11
     assert database.get_schema_version(conn) == database.SCHEMA_VERSION
 
@@ -90,7 +90,7 @@ def test_schema_11_creates_the_three_additions(conn):
 
 
 def test_intent_is_not_backfilled_from_the_keyword_string(tmp_path):
-    """A pre-1.9 routine reads as "no intent recorded", not as one it never typed.
+    """A routine saved without an intent reads as "no intent recorded", not as one it never typed.
 
     The coverage audit falls back to the keywords and says so. Writing them into
     the column instead would make every existing routine claim a stated intent.
@@ -318,7 +318,7 @@ def test_an_empty_candidate_set_ranks_nothing_rather_than_everything(conn):
 
 
 def test_ranking_with_one_model_never_returns_a_row_embedded_only_by_another(conn):
-    """P7. The index is built holding *both* models, which is the failure state.
+    """The index is built holding *both* models, which is the failure state.
 
     A partial re-embed, or a database hand-edited between versions, leaves an
     index containing rows the active model never produced. Their distances are
@@ -402,9 +402,10 @@ def test_upsert_replaces_rather_than_duplicating(conn):
 
 
 def test_every_public_entry_point_survives_a_connection_that_never_loaded_it(tmp_path):
-    """The second half of the same bug, and the one that outlived the first fix.
+    """The second half of the same failure: a connection that never loaded it.
 
-    resmon holds one connection per thread (BUG-020) and FastAPI answers sync
+    resmon holds one connection per thread, because sharing one sqlite3
+    connection across threads can segfault CPython, and FastAPI answers sync
     endpoints on a thread pool, so whether the extension is loaded on *this*
     connection depends on which thread took the request. ``index_state`` queried
     the ``vec0`` table without going through the load site, so on a fresh thread
@@ -452,7 +453,7 @@ def test_every_public_entry_point_survives_a_connection_that_never_loaded_it(tmp
 
 
 def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path):
-    """The 1.9b bug, as a regression test.
+    """A rebuild on one thread must not break a ranking on another.
 
     A rebuild drops and recreates a real table in the database file, so it is
     process-wide state even though every thread has its own connection. One
@@ -522,7 +523,7 @@ def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path)
 
 
 # ---------------------------------------------------------------------------
-# P5 — the extension cannot load
+# The extension cannot load
 # ---------------------------------------------------------------------------
 
 
@@ -530,10 +531,10 @@ def test_concurrent_ranking_never_raises_while_another_thread_rebuilds(tmp_path)
 def extension_unavailable(monkeypatch):
     """Make the *real* load site fail, by hiding the module it imports.
 
-    Not a monkeypatched ``load_extension``: the point of P5 is that the code path
+    Not a monkeypatched ``load_extension``: the point is that the code path
     a user without the extension takes is the one under test, and a patched
     return value would exercise resmon's happy-path plumbing with a different
-    answer stapled on. Ledger 23 and 33 are both that mistake.
+    answer stapled on.
     """
     real_import = builtins.__import__
 
@@ -551,7 +552,7 @@ def extension_unavailable(monkeypatch):
 def test_every_entry_point_degrades_with_a_reason_when_the_extension_is_absent(
     conn, extension_unavailable
 ):
-    """P5. Nothing raises; each answer carries the reason a user is shown."""
+    """Nothing raises; each answer carries the reason a user is shown."""
     assert vector_index.load_extension(conn) is None
 
     status = vector_index.extension_status(conn)

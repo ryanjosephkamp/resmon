@@ -1,4 +1,4 @@
-"""IMPL-R4 — Scheduler lifecycle + ``GET /api/scheduler/jobs`` smoke test."""
+"""Scheduler lifecycle + ``GET /api/scheduler/jobs`` smoke test."""
 
 from __future__ import annotations
 
@@ -29,9 +29,9 @@ def test_scheduler_jobs_reflects_active_routine():
         assert resmon_mod.scheduler is not None
 
         # Create an active routine via the REST API and verify the scheduler
-        # picked it up (routine create path calls ``_sync_routine_to_scheduler``
-        # in IMPL-R5; for R4 we assert the startup-hydration path by inserting
-        # directly through the DB and restarting via a fresh client).
+        # picked it up (routine create path calls ``_sync_routine_to_scheduler``;
+        # here we assert the startup-hydration path by inserting directly
+        # through the DB and restarting via a fresh client).
         body = {
             "name": "r4-smoke",
             "schedule_cron": "0 9 * * *",
@@ -43,7 +43,7 @@ def test_scheduler_jobs_reflects_active_routine():
         assert resp.status_code == 201, resp.text
         routine_id = resp.json()["id"]
 
-        # Register the routine with the scheduler explicitly — IMPL-R4 only
+        # Register the routine with the scheduler explicitly — this test only
         # guarantees startup registration + the ``/api/scheduler/jobs`` view.
         resmon_mod.scheduler.add_routine({
             "id": routine_id,

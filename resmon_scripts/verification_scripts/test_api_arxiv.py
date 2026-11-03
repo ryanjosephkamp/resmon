@@ -13,8 +13,8 @@ engine. ``test_a_two_word_query_counts_what_the_and_counts`` is the live half.
 
 **A 429 is waited out.** arXiv asks for one request every three seconds and
 answers a busier caller with 429. ``safe_request``'s shared ladder spent its
-four attempts in about ten seconds, and a nightly watch failed twice in one
-week. The ladder is driven here against a real loopback server, with the wait
+four attempts in about ten seconds, which fails a nightly watch whenever arXiv is
+busy. The ladder is driven here against a real loopback server, with the wait
 replaced by a recorder so no test sleeps.
 """
 

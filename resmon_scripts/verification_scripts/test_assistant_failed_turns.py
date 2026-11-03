@@ -1,9 +1,9 @@
 """A failed Ask turn is kept as a failure, never as an answer, on a real backend.
 
-The case this exists for: Claude Code's sign-in had expired, the CLI said so in
-an ordinary assistant text block and then in an error result, and resmon
-stored that sentence as the assistant's answer, with "Reported cost $0.0000"
-under it and "2 saved messages" in the header. Now the user's message stays,
+The case this exists for: Claude Code's sign-in has expired, and the CLI says so
+in an ordinary assistant text block and then in an error result. resmon must not
+store that sentence as the assistant's answer, with "Reported cost $0.0000"
+under it and "2 saved messages" in the header. The user's message stays,
 no assistant message is written, the failure is recorded beside the turn with
 what the panel can offer next, and no cost is kept unless one was reported.
 

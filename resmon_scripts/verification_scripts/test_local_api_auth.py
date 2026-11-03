@@ -1,4 +1,4 @@
-"""The local API lock-down (2.2), observed at the socket.
+"""The local API lock-down, observed at the socket.
 
 Every check here that matters talks to a **real backend process** — ``python
 resmon.py <port>`` or the daemon entry point — on an ephemeral loopback port
@@ -494,7 +494,7 @@ def test_the_library_guard_trusts_only_the_exact_renderer_origin(backend):
 
 
 # ---------------------------------------------------------------------------
-# D3 / P7 — token files: bare launcher, Electron hand-over, daemon
+# P7 — token files: bare launcher, Electron hand-over, daemon
 # ---------------------------------------------------------------------------
 
 def _mode(path: Path) -> int:

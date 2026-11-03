@@ -1,4 +1,4 @@
-"""CLI discovery for the subscription lane (1.8c).
+"""CLI discovery for the subscription lane.
 
 The order — explicit path, then known install locations, then PATH — is the
 whole point of the module, and it is not arbitrary. A Finder-launched macOS app

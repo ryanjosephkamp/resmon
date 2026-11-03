@@ -100,7 +100,7 @@ class ProviderEmbedding:
 
     state: str  # "yes" | "no" | "unknown"
     reason: str  # rendered to the user, verbatim
-    evidence: str  # how it was established; for the handback and the docstring reader
+    evidence: str  # how it was established; for the docstring reader
     path: Optional[str] = None  # appended to the provider's base URL
     default_model: Optional[str] = None
 
@@ -112,15 +112,15 @@ class ProviderEmbedding:
 
 _PROBED_ON = "2026-09-05"
 
-# Every provider resmon lists. The denominator for P8 is this table checked
+# Every provider resmon lists. The denominator is this table checked
 # against ``llm_remote._SUPPORTED_PROVIDERS`` plus ``local`` plus
 # ``ai_lanes.SUBSCRIPTION_PROVIDERS``; ``test_embeddings.py`` fails if any of
 # those has no row here, so a provider cannot be added without an answer.
 #
-# **The brief's P8 denominator named ``_PROVIDER_SPECS`` + anthropic + local +
-# custom, which omits ``google``.** Google is in ``_SUPPORTED_PROVIDERS`` and has
-# its own request path in ``llm_remote``; it is a provider a user can select, so
-# it needs an answer like the rest. It has one, and it is `yes`.
+# **``google`` belongs in the denominator.** Google is in
+# ``_SUPPORTED_PROVIDERS`` and has its own request path in ``llm_remote``; it is
+# a provider a user can select, so it needs an answer like the rest. It has one,
+# and it is `yes`.
 PROVIDER_EMBEDDING: dict[str, ProviderEmbedding] = {
     "openai": ProviderEmbedding(
         state="yes",
@@ -289,7 +289,7 @@ def suggested_models(provider: str) -> list[str]:
     """Models resmon proposes for *provider*. Suggestions, never a closed list.
 
     A user may type any model name; these are the ones the interface offers
-    first. For ``local`` they are the two the brief named as candidates, and the
+    first. For ``local`` they are three common Ollama embedding models, and the
     Settings tab replaces them with what the machine actually has once
     ``/api/tags`` answers.
     """
@@ -352,8 +352,8 @@ class EmbeddingLane:
 
 # The settings keys this feature owns. They ride in **both**
 # ``_SETTINGS_GROUPS["embeddings"]`` (so a PUT stores them) and the engine
-# loader's read list (so a run sees them). Ledger 33 was precisely the omission
-# of the second, and it cost the whole subscription lane its configuration.
+# loader's read list (so a run sees them). Omitting the second would cost the
+# whole subscription lane its configuration.
 EMBEDDING_SETTING_KEYS: tuple[str, ...] = (
     "embedding_enabled",
     "embedding_provider",
@@ -374,7 +374,7 @@ def build_lane(settings: dict[str, Any]) -> Optional[EmbeddingLane]:
     "this feature is off" rather than as a failure.
 
     A lane is **not** built for a provider whose recorded answer is ``no``. That
-    is the configuration-time refusal P8 asks for: a user who picked Anthropic
+    is the configuration-time refusal: a user who picked Anthropic
     is told when they pick it, not after a backfill has run and produced nothing.
     """
     if str(settings.get("embedding_enabled") or "").strip().lower() not in ("1", "true", "yes"):
@@ -523,7 +523,7 @@ _PRICES_READ_ON = "2026-09-05"
 # taken from that measurement rather than guessed. It is an estimate and the
 # interface says so; the point is that a user with 100,000 papers learns it will
 # cost most of a gigabyte *before* pressing the button, not after.
-_DISK_BYTES_PER_PAYLOAD_BYTE = 8951 / 3072  # ≈ 2.91, from the 1.9a field test
+_DISK_BYTES_PER_PAYLOAD_BYTE = 8951 / 3072  # ≈ 2.91, from the measurement above
 _DISK_MEASURED_ON = "2026-09-05, 15,707 papers at 768 dimensions"
 
 
@@ -635,7 +635,7 @@ class EmbeddingUnavailable(RuntimeError):
 
     Distinct from a transport failure on purpose. A server that is down should be
     retried; a chat model asked to embed should not be, and telling the two apart
-    is the whole of P9.
+    is the whole point of this class.
     """
 
     def __init__(self, reason: str) -> None:

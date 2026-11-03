@@ -77,7 +77,7 @@ def title_from(text: str) -> str:
     Whitespace-collapsed and truncated on a word boundary where one is near
     enough. Deliberately not a model-generated summary: naming a conversation
     would be a second inference to be wrong about, and the user's own first
-    sentence is both cheaper and more recognisable.
+    sentence is both cheaper and more recognizable.
     """
     collapsed = " ".join(str(text or "").split())
     if not collapsed:

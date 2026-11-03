@@ -7,15 +7,11 @@ thing that is not real is the model on the far end, which returns a deterministi
 vector so a ranking can be asserted.
 
 That distinction is the reason this file exists rather than a ``monkeypatch`` of
-``embed_texts``. Ledger 23: the MCP stub stripped the query string the bug lived
-in, and the suite was structurally blind to it. A double that cannot fail the way
-the real dependency fails is not evidence. This one *can* — it can refuse, 404,
-return the wrong count, reorder a batch, and answer with Ollama's own "I cannot
-embed" body — and each of those is a test below.
-
-In the handback ledger, a row checked against this server is **real dependency,
-in-process**: the socket and the HTTP stack are real, the upstream is not, and
-the row says so.
+``embed_texts``. A stub that strips the query string a bug lives in leaves the
+suite structurally blind to it. A double that cannot fail the way the real
+dependency fails is not evidence. This one *can* — it can refuse, 404, return
+the wrong count, reorder a batch, and answer with Ollama's own "I cannot embed"
+body — and each of those is a test below.
 """
 
 from __future__ import annotations
@@ -28,9 +24,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, Optional
 
 # The exact body Ollama 0.33.2 returns when the loaded model is a chat model.
-# Copied verbatim from a live call on 2026-09-05 rather than paraphrased: P9 is
-# about *this* string reaching the user as a capability answer, and a
-# paraphrase would test resmon against resmon's idea of the message.
+# Copied verbatim from a live call rather than paraphrased: what matters is
+# *this* string reaching the user as a capability answer, and a paraphrase
+# would test resmon against resmon's idea of the message.
 OLLAMA_CANNOT_EMBED_BODY = (
     '{"error":"This server does not support embeddings. '
     'Start it with `--embeddings`"}'

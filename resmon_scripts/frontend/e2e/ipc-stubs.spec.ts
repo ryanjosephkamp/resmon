@@ -1,6 +1,6 @@
 /**
- * Q5 / P4 — can the IPC channels be stubbed from the main process, so no
- * native dialog opens and no `shell` call escapes?
+ * Can the IPC channels be stubbed from the main process, so no native dialog
+ * opens and no `shell` call escapes?
  *
  * All four of `resmon:choose-directory`, `resmon:choose-file`,
  * `resmon:open-path` and `resmon:reveal-path` end in something the operating

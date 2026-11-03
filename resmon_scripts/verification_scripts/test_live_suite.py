@@ -4,7 +4,7 @@
 connection can run; ``.github/workflows/live-network.yml`` runs that half every
 week. Everything here is about the seam between those two, because the failure
 this exists to prevent is not a broken test — it is a live test that *nothing*
-runs, which is what happened in 1.9 and stayed unheard for two releases.
+runs, which can go unheard for releases.
 
 Hermetic. It reads the workflow file as data and shells out to pytest's own
 collector; it opens no socket.
@@ -1054,11 +1054,9 @@ def test_the_shipped_quarantine_is_valid_and_names_scheduled_live_cases(collecti
         assert entry.expires <= entry.first_observed + timedelta(days=QUARANTINE_MAX_DAYS)
         vantages = {item["vantage"] for item in entry.evidence if item["status"] == entry.signature}
         assert len(vantages) >= 2, entry.nodeid
-    # The shipped list was emptied in October 2026. Its one entry, OAPEN's
-    # live search under an intermittent HTTP 500, expired on 2026-10-18, and
-    # OAPEN was then retired on a different failure (HTTP 403) with its live
-    # case removed. An empty list is valid; the loop above is what any future
-    # entry must pass, and the synthetic cases below prove each check goes red.
+    # The shipped list is empty, which is valid; the loop above is what any
+    # future entry must pass, and the synthetic cases below prove each check
+    # goes red.
 
 
 def test_quarantine_admits_two_entries_and_rejects_a_third(tmp_path):
@@ -1403,10 +1401,9 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
 # The author-query cases record what their source did
 # ---------------------------------------------------------------------------
 #
-# OAPEN's live search in `test_api_tier4.py` recorded a `source_outcome`, which
-# was the only reason the quarantine entry it carried until 2026-10-18 could
-# excuse it. (OAPEN has since been retired and both its live cases removed;
-# its name stays below as the outage these proofs were written against.) The
+# A live search that records a `source_outcome` is the only kind a quarantine
+# entry can excuse. (OAPEN is retired and both its live cases are removed; its
+# name stays below as the outage these proofs are written against.) The
 # *other* OAPEN live case — the parametrised author query in
 # `test_entity_search_live.py` — recorded none, so an entry naming it would
 # have printed in the summary as a quarantine and excused nothing:
@@ -1444,8 +1441,8 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
 
     The real `quarantine_disposition`, a real entry read back through
     `load_quarantine`, and a real recorded property — no hand-written dicts.
-    The second half is what the author-query case did before this change, and
-    it is the whole reason an entry naming it would have been useless.
+    The second half is an author-query case that records no outcome, and it is
+    the whole reason an entry naming it would be useless.
     """
     today = utc_today()
     entry = load_quarantine(_write_quarantine(tmp_path / "q.json", [
@@ -1628,7 +1625,7 @@ def _run_author_query_hermetically(tmp_path, *, outage=(), quarantined=None, lab
 
 
 def test_every_author_query_case_records_one_source_outcome_for_its_own_slug(tmp_path):
-    """P2/D3: the property reaches pytest's own report, for every slug, in the call phase.
+    """P2: the property reaches pytest's own report, for every slug, in the call phase.
 
     The denominator is `_askable()` — the capability table — not a list here,
     so a source that gains `entity_search` and no recorded outcome fails. The

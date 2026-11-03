@@ -1,18 +1,18 @@
 """Local API lock-down: one secret per backend instance, a loopback Host, one renderer Origin.
 
-Until 2.2 the backend answered anything that could reach ``127.0.0.1``: every
-origin was allowed (``allow_origins=["*"]``), every response carried
-``Access-Control-Allow-Private-Network: true``, no Host header was checked and
-no credential was asked for. A web page open in any browser on the machine
-could therefore drive the whole API, and a DNS-rebinding page could read the
-answers. Only the Library and Evidence routes had a guard, and it trusted any
-``http://127.0.0.1:<port>`` origin, which every other local web server has.
+The backend answers only a request that passes all three checks below, because
+anything that can reach ``127.0.0.1`` could otherwise drive it: with every
+origin allowed, ``Access-Control-Allow-Private-Network: true`` on every
+response, no Host header checked, and no credential asked for, a web page open
+in any browser on the machine could drive the whole API, and a DNS-rebinding
+page could read the answers. Trusting any ``http://127.0.0.1:<port>`` origin
+would not help, since every other local web server has one.
 
-A request is now served only when all three of these hold, checked by
+A request is served only when all three of these hold, checked by
 :class:`LocalApiGuard` before any route body, body parser or CORS handling:
 
 * **Host** names this instance: ``127.0.0.1:<own port>`` or
-  ``localhost:<own port>``. That is the DNS-rebinding defence; it runs even on a
+  ``localhost:<own port>``. That is the DNS-rebinding defense; it runs even on a
   request carrying a valid token, because a rebound page presents the victim's
   address under the attacker's name.
 * **Origin**, when present, is this instance's renderer, exactly. A request with

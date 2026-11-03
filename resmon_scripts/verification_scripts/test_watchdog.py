@@ -859,12 +859,12 @@ def test_a_freshly_muted_finding_is_not_served_from_a_stale_cache():
 
 
 # ---------------------------------------------------------------------------
-# 1.8.6 — a zero that was never an answer
+# A zero that was never an answer
 # ---------------------------------------------------------------------------
 #
 # Every client degrades rather than raising, so an upstream that answers 503
-# is recorded ``ok / 0`` and, until schema 10, was indistinguishable here from
-# a quiet field. These pin the calibrated change: an outage now counts as a
+# is recorded ``ok / 0`` and, without a recorded reason, is indistinguishable
+# here from a quiet field. These pin the calibrated rule: an outage counts as a
 # failure to answer, and no run where the source did not answer can be part of
 # a baseline of what it normally returns.
 
@@ -878,12 +878,12 @@ def _outage(attempts: int = 3, status: int = 503) -> dict:
 
 
 def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
-    """The finding this phase exists to make possible.
+    """The finding that makes an outage reportable.
 
-    Before schema 10 these three runs were ``ok / 0`` and produced nothing at
-    all: not an error finding, because nothing raised, and not a quiet finding
-    either, because four zeros are needed and there is a productive baseline
-    right behind them.
+    Without a recorded reason these three runs are ``ok / 0`` and produce
+    nothing at all: not an error finding, because nothing raised, and not a
+    quiet finding either, because four zeros are needed and there is a
+    productive baseline right behind them.
     """
     for days in (40, 35, 30, 25, 20):
         _run(conn, days_ago=days, sources={"arxiv": {"result_count": 30}})
@@ -895,8 +895,8 @@ def test_three_consecutive_outages_are_reported_as_a_broken_source(conn):
 
     assert len(findings) == 1
     assert findings[0]["severity"] == "broken"
-    # The old wording said every counted run "raised an error". A 503 raises
-    # nothing, and the sentence must not say it did.
+    # The wording must not say every counted run "raised an error". A 503
+    # raises nothing, and the sentence must not say it did.
     assert "raised an error" not in findings[0]["detail"]
     assert "resmon got no answer from arxiv" in findings[0]["detail"]
     assert "answered HTTP 503" in findings[0]["detail"]
@@ -931,7 +931,7 @@ def test_a_raised_error_is_still_the_most_recent_error_verbatim(conn):
 def _withdrawn() -> dict:
     return {"status": "error", "zero_reason": "retired",
             "error_message": "ieee is retired.",
-            "zero_detail": {"detail": "IEEE Xplore was withdrawn in v1.8.1."}}
+            "zero_detail": {"detail": "IEEE Xplore was withdrawn on its terms."}}
 
 
 def test_a_withdrawn_source_is_not_given_reachability_advice(conn):
@@ -1013,14 +1013,14 @@ def test_a_source_this_build_no_longer_lists_uses_its_recorded_withdrawal(conn):
         _run(conn, days_ago=days, sources={"gone_source": _withdrawn()})
     finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
     assert finding["title"] == "gone_source was withdrawn from resmon"
-    assert "IEEE Xplore was withdrawn in v1.8.1." in finding["detail"]
+    assert "IEEE Xplore was withdrawn on its terms." in finding["detail"]
 
 
 def test_last_answered_successfully_does_not_count_a_run_with_no_answer(conn):
     """The half of the fix that is easiest to miss.
 
-    An ``ok / 0`` outage row satisfies ``status == 'ok'``, so the old query
-    picked the most recent outage as the last success and told the user the
+    An ``ok / 0`` outage row satisfies ``status == 'ok'``, so a query on status
+    alone would pick the most recent outage as the last success and told the user the
     source had answered an hour ago while it was in fact down.
     """
     _run(conn, days_ago=30, sources={"arxiv": {"result_count": 30}})
@@ -1082,9 +1082,9 @@ def test_an_unanswerable_window_is_not_a_fault_and_never_alarms(conn):
 def test_a_baseline_is_not_built_from_runs_the_source_never_answered(conn):
     """The calibrated change, and the direction it moves in.
 
-    Five outages used to be five baseline runs, and a source that had been
-    down for its entire recorded history could satisfy MIN_BASELINE_RUNS. It
-    is now `unjudged`, and the reason says how many runs were set aside and
+    Five outages must not count as five baseline runs: a source that had been
+    down for its entire recorded history would otherwise satisfy
+    MIN_BASELINE_RUNS. It is `unjudged`, and the reason says how many runs were set aside and
     why rather than claiming there is no history.
     """
     for days in (40, 35, 30, 25, 20):
@@ -1105,7 +1105,7 @@ def test_a_baseline_is_not_built_from_runs_the_source_never_answered(conn):
 
 
 def test_history_written_before_schema_10_reads_exactly_as_it_used_to(conn):
-    """A NULL reason keeps the pre-1.8.6 reading, on purpose.
+    """A NULL reason keeps the reading a run had before reasons were recorded, on purpose.
 
     Every row in every existing install has one. Treating an unexplained zero
     as an outage would invent findings about runs nobody observed — which is
@@ -1124,15 +1124,14 @@ def test_history_written_before_schema_10_reads_exactly_as_it_used_to(conn):
 
 
 # ---------------------------------------------------------------------------
-# Reconciliation 1 — a reply that cannot be read is a failure to answer
+# A reply that cannot be read is a failure to answer
 # ---------------------------------------------------------------------------
 #
-# 1.8.6 shipped with ``parse_failure`` dropped from the baseline but not
-# treated as a failure, so a source that returned an unreadable reply on every
-# run reached `unjudged` and raised no alarm. The planning session decided
-# otherwise on reconciliation, and the reasoning is that this is the shape the
-# watchdog most exists to catch: nothing raises, every run reads ``ok``, and
-# the user gets nothing for a fortnight.
+# A ``parse_failure`` dropped from the baseline but not treated as a failure
+# would leave a source that returned an unreadable reply on every run at
+# `unjudged`, raising no alarm. It is a failure to answer, because this is the
+# shape the watchdog most exists to catch: nothing raises, every run reads
+# ``ok``, and the user gets nothing for a fortnight.
 
 
 def _unreadable(kind: str = "parse_error") -> dict:

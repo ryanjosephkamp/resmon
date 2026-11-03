@@ -1,8 +1,8 @@
-"""``update_settings`` admits a key by name, and withholds the rest: R6.
+"""``update_settings`` admits a key by name, and withholds the rest.
 
-The guard on this tool used to be a substring denylist over key *names* —
-``key``, ``token``, ``secret``, ``password``, ``passphrase``, ``credential``,
-``auth``. ``ai_cli_path`` contains none of those words, and it is the path
+A substring denylist over key *names* — ``key``, ``token``, ``secret``,
+``password``, ``passphrase``, ``credential``, ``auth`` — is not enough of a
+guard on this tool. ``ai_cli_path`` contains none of those words, and it is the path
 ``ai_cli.discover_cli`` honors first and ``ClaudeCliRuntime._stream`` hands to
 ``Popen`` with the user's own environment; ``ai_lanes`` reads the same setting
 for the subscription summary lane, so the binary runs on routine summarization
@@ -15,9 +15,9 @@ For the embedded assistant each of those is confirm-gated and the card renders
 the arguments, so a careful person would see it. **For an external MCP harness
 there is no gate at all**: ``call_tool`` dispatches immediately and
 ``requires_confirmation`` is advisory metadata the contract says a caller may
-ignore. R6 says destructive endpoints stay off the tool surface entirely, so
-the decision moves into the server: a key is writable because someone listed
-it, not because its name happens to avoid seven words.
+ignore. Destructive endpoints stay off the tool surface entirely, so the
+decision lives in the server: a key is writable because someone listed it, not
+because its name happens to avoid a few words.
 
 Everything here is hermetic. The HTTP layer is stubbed the way
 ``test_mcp_server.py`` stubs it, and the denominator — how many settings keys
@@ -89,7 +89,7 @@ def test_every_settings_key_the_app_has_is_either_writable_or_withheld():
 
 
 def test_every_withheld_key_carries_the_reason_it_is_withheld():
-    """An exclusion a reviewer cannot read is an exclusion nobody checked."""
+    """An exclusion nobody can read is an exclusion nobody checked."""
     for key, reason in mcp.SETTINGS_KEYS_WITHHELD.items():
         assert reason.strip(), key
         assert len(reason) > 15, f"{key}: {reason!r} does not say anything"
@@ -135,8 +135,8 @@ def test_a_key_is_writable_only_if_it_is_on_the_allowlist(key):
     """Every one of the app's keys, through the real tool, both ways.
 
     Parametrized over the app's key list rather than over a sample, so the
-    denominator in the handback is the app's own and a key that changes sides
-    has to change this file too.
+    denominator is the app's own and a key that changes sides has to change this
+    file too.
     """
     group = GROUP_OF[key]
     stub = _stub(_group_stub(group))
@@ -162,8 +162,8 @@ def test_a_key_is_writable_only_if_it_is_on_the_allowlist(key):
     "ai_cli_path", "ai_custom_base_url", "ai_local_endpoint", "ai_provider",
     "assistant_runtime", "smtp_server", "smtp_to", "export_directory",
 ])
-def test_the_keys_the_audit_named_are_refused_before_any_request_is_built(key):
-    """The named cases, spelled out, so the regression is legible in the diff.
+def test_the_named_keys_are_refused_before_any_request_is_built(key):
+    """The named cases, spelled out, so a change is legible in the diff.
 
     Refused on the name before the group is fetched: a harness that can reach
     this tool at all never gets as far as a request that would change where
@@ -203,9 +203,9 @@ def test_a_refusal_names_every_withheld_key_in_a_mixed_call():
 def test_a_key_the_app_grows_later_is_withheld_until_someone_lists_it():
     """Default-deny. An unlisted name is refused before the group is read.
 
-    The old guard's default was the other way round: a key was writable unless
-    its name contained one of seven words, so every key the app grew arrived
-    writable and nobody had to say so.
+    A deny-list default would be the other way round: a key would be writable
+    unless its name contained one of a few words, so every key the app grew
+    would arrive writable and nobody would have to say so.
     """
     stub = _stub(_group_stub("ai"))
     with stub:
@@ -281,10 +281,10 @@ def test_the_contracts_safety_section_states_the_counts_the_code_has():
     """Counts in prose drift; these cannot.
 
     The Safety section is written as *"guarantees, not defaults, and the
-    implementation is reviewed against them"*, and it said **"writes are
-    limited to three tools"** for three contract versions after the seventh
-    write tool arrived — stale in the permissive direction, in the one section
-    a reviewer reads first. Nothing in the suite read it. This does.
+    implementation is reviewed against them"*, so a claim such as **"writes are
+    limited to three tools"** that outlives the arrival of more write tools is
+    stale in the permissive direction, in the one section a reader reads first.
+    This test reads it.
     """
     safety = CONTRACT.split("## Safety", 1)[1].split("## Error model", 1)[0]
 
@@ -313,12 +313,10 @@ def test_the_contract_names_every_withheld_key():
 # The mechanism: what actually reaches the prompt, and what silences the label
 # ---------------------------------------------------------------------------
 #
-# The first version of this file argued that the two clauses added on review --
-# "what resmon is told" and "whether the user is told how a result was
-# produced" -- could not be checked mechanically, because neither moves a
-# request. That was wrong, and the cost of being wrong was two keys left
-# writable: `ai_tone` and `ai_summary_length` are interpolated verbatim into
-# `SUMMARIZE_ABSTRACT`, in the same block as `{extraction_goals}` and under the
+# The two clauses "what resmon is told" and "whether the user is told how a
+# result was produced" can be checked mechanically even though neither moves a
+# request, because `ai_tone` and `ai_summary_length` are interpolated verbatim
+# into `SUMMARIZE_ABSTRACT`, in the same block as `{extraction_goals}` and under the
 # same `str(...)` with no validation anywhere behind the renderer's `<select>`
 # -- which is the one control an MCP harness does not go through.
 #
@@ -364,9 +362,9 @@ def test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld():
     list consulted, which is what makes this a guard and not a mirror of
     ``SETTINGS_KEYS_WITHHELD``.
 
-    Unvalidated text above an untrusted abstract is the R6 failure in its
-    original shape: a lane told to follow instructions it was handed, with no
-    way for a reader to see where they came from.
+    Unvalidated text above an untrusted abstract is the plain form of the
+    failure: a lane told to follow instructions it was handed, with no way for
+    a reader to see where they came from.
     """
     reaches: set[str] = set()
     for key in sorted(GROUP_OF):
@@ -385,7 +383,7 @@ def test_an_injected_instruction_lands_above_the_abstract_for_every_such_key():
     """Not "the value appears" — the value appears *as an instruction*.
 
     A key could carry a sentinel into some harmless corner of the prompt. This
-    one sends the sentence the reviewer used, and requires it to land before
+    one sends an injected sentence, and requires it to land before
     the abstract, where a model reads it as direction. One case per key the
     test above found, so the denominator is that test's answer rather than a
     second hand-written list.

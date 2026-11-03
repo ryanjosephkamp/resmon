@@ -84,16 +84,15 @@ class _ExecutionCancelled(Exception):
 def required_credential_for_sweep(repo_name: str) -> str | None:
     """Return the credential a repository needs before it is worth asking.
 
-    This used to be a dict of three slugs written out here. The catalog
-    already declared which sources require a key — four of them — and the two
-    lists drifted: GovInfo's client returns an empty list the moment it finds
-    no credential, and its own comment says "the sweep's existing catalog gate
-    records missing_key", but the gate had never heard of it. The user was
-    told resmon had not recorded whether GovInfo answered, when resmon knew
-    perfectly well that it had never been asked.
+    The catalog declares which sources require a key, and the gate reads it
+    rather than keeping a second list that could drift: GovInfo's client
+    returns an empty list the moment it finds no credential, so a gate that did
+    not know GovInfo needs a key would tell the user resmon had not recorded
+    whether GovInfo answered, when resmon knew perfectly well that it had never
+    been asked.
 
-    So the gate reads the catalog instead, and there is one list again. A new
-    keyed source is covered the moment its catalog row says ``required``.
+    So there is one list. A new keyed source is covered the moment its catalog
+    row says ``required``.
     ``test_source_constraints.py`` fails if the two ever separate.
     """
     return required_credential_for(repo_name)
@@ -106,7 +105,7 @@ def required_credential_for_sweep(repo_name: str) -> str | None:
 # Deciding that a whole *run* failed is a stronger claim and needs the
 # narrower one. ``missing_key`` is the settled case -- an execution must never
 # be ``failed`` solely because a key was not configured
-# (``test_missing_required_key_report.py``, 1.8.6) -- and ``retired``,
+# (``test_missing_required_key_report.py``) -- and ``retired``,
 # ``entity_unsupported`` and ``window_unanswerable`` are the same fact in
 # different clothes: resmon declined to ask, for a reason it can state, and
 # nothing broke. A run made entirely of those completed; it simply had nowhere
@@ -287,7 +286,7 @@ class SweepEngine:
         )
 
         all_results = []
-        # 2.1 — every candidate that survived verification, keyed by
+        # Every candidate that survived verification, keyed by
         # (source, external_id) so a paper returned by two sources is written
         # once with the **strongest** basis either of them supports.
         entity_matches: dict = {}
@@ -380,9 +379,9 @@ class SweepEngine:
             )
 
         try:
-            # 2.1 — a watch routine names a profile, and a routine that names one
-            # resmon no longer holds must **fail loudly**. The alternative was a
-            # run that quietly searched for nothing every morning: the profile is
+            # A watch routine names a profile, and a routine that names one
+            # resmon no longer holds must **fail loudly**. The alternative is a
+            # run that quietly searches for nothing every morning: the profile is
             # gone, so no candidate can match it, so the routine reports zero
             # results for a reason nobody would ever see. A failed execution with
             # this sentence on it is visible in Results and in the Monitor.
@@ -465,7 +464,7 @@ class SweepEngine:
 
             dedup_stats = deduplicate_batch(self.db, all_results)
 
-            # 2.1 — the match rows, written **after** the documents exist
+            # The match rows, written **after** the documents exist
             # because a match points at a document id. Written for every
             # verified candidate, including the ones dedup recognised as
             # already in the corpus: a paper you already had is still this
@@ -537,7 +536,7 @@ class SweepEngine:
                         "timestamp": now_iso(),
                     })
 
-            # 5b. Embed what this run touched (1.9).
+            # 5b. Embed what this run touched.
             #
             # After linking rather than after dedup, because this is the first
             # point at which the document ids exist; before reporting, so a
@@ -587,7 +586,7 @@ class SweepEngine:
                     "timestamp": now_iso(),
                 })
 
-                # Run the configured lanes in order (1.8b). The runner owns
+                # Run the configured lanes in order. The runner owns
                 # client construction, lane demotion, and the execution_ai
                 # rows -- one per lane, which is the shape that table was
                 # built for.
@@ -609,7 +608,7 @@ class SweepEngine:
                     # Build the text each document is summarized from.
                     # Title + abstract is the only body text we reliably
                     # have at this point in the pipeline; full-text PDF
-                    # extraction happens later (Phase 2E).
+                    # extraction happens later.
                     doc_texts: list[str] = []
                     for doc in report_docs:
                         title = str(doc.get("title") or "").strip()
@@ -630,17 +629,16 @@ class SweepEngine:
                     # Summarization loop, in slices of the primary lane's
                     # batch size.
                     #
-                    # It used to be strictly one document per call, on purpose:
-                    # cancellation could then be honored between documents and
-                    # the live log could show per-article progress. Both still
-                    # hold. Cancellation is checked between slices *and*
-                    # reaches inside one -- ``_summarize_with_heartbeat`` runs
-                    # the call on a worker thread and terminates the CLI
-                    # process on cancel -- and the per-document ``ai_progress``
-                    # events are emitted after the slice returns, so the
-                    # renderer's consumer is unchanged. What a batch costs is
-                    # granularity *during* a slice, which is why the slice also
-                    # announces itself before it starts.
+                    # One document per call would let cancellation be honored
+                    # between documents and the live log show per-article
+                    # progress. Both hold with slices too. Cancellation is
+                    # checked between slices *and* reaches inside one --
+                    # ``_summarize_with_heartbeat`` runs the call on a worker
+                    # thread and terminates the CLI process on cancel -- and
+                    # the per-document ``ai_progress`` events are emitted after
+                    # the slice returns. What a batch costs is granularity
+                    # *during* a slice, which is why the slice also announces
+                    # itself before it starts.
                     total_chars = 0
                     cancelled_mid_summary = False
                     total_docs = len(doc_texts)
@@ -738,7 +736,7 @@ class SweepEngine:
                                 "timestamp": now_iso(),
                             })
 
-                    # Close every lane's row with what it achieved (1.8b).
+                    # Close every lane's row with what it achieved.
                     # 'partial' and 'failed' stay apart deliberately: partial
                     # is a normal day with one awkward abstract, failed is a
                     # lane that did not work at all.
@@ -757,11 +755,11 @@ class SweepEngine:
                     # summary was produced by anything. Say so in the live log
                     # with the reason the lane itself gave.
                     #
-                    # Before 1.8.5 this warning was emitted *before* the run,
-                    # guessed from ai_provider, and said "API key missing" for
-                    # a subscription lane that has no key to miss. The reason
-                    # is only knowable per lane and only after the lane has
-                    # been built, so this is where it is said.
+                    # This warning is not emitted *before* the run from
+                    # ai_provider, which would say "API key missing" for a
+                    # subscription lane that has no key to miss. The reason is
+                    # only knowable per lane and only after the lane has been
+                    # built, so this is where it is said.
                     if not any(row["attempted"] for row in lane_rows):
                         reason = next(
                             (row["reason"] for row in lane_rows if row["reason"]),
@@ -783,9 +781,9 @@ class SweepEngine:
                     # chain the honest answer is the lane that actually
                     # produced these summaries, not the one configured first
                     # -- a report saying "anthropic" when Ollama did the work
-                    # would be exactly the kind of quiet lie 1.7 was about.
+                    # would be exactly the kind of quiet lie resmon refuses to tell.
                     ai_model_label = chain.active_label or None
-                    # 1.8.5 — name the effort level in the header when the lane
+                    # Name the effort level in the header when the lane
                     # that did the work actually set one. Additive: no lane
                     # without an effort control gains an empty field implying
                     # it has one.
@@ -838,7 +836,7 @@ class SweepEngine:
                 "repositories": list(repositories),
                 "missing_key_repos": list(missing_key_repos),
                 "zero_notes": list(zero_notes),
-                # 1.9b. Links already stored for the papers this run touched --
+                # Links already stored for the papers this run touched --
                 # this does not scan, because a corpus-wide scan is minutes of
                 # work and a sweep must not silently grow one. A run before the
                 # first scan carries no section, which is correct: resmon has not
@@ -986,7 +984,7 @@ class SweepEngine:
     def _embed_linked_documents(
         self, exec_id: int, store, task_log, linked_ids: list[int]
     ) -> None:
-        """Embed this execution's documents, or record exactly why it did not (1.9).
+        """Embed this execution's documents, or record exactly why it did not.
 
         The lane is attached by ``resmon._apply_embedding_settings_to_engine``,
         the way ``ai_lanes`` is. ``None`` means the feature is off, which is the
@@ -1229,7 +1227,7 @@ class SweepEngine:
 
         The question is put to ``source_coverage.build`` rather than answered
         from ``repo_errors``, because an exception count is the wrong
-        instrument: almost no client raises, and the audit's worst example is
+        instrument: almost no client raises, and the worst example is
         a run where every source answered 503 and nothing raised at all. What
         this function adds on top of ``build`` is only the narrowing the
         verdict needs:
@@ -1254,7 +1252,7 @@ class SweepEngine:
         Like ``_record_source``, a failure in here is logged and swallowed. A
         run that found papers must not be turned into a failed one by a
         bookkeeping read; the worst case is that this route stays quiet and
-        the original one decides, which is the behavior that shipped before.
+        the original one decides.
         """
         try:
             execution = get_execution_by_id(self.db, exec_id)
@@ -1352,9 +1350,9 @@ class SweepEngine:
         process that is actually running.
 
         The heartbeat matters more here than it does for a search. A ten-paper
-        batch is one long silence where ten short ones used to be, and a live
-        log that says nothing for four minutes is indistinguishable from one
-        that has died.
+        batch is one long silence where per-document calls would give ten short
+        ones, and a live log that says nothing for four minutes is
+        indistinguishable from one that has died.
         """
         store = progress_store
         holder: dict = {}
@@ -1661,7 +1659,7 @@ class SweepEngine:
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
-        Sources used to be asked one after another, so a sweep took the sum of
+        Asking sources one after another would make a sweep take the sum of
         its sources' times. Asking them together changes nothing an upstream
         sees: every request to a source still goes through ``safe_request`` and
         that source's module-level ``RateLimiter`` (biorxiv and medrxiv, one
@@ -1867,7 +1865,7 @@ class SweepEngine:
                     task_log.log(
                         f"  {repo_name}: {returned} result{'s' if returned != 1 else ''}")
 
-                # 2.1 — **local verification, on every candidate.** A
+                # **Local verification, on every candidate.** A
                 # source's author search is a generator, not a verdict:
                 # arXiv's `au:` is a text match over a field and Crossref's
                 # `query.author` is relevance-ranked, and neither is a claim
@@ -2098,7 +2096,7 @@ class SweepEngine:
         # client's own words for its requests.
         search_outcome().describe_request = getattr(client, "describe_request", None)
         try:
-            # 2.1 — a watch routine asks the source about a *person*, and a
+            # A watch routine asks the source about a *person*, and a
             # source that cannot be asked is not called at all. The zero
             # reason is recorded on this thread's own channel, where every
             # other reason is recorded, so it reaches the task log, the

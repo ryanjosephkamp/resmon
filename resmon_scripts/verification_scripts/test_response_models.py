@@ -1194,8 +1194,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     ``backup.apply_pending_restore``, against a scratch database file rather
     than this app's own and with a scratch vault parent, so neither the live
     database nor the Library slice's vault is touched. Its record is read,
-    acknowledged, and read again after being cut down to the keys resmon
-    2.3.0 wrote. The third finds its bundle moved away, so the start records
+    acknowledged, and read again after its optional keys are removed. The third finds its bundle moved away, so the start records
     a refusal, which is read before and after it is acknowledged. The one
     undo copy is deleted last.
     """
@@ -1327,7 +1326,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                 assert read["last_restore"]["ok"] is True, read
                 assert read["undo_copies"] == [applied["undo_copy"]], read
                 assert drive("POST", "/api/restore/acknowledge")["acknowledged"] is True
-                # The same record as resmon 2.3.0 wrote it: these keys came later.
+                # The same record without its optional keys.
                 record_file = state / backup_module.RESTORE_LOG_NAME
                 record = json.loads(record_file.read_text())
                 for key in ("undo_includes_vault", "vault_parent", "fk_violations_rows"):
@@ -2251,10 +2250,10 @@ def _drive_configurations(drive: Drive) -> None:
 def test_every_modeled_route_answers_exactly_what_its_handler_returned(driven):
     """The mechanism. Body with the model == body without one, key for key.
 
-    ``jsonable_encoder(raw)`` is not an approximation of the old behavior: it
-    is the function FastAPI calls when ``response_model`` is ``None``, so the
-    left-hand side of this comparison is literally what the route answered
-    before this change.
+    ``jsonable_encoder(raw)`` is not an approximation of the unmodeled
+    behavior: it is the function FastAPI calls when ``response_model`` is
+    ``None``, so the left-hand side of this comparison is literally what the
+    route answers without a model.
     """
     problems: list[str] = []
     for (method, path), calls in sorted(driven.calls.items()):
@@ -2669,9 +2668,9 @@ def test_the_slices_are_coherent_rather_than_a_scatter_of_routes():
 def test_the_contract_reports_the_same_count_this_file_does():
     """``http.md``'s response-schema paragraph is generated, not asserted.
 
-    It used to say "not one of the 184 routes declares a response_model",
-    which was true when it was written and is the kind of sentence that stays
-    on the page long after it stops being true. The generator now counts.
+    A sentence such as "not one of the 184 routes declares a response_model"
+    is the kind that stays on the page long after it stops being true, so the
+    generator counts.
     """
     from implementation_scripts import api_contract  # noqa: PLC0415
 
@@ -2779,11 +2778,11 @@ def test_a_stored_row_the_model_cannot_read_is_a_500_and_not_a_wrong_body():
 
     ``response_model`` does not only filter a reply — it *validates* one, and a
     value that fails validation is a ``ResponseValidationError``, which is a
-    500. Before the model the same row came back as a 200 with an odd body.
+    500. Without the model the same row comes back as a 200 with an odd body.
     That is a behavior difference, on a path no resmon code can produce: the
     ``names`` column has held ``[{"value": ..., "script": ...}]`` since the
     table was created, ``watch_profiles._clean_names`` is its only writer, and
-    no migration has ever reshaped it. A row in the pre-2.1 shape gets there by
+    no migration has ever reshaped it. A row in any other shape gets there by
     somebody editing the SQLite file.
 
     This test is here so that the difference is a decision somebody made and

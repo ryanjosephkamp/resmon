@@ -205,7 +205,7 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     await win.keyboard.press('Enter');
     await expect.poll(() => win.evaluate(() => window.location.hash)).toBe(`#/papers/${neighbor}`);
 
-    // Each page pictured in CI's macOS window, 1024 by 684, and in 1024 by 768 and at the owner's 1728.
+    // Each page pictured in CI's macOS window, 1024 by 684, and in 1024 by 768 and 1728 by 1080.
     for (const [width, height] of [[1024, 684], [1024, 768], [1728, 1080]] as const) {
       await resize(app, width, height);
       await sections.getByRole('link', { name: 'Search' }).click();

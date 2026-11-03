@@ -1,4 +1,4 @@
-"""Corpus-wide explorer (Phase 2b).
+"""Corpus-wide explorer.
 
 The cases that matter here are pagination correctness -- especially that no
 paper can fall out of the sequence -- and that filters actually narrow rather

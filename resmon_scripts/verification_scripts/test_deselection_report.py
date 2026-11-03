@@ -2,14 +2,12 @@
 
 ``pytest -q`` ends with ``3404 passed, 2 skipped, 110 deselected`` and that is
 the whole of it: no names, no modules, nothing in the GitHub run summary where
-the person who merges is actually looking. Three modules' worth of real
-failures hid behind that in one branch.
+the person who merges is actually looking.
 
 The weekly live job already does the honest version — it names every
-``needs_agent_cli`` case it could not run, by node id, because an earlier
-session established that a green tick must not imply a test nobody ran. These
-cases hold the same property one level up, for the gate that deselects far
-more.
+``needs_agent_cli`` case it could not run, by node id, because a green tick
+must not imply a test nobody ran. These cases hold the same property one level
+up, for the gate that deselects far more.
 
 Two halves, deliberately:
 

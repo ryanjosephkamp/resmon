@@ -19,7 +19,7 @@ starts uvicorn -- in the subprocess, so no socket is opened and nothing leaves
 the machine. The slug, the catalog entry, the admission controller, the
 execution row, the worker thread, the stage writes and the heartbeat are all
 the shipped code. This is the `provider_server.py` arrangement: real transport,
-scripted upstream, and the ledger row says which is which.
+scripted upstream, and each test says which is which.
 """
 
 from __future__ import annotations
@@ -375,7 +375,7 @@ def test_the_mcp_tools_report_an_interrupted_run_and_its_restart(tmp_path):
         assert rows[exec_id]["interrupted_reason"] == "owner_dead", rows[exec_id]
         assert rows[new_id]["restarted_from"] == exec_id, rows[new_id]
 
-        # Denominator: 2 of 25 tools touched by this change, M from
+        # Denominator: 2 of 25 tools exercised here, M from
         # mcp_server.TOOLS as the running server reports it.
         tools = mcp.rpc("tools/list")["result"]["tools"]
         names = {t["name"] for t in tools}
@@ -383,7 +383,7 @@ def test_the_mcp_tools_report_an_interrupted_run_and_its_restart(tmp_path):
         print(f"P5: 2 of {len(tools)} MCP tools exercised, M from the server's own "
               "tools/list")
         assert len(tools) == 25, (
-            f"the tool inventory moved to {len(tools)}; this change adds none")
+            f"the tool inventory moved to {len(tools)}; update this denominator")
     finally:
         if mcp is not None:
             mcp.stop()
@@ -391,13 +391,13 @@ def test_the_mcp_tools_report_an_interrupted_run_and_its_restart(tmp_path):
 
 
 def test_the_progress_stream_of_an_interrupted_run_closes(tmp_path):
-    """R3-4 at the only boundary where its regression is legible.
+    """A closed progress stream, at the only boundary where a regression is legible.
 
     `stream_progress` sends persisted events as a batch and closes when the run
     is over, and opens a live generator that heartbeats for ever when it is
     not. An interrupted run has no live store entry and never will: the process
-    that would have produced events is what went away. Before `interrupted`
-    joined the terminal list, this request opened the live generator and hung.
+    that would have produced events is what went away. If `interrupted` were not
+    on the terminal list, this request would open the live generator and hang.
 
     It has to be a real socket. Through `TestClient` the generator blocks inside
     the in-process portal before yielding anything, so the failure is a hung

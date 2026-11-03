@@ -9,11 +9,11 @@
  * next to them.
  *
  * **It writes outside the repository.** The output goes under the OS temp
- * directory by default, or wherever `RESMON_E2E_REVIEW_DIR` points. Screenshots
- * used to be committed — 18 of them — and every stacked branch conflicted on
- * them, because two branches that both run the suite both rewrite every file. A
- * committed screenshot is a merge conflict, not evidence. `git status` is clean
- * after a review run, and that is asserted by the suite's own P14 check.
+ * directory by default, or wherever `RESMON_E2E_REVIEW_DIR` points. Committed
+ * screenshots conflict on every merge, because two branches that both run the
+ * suite both rewrite every file. A committed screenshot is a merge conflict,
+ * not evidence. `git status` is clean after a review run, and that is asserted
+ * by the suite's own P14 check.
  *
  * Exit code is the suite's, so this is usable in an ordinary `&&` chain.
  */

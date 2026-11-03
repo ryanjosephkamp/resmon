@@ -3,13 +3,11 @@
 `e2e/` asks whether *this* checkout's app works. This directory asks a different
 question: **are the journeys a user has today still there tomorrow?**
 
-The renderer is being rebuilt for 3.0. A suite of tests written against the
-current markup would have to be rewritten alongside it, which is the same as
-having no suite at all during the only period when one matters. So nothing here
-touches the renderer. Every spec is written in the words of the journey it
-covers — *run a dive*, *read the coverage sentence*, *back up now* — and a
-**driver** behind it maps those onto the renderer's markup. The driver is the
-Atlas interface, which this build serves with nothing set:
+A suite of tests written against the renderer's markup would have to be
+rewritten whenever the markup changes. So nothing here touches the renderer.
+Every spec is written in the words of the journey it covers — *run a dive*,
+*read the coverage sentence*, *back up now* — and a **driver** behind it maps
+those onto the renderer's markup. The driver is the Atlas interface:
 `drivers/candidate.ts` drives what Atlas has (`drivers/atlas.ts`), takes what has
 no screen from `drivers/screenless.ts`, and skips every other journey with the
 reason "Not in Atlas yet: …". A run's skipped count is therefore how much of the
@@ -29,9 +27,7 @@ npm run typecheck:journeys # nothing else typechecks this directory
 
 ### Against some other build
 
-One variable, and nothing else changes. The other build has to include Atlas;
-the suite sets `RESMON_UI=atlas`, which a build from before the switch-over
-needs to serve it.
+One variable, and nothing else changes.
 
 ```bash
 # 1. Build the app you want to measure, wherever it lives.
@@ -89,13 +85,13 @@ other half of that check and it is in the pull request.
 
 | File | What it is |
 |---|---|
-| `register.ts` | The denominator: all 49 rows of the parity register, their slice and their status, and `ROUTE_ROWS` — which rows carry each screen the app has. Nothing else in the suite is allowed to disagree with it. |
-| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every screen in `atlas/src/screenPaths.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration or reads before it waits; the candidate borrows from the screenless driver only what `drivers/borrowed.ts` lists, with its reasons. |
+| `register.ts` | The denominator: all 49 rows of the register, their slice and their status, and `ROUTE_ROWS` — which rows carry each screen the app has. Nothing else in the suite is allowed to disagree with it. |
+| `register.spec.ts` | The guards. Every built row has exactly one spec and every spec has a row; every screen in `atlas/src/screenPaths.ts` names a carried row; a pending row names its slice and a dropped row names its decision; no spec reaches the renderer; no driver waits for a duration or reads before it waits; the Atlas driver borrows from the screenless driver only what `drivers/borrowed.ts` lists, with its reasons. |
 | `driver.ts` | The seam — the `JourneyDriver` interface, in the user's words, plus the `journey` test object. |
 | `drivers/candidate.ts` | The Atlas interface: `drivers/atlas.ts` for what Atlas has, the screenless driver's members that `drivers/borrowed.ts` lists, and a skip with its reason for everything else. |
 | `drivers/atlas.ts` | The one file that knows a class name, a hash route or the text on a button: the journeys Atlas can take, in Atlas's markup, the setup a person does on a screen included. |
 | `drivers/screenless.ts` | The members that touch no screen: the engine's record over its API, pictures, the authored fixtures, a raw socket, a gate, a file on disk. |
-| `drivers/borrowed.ts` | What the candidate may take from the screenless driver: `SCREENLESS`, the members that touch no screen, and `API_SETUP`, setup Atlas has no screen for yet, each entry with the reason. Data only, so the guard reads it without launching anything. |
+| `drivers/borrowed.ts` | What the Atlas driver may take from the screenless driver: `SCREENLESS`, the members that touch no screen, and `API_SETUP`, setup Atlas has no screen for yet, each entry with the reason. Data only, so the guard reads it without launching anything. |
 | `drivers/session.ts` | One launched resmon of whichever build is under test: launch, ask, kill, relaunch. |
 | `fixtures/source-endpoint.ts` | An authored scholarly source on loopback, and the startup hook that refuses every non-loopback connection and port 8742. |
 | `fixtures/gates.ts` | Runs one of the build's own pytest gates, for the rows whose journey has no screen. |
@@ -125,15 +121,15 @@ optional: one alone gives you either a register nothing tests, or a suite that
 has quietly stopped covering the register. The same holds one level out: every
 screen in `atlas/src/screenPaths.ts` has an entry in `ROUTE_ROWS` naming the
 rows that carry it, so a new screen with no journey is a red guard rather than
-a screen nobody measures — which is what the Source wall was for nine days.
+a screen nobody measures.
 
 **Setup a person does on a screen goes through Atlas's screen.** A
 step taken over the API passes whether or not Atlas has a screen for it, which
-is how Atlas shipped without Settings › AI › Embeddings while J09 and J11
-passed. So where Atlas has a screen for a setup step — a watch made in the
-editor, Run now, a destination, Settings › AI, a restore — `drivers/atlas.ts`
-takes the step through it and ends on `stored(…)`, the engine's record of what
-the screen wrote. The candidate borrows from the screenless driver only what
+is how a screen can be missing while the journeys that need it still pass. So
+where Atlas has a screen for a setup step — a watch made in the editor, Run
+now, a destination, Settings › AI, a restore — `drivers/atlas.ts` takes the
+step through it and ends on `stored(…)`, the engine's record of what the screen
+wrote. The Atlas driver borrows from the screenless driver only what
 `drivers/borrowed.ts` lists: `SCREENLESS`, members that touch no screen (the
 engine's record, a picture, a fixture, a gate, a file on disk, what an authored
 command received), and `API_SETUP`, setup Atlas has no screen for yet, each
@@ -160,14 +156,13 @@ assumed.
 **Backend facts come from the backend, over HTTP.** `resmon.backend` reads them
 through the app's own local API with the app's own token. Reading the SQLite
 file would be easier and would make the suite unable to run against an installed
-app, which it one day has to.
+app.
 
 **A journey observes; it does not fix.** Where the app and the register
-disagree, the spec asserts what is true, prints a `NOT VERIFIED` line naming
-what it could not establish, and the disagreement goes to the register. J19 is
-the worked example: the register says a cancelled run keeps a partial report,
-and at this base a sweep cancelled during the query stage keeps a read-time
-coverage account and no report document.
+disagree, the spec asserts what is true and prints a `NOT VERIFIED` line naming
+what it could not establish. J19 is the worked example: the register says a
+cancelled run keeps a partial report, and a sweep cancelled during the query
+stage keeps a read-time coverage account and no report document.
 
 ## Rows whose journey is a gate, not a screen
 
@@ -180,7 +175,7 @@ second one is always the one that goes stale.
 
 `fixtures/gates.ts` is that runner and `driver.ts` re-exports it, so a spec can
 use it while still importing nothing but the driver. It launches no app and
-takes no driver: there is no screen, and a candidate build runs the same gate
+takes no driver: there is no screen, and a build under test runs the same gate
 out of its own checkout. `J43-upgrade-in-place.spec.ts` is the worked example —
 it asserts the exit status, the pass/skip counts and, because exit zero says the
 gate passed and not what it did, the schema range in the gate's own node id.

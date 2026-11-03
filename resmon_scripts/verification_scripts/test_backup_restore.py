@@ -152,7 +152,7 @@ def _make_backup(corpus, tmp_path, include_reports=False, reports_dir=None):
     return backup_module.create_backup(
         corpus["conn"],
         tmp_path / "backups",
-        app_version="2.2.0",
+        app_version="1.0.0",
         schema_version=db.SCHEMA_VERSION,
         include_reports=include_reports,
         reports_dir=reports_dir,
@@ -852,11 +852,11 @@ def test_a_bundle_restores_into_a_fresh_state_directory_and_serves_over_http(
 # R2-2 -- a bundle from a released resmon, older than today's schema
 # ---------------------------------------------------------------------------
 
-V220_FIXTURE = (Path(__file__).parent / "fixtures/v2.2.0/corpus_schema_18.sql")
-V220_SCHEMA_VERSION = 18
+SCHEMA_18_FIXTURE = (Path(__file__).parent / "fixtures/schema-18/corpus.sql")
+SCHEMA_18_VERSION = 18
 
 
-def test_a_v220_era_bundle_restores_through_the_startup_path(tmp_path, monkeypatch):
+def test_a_schema_18_bundle_restores_through_the_startup_path(tmp_path, monkeypatch):
     """The case that found the round-one bug: schema 18 has no ``deliveries`` table.
 
     ``_strip_process_state`` used to run *before* ``init_db``, against the
@@ -871,9 +871,9 @@ def test_a_v220_era_bundle_restores_through_the_startup_path(tmp_path, monkeypat
     source.parent.mkdir(parents=True)
     old = db.get_connection(source)
     try:
-        old.executescript(V220_FIXTURE.read_text(encoding="utf-8"))
+        old.executescript(SCHEMA_18_FIXTURE.read_text(encoding="utf-8"))
         old.commit()
-        assert db.get_schema_version(old) == V220_SCHEMA_VERSION
+        assert db.get_schema_version(old) == SCHEMA_18_VERSION
         documents_before = old.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
         assert not old.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='deliveries'"
@@ -888,12 +888,12 @@ def test_a_v220_era_bundle_restores_through_the_startup_path(tmp_path, monkeypat
         old.commit()
 
         manifest = backup_module.create_backup(
-            old, tmp_path / "backups", app_version="2.2.0",
-            schema_version=V220_SCHEMA_VERSION, include_reports=False,
+            old, tmp_path / "backups", app_version="1.0.0",
+            schema_version=SCHEMA_18_VERSION, include_reports=False,
             reports_dir=None, state_dir=source.parent)
     finally:
         old.close()
-    assert manifest["schema_version"] == V220_SCHEMA_VERSION
+    assert manifest["schema_version"] == SCHEMA_18_VERSION
 
     state = tmp_path / "today"
     state.mkdir()
@@ -1405,7 +1405,7 @@ def test_a_bundle_with_no_vault_has_no_destination_to_show(tmp_path):
         _seed_documents(conn, 1)
         conn.commit()
         manifest = backup_module.create_backup(
-            conn, tmp_path / "backups", app_version="2.2.0",
+            conn, tmp_path / "backups", app_version="1.0.0",
             schema_version=db.SCHEMA_VERSION, include_reports=False,
             reports_dir=None, state_dir=db_path.parent)
     finally:
@@ -1471,7 +1471,7 @@ def test_a_restore_staged_with_a_vault_parent_lands_the_vault_there(corpus, tmp_
         # `_copy_vault` reads through `library_vault.root_path` and aborts on a
         # missing or mismatched file, and the old parent no longer exists.
         again = backup_module.create_backup(
-            conn, machine_b / "backups", app_version="2.2.0",
+            conn, machine_b / "backups", app_version="1.0.0",
             schema_version=db.SCHEMA_VERSION, include_reports=False,
             reports_dir=None, state_dir=machine_b / "state")
         vault_entries = [f for f in again["files"] if f["path"].startswith("vault/")]

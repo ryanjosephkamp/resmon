@@ -4,9 +4,7 @@
 ``SUMMARIZE_ABSTRACT`` tells the model to follow the attached constitution, so
 this lane must attach one. ``/api/generate`` takes it in the ``system`` field,
 which keeps the accuracy rules above the abstract rather than beside it — the
-abstract is untrusted text from the internet. This lane previously sent the
-instruction and no constitution; see
-``workspace/audits/subscription-lane-constitution-2026-09-03.md``.
+abstract is untrusted text from the internet.
 """
 
 import logging

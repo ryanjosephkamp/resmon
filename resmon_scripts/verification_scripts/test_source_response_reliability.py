@@ -433,8 +433,8 @@ def test_an_open_start_asks_for_the_days_before_the_run(
 
 
 def test_a_record_dated_without_padding_is_read_as_its_day(monkeypatch):
-    """bioRxiv has listed records dated "2026-8-19". As text that is later
-    than "2026-10-30", and a run said it had read preprints posted "between
+    """bioRxiv lists some records dated "2026-8-19". As text that sorts later
+    than "2026-10-30", so a run would report preprints posted "between
     October 30, 2026 and August 19, 2026"."""
     page = _preprint_payload(count=3, total=3)
     for record, day in zip(page["collection"], ("2026-8-19", "2026-10-30", "2026-10-31")):
@@ -1125,13 +1125,13 @@ def test_oapen_progressing_body_cannot_outlive_shared_deadline(monkeypatch):
 # OAPEN's slow replies and its intermittent HTTP 500, at a real socket
 # ---------------------------------------------------------------------------
 #
-# The live OAPEN case failed because two facts were hidden. First, a 10 s
-# timeout was shorter than the provider's replies. Second, "HTTP 500, then a
-# timeout on the retry" was recorded as just ``timeout``. These cases put both
-# behind a real loopback socket and the production ``safe_request`` path.
+# Two facts must not be hidden. First, a timeout shorter than the provider's
+# replies. Second, "HTTP 500, then a timeout on the retry" recorded as just
+# ``timeout``. These cases put both behind a real loopback socket and the
+# production ``safe_request`` path.
 #
-# OAPEN was withdrawn in October 2026, when its search API began answering
-# HTTP 403 (``api_registry.RETIRED_REPOSITORIES``). These cases stay. They
+# OAPEN is withdrawn because its search API answers HTTP 403
+# (``api_registry.RETIRED_REPOSITORIES``). These cases stay. They
 # build ``OapenClient`` directly rather than through the registry, the client
 # is kept on disk for a revival, and the failure-history and deadline
 # properties they pin belong to ``safe_request`` and the sweep engine as much
@@ -1176,12 +1176,12 @@ def _oapen_rows(*handles, year="2024"):
 
 
 def test_oapen_dated_reply_arriving_after_ten_seconds_returns_rows(monkeypatch):
-    """P1 at the shipped constants. The reply arrives after 10.5 s.
+    """At the shipped constants, a reply arrives after 10.5 s.
 
-    That is after the old 10 s timeout and before the new 20 s one. Nothing
-    about the timeout or the budget is patched. Only the limiter is replaced,
-    so another test's use of the shared one cannot add a wait. With the old
-    constant this search came back empty with a recorded timeout.
+    That is after 10 s and before the shipped 20 s timeout. Nothing about the
+    timeout or the budget is patched. Only the limiter is replaced, so another
+    test's use of the shared one cannot add a wait. A 10 s timeout would return
+    this search empty with a recorded timeout.
     """
     handler = _oapen_page_server([(10.5, 200, _oapen_rows("20.500.12657/100210"))])
     with _server(handler) as base:
@@ -1206,7 +1206,7 @@ def test_oapen_dated_reply_arriving_after_ten_seconds_returns_rows(monkeypatch):
 
 
 def test_oapen_worst_case_fits_its_budget_and_the_pytest_watchdog():
-    """P2's arithmetic, on the shipped constants.
+    """The worst-case arithmetic, on the shipped constants.
 
     Two full timeouts plus the first backoff (``base ** 0`` is 1 s whatever
     the base) must end before the search budget. The budget must end before
@@ -1224,7 +1224,7 @@ def test_oapen_worst_case_fits_its_budget_and_the_pytest_watchdog():
 
 
 def test_oapen_two_timeouts_return_retained_rows_and_a_recorded_failure(monkeypatch):
-    """P2 at a real socket, with the timeout scaled from 20 s to 0.4 s.
+    """At a real socket, with the timeout scaled from 20 s to 0.4 s.
 
     The first page answers at once. The second page stalls past the timeout
     on both attempts. The search must return, not raise, before its budget.
@@ -1258,10 +1258,10 @@ def test_oapen_two_timeouts_return_retained_rows_and_a_recorded_failure(monkeypa
 
 
 def test_oapen_500_then_timeout_keeps_both_in_order(monkeypatch):
-    """P3, first half: the shape of the 2026-09-18 live failure.
+    """The failure history, first half: a 500, then a timeout on the retry.
 
-    Before the history existed this snapshot read only ``timeout``, and
-    the 500 survived only as a warning line in the log.
+    The snapshot keeps both, in order. Reading only ``timeout`` would leave the
+    500 as a warning line in the log.
     """
     handler = _oapen_page_server([
         (0.0, 500, b'{"error":"GenericJDBCException"}'),
@@ -1287,7 +1287,7 @@ def test_oapen_500_then_timeout_keeps_both_in_order(monkeypatch):
 
 @pytest.mark.parametrize("bounded", [True, False], ids=["deadline", "no-deadline"])
 def test_500_then_success_keeps_the_500_in_history_only(monkeypatch, bounded):
-    """P3, second half, on both transports ``safe_request`` has.
+    """The failure history, second half, on both transports ``safe_request`` has.
 
     A successful retry is still a successful invocation, so ``last_call_failed``
     stays false and no partial-result issue is derived. The 500 is still
@@ -1400,7 +1400,7 @@ def test_failure_history_holds_categories_never_text():
 def test_oapen_failure_text_never_reaches_the_row_record_log_or_report(
     monkeypatch, tmp_path, first_page,
 ):
-    """P4 through the sweep engine, the SQLite row and the search record.
+    """Through the sweep engine, the SQLite row and the search record.
 
     The canaries are an API-key-shaped parameter in the request's query
     string and a sentence in the 500 body. That is where a keyed source's

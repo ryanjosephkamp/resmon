@@ -5,8 +5,8 @@
  * The register's invariant is a single sentence and it is the one worth the
  * whole row: **membership removal never deletes a paper.** A queue that quietly
  * deleted what you took out of it would destroy a person's own retrieved
- * literature on a click labelled "Remove", and B4 says only the Danger Zone the
- * user operates deletes from a corpus. So the last thing this journey does is
+ * literature on a click labelled "Remove", and only the Danger Zone the user
+ * operates deletes from a corpus. So the last thing this journey does is
  * go and look at the Explorer for the paper it just removed.
  *
  * The papers are real: a dive against the authored source, stored by the
@@ -62,7 +62,7 @@ journey.describe('J28 Reading queue', () => {
     const titles = await resmon.readExplorerTitles();
     expect(
       titles,
-      'the paper removed from the reading queue was deleted from the corpus (B4)',
+      'the paper removed from the reading queue was deleted from the corpus',
     ).toContain(second.title);
     expect(titles).toContain(first.title);
     expect(

@@ -1,4 +1,4 @@
-"""A subscription-primary execution, driven through the real API (1.8.5 D1).
+"""A subscription-primary execution, driven through the real API.
 
 Everything here runs the actual wiring: ``PUT /api/settings/ai`` writes the
 settings, ``_apply_ai_settings_to_engine`` resolves them into lanes,
@@ -6,14 +6,13 @@ settings, ``_apply_ai_settings_to_engine`` resolves them into lanes,
 spawned for the summary. The only stand-in is the CLI binary itself, which is
 a shell script that prints what ``claude -p --output-format json`` prints.
 
-That matters because of what shipped: until 1.8.5 the engine built lane 0 with
-``build_llm_client_from_settings``, which has no subscription branch. It
-returned ``None``, the engine announced *"AI skipped: API key missing"* — a
-lane with no key to be missing — and then the chain drove the CLI anyway and
-produced summaries. The warning was wrong about work the app was doing
-correctly, on the route 1.8.5 makes primary.
+That matters because of what could go wrong: an engine that built lane 0 with
+``build_llm_client_from_settings``, which has no subscription branch, would get
+``None``, announce *"AI skipped: API key missing"* — a lane with no key to be
+missing — and then the chain would drive the CLI anyway and produce summaries.
+The warning would be wrong about work the app was doing correctly.
 
-No test could see it, because no test ran a subscription lane through the API.
+Only a test that runs a subscription lane through the API can see it.
 """
 
 import json
@@ -222,11 +221,11 @@ def _events(client, exec_id):
 # ---------------------------------------------------------------------------
 
 def test_the_configured_cli_path_reaches_the_resolved_lane(client, tmp_path):
-    """P1, third clause: ``engine.ai_lane.binary_path`` is what was PUT.
+    """Third clause: ``engine.ai_lane.binary_path`` is what was PUT.
 
     The endpoint honouring ``ai_cli_path`` and the *engine* honouring it are
-    two different things: they read through different key lists, and until
-    1.8.5 the key was missing from both.
+    two different things: they read through different key lists, and a key
+    missing from either is lost.
     """
     script, _ = fake_claude(tmp_path)
     captured = {}
@@ -353,9 +352,8 @@ def _calls_for(papers: int) -> int:
     """How many CLI processes a sweep of *papers* papers should cost.
 
     Derived from the lane default rather than written as a literal, so that
-    changing the default — which D3's measurement did, from ten to five —
-    fails on the one test that asserts the default and not on every test that
-    happens to count processes.
+    changing the default fails on the one test that asserts the default and not
+    on every test that happens to count processes.
     """
     import math
     return math.ceil(papers / DEFAULT_SUBSCRIPTION_BATCH_SIZE)
@@ -430,9 +428,9 @@ def test_the_lane_row_counts_documents_not_calls(client, tmp_path):
 
 
 def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
-    """P7: the process holding ten documents is killed, not waited out.
+    """The process holding ten documents is killed, not waited out.
 
-    A batched call is one long silence where ten short ones used to be, so a
+    A batched call is one long silence where ten short calls would not be, so a
     cancel honoured only between calls would make the user sit through the
     whole batch. The assertion is on the clock as well as the status: a
     30-second CLI, cancelled, must not take 30 seconds to stop.
@@ -498,18 +496,15 @@ def test_cancelling_during_a_batch_terminates_the_cli(client, tmp_path):
 # The renderer half of this lives in `SubscriptionSettings.test.tsx`. This is
 # the other end: the chain the primary form writes, PUT through the real
 # endpoint, resolving to a lane 0 that carries every field the form set.
-#
-# Until 1.8.5 a subscription lane could only be a fallback, so lane 0 was never
-# a subscription lane and nothing exercised this at all.
 
 # Deliberately NOT the defaults.
 #
-# The first version of this test used doc_cap 50 and batch_size 5 — which are
-# `DEFAULT_SUBSCRIPTION_DOC_CAP` and `DEFAULT_SUBSCRIPTION_BATCH_SIZE`. `AILane`
-# fills both in when they arrive as None, so the assertions passed whether the
-# values were carried through the chain or invented by the constructor, and a
-# mutation that made `parse_chain` drop `batch_size` entirely went unnoticed.
-# A test whose expected value equals the default cannot see the default.
+# Using doc_cap 50 and batch_size 5 would be `DEFAULT_SUBSCRIPTION_DOC_CAP` and
+# `DEFAULT_SUBSCRIPTION_BATCH_SIZE`. `AILane` fills both in when they arrive as
+# None, so the assertions would pass whether the values were carried through
+# the chain or invented by the constructor, and a mutation that made
+# `parse_chain` drop `batch_size` entirely would go unnoticed. A test whose
+# expected value equals the default cannot see the default.
 _CHAIN_DOC_CAP = 37
 _CHAIN_BATCH_SIZE = 3
 
@@ -592,8 +587,8 @@ def test_a_primary_subscription_chain_actually_runs(client, tmp_path):
 def test_the_chain_beats_the_legacy_keys_for_a_subscription_primary(client, tmp_path):
     """The chain is the whole configuration when it is present.
 
-    The legacy keys are written alongside it for a downgrade, so they must not
-    be able to contradict it. Here they name a *different* provider; the chain
+    The legacy keys are written alongside it, so they must not be able to
+    contradict it. Here they name a *different* provider; the chain
     wins, which is `resolve_chain`'s documented precedence and is what stops a
     stale legacy key silently re-pointing the lane.
     """

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The field test: precision per basis, on a copy of the real corpus (P11).
+"""The field test: precision per basis, on a copy of the real corpus.
 
 **Opt-in, and never part of the suite.** It makes real requests to real
 scholarly APIs and writes into a database, so it is a script somebody runs
@@ -14,9 +14,8 @@ measuring agreement with itself. The script writes `sample.json` with everything
 a grader needs — the paper, its full author list, the string that matched, the
 basis and the evidence — and a grader fills in a verdict per row.
 
-The 1.9b method, applied to a different rule: three profiles chosen to exercise
-the three bases, a fixed sample per basis, graded by somebody who did not write
-the matcher.
+The method: three profiles chosen to exercise the three bases, a fixed sample
+per basis, graded by somebody who did not write the matcher.
 
 ## Why the three profiles are what they are
 
@@ -99,9 +98,9 @@ PROFILES = [
         # The first run of this script used "Peking University" and produced
         # **zero** `name+affiliation` matches in 500 candidates — not because the
         # rule is broken but because no Wei Wang at Peking University was in
-        # range. That is recorded in the handback: for a name this common, a
-        # specific affiliation almost never appears, which is itself a finding
-        # about how often this basis can fire at all.
+        # range. For a name this common, a specific affiliation almost never
+        # appears, which is itself a finding about how often this basis can
+        # fire at all.
         "label": "affiliation_common",
         "kind": "person",
         "display_name": "Wei Wang",

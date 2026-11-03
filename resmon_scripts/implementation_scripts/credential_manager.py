@@ -41,7 +41,7 @@ _SERVICE = APP_NAME  # "resmon"
 # But "absent" and "unreadable" are NOT the same thing, and conflating them is
 # its own lie. On macOS the keychain binds access to an app's code signature,
 # so an unsigned build — which ships a differently-signed interpreter on every
-# release — is denied access to items an earlier build stored, and the denial
+# release — is denied access to items another build stored, and the denial
 # arrives as a prompt no background process can answer. The user's keys are
 # right there and the app reports "no key set". ``probe_credential`` exists so
 # callers that report status to a human can tell the truth instead.
@@ -289,17 +289,16 @@ def delete_credential(key_name: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Legacy-key migration (Update 2 — Feature 1)
+# Legacy-key migration
 # ---------------------------------------------------------------------------
 #
-# Earlier pre-release builds may have stored the AI summarization API key
-# under a single global ``ai_api_key`` slot rather than the per-provider
-# ``{provider}_api_key`` scheme used today. This helper performs a one-shot
-# transparent migration on startup: if the legacy slot exists and the
-# user has already chosen a provider, the value is re-keyed under the
-# matching per-provider slot and the legacy slot is cleared. Idempotent
-# and safe to call on every startup; returns ``True`` only when an actual
-# migration was performed.
+# The AI summarization API key may sit in a single global ``ai_api_key`` slot
+# rather than the per-provider ``{provider}_api_key`` scheme. This helper
+# performs a one-shot transparent migration on startup: if the legacy slot
+# exists and the user has already chosen a provider, the value is re-keyed under
+# the matching per-provider slot and the legacy slot is cleared. Idempotent and
+# safe to call on every startup; returns ``True`` only when an actual migration
+# was performed.
 
 _LEGACY_GLOBAL_AI_KEY = "ai_api_key"
 

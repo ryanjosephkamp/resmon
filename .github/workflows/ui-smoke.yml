@@ -1,12 +1,11 @@
 name: UI smoke
 
-# The first thing in this repository that has ever launched the app.
+# Launches the real app.
 #
-# `ci.yml`'s frontend job typechecks, runs 154 jsdom tests and builds a bundle.
-# None of that starts Electron, so `electron/main.ts` — 700-odd lines carrying
-# every v1.8.3 interface fix — has never been executed by CI at all. This job
-# launches the real app under Playwright on a virtual display and walks every
-# screen in `e2e/screens.ts`.
+# `ci.yml`'s frontend job typechecks, runs the jsdom tests and builds a bundle.
+# None of that starts Electron, so `electron/main.ts` is not executed by it at
+# all. This job launches the app under Playwright on a virtual display and
+# walks every screen in `e2e/screens.ts`.
 #
 # Two jobs, because one runner cannot see the whole app.
 #

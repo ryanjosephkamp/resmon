@@ -17,12 +17,13 @@ Two kinds of evidence, because each alone can be argued with:
     index dropped, and there it grows with the corpus, which is what shows the
     measure can see a scan at all.
 
-The 21 -> 22 step is checked from the corpus v2.3.0's own code wrote: one
-``init_db`` adds the index and moves the marker, and nothing else.
+The 21 -> 22 step is checked from a schema 21 corpus written by that schema's
+own code: one ``init_db`` adds the index and moves the marker, and nothing
+else.
 
 What this does not establish: how much faster a sweep is. That is a
 wall-clock question and is answered by the harness in ``perf/``, against the
-recorded replies; the numbers are in the pull request that added this.
+recorded replies.
 """
 
 from __future__ import annotations
@@ -38,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from implementation_scripts import database  # noqa: E402
 
 INDEX = "idx_documents_metadata_hash"
-V230_FIXTURE = Path(__file__).parent / "fixtures/v2.3.0/corpus_schema_21.sql"
+SCHEMA_21_FIXTURE = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
 
 
 def _open(path: Path) -> sqlite3.Connection:
@@ -148,22 +149,22 @@ def _rows(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
             for t in tables}
 
 
-def test_the_v230_corpus_gains_the_index_and_nothing_else(tmp_path):
-    """21 -> 22 over a database a released resmon wrote, as its next launch does.
+def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
+    """21 -> 22 over a database a schema 21 resmon wrote, as its next launch does.
 
     The launch also takes the steps past 22: schema 23 adds two tables, schema
     24 rebuilds ``assistant_session_choices`` with its rows, and the marker
     moves to 24. Those are those steps', and are named here so that nothing
     else can arrive or change unnoticed.
     """
-    path = tmp_path / "v230.db"
+    path = tmp_path / "schema21.db"
     conn = _open(path)
-    conn.executescript(V230_FIXTURE.read_text(encoding="utf-8"))
+    conn.executescript(SCHEMA_21_FIXTURE.read_text(encoding="utf-8"))
     conn.commit()
     assert database.get_schema_version(conn) == 21
     plan = _plan(conn)
     assert any(step.startswith("SCAN") for step in plan), (
-        f"the v2.3.0 corpus should scan for a hash; its plan was {plan}")
+        f"the schema 21 corpus should scan for a hash; its plan was {plan}")
     objects_before, rows_before = _objects(conn), _rows(conn)
     conn.close()
 

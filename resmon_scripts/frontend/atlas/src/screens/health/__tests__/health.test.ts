@@ -127,13 +127,13 @@ describe('the watchdog', () => {
     // A withdrawn source, by the name it was withdrawn under; the engine's own paragraph stays whole.
     const ieee = findingWords(finding({
       scope: { type: 'source', id: 'ieee' }, title: 'ieee was withdrawn from resmon',
-      detail: 'ieee has been withdrawn, and resmon got nothing from it on each of its last 4 runs. IEEE Xplore was withdrawn in v1.8.1.',
+      detail: 'ieee has been withdrawn, and resmon got nothing from it on each of its last 4 runs. IEEE Xplore was withdrawn.',
       what_to_do: 'No active routine selects ieee any more, so no future run will ask for it and nothing needs changing.',
       evidence: { consecutive_errors: 4, last_zero_reason: 'retired' },
     }), names);
     expect(ieee.title).toBe('IEEE Xplore was withdrawn from resmon');
     expect(ieee.detail).toBe('IEEE Xplore has been withdrawn, and resmon got nothing from it on each of its last 4 runs. '
-      + 'IEEE Xplore was withdrawn in v1.8.1.');
+      + 'IEEE Xplore was withdrawn.');
     expect(ieee.what_to_do).toMatch(/^No active routine selects IEEE Xplore any more/);
     expect(ieee.withdrawn).toBe(true);
     // The engine labels it for what it is: not broken, and not an alarm.

@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_put_credential_validation.py
-"""Tests for PUT /api/credentials/{key_name} whitelist enforcement (IMPL-23)."""
+"""Tests for PUT /api/credentials/{key_name} whitelist enforcement."""
 
 import sys
 from pathlib import Path

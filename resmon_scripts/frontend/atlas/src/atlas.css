@@ -1168,7 +1168,7 @@ button.watch-skipped-open {
 .person-actions .field-error { margin: 0; }
 @media (max-width: 1000px) { .person-editor { grid-template-columns: minmax(0, 1fr); } }
 
-/* --------------------------------------------- settings groups (slice 3c) */
+/* ------------------------------------------------------- settings groups */
 
 .settings-layout { display: grid; grid-template-columns: 188px minmax(0, 1fr); gap: 40px; margin-top: 22px; align-items: start; }
 .settings-rail { position: sticky; top: 24px; display: grid; gap: 2px; }

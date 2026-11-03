@@ -192,7 +192,7 @@ resmon_scripts/frontend/build-resources/*
 !resmon_scripts/frontend/build-resources/entitlements.mac.plist
 # So are the app icons electron-builder reads: icon.icns (macOS, on Apple's icon
 # grid), icon.ico (Windows), and icon.png (Linux), all rendered from the resmon
-# logo. icon.svg is the earlier letter mark, which the website still draws.
+# logo. icon.svg is the letter mark the website draws.
 !resmon_scripts/frontend/build-resources/icon.svg
 !resmon_scripts/frontend/build-resources/icon.icns
 !resmon_scripts/frontend/build-resources/icon.ico
@@ -200,41 +200,39 @@ resmon_scripts/frontend/build-resources/*
 resmon_scripts/frontend/release/
 
 # -----------------------------------------------------------------------------
-# End-to-end run output (phase 1.8.7)
+# End-to-end run output
 # -----------------------------------------------------------------------------
-# The UI spike committed 15 PNGs and phase 1.8.6 added three more, and every
-# stacked branch since has conflicted on them: two branches that both run the
+# Committed screenshots conflict on every merge: two branches that both run the
 # suite both regenerate every file, so the merge is a binary conflict on
 # evidence nobody reads from the tree. A committed screenshot is a merge
 # conflict, not evidence.
 #
 # Where they go instead: `ui-smoke.yml` uploads them as a workflow artifact,
-# and `npm run e2e:review` writes them outside the repository for a handback to
-# embed. The note at the top of this file still holds for the figures that
+# and `npm run e2e:review` writes them outside the repository, where a report can
+# embed them. The note at the top of this file still holds for the figures that
 # belong to the documentation — this exempts one generated directory, not
 # images in general.
 resmon_scripts/frontend/e2e/screenshots/
 resmon_scripts/frontend/e2e/test-results/
 # Playwright's default output directory when a spec is run without the suite's
 # own config (`npx playwright test <file>` rather than `npm run e2e`). It holds
-# failure traces, and one of them reached a commit before this line existed.
+# failure traces, which must not reach a commit.
 resmon_scripts/frontend/test-results/
 
 # The published site is committed output, never ignored.
 #
 # `docs/` holds what GitHub Pages serves, and a page there has to be
-# committable. It was not, quietly: a document's slug becomes its directory,
-# so `docs/build.md` publishes to `docs/build/index.html`, and `build/` above
-# is a directory-only rule that matches at any depth. The source would commit,
-# the page would not, and the CI job written to catch exactly that drift
-# reported byte-identical, because `git status` does not report ignored files.
-# The same holds for `dist/`, `out/`, `release/`, `logs/` and `coverage/`, all
-# of them ordinary document slugs. No collision exists today; this is here so
-# that the next one is a non-event rather than a silent one.
+# committable. A document's slug becomes its directory, so `docs/build.md`
+# publishes to `docs/build/index.html`, and `build/` above is a directory-only
+# rule that matches at any depth. Without this line the source would commit,
+# the page would not, and a CI job that checks the published pages for drift
+# would report byte-identical, because `git status` does not report ignored
+# files. The same holds for `dist/`, `out/`, `release/`, `logs/` and
+# `coverage/`, all of them ordinary document slugs.
 #
-# The CI job also asks with `--ignored=matching` now, so it would see such a
-# file even if a later rule out-ranked this line. Two independent failures,
-# which is the point.
+# The CI job also asks with `--ignored=matching`, so it would see such a file
+# even if a later rule out-ranked this line. Two independent checks, which is
+# the point.
 !docs/**
 
 # The performance harness writes Playwright output here (frontend/perf/).

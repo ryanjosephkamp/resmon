@@ -1,11 +1,11 @@
 """A sweep that no source answered is a failure, even though nothing raised.
 
-From the 2026-10-18 engine audit. ``final_status`` was ``failed`` only when
-every repository raised an exception -- and almost no client raises. A source
-that answers 4xx or 5xx is logged and broken out of, so it never reaches
-``repo_errors``: a sweep in which **every** source answered 503 had
-``repo_errors == []`` and finished ``completed`` with ``result_count = 0``.
-The monitor was broken and the top line said it was fine.
+``final_status`` must not be ``failed`` only when every repository raised an
+exception -- almost no client raises. A source that answers 4xx or 5xx is
+logged and broken out of, so it never reaches ``repo_errors``: a sweep in which
+**every** source answered 503 has ``repo_errors == []`` and would finish
+``completed`` with ``result_count = 0``. The top line would say the monitor is
+fine when it is broken.
 
 The question "did any source answer?" belongs to ``source_coverage``, which
 already answers it carefully, so the engine asks it there rather than counting
@@ -22,8 +22,8 @@ overclaim:
   ``retractions`` watch routine reads the corpus and queries nothing
   (``resmon.py:5272``). Nothing failed there, because nothing was asked.
 
-Only a source that was asked and did not answer counts, and this PR only
-decides the all-or-nothing case. A run where 26 of 27 failed is still
+Only a source that was asked and did not answer counts, and only the
+all-or-nothing case is decided. A run where 26 of 27 failed is still
 ``completed``; grading that is the ``partial`` status, which needs a CHECK
 migration and is not here.
 """
@@ -111,10 +111,11 @@ def _row(conn, result) -> dict:
 
 
 def test_a_sweep_every_source_answered_503_is_failed(conn, transport):
-    """The audit's worst example, driven end to end.
+    """The worst example, driven end to end.
 
     Nothing raises -- each client logs the status and breaks -- so
-    ``repo_errors`` is empty and the old rule could never fire. The recorded
+    ``repo_errors`` is empty and a rule that counted exceptions could never
+    fire. The recorded
     per-source rows say what actually happened, and that is what decides the
     status now.
     """
@@ -136,7 +137,7 @@ def test_a_sweep_every_source_answered_503_is_failed(conn, transport):
 
 
 def test_one_source_answering_keeps_the_run_completed(conn, monkeypatch):
-    """This PR decides the all-or-nothing case and nothing finer.
+    """Only the all-or-nothing case is decided, and nothing finer.
 
     Two of three failing is the graded case, and grading it is the ``partial``
     status, which needs a CHECK migration the schema does not have yet.
@@ -203,9 +204,9 @@ def test_an_unrecorded_zero_is_not_read_as_a_failure(conn, monkeypatch):
 def test_a_source_that_was_never_asked_is_not_a_failure(conn, monkeypatch):
     """A missing API key is a configuration fact, not a broken source.
 
-    ``test_missing_required_key_report.py`` settled this in 1.8.6 -- "never
-    fail, solely because of a missing key" -- and the new route has to leave
-    that contract alone. The same reading covers a retired source, a source
+    ``test_missing_required_key_report.py`` settles this -- "never fail,
+    solely because of a missing key" -- and the source-coverage route has to
+    leave that contract alone. The same reading covers a retired source, a source
     with no author query, and a window the source filters too coarsely to
     answer: in none of them did resmon ask.
     """

@@ -1,9 +1,9 @@
 """The assistant for someone who has a key rather than a subscription.
 
-2.0a's runtime drives the ``claude`` CLI, which brings its own agent loop, its
+The CLI runtime drives the ``claude`` CLI, which brings its own agent loop, its
 own MCP client and its own permission hook. A user with an OpenAI or Anthropic
-key and no CLI got nothing at all, and decision 1 of the phase brief says so in
-as many words: *"so a user without a CLI is not locked out — but not first"*.
+key and no CLI would get nothing from it, so this runtime exists so that such a
+user is not locked out — but it is not the first choice.
 
 This is resmon's own loop over the same ``mcp_server.TOOLS``, emitting the same
 events, pausing at the same card, with the same constitution above the
@@ -46,8 +46,8 @@ API reports tokens and resmon does not know anyone's price list. Inventing a
 cost from a price table this app does not maintain would be exactly the kind of
 plausible number resmon refuses to render, so **cost is reported as unknown**
 (the store keeps NULL, the panel says "not reported") and the guard is on two
-things resmon can actually count. The numbers come from 2.0a's measured table
-rather than from taste — see ``MAX_TOOL_ITERATIONS`` and ``MAX_TURN_TOKENS``.
+things resmon can actually count. The numbers come from a measured table of
+canonical requests rather than from taste — see ``MAX_TOOL_ITERATIONS`` and ``MAX_TURN_TOKENS``.
 
 **There is no prompt caching to lean on.** Every iteration re-sends the
 constitution and the tool schemas, which is why the step ceiling is low.
@@ -80,7 +80,7 @@ __all__ = [
 
 # How many times one turn may go round the loop: model → tools → model.
 #
-# **Four is the most any of 2.0a's ten canonical requests needed** (create-routine,
+# **Four is the most any of ten canonical requests needed** (create-routine,
 # which read the sources, created the routine, waited for the card and read the
 # result back). Eight is twice that. A loop is what a runaway looks like here —
 # there is no per-call cost figure to stop on — and a turn that has called ten
@@ -90,7 +90,7 @@ MAX_TOOL_ITERATIONS = 8
 # And a ceiling on what one turn may consume, counted from what the provider
 # reports rather than estimated.
 #
-# 2.0a's dearest measured turn was ~53,400 tokens in and out together. This is
+# The dearest measured turn was ~53,400 tokens in and out together. This is
 # twice that, rounded down to a round number. It is a **runaway stop, not a
 # quota**: the guard against ordinary turns getting dearer is a measurement, and
 # this is the thing that ends a loop nobody is watching.
@@ -353,18 +353,17 @@ class ApiKeyRuntime:
         except Exception as exc:                     # noqa: BLE001
             # Nothing escapes into a half-written SSE response: a truncated
             # stream is, in a panel, indistinguishable from a model that stopped
-            # mid-sentence. 1.9a shipped that bug twice.
+            # mid-sentence.
             #
-            # **No ``logger.exception`` here.** It used to sit above this line
-            # and it wrote the raw traceback, whose last line is the exception's
-            # own message -- and an ``httpx.HTTPStatusError``'s message embeds
-            # the request URL, which carried the Google key in its query string.
-            # The backend calls ``setup_app_logger`` nowhere and uvicorn
-            # installs no root handler, so the record went out through
-            # ``logging.lastResort`` to stderr, which Electron pipes into the
-            # main process console. The sanitized sentence was always correct;
-            # only the log was not. ``_sentence_for`` now writes the log line
-            # itself, for the reason ``llm_remote._as_ai_error`` gives: one
+            # **No ``logger.exception`` here.** It would write the raw traceback,
+            # whose last line is the exception's own message -- and an
+            # ``httpx.HTTPStatusError``'s message embeds the request URL, which
+            # can carry a key in its query string. The backend calls
+            # ``setup_app_logger`` nowhere and uvicorn installs no root handler,
+            # so the record would go out through ``logging.lastResort`` to
+            # stderr, which Electron pipes into the main process console. The
+            # sanitized sentence is always correct; only such a log would not
+            # be. ``_sentence_for`` writes the log line itself, for the reason ``llm_remote._as_ai_error`` gives: one
             # place, so every raise path reports identically and no future
             # branch can forget.
             event = {
@@ -460,7 +459,7 @@ class ApiKeyRuntime:
         """Pin ``mcp_server``'s client to the backend this runtime belongs to.
 
         The CLI path gets this for free: resmon writes ``RESMON_PORT`` into the
-        MCP config it hands the CLI, explicitly, because 2.0a found that falling
+        MCP config it hands the CLI, explicitly, because falling
         back to the default port attached the tools to a **different resmon** —
         a launchd daemon over a different database, answering every question
         truthfully about the wrong corpus.
@@ -701,9 +700,9 @@ class ApiKeyRuntime:
             payload={
                 "model": self.model,
                 "max_tokens": 4096,
-                # The constitution above the conversation, not inside it. The
-                # 1.8.4 failure was a lane that asked a model to follow rules it
-                # was never given, and the fix is the same on every runtime.
+                # The constitution above the conversation, not inside it. A
+                # lane that asks a model to follow rules it was never given
+                # fails by construction, on every runtime.
                 "system": constitution,
                 "messages": conversation["messages"],
                 "tools": tools,
@@ -751,8 +750,8 @@ class ApiKeyRuntime:
     def _call_google(self, key: str, constitution: str, tools: list[dict],
                      conversation: dict, usage: _Usage) -> dict:
         # **The key rides in a header, not in the query string.** Google
-        # accepts ``?key=<secret>`` and this runtime used to send it that way,
-        # which puts the credential in the one part of a request that every
+        # accepts ``?key=<secret>``, but sending it that way would put the
+        # credential in the one part of a request that every
         # proxy in between writes to its access log -- and that anything
         # quoting the URL repeats, including ``httpx``'s own
         # ``HTTPStatusError``. ``x-goog-api-key`` is the slot the Generative

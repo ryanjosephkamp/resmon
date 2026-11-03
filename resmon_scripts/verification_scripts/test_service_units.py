@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_service_units.py
-"""Verification tests for IMPL-26 — OS service units + Advanced toggle.
+"""Verification tests for the OS service units + Advanced toggle.
 
 Covers:
 * Template rendering resolves every ``{{PLACEHOLDER}}`` for the current OS.
@@ -170,8 +170,8 @@ def test_install_endpoint_default_body(unit_dir):
 # ---------------------------------------------------------------------------
 #
 # A packaged app's backend runs with RESMON_DB_PATH and RESMON_REPORTS_DIR set
-# by Electron. A unit it installs used to carry neither, so the daemon opened a
-# database inside the app bundle and the app attached to it.
+# by Electron. A unit it installs must carry both, or the daemon opens a
+# database inside the app bundle and the app attaches to it.
 
 _MAC_STATE = {
     "RESMON_DB_PATH": "/Users/someone/Library/Application Support/resmon/resmon.db",

@@ -6,4 +6,4 @@ that the app and the MCP server use. It never opens the database and never
 starts an engine; :mod:`resmon_cli.engine` says why.
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"

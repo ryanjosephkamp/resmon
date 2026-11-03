@@ -16,7 +16,7 @@
  * hostname, nothing should ever leave this machine, and the closing assertion
  * that the offline guard refused nothing is what proves it did not.
  *
- * How the targets are added is the driver's. The candidate adds each on the
+ * How the targets are added is the driver's. The Atlas driver adds each on the
  * watch's own Where reports go tab, as a person does. What is read from the
  * screen is the part a person uses to answer the question the row is named
  * for — the routine's own "Where did this go?" record.
@@ -95,8 +95,7 @@ journey.describe('J40 Delivery: where a report goes, and whether it got there', 
     // "the address scrub removes every path and address from what leaves the
     // machine", and a feed file is written into a folder precisely so that a
     // reader or a static site can point at it. The spec asserts the true
-    // reading and prints the disagreement; §2 of the handback carries it as a
-    // question for the register.
+    // reading and prints the disagreement.
     const secrets = [folder.destination, feed.destination, ...localPathsOf(atom.path)];
     const displayed = atom.text.replace(/href="[^"]*"/g, 'href="…"');
     for (const secret of secrets) {
@@ -114,7 +113,7 @@ journey.describe('J40 Delivery: where a report goes, and whether it got there', 
         '[J40] NOT VERIFIED: the register says the address scrub keeps every local path out of '
         + 'what leaves the machine. The feed\'s alternate link is the absolute path of the '
         + 'folder channel\'s bundle, and a feed is written to be pointed at. Recorded, not '
-        + 'changed — the register and the app disagree and the register is the lead\'s.',
+        + 'changed — the register and the app disagree.',
       );
     }
 
@@ -126,7 +125,7 @@ journey.describe('J40 Delivery: where a report goes, and whether it got there', 
       `a webhook target in review mode produced a "${held.recorded}" delivery`,
     ).toBe('awaiting_review');
     // The screen says so in its own words rather than showing the stored token:
-    // "waiting for you" at this base. Asserted as "not delivered, and not
+    // "waiting for you". Asserted as "not delivered, and not
     // silent" rather than as that sentence, because the sentence is the
     // renderer's and this suite is written to survive a new one.
     expect(held.state.length, 'a held delivery shows no state at all').toBeGreaterThan(0);

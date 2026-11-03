@@ -589,8 +589,8 @@ def test_linux_service_unit_sets_dbus_env():
 
 
 # ---------------------------------------------------------------------------
-# Renderer-facing GET /api/routines/{id} round-trip — regression for the
-# 'selected' notification mode bug. The renderer fetches this endpoint to
+# Renderer-facing GET /api/routines/{id} round-trip — guards the
+# 'selected' notification mode. The renderer fetches this endpoint to
 # read ``notify_on_complete`` per routine; without it the per-routine
 # opt-in silently degrades to ``false`` and 'selected' mode never fires.
 # ---------------------------------------------------------------------------

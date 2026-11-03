@@ -335,7 +335,7 @@ def test_a_finding_carries_the_basis_of_the_match_it_arrived_through(conn):
     """A retraction on a `name_only` match is a finding about a *name*.
 
     Presenting it as this person's retraction would be the single worst thing
-    this phase could do, so the basis rides on the finding and the interface
+    the feature could do, so the basis rides on the finding and the interface
     has it to print.
     """
     profile = wp.create_profile(conn, {"display_name": "John Smith"})
@@ -403,7 +403,7 @@ def test_a_paper_nothing_could_be_asked_about_is_not_counted_as_checked(conn):
 
 
 def test_the_join_invents_no_finding_of_its_own(conn):
-    """The mutation the brief names: drop the profile join.
+    """The mutation to rule out: drop the profile join.
 
     With the join gone this returns every finding in the corpus for every
     profile, which is the shape of "resmon asserted a retraction about someone".

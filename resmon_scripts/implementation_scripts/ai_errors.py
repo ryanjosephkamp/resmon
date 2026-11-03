@@ -150,8 +150,8 @@ class AIError(RuntimeError):
     """A classified AI failure carrying everything a report needs and no secrets.
 
     Inherits ``RuntimeError`` rather than ``Exception`` because that is what the
-    remote client raised before 1.8. Anything already catching ``RuntimeError``
-    from a summarize call keeps working -- an exception type is part of a
+    remote client raises. Anything catching ``RuntimeError`` from a summarize
+    call keeps working -- an exception type is part of a
     contract, and functionality never decreases.
 
     ``credential_alias`` is the *name* of a keyring slot (``anthropic_api_key``),

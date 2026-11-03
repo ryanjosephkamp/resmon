@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _OPENAIRE_API_URL = "https://api.openaire.eu/search/publications"
 
 # OpenAIRE's current terms cap unauthenticated clients at 60 requests/hour.
-# Spacing those calls evenly is slower than the brief's earlier 1 req/s figure.
+# Spacing those calls evenly is far slower than a pace of 1 req/s.
 _RATE_LIMITER = RateLimiter(requests_per_second=1.0 / 60.0)
 
 

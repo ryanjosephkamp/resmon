@@ -1,8 +1,8 @@
 """Summaries, the machine a run was taken on, and the gate.
 
-The gate is the one the rebuild agreed to: no measurement more than 10% worse
-than the baseline at the median, or 20% at the 95th percentile. "Worse" depends
-on the measurement -- a longer launch is worse, a larger results-per-second is
+The gate fails a run when any measurement is more than 10% worse than the
+baseline at the median, or 20% worse at the 95th percentile. "Worse" depends on
+the measurement -- a longer launch is worse, a larger results-per-second is
 better -- so every metric carries its direction.
 """
 
@@ -95,7 +95,7 @@ def compare(baseline: dict, candidate: dict) -> list[dict]:
     """Every metric in both runs, with its change and whether it passes the gate.
 
     A metric present in only one run is listed as not compared rather than
-    dropped: a measurement the new build lost is a finding, not a pass.
+    dropped: a measurement the compared run lost is a finding, not a pass.
     """
     base = {m["name"]: m for m in baseline.get("metrics", [])}
     cand = {m["name"]: m for m in candidate.get("metrics", [])}

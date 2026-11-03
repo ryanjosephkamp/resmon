@@ -236,20 +236,19 @@ class ArxivClient(BaseAPIClient):
         # `all:` is the default field, and it is wrong for a query that already
         # names one.
         #
-        # **This was a real defect, found by the first live case that drove
-        # `search_entity` against arXiv.** The generic `search_entity` in
-        # `api_base` asks a source by putting the catalog's own syntax into the
-        # query string — `au:"Yoshua Bengio"` for arXiv — on the reasonable
-        # assumption that `search()` sends the string it is given. This client
-        # did not: it wrapped it into `all:au:"Yoshua Bengio"`, which arXiv
-        # answers **HTTP 400**. The client logs the status and returns `[]`, so
-        # every watch routine over arXiv reported that the person had published
-        # nothing. Silent, plausible and wrong — the failure shape this app
-        # exists to refuse.
+        # **Wrapping such a query is a real defect.** The generic
+        # `search_entity` in `api_base` asks a source by putting the catalog's
+        # own syntax into the query string — `au:"Yoshua Bengio"` for arXiv —
+        # on the reasonable assumption that `search()` sends the string it is
+        # given. Wrapping it into `all:au:"Yoshua Bengio"` is answered by
+        # arXiv with **HTTP 400**. The client logs the status and returns `[]`,
+        # so every watch routine over arXiv would report that the person had
+        # published nothing. Silent, plausible and wrong — the failure shape
+        # this app exists to refuse.
         #
         # A query that already opens with one of arXiv's own field prefixes is
-        # passed through unwrapped. This also fixes the same query typed into a
-        # Deep Dive box, which produced the same 400 for the same reason.
+        # passed through unwrapped, and so is the same query typed into a Deep
+        # Dive box, which would otherwise get the same 400 for the same reason.
         #
         # Every other query is built by ``_search_query``, which is where a
         # watch's keyword list arrives too: every writer of a watch or a

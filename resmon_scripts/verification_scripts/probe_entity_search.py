@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """What can each source be asked about a *person*, and what does it give back?
 
-Phase 2.1's brief names candidates and says, in as many words, that which
-sources can answer an entity query and which return an ORCID or an affiliation
-is the implementer's to establish with a live record and cite. This is that
+Which sources can answer an entity query, and which return an ORCID or an
+affiliation, has to be established with a live record and cited. This is that
 record. It is opt-in and lives beside ``measure_assistant_cost.py`` and
 ``probe_sqlite_vec.py``: run it, read what it wrote, put the answers in the
 catalog with their citations.
@@ -118,7 +117,7 @@ class Finding:
 # recording "not established" for a source that was simply busy — the first run
 # of this probe recorded OpenAlex and Semantic Scholar as unestablished for
 # exactly that reason, which would have been a wrong catalog entry.
-USER_AGENT = "resmon/2.1 entity-search probe (mailto:ryanjosephkamp@gmail.com)"
+USER_AGENT = "resmon/1.0 entity-search probe (mailto:ryanjosephkamp@gmail.com)"
 
 
 def _get(url: str, params: dict | None = None, headers: dict | None = None) -> tuple[int, str]:
@@ -228,7 +227,7 @@ def _arxiv(name: str) -> tuple[int, str]:
 def _crossref(name: str) -> tuple[int, str]:
     return _get("https://api.crossref.org/works",
                 {"query.author": name, "rows": 5},
-                {"User-Agent": "resmon/2.1 (entity-search probe; mailto:noreply@example.org)"})
+                {"User-Agent": "resmon/1.0 (entity-search probe; mailto:noreply@example.org)"})
 
 
 def _openalex(name: str) -> tuple[int, str]:
@@ -538,9 +537,8 @@ PROBES: list[Probe] = [
     Probe("nasa_ads", "Sara Seager", run=_nasa_ads),
     Probe("ndl_search", "Haruki Murakami", run=_ndl, bare=_ndl_bare, other_field=_ndl_title),
     Probe("nist_rmm", "John Smith", run=_nist),
-    # OAPEN was probed on 2026-09-06 (the D-control finding in probe_one) and
-    # withdrawn in October 2026, when its search API began answering HTTP 403.
-    # A retired source is not probed: see api_registry.RETIRED_REPOSITORIES.
+    # OAPEN is withdrawn because its search API answers HTTP 403. A retired
+    # source is not probed: see api_registry.RETIRED_REPOSITORIES.
     Probe("openaire", "Yoshua Bengio", run=_openaire),
     Probe("openalex", "Yoshua Bengio", orcid="0000-0002-9322-3515", run=_openalex),
     Probe("openlibrary", "Ursula K. Le Guin", run=_openlibrary),
@@ -620,11 +618,11 @@ def _same_records(a: str, c: str) -> bool:
             r'"(?:uuid|id|doi|DOI|objID|handle|paperId|docid)"\s*:\s*"([^"]{6,})"', body))
         if found:
             return found
-        # **XML sources, and this is the half that was silently doing nothing.**
-        # The first version of this comparison only read JSON keys, so for
-        # arXiv, NDL and PubMed's efetch the controls ran, produced bodies, and
-        # were compared to nothing — the verdict came out "honoured" on A and B
-        # alone, which is precisely the reasoning this probe exists to refuse.
+        # **XML sources, the half that would silently do nothing.** A
+        # comparison that only read JSON keys would, for arXiv, NDL and
+        # PubMed's efetch, run the controls, produce bodies, and compare them
+        # to nothing — the verdict would come out "honoured" on A and B alone,
+        # which is precisely the reasoning this probe exists to refuse.
         return set(re.findall(
             r"<(?:id|Id|dcterms:identifier|identifier|PMID)[^>]*>([^<]{6,})</", body))
 
@@ -688,7 +686,7 @@ def render(findings: list[Finding]) -> str:
 #
 # So this pass walks each source's own author objects, by the path the client
 # fill will use, and counts how many are actually populated. Those counts are
-# what D4's "which clients fill" list is built from, and what 2.1b's
+# what the list of which clients fill affiliations is built from, and what
 # affiliation matching has to live with.
 
 def _authors_crossref(b: dict) -> list[dict]:

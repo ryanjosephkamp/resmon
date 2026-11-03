@@ -6,31 +6,26 @@
  * Cancel is pressed and the cancel is really cooperative rather than a status
  * flip over a run that had already finished.
  *
- * **What this row found, and why the assertion is shaped the way it is.** The
- * parity register's J19 says a cancelled run has "a partial report, not
- * nothing". At this base, a sweep cancelled during the query stage writes no
- * report document: `result_path` and `log_path` are both null and
- * `/api/executions/{id}/report` has no text. What it *does* keep is the
- * read-time coverage account, and that account is careful in exactly the way
- * the invariant asks for — the source that answered is recorded as having
+ * **Why the assertion is shaped the way it is.** A sweep cancelled during the
+ * query stage writes no report document: `result_path` and `log_path` are both
+ * null and `/api/executions/{id}/report` has no text. What it *does* keep is
+ * the read-time coverage account, and that account is careful in exactly the
+ * way the invariant asks for — the source that answered is recorded as having
  * answered with its count, the source that could not be asked keeps its stated
  * reason rather than a silent zero, and the account says out loud that the run
  * is not completed and its coverage may be incomplete.
  *
- * **Sources are asked together since #242**, up to eight at a time. Before it
- * they were asked one after another, so with arXiv held Springer was never
- * reached and this row asserted "outcome not recorded" for it. Now both are
- * asked at once: Springer is recorded straight away as not queried for want of
- * a key, before the cancel lands. That is the truth of the run, and it is what
- * this row now asserts. A selected source that leaves no row at all still
- * reads "outcome not recorded"; `test_source_coverage.py` holds that at the
- * engine (`test_exact_slug_selection_missing_and_additional_sources`).
+ * **Sources are asked together**, up to eight at a time, so with arXiv held
+ * Springer is recorded straight away as not queried for want of a key, before
+ * the cancel lands. That is the truth of the run, and it is what this row
+ * asserts. A selected source that leaves no row at all still reads "outcome not
+ * recorded"; `test_source_coverage.py` holds that at the engine
+ * (`test_exact_slug_selection_missing_and_additional_sources`).
  *
  * So this asserts the invariant ("no fabricated completion; source failures
  * stay visible; the work done so far is not thrown away") and *reports* the
- * absent report document rather than asserting either way. Whether the register
- * or the app is wrong about that sentence is the lead's call, not this suite's:
- * a journey observes, it does not fix.
+ * absent report document rather than asserting either way: a journey observes,
+ * it does not fix.
  */
 import { expect, journey } from './driver';
 
@@ -80,9 +75,9 @@ journey.describe('J19 Live monitoring', () => {
     expect(keyless.label.toLowerCase()).toContain('non answer');
     expect(keyless.note.toLowerCase()).toContain('key');
 
-    // Reported, not asserted: at this base a cancelled sweep has no report
-    // document, which is not what the register's J19 sentence describes. The
-    // handback carries it as a finding; this row does not decide it.
+    // Reported, not asserted: a cancelled sweep has no report document, which
+    // is not what the register's J19 sentence describes. This row does not
+    // decide which is right.
     const hasReport = await resmon.reportExists(run);
     const row = await resmon.backend.execution(run);
     console.log(`[J19] cancelled run: report document ${hasReport ? 'present' : 'ABSENT'}; `

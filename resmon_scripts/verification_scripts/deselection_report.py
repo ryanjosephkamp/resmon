@@ -3,18 +3,16 @@
 
 ``pytest -q`` deselects 110 ``live_network`` cases and reports it as the word
 ``deselected`` at the end of a line of counts. Nothing names them, nothing
-groups them, and nothing appears in the GitHub run summary at all — so every
-green merge in this project's history has been silent about roughly a thirtieth
-of the suite. In one branch that silence was hiding real failures in three
-separate modules at once: a hard-coded tool count four short of the real
-surface, a settings module whose cases a narrowing had broken, and a third
-picking keys by a sort order the same change had invalidated.
+groups them, and nothing appears in the GitHub run summary at all — so a green
+merge is silent about roughly a thirtieth of the suite. That silence can hide
+real failures in several modules at once: a hard-coded tool count short of the
+real surface, a settings module whose cases a narrowing has broken, and a third
+picking keys by a sort order the same change invalidated.
 
 The asymmetry is the thing. ``.github/workflows/live-network.yml`` *does* report
 what it could not run — every ``needs_agent_cli`` case named by node id — because
-an earlier session worked out that a green tick must not imply a test nobody
-ran. That reasoning was never applied one level up, to the gate that deselects
-far more.
+a green tick must not imply a test nobody ran. The same reasoning applies one
+level up, to the gate that deselects far more.
 
 So this renders the same statement for the hermetic gate. Everything in it is
 read off the items pytest actually deselected: the count, the modules, and the

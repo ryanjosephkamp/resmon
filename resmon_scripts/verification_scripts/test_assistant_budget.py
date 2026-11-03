@@ -1,7 +1,6 @@
 """P7 — what a turn costs, held to a ceiling the measurement set.
 
-Two numbers, two jobs, both from the same table
-(``workspace/handbacks/2.0/evidence/assistant-cost.md``):
+Two numbers, two jobs, both from the same table of measured costs:
 
 * ``assistant_runtime.TURN_BUDGET_USD`` = **$0.75**, four times the dearest of
   the ten canonical requests, passed to the CLI as ``--max-budget-usd``. A
@@ -12,9 +11,8 @@ Two numbers, two jobs, both from the same table
 
 **Twice, not the measured maximum.** One run per request gives no variance
 figure, and a guard that fires on ordinary day-to-day variation is a guard
-somebody deletes. This is the method 1.8.5's flip gate arrived at after its
-first version thresholded the wrong quantity: measure, then set the threshold
-from the measurement, and say what the threshold is protecting.
+somebody deletes. The method is: measure, then set the threshold from the
+measurement, and say what the threshold is protecting.
 
 Marked ``live_network``: it drives the real CLI and spends the user's own
 window. Three of the ten requests, not all ten — the full table is the
@@ -42,7 +40,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.

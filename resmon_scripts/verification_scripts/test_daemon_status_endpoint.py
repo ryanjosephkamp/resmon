@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_daemon_status_endpoint.py
-"""Verification tests for Update 4 / Fix E — GET /api/service/daemon-status.
+"""Verification tests for GET /api/service/daemon-status.
 
 The Advanced tab must surface the *real* daemon's identity, read from
 ``daemon.lock`` and verified against the daemon's actual port, rather
@@ -122,7 +122,7 @@ def test_lock_present_probe_succeeds(lock_path, monkeypatch):
 
     sent: list[dict] = []
     monkeypatch.setattr(httpx, "Client", _FakeClient)
-    # The daemon's token file sits beside its lock; the probe must send it (2.2).
+    # The daemon's token file sits beside its lock; the probe must send it.
     daemon_token = api_auth.mint_token()
     api_auth.write_token_file(8742, daemon_token, lock_path.parent)
 

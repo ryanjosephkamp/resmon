@@ -6,12 +6,12 @@ they say opposite things about tools — the summary lanes run with tools off an
 the assistant cannot function without them. One file loading both would be one
 edit away from sending the wrong rules to the wrong model.
 
-**The 1.8.4 lesson is the whole reason this module has tests.** Every check on
-the summary constitution asked whether the document *existed* — loads,
-memoises, under 16 KB. What broke was whether it *arrived*: two lanes shipped
-telling the model to follow an attached constitution with nothing attached, and
-the agent CLI, unable to go looking, fabricated a file search and returned its
-invented results as a paper's summary. So the tests that matter here are not in
+**Transmission is the whole reason this module has tests.** A check that the
+document *exists* — loads, memoises, under 16 KB — is not a check that it
+*arrives*: a lane that tells the model to follow an attached constitution with
+nothing attached makes the agent CLI, unable to go looking, fabricate a file
+search and return its invented results as a paper's summary. So the tests that
+matter here are not in
 this file at all; they are in ``test_assistant_constitution.py``, and they
 assert transmission at each runtime's real boundary.
 """
@@ -50,8 +50,8 @@ def load_assistant_constitution() -> str:
         )
     except FileNotFoundError as exc:
         # Raised, never defaulted to an empty string. A runtime that started
-        # with no constitution would be the 1.8.4 failure exactly: an agent
-        # with tools, told to follow rules it was never given.
+        # with no constitution would be an agent with tools, told to follow
+        # rules it was never given.
         raise RuntimeError(
             "Assistant constitution missing at "
             "implementation_scripts/assets/assistant_rules.md"

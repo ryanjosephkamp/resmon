@@ -1,23 +1,17 @@
 """Records already in hand survive a later page that cannot be read.
 
-The fourth row of the connector conformance harness, and the one that puts a
-number on a consequence the other three could only reason about.
-``test_client_outcome_conformance.py`` drives every request of a search into
-the same failure, so it can say what a client *records* about an unreadable
-HTTP 200 and nothing at all about what a client *keeps*. Its own "what this
-does not establish" names the gap and names the suspicion:
+The fourth row of the connector conformance harness, and the one that measures
+what a client *keeps*. ``test_client_outcome_conformance.py`` drives every
+request of a search into the same failure, so it can say what a client
+*records* about an unreadable HTTP 200 and nothing at all about what a client
+keeps: a client whose exception leaves ``search()`` throws away everything it
+holds when a later page cannot be read.
 
-    It is not academic: the clients in ``_RAISES_ON_UNREADABLE_BODY`` throw
-    away everything they hold when a later page cannot be read, because the
-    exception leaves ``search()``. That consequence is read off the control
-    flow here, not measured.
-
-The measurement found something worse than discarded records, and it is the
-reason this row reads the outcome channel directly rather than through the
-sweep engine. At the instant the exception left ``search()``, nothing had
-been written to the channel, so ``zero_reason.derive`` returned
-**``answered_empty``** -- "the source answered and had nothing" -- for every
-one of the nine. The user was spared that sentence only because the sweep
+This row reads the outcome channel directly rather than through the sweep
+engine, because worse than discarded records is what the channel would say. If
+nothing has been written to the channel when the exception leaves ``search()``,
+``zero_reason.derive`` returns **``answered_empty``** -- "the source answered
+and had nothing". The user is spared that sentence only because the sweep
 engine's catch-all sees an exception before it ever reads the channel. That
 is a coincidence of the engine's control flow, not a guarantee: any caller
 that swallows the exception and asks the channel what happened is handed a
@@ -133,13 +127,13 @@ _NOT_DRIVEN = {
     "openaire": (
         "No page shape in the harness: OpenAIRE nests every scalar in a "
         "one-key '$' object inside repeated single-element lists, and the "
-        "sibling row judged synthesizing it faithfully a larger job than it "
-        "had room for. Inherited here rather than re-litigated."),
+        "sibling row does not synthesize it, and this row inherits that "
+        "exclusion."),
     "osti": (
         "Pages on a Link: rel=\"next\" header rather than on anything in the "
         "body. It is drivable -- _PAGE_HEADERS in the sibling row shows how "
-        "-- and it is not in the defect set this file was opened for, so it "
-        "is left for whoever widens this row rather than added untested."),
+        "-- and it is outside the defect this row covers, so it is left "
+        "out rather than added untested."),
     "arxiv": "Atom, and not in the defect set: parses inside its try block.",
     "biorxiv": "Not in the defect set: reads its reply through a guarded helper.",
     "medrxiv": "Same client as biorxiv.",
@@ -156,7 +150,7 @@ _NOT_DRIVEN = {
 }
 
 
-#: The ten clients this PR repaired: the nine above plus ``pubmed``, which
+#: The ten clients that read their reply through ``read_json_body``: the nine above plus ``pubmed``, which
 #: does not paginate and so cannot be driven by the partial-page row.
 _DEFECT_SET_SLUGS = _PARTIAL_PAGE_SLUGS + ("pubmed",)
 
@@ -172,15 +166,13 @@ _DEFECT_SET_SLUGS = _PARTIAL_PAGE_SLUGS + ("pubmed",)
 #:   helper that returned the decoded value unchecked would hand every caller
 #:   its own failure sentinel, the caller would stop, and **nothing would be
 #:   recorded** -- which derives to ``answered_empty``, the one sentence this
-#:   whole area exists to delete. Before the repair these ten raised
-#:   ``AttributeError`` on this body, which is wrong but loud; silence is
-#:   worse than a traceback, so the repair had to close this or it would have
-#:   made one case worse than the bug it fixed.
+#:   whole area exists to delete. Raising ``AttributeError`` on this body is
+#:   wrong but loud; silence is worse than a traceback, so a repair that left
+#:   this open would make one case worse than the failure it fixes.
 #: * an array root and a string root decode to a ``list`` and a ``str``, and
-#:   every one of the ten call sites immediately does ``data.get(...)``. All
-#:   ten raised ``AttributeError`` out of ``search()`` on both, before this
-#:   change and independently of it. ``read_json_body`` requiring a mapping
-#:   closes them for nothing extra.
+#:   every one of the ten call sites immediately does ``data.get(...)``, which
+#:   would raise ``AttributeError`` out of ``search()`` on both.
+#:   ``read_json_body`` requiring a mapping closes them for nothing extra.
 #:
 #: Why a dict and not some looser test: the ten clients read their records out
 #: of a named container, so a reply with no object at the root is one none of
@@ -312,9 +304,9 @@ def test_a_readable_page_survives_an_unreadable_one(slug, body_name, monkeypatch
         f"failed: that is what the partial-result note exists to describe.")
 
     # Read off the channel, with no sweep engine in the picture, because the
-    # engine's catch-all is what used to hide this: before the fix the
-    # channel said ``answered_empty`` here -- measured on all nine -- and
-    # only the engine seeing an exception first kept that out of the UI.
+    # engine's catch-all would hide a wrong answer here: a channel that said
+    # ``answered_empty`` would be kept out of the UI only by the engine seeing
+    # an exception first.
     reason, detail = _derived_reason()
     assert reason == "parse_failure", (
         f"{slug} kept its first page but the outcome channel derives to "
@@ -358,8 +350,8 @@ def test_a_body_that_decodes_to_no_object_is_also_a_parse_failure(
     ``zero_reason.derive`` falls through to ``answered_empty``: *the source
     answered and resmon found no records in the reply*. That is the quiet
     field, reached through the repair rather than through the bug, and it is
-    strictly worse than the ``AttributeError`` these ten used to raise here,
-    because a traceback at least reaches the error row.
+    strictly worse than an ``AttributeError``, because a traceback at least
+    reaches the error row.
     """
     module = _module_for(slug)
     _prepare(monkeypatch, module)
