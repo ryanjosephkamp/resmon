@@ -95,7 +95,7 @@ const platforms = [
 
 <Base title="resmon" description={description} path="/" width="full">
   <header class="lead">
-    <h1>New papers, charted. Every source, accounted for.</h1>
+    <h1><span>New papers, charted.</span> <span>Every source, accounted for.</span></h1>
     <div class="lead-side">
       <p>
         resmon is a free desktop app. It asks {named} on a schedule or when you ask, keeps every paper it finds
@@ -296,6 +296,18 @@ const platforms = [
     line-height: var(--leading-tight);
     letter-spacing: var(--tracking-tight);
     text-wrap: balance;
+  }
+
+  /* One sentence to a line: the plate's, then the record's. */
+  .lead h1 span {
+    display: block;
+  }
+
+  /* On a phone, a size down, so the first sentence holds its line. */
+  @media (max-width: 39.99rem) {
+    .lead h1 {
+      font-size: var(--text-2xl);
+    }
   }
 
   .lead-side p {
