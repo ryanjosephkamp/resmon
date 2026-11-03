@@ -95,6 +95,24 @@ _LABELS = {
 }
 
 
+# A source's recorded status, in the few words a line about the source uses
+# where the status itself is the fact and no zero reason names it. Every status
+# ``execution_sources.status`` allows has a label here
+# (``test_zero_reason_truth_table.py``), so none reaches a screen as its stored
+# identifier.
+_STATUS_LABELS = {
+    "ok": "answered",
+    "error": "query failed",
+    "skipped_missing_key": _LABELS["missing_key"],
+    "cancelled": "cancelled before it answered",
+}
+
+
+def status_label(status: str | None) -> str:
+    """The few words for a source's recorded status."""
+    return _STATUS_LABELS.get(status or "", str(status or "not recorded").replace("_", " "))
+
+
 def read_in_part(detail: dict | None) -> bool:
     """Did a search read some of a window in order before it stopped (``api_base.note_read``)?"""
     read = (detail or {}).get("read")

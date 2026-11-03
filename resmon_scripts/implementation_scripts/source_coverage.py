@@ -135,7 +135,7 @@ def outcome(row: dict) -> dict:
         # once for both Markdown and React. A specific non-answer is more
         # useful than collapsing every reason into the same short label.
         if status != "ok":
-            label = "withdrawn" if reason == "retired" else status.replace("_", " ")
+            label = "withdrawn" if reason == "retired" else zero_reason.status_label(status)
         elif reason in zero_reason.DID_NOT_ANSWER:
             label = zero_reason.label(reason, detail)
     return {"source": source, "category": category, "label": label, "note": note,
