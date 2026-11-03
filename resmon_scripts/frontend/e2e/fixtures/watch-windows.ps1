@@ -26,7 +26,8 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
-Add-Type -TypeDefinition @'
+# -IgnoreWarnings: Windows PowerShell treats a compiler warning as an error otherwise.
+Add-Type -IgnoreWarnings -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -76,7 +77,6 @@ public static class ResmonWindowWatch
     static WinEventProc keepAlive;          // the delegate must outlive the hook
     static uint hookThread;
     static Thread hookRunner;
-    static volatile bool running;
     static readonly HashSet<long> polled = new HashSet<long>();
 
     static string Esc(string s)
@@ -186,7 +186,6 @@ public static class ResmonWindowWatch
     public static void Run(string log, string stopFile)
     {
         logPath = log;
-        running = true;
         hookRunner = new Thread(HookLoop);
         hookRunner.IsBackground = true;
         hookRunner.Start();
@@ -199,7 +198,6 @@ public static class ResmonWindowWatch
             EnumWindows(proc, IntPtr.Zero);
             Thread.Sleep(50);
         }
-        running = false;
         PostThreadMessage(hookThread, WM_QUIT, IntPtr.Zero, IntPtr.Zero);
         hookRunner.Join(5000);
         Write("{\"done\":true}");
