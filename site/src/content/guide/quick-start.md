@@ -1,60 +1,67 @@
 ---
 title: "Quick start"
-summary: "A first Deep Dive, a first Deep Sweep, and a first scheduled routine."
-order: 7
-readmeLines:
-  - "616-669"
+summary: "A first search, a first watch, and the one switch that makes a watch run on its own."
+order: 2
+readmeLines: []
 ---
-## Quick Start Guide
+This page takes you from a fresh install to a watch that runs by itself. It assumes resmon is installed and open; if not, start with [Install and launch](/resmon/guide/install/).
 
-**On a brand-new install the Dashboard opens with a *Getting started* card.** It lists
-three optional things — an agent CLI you already subscribe to, an AI provider key, and a
-key for one of the few sources that wants one — with a link to where each is set, and a
-mark showing what resmon can already see. None of them is required: resmon searches all
-the unkeyed sources with no AI and no keys at all. The card reports **found** and **configured**
-and never **working**, because resmon cannot tell whether a command is signed in or a key
-accepted until the first paper goes through it. `Skip` puts it away permanently, and it
-retires itself the moment you have run anything.
+## 1. Look at the first-run card
 
-The following walkthroughs cover the three core workflows. Each flow assumes the app is running and that any required API keys for keyed repositories (CORE, NASA ADS, Springer Nature) are either stored under **Repositories & API Keys** or provided as ephemeral per-execution keys.
+On a fresh install, **Today** shows a **Getting started** card where the map will be. It appears while resmon holds no papers, runs, or watches, and it goes away for good when you press **Skip**.
 
-### Run a Deep Dive
+The card lists three things. None is required, and resmon searches every source that needs no key with no AI at all.
 
-A Deep Dive runs a targeted one-off query against a **single** repository.
+| Step | Where it leads | What the mark means |
+|---|---|---|
+| Use an AI plan you already pay for | **Settings › AI** | **found** if the `claude` or `codex` command is on your computer |
+| Or bring an API key | **Settings › AI** | **done** if a key is stored |
+| Add a key for a source that wants one | **Settings › Sources** | **done** if a key is stored for any source |
 
-1. Open the **Deep Dive** page at `#/dive`.
-2. In the repository selector (single-select), choose one source.
-3. Optionally restrict the date range with **Date Range** — note that the date range is intentionally **not** saved as part of a configuration and must be picked fresh for every run.
-4. Enter one or more keywords in the chip-style **Keywords** input; keywords are joined with spaces to form the query.
-5. Adjust the **Max Results** slider (range 10–500, step 10, default 100).
-6. Optionally toggle **Enable AI Summarization**. When enabled, the *Override AI settings for this run* disclosure offers per-execution overrides for length, tone, and model; empty overrides fall back to the app defaults.
-7. If the selected repository requires a credential that is not already stored in the OS keyring, enter an ephemeral key in the inline **Key Status** panel. Ephemeral keys are sent only in the request body and are never persisted.
-8. Click **Run Deep Dive**. The page sends `POST /api/search/dive`, registers the returned execution id with `ExecutionContext`, and the floating widget begins streaming progress. When the execution reaches a terminal state, an **Execution #N** result card is rendered inline with counts and a **View Report** link to `#/results?exec=<id>`.
+The card reports **found** and **done**, and never "working". resmon cannot tell whether a command is signed in or a key is accepted until the first paper goes through it.
 
-### Run a Deep Sweep
+## 2. Ask the sources once
 
-A Deep Sweep runs a broad one-off query across **multiple** repositories, one after another, then normalizes and de-duplicates the combined result set by DOI and by title + first author.
+Press ⌘D (Ctrl+D on Windows and Linux), or open **New search** in the top bar and choose **Deep Dive**. This opens **Search › Ask the sources**.
 
-1. Open the **Deep Sweep** page at `#/sweep`.
-2. In the repository selector (multi-select), choose every source to include.
-3. Enter one or more keywords; the same query string is issued to every selected repository.
-4. Optionally restrict the date range (again, not persisted by *Save Configuration*).
-5. Adjust the **Max Results** slider — the cap applies **per repository**, so the merged result set can be up to `repositories.length × max_results` before de-duplication.
-6. Optionally toggle **Enable AI Summarization** and its per-execution overrides.
-7. For each selected repository that requires a credential, enter an ephemeral key in the inline Key Status panel if the key is not already stored in the keyring.
-8. Click **Run Deep Sweep**. The page sends `POST /api/search/sweep` and registers the execution with `ExecutionContext`. The backend first calls an admission controller; if the concurrent-execution cap is reached, the server returns HTTP `429` with a `Retry-After: 5` header and a message that points to **Settings → Advanced** — this surfaces verbatim as the form error.
+1. Type a term and press Enter. Each term becomes a chip, and the terms are sent together; every source combines them its own way. Add more terms the same way.
+2. Choose a source. A **Deep Dive** asks one source. The list shows how each source combines terms, how many requests resmon may make, and how finely it dates a paper. A source marked **needs an API key** is recorded as not asked until you store one in **Settings › Sources**.
+3. Leave **Published** at 30 days, or choose 7 days, a year, or any time, or set the **From** and **To** dates. **Up to 100 papers per source** is the default cap.
+4. Press **Ask** followed by the source's name.
 
-### Create and Activate a Routine
+For several sources at once, press ⇧⌘D (Ctrl+Shift+D) or choose **Deep Sweep**, tick the sources, and press **Ask** followed by the number of sources.
 
-A Routine is a scheduled Automated Deep Sweep: the same multi-repository pipeline, bound to a saved configuration and a 5-field cron expression.
+Under the button, resmon says what it already knows about this particular ask: which chosen source sets the pace, which source cannot date papers as finely as your window, and which sources need a start date. It does not guess how many papers you will get.
 
-1. Open the **Routines** page at `#/routines` and click **New Routine** to open the create modal.
-2. Enter a **Name** and choose a **Cron expression** (5-field `m h dom mon dow`, default `0 8 * * *`). Any configuration-related fields can be pre-populated by loading a saved `routine` configuration through the inline **ConfigLoader** — this restores everything except the date range.
-3. Select repositories, enter keywords, and set an optional date range and a per-repository **Max Results** cap.
-4. Set the per-routine flags as needed:
-   - **AI** — enable AI summarization for each fire.
-   - **Email** — email the report on completion (the global SMTP settings must be configured under **Settings → Email**).
-   - **Results-in-Email** — include the AI summary inline in the notification email.
-   - **Notify-on-Completion** — raise a desktop notification when a fire finishes.
-5. Submit the modal. The routine is persisted via `POST /api/routines`, and APScheduler registers a job under the routine's id.
-6. Manage the routine from its row in the routines table: **Activate/Deactivate** preserves the DB row while adding or removing the APScheduler job; the inline **Email**, **AI**, and **Notify** column toggles patch a single flag each; and if a fire is currently running, a **Cancel Run** button appears on the row and stops the live execution.
+The run opens on its own page. While it runs, each source's line changes as its answer arrives. When it ends, the page lists the **recorded outcome of each source** and a sentence summing them up. Below that are tabs: **Papers**, **Map**, **Report**, **Search record**, **Log**, **Metadata**, and **Progress**. See [Search](/resmon/guide/search/).
+
+Press **Save to read** on a paper to put it in your **Library › Reading queue**.
+
+## 3. Make it a watch
+
+A watch asks the same question on a schedule. From a run's form, press **Watch this search**, or press **New watch** in **Watches**. The editor asks for:
+
+- **Name.**
+- **What it follows.** Words, a person's new papers, or retractions and corrections on a person's papers.
+- **Terms to watch for** and **Sources.**
+- **When it runs.** Every day, weekdays, once a week, once a month, or every few hours, with a time. The editor shows the schedule in words.
+- **Which papers each run asks for.** The default is papers published since the previous run.
+- **When a run finishes.** Whether to notify you, and whether to email the report.
+
+The **What it will do** panel on the right restates the form as sentences, including warnings: a source with no key, a start date a source needs, a schedule the words cannot state. Press **Save watch**. It starts watching when saved, unless you turned that off.
+
+## 4. Turn on the background service
+
+A resmon window does not run watches on its own. Only the background service does. Without it, once a watch is watching, **Today** says "Your watches will not run: no background service is set up."
+
+Open **Settings › In the background** and turn on **Run resmon in the background**. resmon asks you to confirm, then writes a launch agent on macOS, a scheduled task on Windows, or a systemd user unit on Linux, and registers it with launchd, Task Scheduler, or systemd. The service starts when you log in and runs your watches with or without a window open. **Running now** on the same page says whether it is actually running.
+
+A watch's page has **Run now**, which runs it once whatever the schedule says.
+
+## 5. Come back to Today
+
+**Today** shows the papers resmon collected since you last pressed **Mark all read**. The first time, it shows the last seven days. The footer says when your next watch is due, and whether anything will run it.
+
+If a source did not answer on a watch's last run, a line under that watch names the source and offers **Why**. A watch with nothing new is listed under **Nothing new from**, so a quiet watch and a broken one can be told apart.
+
+For what each screen does in detail, see [Today](/resmon/guide/today/), [Search](/resmon/guide/search/), [Watches and people](/resmon/guide/watches/), and [Health](/resmon/guide/health/).
