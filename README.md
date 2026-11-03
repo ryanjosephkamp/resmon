@@ -21,42 +21,50 @@
   <a href="https://github.com/ryanjosephkamp/resmon/releases">Download</a>
 </p>
 
-![resmon running a Deep Sweep across seven sources, the Monitor as they answer, the Source wall, and Explorer](.github/assets/resmon-tour.gif)
+![resmon's tour: Today's map of the collection with new papers ringed, a Deep Sweep asking several sources at once, the Source wall showing what each source did on each run, and Search](.github/assets/resmon-tour.gif)
 
-resmon searches arXiv, PubMed, OpenAlex, CrossRef, bioRxiv, and 21 more open scholarly sources, on
-demand or on a schedule. It de-duplicates what they return, writes chronological reading reports
-into a local corpus you can search, and records what every source did on every run, so a quiet
+resmon searches arXiv, PubMed, OpenAlex, Crossref, bioRxiv, and 21 more open scholarly sources, on
+demand or on a schedule. It de-duplicates what they return, keeps every paper in a database on your
+computer, writes a report for every run, and records what every source did on every run, so a quiet
 week and a broken search never look the same.
 
-It never claims more than it knows. A field extracted from a document, a field matched against the
-corpus, and a field guessed by a model are different kinds of fact, and resmon labels which is
+It never claims more than it knows. A field extracted from a document, a field matched against your
+collection, and a field guessed by a model are different kinds of fact, and resmon labels which is
 which. Where it cannot know something, it says so instead of showing a plausible number.
 
 ## What it does
 
-- **Deep Dive and Deep Sweep:** one source in depth, or many in one run. Before a search runs,
-  resmon says what each selected source will do with it: how it combines your keywords, whether it
-  can honor your dates, whether it needs a key.
-- **Routines:** the same search on a schedule, fired by an optional background service (launchd,
-  a systemd user unit, or Task Scheduler). Without the service, the Routines page says nothing will
-  run them. A routine can ask each run for the papers published since its previous run (or in the
-  last N days), with the dates computed when it runs and recorded with the run, so a source that
-  ranks by relevance is not asked for the same papers every time.
-- **Reports and a reading queue:** Markdown reports for every run, with its log and search record;
-  save papers to read, and export references as BibTeX, RIS, or CSV.
-- **Explorer:** search everything resmon has collected, filtered by source, category, author, and
-  date.
-- **Source wall and Watchdog:** what each source did on each run, and a report of sources that fail
-  repeatedly, routines that are overdue, and departures from your own history.
-- **Watch profiles, retraction checks, AI summaries, and Ask:** follow a person; check Crossref's
-  Retraction Watch data and preprint servers for retractions and newer versions; summarize papers
-  with your own provider key or a signed-in Claude Code or Codex CLI. Nothing is billed through
-  resmon.
-- **Delivery, backup, and an MCP server:** reports by email, to a folder, a signed webhook, or an
-  Atom feed; backups to a folder or your own Google Drive; and an MCP server for tools that speak
-  the Model Context Protocol.
+- **Today:** your whole collection drawn as a map, with the papers collected since you last marked
+  them read ringed and numbered, and the list beside it grouped by watch.
+- **Deep Dive and Deep Sweep:** one source in depth, or several at once. Before you ask, resmon says
+  what each source will do with your search: how it combines your terms, whether it can honor your
+  dates, and whether it needs a key.
+- **Watches:** the same search on a schedule, or a person's new papers, or retractions and
+  corrections on a person's papers. A watch runs only in the background service, and resmon says so
+  wherever it matters. Each run can ask for the papers published since the previous run, with the dates
+  computed when it runs and recorded with the run.
+- **Health:** the **Source wall** shows what each source did on each of the last runs, with a
+  failure, an empty answer, and an outcome resmon did not record all drawn differently. The
+  **Watchdog** reports sources that fail repeatedly, watches that are overdue, and departures from
+  your own history, and says what it cannot judge yet.
+- **Search:** your whole collection by words or by meaning, filtered by source, category, author, and
+  date, with reference export as BibTeX, RIS, or CSV. A coverage audit compares a watch's results
+  with what you meant it to find, and a shared-wording scan finds abstracts that repeat each other word
+  for word.
+- **People:** follow a researcher. Every match to a person says how it was made: by ORCID, by name and
+  affiliation, or by name alone, and only the first is evidence of identity.
+- **Library and Evidence:** a reading queue; copies of PDF, TXT, and MD files in a folder you choose;
+  and projects where you pin exact passages and ask questions of excerpts you pick, with citations
+  checked against the text. The Library is unavailable on Windows.
+- **Ask, summaries, and an MCP server:** an assistant that answers from resmon through the same tools
+  an outside program can use, and waits for your approval before changing anything. Summaries and Ask
+  run on a signed-in Claude Code or Codex command, or on your own provider key. Nothing is billed
+  through resmon.
+- **Delivery, backup, and the command line:** reports by email, to a folder, to an Atom feed, or to a
+  signed webhook, with a record of whether each arrived; backups to a folder, such as Google Drive for
+  desktop's; and a `resmon` command for a terminal.
 
-There is no account, no resmon server, and no telemetry. The corpus is a SQLite database on your
+There is no account, no resmon server, and no telemetry. The collection is a SQLite database on your
 disk, and keys are kept in your operating system's keychain.
 
 ## Install
@@ -66,14 +74,14 @@ Download a build from [Releases](https://github.com/ryanjosephkamp/resmon/releas
 | Platform | File | Status |
 |---|---|---|
 | macOS, Apple Silicon | DMG | Tested: installed and used daily |
-| macOS, Intel | DMG | Built by the release workflow; not yet launched |
-| Windows (x64) | Installer (`.exe`) | Built by the release workflow; not yet launched |
-| Linux (x64) | AppImage | Built by the release workflow; not yet launched |
+| macOS, Intel | DMG | Built and launched once by the release workflow's check; not used daily |
+| Windows (x64) | Installer (`.exe`) | Built and launched once by the release workflow's check; not used daily |
+| Linux (x64) | AppImage | Built and launched once by the release workflow's check; not used daily |
 
-macOS builds are unsigned, so the first launch needs one extra step; Windows and Linux builds
-update themselves. Both are covered in
-[Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/), along with running
-from source:
+The macOS builds are unsigned, so the first launch needs one extra step. Windows and Linux builds
+update themselves, and macOS builds do not. The Library is unavailable on Windows. All of this is
+covered in [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/), along with
+running from source:
 
 ```bash
 git clone https://github.com/ryanjosephkamp/resmon.git
@@ -83,12 +91,17 @@ pip install -r requirements.txt
 cd resmon_scripts/frontend && npm install && npm start
 ```
 
+A resmon window does not run your watches. The background service does: turn on **Settings › In the
+background › Run resmon in the background**. On macOS and Windows the service is the app itself, and
+on Linux it is the engine.
+
 ## Command line
 
 `resmon` asks the running resmon (the background service, or the app's own engine) what it has
-collected and how its watches are doing, in the app's words, with `--json` on every command. It
-never opens the database and never starts resmon itself; with nothing running, it says where it
-looked and exits with status 3. Install it from a clone with
+collected and how its watches are doing, in the app's words, with `--json` on every command. It never
+opens the database and never starts resmon itself; with nothing running, it says where it looked and
+exits with status 3. It ships inside the app: choose **Install "resmon" Command in PATH** (in the
+resmon menu on macOS, in the Help menu on Windows and Linux). From a clone, install it with
 [pipx](https://pipx.pypa.io/); it needs Python 3.10 and nothing else.
 
 ```bash
@@ -108,43 +121,44 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 
 | | |
 |---|---|
-| [What resmon is](https://ryanjosephkamp.github.io/resmon/guide/overview/) | The feature list, and the connected-app header |
-| [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/) | Prerequisites, setup, published builds, starting the app |
-| [Quick start](https://ryanjosephkamp.github.io/resmon/guide/quick-start/) | A first Deep Dive, Deep Sweep, and routine |
-| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 26 sources and what each one's terms permit |
-| [Your local library](https://ryanjosephkamp.github.io/resmon/guide/library/) | Managed vaults and imported documents |
-| [Projects and selected evidence](https://ryanjosephkamp.github.io/resmon/guide/projects/) | Scoping what an answer may rest on |
-| [The assistant and MCP](https://ryanjosephkamp.github.io/resmon/guide/assistant/) | The in-app assistant, and the MCP server |
-| [Architecture](https://ryanjosephkamp.github.io/resmon/guide/architecture/) | Backend, renderer, scheduler, stack, and source layout |
-| [Configuration](https://ryanjosephkamp.github.io/resmon/guide/configuration/) | Configuration types, their JSON, export, and import |
-| [HTTP API reference](https://ryanjosephkamp.github.io/resmon/guide/api-reference/) | The local API, endpoint by endpoint |
-| [AI summarization](https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/) | Providers, fallback chains, and per-run overrides |
-| [Email notifications](https://ryanjosephkamp.github.io/resmon/guide/email-notifications/) | SMTP, credential storage, and per-routine controls |
-| [Backup and restore](https://ryanjosephkamp.github.io/resmon/guide/backup/) | Local backup and restore, and keeping a backup in Google Drive |
-| [Contributing](https://ryanjosephkamp.github.io/resmon/guide/contributing/) | Issues, pull requests, commit messages |
-| [Acknowledgments](https://ryanjosephkamp.github.io/resmon/guide/acknowledgments/) | The providers, projects, and standards this is built on |
-| [License](https://ryanjosephkamp.github.io/resmon/guide/license/) | Licensing, and the third-party notices |
+| [What resmon is](https://ryanjosephkamp.github.io/resmon/guide/overview/) | What resmon watches, what it promises about what it knows, how its screens fit together, and what stays on your computer. |
+| [Quick start](https://ryanjosephkamp.github.io/resmon/guide/quick-start/) | A first search, a first watch, and the one switch that makes a watch run on its own. |
+| [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/) | The downloads and their status, the first launch, updates, the resmon command, the background service, and running from source. |
+| [Today](https://ryanjosephkamp.github.io/resmon/guide/today/) | The collection as a map, and the papers collected since you last marked all read. |
+| [Search](https://ryanjosephkamp.github.io/resmon/guide/search/) | Searching what you hold, asking the sources for more, runs, saved searches, and shared wording. |
+| [Watches and people](https://ryanjosephkamp.github.io/resmon/guide/watches/) | Making a watch, its schedule and dates, where reports go, the coverage audit, and watching for a person. |
+| [Health](https://ryanjosephkamp.github.io/resmon/guide/health/) | The Source wall, the Watchdog, retraction checks, analytics, and which engine a window uses. |
+| [The Library](https://ryanjosephkamp.github.io/resmon/guide/library/) | The reading queue, and copies of PDF, TXT, and MD files kept in a folder you choose. |
+| [Evidence](https://ryanjosephkamp.github.io/resmon/guide/projects/) | Projects of exact file versions, pinned passages, and cited answers from excerpts you choose. |
+| [Ask and the MCP server](https://ryanjosephkamp.github.io/resmon/guide/assistant/) | The assistant, what it can and cannot do, and driving resmon from another program over MCP. |
+| [AI settings](https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/) | Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends. |
+| [Email, delivery, and notifications](https://ryanjosephkamp.github.io/resmon/guide/email-notifications/) | Email, folder, feed, and webhook delivery, how a delivery is recorded, and desktop notifications. |
+| [Backup and restore](https://ryanjosephkamp.github.io/resmon/guide/backup/) | What a backup holds and leaves out, where it goes, restoring it, and keeping a copy in Google Drive. |
+| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 26 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms. |
+| [Configuration](https://ryanjosephkamp.github.io/resmon/guide/configuration/) | Saved searches and watch copies, moving them between computers, and what each Settings group holds. |
+| [Architecture](https://ryanjosephkamp.github.io/resmon/guide/architecture/) | The engine, the window, the scheduler, how runs are admitted and recorded, and the source tree. |
+| [HTTP API reference](https://ryanjosephkamp.github.io/resmon/guide/api-reference/) | The local HTTP API, route by route. The generated contract for every route is in the reference section. |
+| [Contributing](https://ryanjosephkamp.github.io/resmon/guide/contributing/) | Reporting a problem, opening a pull request, the checks to run, and how docs and tests move with a change. |
+| [License](https://ryanjosephkamp.github.io/resmon/guide/license/) | The project license and where the third-party notices live. |
+| [Acknowledgments](https://ryanjosephkamp.github.io/resmon/guide/acknowledgments/) | The open-access providers, the open-source projects, and the standards resmon is built on. |
 
 Reference documents (the source landscape, the backup bundle format, the local API security model,
-the release procedure, and the generated HTTP and MCP contract) are rendered from
+the webhook receiver contract, and the generated HTTP and MCP contract) are rendered from
 [`docs/`](docs/) at <https://ryanjosephkamp.github.io/resmon/reference/>.
-
-Release notes are posted to <https://ryanjosephkamp.github.io/resmon/updates/> and to the Atom
-feed at <https://ryanjosephkamp.github.io/resmon/feed.xml>, which the app's
-**About resmon → Blog** tab reads.
 
 ## Working on resmon
 
 ```bash
-.venv/bin/python -m pytest -q                      # backend, hermetic
+.venv/bin/python -m pytest -q                              # backend, hermetic
 cd resmon_scripts/frontend
-npm run typecheck && npm test && npm run build     # renderer
-npm run e2e                                        # the real Electron app
+npm run typecheck && npm run lint && npm test && npm run build   # interface
+npm run e2e                                                # the real Electron app
+npm run journeys                                           # one test per user journey
 ```
 
-[`CONTRIBUTING.md`](CONTRIBUTING.md) covers opening a pull request: the checks to run, what its
-body must carry, and how docs and tests move with a change. The project site is built from [`site/`](site/) and published out of [`docs/`](docs/);
-[`site/README.md`](site/README.md) explains how.
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers opening a pull request: the checks to run, what its body
+must carry, and how docs and tests move with a change. The project site is built from [`site/`](site/)
+and published out of [`docs/`](docs/); [`site/README.md`](site/README.md) explains how.
 
 ## License
 
