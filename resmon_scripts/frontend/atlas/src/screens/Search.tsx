@@ -18,6 +18,7 @@ import { SourceCatalog, TermsField, useSources, useTerms } from './sources/Sourc
 import { SummaryChoiceField, choiceProblem } from './settings/SummaryChoiceField';
 import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryChoice';
 import { AI_KEY } from './settings/summaryLanes';
+import { CountField } from '../shell/CountField';
 
 type Mode = SearchKind;
 
@@ -315,14 +316,7 @@ export function Search() {
           </fieldset>
           <label className="cap">
             <span>Up to</span>
-            <input
-              type="number"
-              min={1}
-              max={1000}
-              value={cap}
-              onChange={(event) => setCap(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))}
-              aria-label="Most papers per source"
-            />
+            <CountField min={1} max={1000} value={cap} onValue={setCap} aria-label="Most papers per source" />
             <span>papers per source</span>
           </label>
         </div>

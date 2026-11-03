@@ -6,6 +6,7 @@ import { commandEnter } from '../../shell/shortcuts';
 import { coarseFor, coarseSentence } from '../sources/catalog';
 import { SourceCatalog, TermsField, useSources, useTerms } from '../sources/SourceCatalog';
 import { SAVED_KEY, editedParameters, savedForm, savedFormProblem, type SavedConfiguration } from './savedSearches';
+import { CountField } from '../../shell/CountField';
 
 /**
  * A saved search changed in place: its name, and what it asks (the sources,
@@ -95,8 +96,7 @@ export function SavedEditor({ config, onDone }: {
         </fieldset>
         <label className="cap">
           <span>Up to</span>
-          <input type="number" min={1} max={1000} value={cap} aria-label="Most papers per source"
-            onChange={(event) => setCap(Math.max(1, Math.min(1000, Number(event.target.value) || 1)))} />
+          <CountField min={1} max={1000} value={cap} onValue={setCap} aria-label="Most papers per source" />
           <span>papers per source</span>
         </label>
       </div>
