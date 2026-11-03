@@ -20,8 +20,11 @@
  * - **the video segment**, title card included: 1920 x 1080 at 30 fps, the
  *   1440 x 900 window scaled to the full height and set on its own ground.
  *
- * With every take present, the segments are joined into the tour: H.264,
- * 1920 x 1080, 30 fps, no audio.
+ * With every take present, the segments are joined into the tour's master
+ * (`media/resmon-tour-master.mp4`, for YouTube), and the tour a page plays is
+ * that master at CRF 30: H.264, 1920 x 1080, 30 fps, no audio. Its chapters
+ * are written beside it
+ * (`resmon-tour.json`: where each segment starts, and its title and line).
  *
  * Environment: `RESMON_DEMO_OUT` (where the takes are; also where the masters
  * and segments go), `RESMON_DEMO_GIFS` (where the GIFs and stills go; the
@@ -202,9 +205,26 @@ function main(): void {
   const tour = path.resolve(process.env.RESMON_DEMO_TOUR || path.join(out, 'resmon-tour.mp4'));
   const list = path.join(media, 'tour.txt');
   fs.writeFileSync(list, segments.map((s) => `file '${s}'`).join('\n') + '\n');
-  // Every segment was encoded with the same settings, so they join without re-encoding.
-  ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-an', '-movflags', '+faststart', tour]);
-  console.log(`tour: ${seconds(tour).toFixed(1)} s, ${(fs.statSync(tour).size / 1024 / 1024).toFixed(1)} MB → ${tour}`);
+  // Every segment was encoded with the same settings, so they join without re-encoding, into the
+  // master (for YouTube). The tour a page plays is the master at CRF 30: a screen of text and flat
+  // panels holds its edges there, at under half the size.
+  const tourMaster = path.join(media, 'resmon-tour-master.mp4');
+  ffmpeg(['-f', 'concat', '-safe', '0', '-i', list, '-c', 'copy', '-an', '-movflags', '+faststart', tourMaster]);
+  ffmpeg(['-i', tourMaster, ...BT709, '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-profile:v', 'high',
+    '-pix_fmt', 'yuv420p', '-an', '-movflags', '+faststart', tour]);
+  console.log(`tour: ${seconds(tour).toFixed(1)} s, ${(fs.statSync(tour).size / 1024 / 1024).toFixed(1)} MB → ${tour}`
+    + ` (master ${(fs.statSync(tourMaster).size / 1024 / 1024).toFixed(1)} MB → ${tourMaster})`);
+  // Its chapters, beside it, for a page that shows the tour: where each segment starts, measured from
+  // the segments as joined, and what each one is (`titles.ts`).
+  let at = 0;
+  const chapters = DEMOS.map((d, k) => {
+    const start = at;
+    at += seconds(segments[k] ?? '');
+    return { slug: d.slug, title: d.title, line: d.line, start: Math.round(start * 10) / 10 };
+  });
+  const chaptersFile = tour.replace(/\.mp4$/, '.json');
+  fs.writeFileSync(chaptersFile, `${JSON.stringify({ seconds: Math.round(seconds(tour) * 10) / 10, chapters }, null, 1)}\n`);
+  console.log(`chapters → ${chaptersFile}`);
 }
 
 main();

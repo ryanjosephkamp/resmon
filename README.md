@@ -16,12 +16,12 @@
 
 <p align="center">
   <a href="https://ryanjosephkamp.github.io/resmon/">Site</a> ·
-  <a href="https://ryanjosephkamp.github.io/resmon/#tour">The 54-second tour</a> ·
+  <a href="https://ryanjosephkamp.github.io/resmon/#tour">The tour</a> ·
   <a href="https://ryanjosephkamp.github.io/resmon/guide/">Guide</a> ·
   <a href="https://github.com/ryanjosephkamp/resmon/releases">Download</a>
 </p>
 
-![resmon's tour: Today's map of the collection with new papers ringed, a Deep Sweep asking several sources at once, the Source wall showing what each source did on each run, and Search](.github/assets/resmon-tour.gif)
+![resmon's tour: Today's map of the collection with the new papers ringed and numbered, a Deep Sweep asking several sources at once, and the Source wall marking what each source did on each run](.github/assets/resmon-tour.gif)
 
 resmon searches arXiv, PubMed, OpenAlex, Crossref, bioRxiv, and 21 more open scholarly sources, on
 demand or on a schedule. It de-duplicates what they return, keeps every paper in a database on your
