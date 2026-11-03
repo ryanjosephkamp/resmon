@@ -9,7 +9,7 @@ is what "frozen" means in practice.
 | File | What it is | How it changes |
 |---|---|---|
 | [`openapi.json`](openapi.json) | `app.openapi()` from `resmon_scripts/resmon.py`, keys sorted and `info.version` removed. Every route's method, path, parameters and request body. | **Generated.** Never edited by hand. |
-| [`http.md`](http.md) | The index: every route against the parity-register row it serves, with its auth class, whether it streams, and a one-line purpose; then the closed vocabularies and the admission 429. | **Generated.** Never edited by hand. |
+| [`http.md`](http.md) | The index: every route against the user journey it serves, with its auth class, whether it streams, and a one-line purpose; then the closed vocabularies and the admission 429. | **Generated.** Never edited by hand. |
 | [`mcp.md`](mcp.md) | The MCP tool contract, 1.0. What an external harness may call and what it gets back. | Hand-written, frozen. |
 | [`assistant-conversations.md`](assistant-conversations.md) · [`assistant-choices.md`](assistant-choices.md) · [`library.md`](library.md) · [`evidence.md`](evidence.md) · [`selected-evidence.md`](selected-evidence.md) | The five feature contracts: the written agreement the backend and the renderer are each built to. | Hand-written, frozen. |
 

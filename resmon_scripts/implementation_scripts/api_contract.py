@@ -154,7 +154,7 @@ ROWLESS_REASONS: dict[str, str] = {
     "J27": "No route. Recorded in the register as not carried forward.",
     "J43": (
         "No route. Migrations run inside `database.init_db` at start; the journey is "
-        "exercised by `test_cumulative_upgrade.py` against a released fixture."
+        "exercised by `test_cumulative_upgrade.py` against the committed upgrade fixtures."
     ),
 }
 
@@ -964,7 +964,7 @@ def render_http_md() -> str:
     carried = sum(1 for jid, _ in REGISTER if by_journey.get(jid))
 
     out: list[str] = []
-    out.append("# The HTTP surface, by parity-register row")
+    out.append("# The HTTP surface, by journey")
     out.append("")
     out.append(
         "**Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` "

@@ -53,13 +53,9 @@ from implementation_scripts.runtime_identity import valid_runtime_id, valid_iden
 # reconfigure the app or put a routine on a schedule, and a caller that ignored
 # that flag would be running writes the contract says a person approves first.
 #
-# The versioning rule in the contract points both ways for a narrowing. By its
-# enumeration -- removing a tool, renaming an argument, changing a return shape
-# -- nothing changes. By its test, "are callers unaffected", a caller that was
-# setting ``ai_cli_path`` is affected. A narrowing moves the version as a
-# minor, because a new major and a new contract document would be out of
-# proportion to a guard that takes nothing off the surface and that the
-# document's Safety section already implies.
+# A narrowing (a call the server accepted that it now refuses) moves the version
+# as a minor: the contract's versioning rule asks whether callers are
+# affected, and a caller of the refused call is.
 CONTRACT_VERSION = "1.0"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
@@ -181,16 +177,14 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # someone reading a summary, and never overclaiming outranks every other rule
 # here.
 #
-# **Both clauses are mechanical, and both are tested as mechanisms.** The first
-# draft argued no test was possible because neither moves a request. That was
-# wrong: ``test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld``
-# sentinels all 41 keys through the real builder and the real template, and
-# ``test_no_writable_key_can_switch_off_the_audit_prefix`` drives all 41 with
+# **Both clauses are mechanical, and both are tested as mechanisms.**
+# ``test_every_key_whose_value_reaches_the_summarizer_prompt_is_withheld``
+# sentinels all 39 keys through the real builder and the real template, and
+# ``test_no_writable_key_can_switch_off_the_audit_prefix`` drives all 39 with
 # the one string that disables the flag. Neither consults this dict to decide
 # what *should* be withheld; each works out which keys have the property and
-# then asks whether those keys are here. The first was red on ``ai_tone`` and
-# ``ai_summary_length`` when it was written, which is the proof that it is a
-# guard rather than a mirror.
+# then asks whether those keys are here, so each is a guard rather than a
+# mirror.
 #
 # The two lists partition ``resmon._SETTINGS_GROUPS`` exactly, and
 # ``test_every_settings_key_the_app_has_is_either_writable_or_withheld``
@@ -198,9 +192,8 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # someone has to make rather than a key that arrives writable.
 #
 # **Four mechanisms derive 8 of the 19 keys below, and eleven are category
-# judgements.** Count them honestly, because the first draft of this comment's
-# neighboring prose claimed sixteen by counting a key as covered when it
-# merely belonged to a category a mechanism was named after:
+# judgments.** A key counts as covered only when a mechanism finds it, not when
+# it belongs to a category a mechanism is named after:
 #
 #   route_digest moves                  ai_cli_path, ai_custom_base_url
 #   reaches SUMMARIZE_ABSTRACT          ai_extraction_goals, ai_tone,
@@ -213,7 +206,7 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # export_directory, smtp_server, smtp_port, smtp_to -- have a reason each, and
 # a reason is not a test. Move one of those to the writable set and the only
 # thing that goes red is the count assertion in the contract document, which
-# the same change would update: that was measured, not assumed. So the
+# the same change would update. So the
 # mechanisms are a **floor, not the line**, and for those eleven the thing
 # standing behind the list is a reviewer. A fifth mechanism that retires
 # some of them is the obvious next improvement here.

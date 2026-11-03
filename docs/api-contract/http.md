@@ -1,4 +1,4 @@
-# The HTTP surface, by parity-register row
+# The HTTP surface, by journey
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
@@ -451,7 +451,7 @@ The guard is in front of all 207 routes, not only the two listed here: `AUTH_EXE
 
 ## J43 — Upgrade in place
 
-No route. Migrations run inside `database.init_db` at start; the journey is exercised by `test_cumulative_upgrade.py` against a released fixture.
+No route. Migrations run inside `database.init_db` at start; the journey is exercised by `test_cumulative_upgrade.py` against the committed upgrade fixtures.
 
 ## J44 — Driving resmon from an external harness (MCP)
 
