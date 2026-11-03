@@ -47,11 +47,31 @@ def _optional(engine: Engine, path: str, params: Optional[Mapping[str, Any]] = N
         raise
 
 
-def source_names(engine: Engine) -> dict[str, str]:
+# The names withdrawn sources were shown under, as ``api_registry.RETIRED_NAMES``
+# has them (``test_cli.py`` holds the two equal). The command line carries its
+# own copy because it ships without the engine's modules.
+RETIRED_NAMES = {
+    "ieee": "IEEE Xplore",
+    "oapen": "OAPEN Library",
+    "repec": "RePEc/IDEAS",
+    "ssrn": "SSRN",
+}
+
+
+def catalog_names(engine: Engine) -> dict[str, str]:
     """``{slug: name}`` from the catalog the app's Repositories page reads."""
     catalog = _optional(engine, "/api/repositories/catalog") or []
     return {str(e["slug"]): str(e.get("name") or e["slug"])
             for e in catalog if isinstance(e, dict) and e.get("slug")}
+
+
+def source_names(engine: Engine) -> dict[str, str]:
+    """``{slug: name}`` for every source a run can name: the catalog's, and the withdrawn ones.
+
+    A run from before a source was withdrawn still records an outcome under its
+    slug, and a line that said "ieee" would read as a key rather than as
+    IEEE Xplore, which is how the source wall names it."""
+    return {**RETIRED_NAMES, **catalog_names(engine)}
 
 
 def resolve_sources(engine: Engine, given: list[str]) -> list[str]:
@@ -62,7 +82,7 @@ def resolve_sources(engine: Engine, given: list[str]) -> list[str]:
     is a claim about the corpus that a typo does not earn."""
     if not given:
         return []
-    names = source_names(engine)
+    names = catalog_names(engine)
     if not names:
         return given
     by_word = {slug.lower(): slug for slug in names}
