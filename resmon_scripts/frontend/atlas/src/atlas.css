@@ -1386,7 +1386,9 @@ code.path {
 .wall-cell button[aria-pressed="true"] .wall-mark[data-mark="dash"] { color: var(--ink-3); }
 
 .wall-scroll { margin-top: 12px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--panel); }
-.wall-grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: max-content; font: 400 12.5px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
+/* The grid takes the frame's width, and where it is short a source's name and its When last asked wrap, so a laptop's
+   window shows every run of the twelve whole. More runs than fit scroll inside the frame. */
+.wall-grid { border-collapse: separate; border-spacing: 0; width: 100%; font: 400 12.5px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
 .wall-grid th, .wall-grid td { border-bottom: 1px solid var(--rule); }
 .wall-grid tbody tr:last-child th, .wall-grid tbody tr:last-child td { border-bottom: 0; }
 .wall-grid thead th { font: 500 11.5px/1.2 var(--sans); color: var(--ink-3); background: var(--panel); text-align: center; padding: 0 6px; }
@@ -1398,7 +1400,7 @@ code.path {
 .wall-corner { text-align: left !important; vertical-align: bottom; padding: 0 12px 6px 18px !important; position: sticky; left: 0; z-index: 2; }
 .wall-source {
   position: sticky; left: 0; z-index: 1; text-align: left; padding: 0 16px 0 18px; height: 40px;
-  font: 550 14px/1.2 var(--sans); color: var(--ink); background: var(--panel); white-space: nowrap;
+  font: 550 14px/1.2 var(--sans); color: var(--ink); background: var(--panel);
 }
 /* Each cell is its own stack (z-index 0), so its button stays under the sticky Source and When last asked columns as the runs scroll. */
 .wall-cell { position: relative; z-index: 0; min-width: 64px; height: 40px; padding: 0; text-align: center; background: var(--panel); }
@@ -1417,11 +1419,19 @@ code.path {
 .wall-cell button[aria-pressed="true"] { background: var(--accent-wash-2); color: var(--ink); }
 .wall-cell button:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 /* When last asked is held at the right edge, as the source is at the left, so a narrow window scrolls the runs between them. */
-.wall-last { position: sticky; right: 0; z-index: 1; min-width: 200px; text-align: left; padding: 0 16px; border-left: 1px solid var(--rule); background: var(--panel); }
+.wall-last { position: sticky; right: 0; z-index: 1; min-width: 150px; text-align: left; padding: 0 16px; border-left: 1px solid var(--rule); background: var(--panel); }
 .wall-grid thead .wall-last { z-index: 2; }
-@media (max-width: 1100px) { .wall-last { min-width: 168px; padding: 0 12px; } }
+@media (max-width: 1100px) { .wall-last { padding: 0 12px; } }
+/* About 1,024 points wide: each run's column is narrower, its time a step smaller and still whole, and a day with one
+   run breaks its heading after the weekday. */
+@media (max-width: 1180px) {
+  .wall-cell { min-width: 54px; }
+  .wall-grid thead .wall-run, .wall-grid thead .wall-day { padding-left: 3px; padding-right: 3px; }
+  .wall-run a { font-size: 10.5px; }
+  .wall-day { white-space: normal; }
+}
 .wall-grid thead .wall-last { vertical-align: bottom; padding-bottom: 6px; text-align: left; }
-.wall-last b { display: flex; align-items: center; gap: 6px; font: 550 12.5px/1.2 var(--sans); color: var(--ink); }
+.wall-last b { display: flex; align-items: flex-start; gap: 6px; font: 550 12.5px/1.2 var(--sans); color: var(--ink); }
 .wall-last[data-state="failed"] b { color: var(--fault); }
 .wall-last small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--ink-3); }
 .wall-grid tr[data-selected] .wall-source { color: var(--accent-ink); }

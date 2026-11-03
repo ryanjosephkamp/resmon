@@ -5,8 +5,9 @@
  * Ask the sources: each run's outcome in the run log wraps inside the column
  * rather than running past its edge, and each source's facts (how its terms
  * combine, its rate, and how finely it dates papers: "to the day") are shown
- * whole. The Source wall keeps When last asked in view at its right edge,
- * opened on the newest runs beside it. The Calendar sets a watch's name under
+ * whole. The Source wall shows its twelve runs whole, between the sources and
+ * When last asked, with no run's time running into the next and nothing to
+ * scroll sideways. The Calendar sets a watch's name under
  * its time, where it breaks at its underscores. A run's heading and a watch's
  * heading break a long name at its underscores and spaces, never inside a
  * word.
@@ -46,7 +47,7 @@ runs = []
 for k in range(12):
     start = now - timedelta(hours=2 * (12 - k))
     routine = list(watches.values())[k % 3] if k % 2 else None
-    selection = ["crossref", "dblp", "hal"] if routine is None else ["crossref"]
+    selection = ["crossref", "dblp", "hal", "semantic_scholar"] if routine is None else ["crossref"]
     run = insert_execution(conn, {"execution_type": "deep_sweep" if routine is None else "automated_sweep",
         "routine_id": routine, "start_time": iso(start),
         "parameters": json.dumps({"repositories": selection, "keywords": ["agent"], "query": "agent"})})
@@ -54,6 +55,8 @@ for k in range(12):
     if routine is None:
         record_execution_source(conn, run, "dblp", "error", result_count=0, zero_reason="unsupported_date_window")
         record_execution_source(conn, run, "hal", "ok", result_count=2)
+        record_execution_source(conn, run, "semantic_scholar", "ok", result_count=0, zero_reason="upstream_failure",
+            zero_detail=json.dumps({"status": 429, "attempts": 4}))
     update_execution_status(conn, run, "completed", end_time=iso(start + timedelta(seconds=1)),
         result_count=4 if routine is None else 2, new_result_count=4 if routine is None else 0)
     runs.append(run)
@@ -138,6 +141,19 @@ test('at about 1,024 points wide: the run log, the source table, the Source wall
     await win.evaluate(() => { window.location.hash = '#/health'; });
     const scroller = win.locator('.wall-scroll');
     await expect(scroller).toBeVisible({ timeout: 60_000 });
+    await expect(win.locator('th.wall-run')).toHaveCount(12);
+    // All twelve fit: the frame has nothing to scroll, and neither has the page.
+    expect(await scroller.evaluate((node) => node.scrollWidth - node.clientWidth), 'the Source wall scrolls sideways').toBeLessThanOrEqual(1);
+    expect(await win.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+    // Each run's time is on one line and clear of the next one's.
+    const times = await win.locator('.wall-run a').evaluateAll((links) => links.map((link) => {
+      const box = link.getBoundingClientRect();
+      return { text: link.textContent ?? '', left: box.left, right: box.right, lines: link.getClientRects().length };
+    }));
+    for (const [i, time] of times.entries()) {
+      expect(time.lines, `${time.text} is broken across lines`).toBe(1);
+      if (i > 0) expect(time.left, `${time.text} runs into ${times[i - 1]!.text}`).toBeGreaterThan(times[i - 1]!.right + 2);
+    }
     const frame = await scroller.boundingBox();
     const last = await win.locator('.wall-grid thead .wall-last').boundingBox();
     expect(last && frame && last.x + last.width <= frame.x + frame.width + 1, 'When last asked is outside the table').toBe(true);

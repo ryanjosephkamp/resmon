@@ -86,20 +86,23 @@ beforeEach(() => {
 afterEach(() => { jest.restoreAllMocks(); jest.resetAllMocks(); jest.useRealTimers(); });
 
 describe('the time Today says', () => {
+  // A query reads the page's text with each no-break space folded into a space, as the date line's text is matched here.
+  const dateLine = (at: Date) => fullDate(at).replace(/\u00a0/g, ' ');
+
   test('the date line moves by the minute, and the map is not built again for it', async () => {
     jest.useFakeTimers({ now: new Date('2026-11-03T12:07:40Z'), doNotFake: ['nextTick', 'queueMicrotask'] });
     mount();
-    const opened = fullDate(new Date('2026-11-03T12:07:40Z'));
+    const opened = dateLine(new Date('2026-11-03T12:07:40Z'));
     expect(await screen.findByText(opened)).toBeInTheDocument();
     const built = (collectionSky as jest.Mock).mock.calls.length;
     expect(built).toBeGreaterThan(0);
 
     act(() => { jest.advanceTimersByTime(20_000); });
-    expect(await screen.findByText(fullDate(new Date('2026-11-03T12:08:00Z')))).toBeInTheDocument();
+    expect(await screen.findByText(dateLine(new Date('2026-11-03T12:08:00Z')))).toBeInTheDocument();
     expect(screen.queryByText(opened)).toBeNull();
 
     act(() => { jest.advanceTimersByTime(60_000); });
-    expect(await screen.findByText(fullDate(new Date('2026-11-03T12:09:00Z')))).toBeInTheDocument();
+    expect(await screen.findByText(dateLine(new Date('2026-11-03T12:09:00Z')))).toBeInTheDocument();
     expect((collectionSky as jest.Mock).mock.calls.length).toBe(built);
   });
 });

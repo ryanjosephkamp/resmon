@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { timeTogether } from '../../lib/timeTogether';
 import { commandEnter } from '../../shell/shortcuts';
 import { download } from '../library/libraryApi';
 import { CliSignIn } from '../settings/CliSignIn';
@@ -21,7 +22,7 @@ const WHEN = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', h
 function when(stamp: string | null | undefined): string {
   if (!stamp) return 'time not recorded';
   const at = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(stamp) ? stamp : `${stamp.replace(' ', 'T')}Z`);
-  return Number.isNaN(at.getTime()) ? stamp : WHEN.format(at);
+  return Number.isNaN(at.getTime()) ? stamp : timeTogether(WHEN.format(at));
 }
 
 /**

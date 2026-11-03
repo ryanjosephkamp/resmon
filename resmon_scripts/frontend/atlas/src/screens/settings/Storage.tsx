@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError, engineSentence } from '../../api/client';
 import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
+import { timeTogether } from '../../lib/timeTogether';
 import { restartRestores } from './model';
 
 type Verified = components['schemas']['BundleReport'];
@@ -37,7 +38,7 @@ async function call<T>(request: Promise<{ data?: T; error?: unknown; response: R
 const WHEN = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
 const when = (iso: string | null | undefined) => {
   const at = iso ? new Date(iso) : null;
-  return at && !Number.isNaN(at.getTime()) ? WHEN.format(at) : 'a time it did not record';
+  return at && !Number.isNaN(at.getTime()) ? timeTogether(WHEN.format(at)) : 'a time it did not record';
 };
 
 /**

@@ -2,17 +2,17 @@ import { deliveryWords, instant, missedFireWords, promisedFires, scheduleText, w
 
 describe('scheduleText says only what the scheduler will do', () => {
   test.each([
-    ['0 7 * * 1', 'Mondays at 7:00 AM'],
-    ['0 6 * * *', 'Daily at 6:00 AM'],
-    ['30 18 * * *', 'Daily at 6:30 PM'],
-    ['0 0 * * *', 'Daily at 12:00 AM'],
-    ['0 8 * * 1-5', 'Weekdays at 8:00 AM'],
-    ['0 9 * * 7', 'Sundays at 9:00 AM'],
-    ['0 9 * * 1,3,5', 'Mon, Wed, Fri at 9:00 AM'],
+    ['0 7 * * 1', 'Mondays at 7:00\u00a0AM'],
+    ['0 6 * * *', 'Daily at 6:00\u00a0AM'],
+    ['30 18 * * *', 'Daily at 6:30\u00a0PM'],
+    ['0 0 * * *', 'Daily at 12:00\u00a0AM'],
+    ['0 8 * * 1-5', 'Weekdays at 8:00\u00a0AM'],
+    ['0 9 * * 7', 'Sundays at 9:00\u00a0AM'],
+    ['0 9 * * 1,3,5', 'Mon, Wed, Fri at 9:00\u00a0AM'],
     ['*/5 * * * *', 'Every 5 minutes'],
     ['15 * * * *', 'Every hour, at :15'],
     ['0 */6 * * *', 'Every 6 hours'],
-    ['0 0 1 * *', 'Monthly on day 1 at 12:00 AM'],
+    ['0 0 1 * *', 'Monthly on day 1 at 12:00\u00a0AM'],
   ])('%s reads as "%s"', (cron, words) => {
     expect(scheduleText(cron)).toBe(words);
   });
@@ -23,7 +23,7 @@ describe('scheduleText says only what the scheduler will do', () => {
 
   test('a structured schedule wins over the cron string, as it does when the routine fires', () => {
     const parameters = JSON.stringify({ _schedule: { type: 'interval', unit: 'weeks', every: 3, hour: 7, minute: 30 } });
-    expect(scheduleText('0 0 */21 * *', parameters)).toBe('Every 3 weeks at 7:30 AM');
+    expect(scheduleText('0 0 */21 * *', parameters)).toBe('Every 3 weeks at 7:30\u00a0AM');
   });
 });
 

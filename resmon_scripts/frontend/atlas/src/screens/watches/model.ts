@@ -27,7 +27,8 @@ const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frid
 
 function clock(hour: number, minute: number): string {
   const h12 = hour % 12 === 0 ? 12 : hour % 12;
-  return `${h12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`;
+  // A no-break space, so a wrapped schedule never leaves AM or PM on a line of its own.
+  return `${h12}:${String(minute).padStart(2, '0')}\u00a0${hour < 12 ? 'AM' : 'PM'}`;
 }
 
 function plural(n: number, unit: string): string {
