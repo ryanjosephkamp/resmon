@@ -118,9 +118,10 @@ jobs:
       - name: Configure macOS signing
         # A job-level CSC_LINK mapped from a secret DEFINES the variable even
         # when the secret does not exist, and electron-builder then attempts
-        # file-based signing against an empty path ("... not a file"). So signing env is exported
-        # only when the certificate secret actually has a value; otherwise
-        # signing is disabled outright, matching a local unsigned build.
+        # file-based signing against an empty path ("... not a file"). So
+        # signing env is exported only when the certificate secret actually
+        # has a value; otherwise signing is disabled outright, matching a
+        # local unsigned build.
         if: runner.os == 'macOS'
         shell: bash
         run: |
