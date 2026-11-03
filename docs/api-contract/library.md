@@ -40,8 +40,8 @@ cannot silently use an outdated size. Status still does not hash every retained 
 All managed access walks directories through no-follow descriptors, checks the
 paired marker, and rejects symlinks, nonregular files and hard-linked retained
 objects. There is no unsafe fallback on platforms lacking the required primitives.
-macOS/Linux behavior must be tested on their actual runtimes; this implementation
-does not provide a Windows reparse-point implementation. The local OS/user is
+macOS and Linux behavior must be tested on their actual runtimes. The Library is
+unavailable on Windows, which has no reparse-point implementation here. The local OS/user is
 trusted. This is not confinement against a hostile local process or a guarantee
 against every storage/power-loss race. An external opener resolves its path after
 the backend's verification, so later filesystem changes remain an OS boundary.
@@ -57,9 +57,10 @@ The UI provides no Library removal, replacement, relink or recovery operation.
 All nine require one exact `Origin: http://127.0.0.1:<port>` with a valid explicit
 port and `X-Resmon-Library: 1`, checked before body parsing or protected effects.
 Null, foreign, missing, repeated or malformed Origins/headers refuse with 403.
-Existing OPTIONS/CORS handling is unchanged. This guards browser cross-origin
-requests; another local process can forge these headers. No global authentication,
-CORS, daemon or assistant/MCP tool change is introduced.
+OPTIONS and CORS handling are the application's global handling. This guards browser
+cross-origin requests; another local process can forge these headers. The routes
+change no global authentication, CORS, or daemon behavior and add no assistant or
+MCP tool.
 
 All UUIDs use canonical lowercase spelling. Unknown/repeated query keys and extra
 JSON body fields refuse. Domain failures return `detail.reason` and a user-facing
@@ -124,7 +125,7 @@ an inventory exceeding 8 MiB without truncation.
 The actual renderer Blob download validates both envelopes and expected vault.
 An inventory is not a file bundle, backup, relocation tool or fresh integrity scan.
 Original basenames can be private: review before sharing. A database backup alone
-does not restore the managed files; no automatic Library cloud backup is added.
+does not restore the managed files, and there is no automatic Library cloud backup.
 
 ## Verification pointers and limits
 
@@ -141,13 +142,12 @@ journey and checks original/retained hashes.
 The Electron picker, OS-open return value and download destination are scripted;
 the backend, IPC request and download bytes are real. This does not prove native
 dialog behavior, an external viewer, a human/Android interaction, hostile-file
-safety or independent audit. The separately authored briefing prototype is not
-part of this app, its reader API, or this public source tree.
+safety or independent audit.
 
 ## Evidence handoff
 
 A selected Library item can hand its exact vault/file/version identity to
 [Evidence](evidence.md) for explicit project membership, bounded PDF/TXT/MD
-reading, literal saved notes and selected ZIP export. Existing Library import,
-reader, external Open, inventory and nine-route contracts remain unchanged.
-Evidence does not infer the latest imported file or publication identity.
+reading, literal saved notes and selected ZIP export. Evidence does not change the
+Library's import, reader, external Open, inventory or nine-route contracts, and does
+not infer the latest imported file or publication identity.

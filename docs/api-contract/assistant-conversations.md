@@ -1,10 +1,10 @@
-# Saved conversations: browse, snapshot, export (v1)
+# Saved conversations: browse, snapshot, export
 
-The Chats page reads the original assistant tables and schema-15 subordinate choice
-metadata. It adds no runtime, permission or filesystem endpoint. List/read/export
-fields remain compatible; prospective creation and historical continuation follow the
-[version-1 choices contract](assistant-choices.md). The legacy list defaults to 50, ordered by updated timestamp
-then ID descending.
+The Chats page reads the assistant tables and the schema-15 choice metadata. It adds no
+runtime, permission or filesystem endpoint. Creation of a conversation and continuation
+of a saved one follow the [choices contract](assistant-choices.md). The plain list,
+`GET /api/assistant/sessions`, defaults to 50, ordered by updated timestamp then ID
+descending.
 
 `GET /api/assistant/sessions/browse` accepts `limit` (default 50, 1–100),
 `before_id` (positive SQLite 64-bit integer), `through_id` (nonnegative SQLite 64-bit integer) and `q` (up to
@@ -18,17 +18,16 @@ stored titles); `%`, `_` and the escape character are escaped. SQLite folds ASCI
 case; non-ASCII characters match literally. This freezes an ID ceiling, not row
 contents, title membership or a historical total. Refresh includes newly created IDs.
 
-`GET /api/assistant/sessions/{id}` preserves `session`, `messages`, `totals` and
-`running`. The SQLite fields now share one read transaction, rolled back on exit.
+`GET /api/assistant/sessions/{id}` returns `session`, `messages`, `totals` and
+`running`. The SQLite fields share one read transaction, rolled back on exit.
 A connection with pending writes is refused rather than committed or called persisted.
-Additive `snapshot` fields: `captured_at_utc`, `basis=persisted_messages_only`,
-`message_count`, `last_message_id` (null for no messages). Additive
-`activity_observation` fields: `observed_at_utc`, `turn_claimed`, `cli_running`,
-`basis=in_memory_observation_not_atomic_with_sqlite`. `running` still means the
+`snapshot` carries `captured_at_utc`, `basis=persisted_messages_only`,
+`message_count`, `last_message_id` (null for no messages). `activity_observation` carries `observed_at_utc`, `turn_claimed`, `cli_running`,
+`basis=in_memory_observation_not_atomic_with_sqlite`. `running` means the
 registered CLI-process observation. None establishes historical completion.
 
-Session/list/browse rows add `choices` (null for unknown historical settings or
-`{unreadable:true}` for malformed metadata). Detail adds `choices_version=1` and
+Session, list, and browse rows carry `choices` (null for unknown historical settings or
+`{unreadable:true}` for malformed metadata). Detail carries `choices_version=1` and
 `turn_choices`, read in the same SQLite transaction as messages and totals. Each turn
 identifies its user message, optional persisted assistant message, immutable requested
 choices and ordered literal runtime model reports. Absence of reports is not a model,
@@ -57,10 +56,10 @@ active Markdown links or HTML. Framing is formatting, not file byte equality.
 Neither format includes live-only fragments, pending cards, inferred approval/effect
 history, current effort or a promise of final completion.
 
-JSON remains version 1 with additive `choices_version=1`, `choices` and `turn_choices`.
-Markdown adds these same public fields in a literal fenced section. The private route
+JSON is version 1 and carries `choices_version=1`, `choices` and `turn_choices`.
+Markdown carries these same public fields in a literal fenced section. The private route
 comparison digest, configured locator and native session coordination ID are excluded
-from generated choice metadata. All metadata counts toward the existing 8 MiB limit.
+from generated choice metadata. All metadata counts toward the 8 MiB limit.
 
 The renderer validates session/format/filename/type and JSON content identity before
 requesting a Blob download. Changing selection invalidates a pending export. A download
