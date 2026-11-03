@@ -164,3 +164,81 @@ test('the command line in the packaged app answers from the instance, and no con
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+/**
+ * The menu items, in the packaged app, writing into a folder of this test's own
+ * (`RESMON_COMMAND_LINE_ROOT`) rather than the machine's /usr/local/bin or home:
+ * install, run what was written, and uninstall. Windows is left out because its
+ * install edits the registry, which a folder cannot redirect.
+ */
+test('Install and Uninstall "resmon" Command write a launcher that runs the app\'s command line', async () => {
+  test.skip(process.platform === 'win32', 'the Windows install edits the registry');
+  test.setTimeout(300_000);
+  const exe = packagedExecutable();
+  if (exe === null) unavailable('no packaged app under resmon_scripts/frontend/release: run `npm run dist` first');
+  const folder = appFolder(exe as string);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-cli-menu-')));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-cli-root-')));
+  const launcher = process.platform === 'darwin'
+    ? path.join(root, 'bin', 'resmon')
+    : path.join(root, '.local', 'bin', 'resmon');
+  const env = atlasEnv(launchEnv(stateDir, true));
+  delete env.RESMON_PYTHON;
+  env.RESMON_COMMAND_LINE_ROOT = root;
+  const before = snapshotTree(folder);
+
+  const app = await electron.launch({
+    executablePath: exe as string,
+    args: [`--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    env,
+    timeout: 180_000,
+  });
+  const output: string[] = [];
+  app.process().stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
+  const answered = async (action: 'install' | 'uninstall') => {
+    await expect.poll(() => output.join('').includes(`[main] command line {"action":"${action}"`),
+      { timeout: 60_000 }).toBe(true);
+    const line = output.join('').split('\n').filter((l) => l.startsWith('[main] command line '))
+      .map((l) => JSON.parse(l.slice('[main] command line '.length)) as { action: string; ok: boolean; message: string })
+      .find((r) => r.action === action);
+    return line as { action: string; ok: boolean; message: string };
+  };
+  const click = (id: string) => app.evaluate(async ({ Menu }, itemId) => {
+    const item = Menu.getApplicationMenu()?.getMenuItemById(itemId);
+    if (!item) throw new Error(`no menu item ${itemId}`);
+    item.click();
+    return true;
+  }, id);
+
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 120_000 });
+
+    await click('install-command');
+    const installed = await answered('install');
+    console.log('INSTALL', JSON.stringify(installed));
+    expect(installed.ok).toBe(true);
+    expect(fs.existsSync(launcher)).toBe(true);
+
+    // What a terminal does: run the launcher. It needs nothing of this suite's environment.
+    const run = await runToEnd(launcher, ['--version'], terminalEnv(stateDir));
+    console.log('LAUNCHER', JSON.stringify(run));
+    expect(run.status, run.stderr).toBe(0);
+    expect(run.stdout.trim()).toBe(
+      process.platform === 'darwin'
+        ? `resmon ${CHECKOUT_VERSION} (the command line inside the resmon app: ${folder})`
+        // On Linux the launcher runs the copy kept in the user's data folder.
+        : `resmon ${CHECKOUT_VERSION} (the command line inside the resmon app: ${path.join(root, '.local', 'share', 'resmon', 'resmon.pyz')})`,
+    );
+
+    await click('uninstall-command');
+    const removed = await answered('uninstall');
+    expect(removed.ok).toBe(true);
+    expect(fs.existsSync(launcher)).toBe(false);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    expect(changesBetween(before, snapshotTree(folder)), 'the app wrote into its own folder').toEqual([]);
+    fs.rmSync(stateDir, { recursive: true, force: true });
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
