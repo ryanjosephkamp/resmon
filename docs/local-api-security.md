@@ -1,7 +1,7 @@
 # Local API security model
 
 resmon's renderer, its MCP server and its assistant all talk to the Python backend over HTTP on
-`127.0.0.1`. Since 2.2 that API answers only requests that prove they belong to this app. This
+`127.0.0.1`. That API answers only requests that prove they belong to this app. This
 page says what that defends against and — just as plainly — what it does not.
 
 ## What a request must carry
@@ -12,7 +12,7 @@ body is read and before any route code:
 
 1. **Host** must be `127.0.0.1:<the backend's own port>` or `localhost:<the backend's own port>`.
    Anything else is refused `403 host_refused`, even with a valid token. This is the
-   DNS-rebinding defence: a page that rebinds its own hostname to 127.0.0.1 still sends its own
+   DNS-rebinding defense: a page that rebinds its own hostname to 127.0.0.1 still sends its own
    name in `Host`.
 2. **Origin**, when the request has one, must be exactly this app's renderer origin
    (`http://127.0.0.1:<renderer port>`, chosen at launch). Anything else is refused
@@ -40,7 +40,6 @@ authentication; it is a different credential, scoped to one file. See
 A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) carries no credentials by
 specification, so it is answered without the token — but only for the renderer's origin.
 `Access-Control-Allow-Private-Network: true` is sent only on such a preflight that asked for it.
-Before 2.2 it was on every response, alongside `Access-Control-Allow-Origin: *`.
 
 Refusals use the app's usual shape: `{"detail": {"reason": "...", "message": "..."}}`.
 
@@ -67,8 +66,7 @@ the backend accepts only the one it holds. A client reading a stale file gets `t
 be told the renderer's origin at spawn. When Electron attaches, its main process — holding the
 token, sending no Origin — registers its renderer's exact origin with
 `POST /api/auth/renderer-origin`. A browser request (one carrying an Origin) cannot register an
-origin. The daemon keeps the eight most recent. A daemon that has published no token file (for
-example one from before 2.2) is never attached to; the app starts its own backend and leaves the
+origin. The daemon keeps the eight most recent. A daemon that has published no token file is never attached to; the app starts its own backend and leaves the
 daemon alone, exactly as it does for a daemon of a different version.
 
 ## The MCP server and the assistant
@@ -81,14 +79,13 @@ runs resmon's MCP server against an instance with a non-default state directory,
 
 **Naming the state directory does not name the instance, so name the port as well.** The
 token file follows `RESMON_STATE_DIR` and the port file follows `RESMON_DB_PATH` (or
-`RESMON_PORT_FILE`), so the two can point at different installations. The server used to
-fall back to resmon's default port when neither named one, which on a machine running
-resmon's background service meant attaching to that service and answering truthfully about
-its corpus. It no longer does: with no port named it refuses, names both mechanisms and says
-it did not guess. Set `RESMON_PORT` to the instance's port, or point `RESMON_PORT_FILE` at
+`RESMON_PORT_FILE`), so the two can point at different installations. The server never
+falls back to resmon's default port: on a machine running resmon's background service that
+would attach to the service and answer truthfully about its corpus. With no port named it
+refuses, names both mechanisms and says it did not guess. Set `RESMON_PORT` to the instance's port, or point `RESMON_PORT_FILE` at
 the port file that instance writes.
 
-When the assistant starts the MCP servers through an agent CLI, the configuration it writes
+When the assistant starts the MCP servers through its CLI runtime, the configuration it writes
 names the port and the state directory — never the token. Tool results and relayed errors are
 scrubbed of the token as a second layer.
 
@@ -102,7 +99,7 @@ scrubbed of the token as a second layer.
   ignores; there it relies on `%LOCALAPPDATA%` being private to your profile. No explicit ACL is
   set.
 - **A token read out of memory or the renderer.** Anything that can run code inside the app's
-  renderer can call the API as the app. Pages resmon shows but does not own — the blog
-  `<webview>` and link windows — get no preload and cannot ask for the token.
+  renderer can call the API as the app. The app embeds no `<webview>`, and pages resmon opens but does not own, such as link
+  windows, get no preload and cannot ask for the token.
 - **Traffic on the wire.** The API is plain HTTP on the loopback interface. Loopback traffic does
   not leave the machine, but any local process with packet-capture privileges could read it.

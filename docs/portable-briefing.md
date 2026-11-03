@@ -1,9 +1,8 @@
 # Read a saved answer offline
 
-In Evidence, open a saved selected-evidence question or manual structured briefing
-and choose **Export HTML**. Save the `.html` file, then open it in a browser. The
-file remains readable after resmon closes. The existing **Export this answer and
-selected text** action still produces the three-member ZIP.
+In Library › Evidence, open a saved selected-evidence question or manual structured
+briefing and choose **Save as HTML**. Open the `.html` file in a browser. The file
+remains readable after resmon closes. **Save as ZIP** produces the three-member ZIP.
 
 Each answer citation links to its exact quote and codepoint range beside the
 corresponding frozen source. **Return to this answer citation** goes back to that

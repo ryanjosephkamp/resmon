@@ -175,7 +175,7 @@ These are guarantees, not defaults, and the implementation is reviewed against t
   API key, and no tool can *name* one: a settings key whose name is credential-shaped is
   refused before any request is built. Where a credential is relevant, the tool names its
   **alias** (`anthropic_api_key`) and its presence (`present` / `absent` / `unreadable`) —
-  the same three-state honesty the Repositories page ships.
+  the same three-state honesty the Sources page ships.
 - **Nothing deletes.** No delete, no erase, no factory reset, no credential writes. Those
   wait for a confirmation model worth trusting; a tool call is too cheap an action to hang
   data loss on. The excluded endpoints are listed at the end so the omission is visible
@@ -434,7 +434,7 @@ is each source's author query, as its client noted it.
 
 ### A routine's delivery and coverage
 
-`get_routine` carries `delivery`, summarising where that routine's report is sent and whether
+`get_routine` carries `delivery`, summarizing where that routine's report is sent and whether
 the last one arrived:
 
 - `targets_by_channel` — a count per channel of the **enabled** destinations, and

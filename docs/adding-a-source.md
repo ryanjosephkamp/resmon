@@ -2,18 +2,15 @@
 
 resmon queries scholarly sources and keeps what it finds. Adding another one is the most
 common contribution, and the most templated: [the files it touches](#the-files-a-new-source-touches)
-are listed below, and a suite of tests pins every part of the contract. This document is the long form — what the template
-does not say on its own, and what four delegated source batches taught by getting it wrong.
-
-It is written to be usable by a person **or by an agent**. If you point your own harness at
-this repository and ask it to add a source, this is the document it should read.
+are listed below, and a suite of tests pins every part of the contract. This document is the long form: what the
+template does not say on its own. It is written to be read start to finish by someone adding a source.
 
 ---
 
 ## Before you write any code: does its license let us?
 
-**This is the first question, not the last one.** It was the last one twice, and both times
-that cost real work.
+**This is the first question, not the last one.** A client can work perfectly and still be one
+the provider's terms do not allow.
 
 resmon is not a search box that forgets. It **stores** what it retrieves, indefinitely, in a
 local database the user can back up to their own cloud storage. That is a materially
@@ -26,7 +23,7 @@ other. Four questions decide it:
 4. May the first-retrieved record be **kept without re-fetching** it?
 
 Answer all four against the provider's own words, and cite the clause. `docs/source-landscape.md`
-has 22 shipped sources and 27 candidates already assessed this way; check there first.
+records assessments made this way; check there first.
 
 Three outcomes matter:
 
@@ -40,28 +37,28 @@ Three outcomes matter:
 > everything, including public-domain government data. Say what the terms do and do not
 > establish, and let a maintainer decide.
 
-### What has actually happened here
+### Cases
 
-| Source | What happened |
+| Source | Outcome |
 |---|---|
-| **J-STAGE** | Refused during implementation. Its terms forbid machine-readable retention beyond 24 hours on a server or cloud — irreconcilable with an app that persists a corpus. |
-| **IEEE Xplore** | Shipped, then **withdrawn** in v1.8.1. §4(c) forbids using a retrieval application against the content at all, so no gate fixes it. Because each user brings their own key, the integration put *the account holder* in breach. |
-| **INSPIRE-HEP** | Fixed rather than withdrawn — see the next section. |
+| **J-STAGE** | Not included. Its terms forbid machine-readable retention beyond 24 hours on a server or cloud — irreconcilable with an app that persists a corpus. |
+| **IEEE Xplore** | Retired. §4(c) forbids using a retrieval application against the content at all, so no gate fixes it. Because each user brings their own key, the integration would put *the account holder* in breach. |
+| **INSPIRE-HEP** | Included, with a field gate — see the next section. |
 
-The IEEE case is the one to internalise: the client worked perfectly. Nothing was broken.
-It still had to go.
+The IEEE case is the one to learn from: the client works perfectly and nothing is broken.
+It is still retired.
 
 ---
 
 ## Store only the fields the terms permit
 
-The rule that came out of INSPIRE-HEP, and it now applies to every client:
+The rule INSPIRE-HEP shows, which applies to every client:
 
 > **Where a source's terms condition a field on provenance, license, or an access flag, the
-> client reads that field and honours it.**
+> client reads that field and honors it.**
 
 INSPIRE's Terms §5(ii) permit reuse of an abstract only where that abstract's own `source`
-is `arXiv` or `CERN`. The client took `abstracts[0]` and stored whichever came first. The
+is `arXiv` or `CERN`. A client that took `abstracts[0]` would store whichever came first. The
 reference implementation is `_licensed_abstract` in `implementation_scripts/api_inspire_hep.py`;
 read it before writing a client for any source whose terms distinguish fields.
 
@@ -71,8 +68,8 @@ Two consequences worth stating plainly:
   says resmon has nothing it may keep. That is different from the paper not existing, and
   dropping the record instead would hide it from the user entirely.
 - **Measure the cost, do not estimate it.** The INSPIRE gate drops about a fifth of
-  abstracts — established by sampling 100 live records, not guessed — and that figure is in
-  the catalog note because the user is entitled to it.
+  abstracts — established by sampling 100 live records — and that figure is in the catalog
+  note because the user is entitled to it.
 
 ---
 
@@ -88,9 +85,9 @@ attribution_source="https://api.plos.org/api-display-policy/",
 ```
 
 - `required` — a license condition. OpenAIRE's metadata is CC BY; using it without the
-  credit is using it without a license. Required credits render on the Repositories page
+  credit is using it without a license. Required credits render on the Sources page (Settings › Sources)
   **unconditionally**, because a credit the user must go looking for is not displayed.
-- `requested` — a courtesy the upstream would like. arXiv publishes an acknowledgement
+- `requested` — a courtesy the upstream would like. arXiv publishes an acknowledgment
   sentence. Rendering it as required would overstate arXiv's terms.
 - `none` — the default. **Do not invent a credit.** Silence is the correct value.
 
@@ -102,9 +99,9 @@ of the clause, so the grading can be re-checked rather than trusted.
 
 ## The client contract
 
-Every part of this is pinned by an existing test. Break one and the suite tells you.
+Every part of this is pinned by a test. Break one and the suite tells you.
 
-- `search()` returns `list[NormalizedResult]`, honours `date_from` / `date_to` /
+- `search()` returns `list[NormalizedResult]`, honors `date_from` / `date_to` /
   `max_results`, and returns **`[]` on upstream failure** — logged, never raised. A source
   being down degrades a sweep; it does not fail it.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`, shared
@@ -130,8 +127,7 @@ terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes re
 another organization's search engine.
 
 > Where the upstream does not document it, the value is **"Undocumented"**. That is a
-> correct answer, not a gap. A previous brief instructed a contributor to label OpenAIRE's
-> semantics anyway; refusing that instruction was the right call.
+> correct answer, not a gap. Do not label a source's semantics on a guess to fill the field.
 
 Where a live observation and the documentation differ, say which is which. INSPIRE's entry
 records `Implicit AND` *and* notes that this rests on a live comparison because the help page
@@ -154,7 +150,7 @@ than implying the upstream filtered something it did not.
 `date_granularity` on the catalog entry carries the same fact in a form the app can read:
 `"day"` (the default), `"month"`, or `"year"`. It says the finest precision **resmon's own
 query to this source can express**, read from your client's date-filter code — not a claim
-about the upstream's index. It is rendered on the Repositories page, and the
+about the upstream's index. It is rendered on the Sources page, and the
 `window_unanswerable` sentence is derived from it rather than from the free-text note.
 
 The field deliberately does not say what your client *does* about a window it cannot express,
@@ -207,17 +203,16 @@ A new source `<slug>` touches these and no others.
 | `verification_scripts/test_api_repositories_catalog.py` | the catalog-length assertion |
 | `verification_scripts/test_api_tier*.py` | registration, instantiation, and a `live_network` search test |
 | `verification_scripts/test_source_outcomes.py` | nothing to add — `test_every_client_records_an_attempt` parametrises over the registry, so a new source is covered the moment it registers, and fails if its `search()` makes no recorded HTTP attempt |
-| `frontend/src/components/Forms/RepositorySelector.tsx` | the offline fallback slug list |
-| `README.md` → *Supported Repositories* | one row, and the count in the intro line |
+| `README.md`, `site/src/content/guide/sources.md` | the source count, and one row on the guide's Sources page |
 
 Do **not** touch `resmon.py`, `implementation_scripts/database.py`,
-`implementation_scripts/api_base.py`, `.github/workflows/*`, or `docs/_posts/*`.
+`implementation_scripts/api_base.py`, or `.github/workflows/*`.
 
 ---
 
 ### `entity_search` — what the source can be asked about a person
 
-**Required since 2.1, and a source without one fails the suite.** The field says whether
+**Required: a source without one fails the suite.** The field says whether
 this source can answer a query about an *author*, how, and what the record gives back:
 an ORCID, an affiliation, neither.
 
@@ -235,8 +230,8 @@ dated. The probe runs four queries because the first two are not enough:
 Most of these endpoints tolerate an unknown field prefix and keyword-search the whole
 string, so A looks identical for a source with an author field and a source without one
 — and B is empty either way, because a keyword search for an invented name also finds
-nothing. **D is the control that decides it**, and it caught OAPEN (since withdrawn),
-whose author prefix looked ignored under A-versus-C and is plainly parsed under D.
+nothing. **D is the control that decides it**: an author prefix that looks ignored under
+A-versus-C can be plainly parsed under D.
 
 **`returns_orcid` and `returns_affiliation` are about what the record carried, not which
 keys it has.** Count them. Crossref puts an `affiliation` key on every author object and
@@ -248,18 +243,17 @@ per *document* — one record listed two authors against one lab — so resmon c
 affiliation from it.
 
 **`unknown` is a real answer.** A source whose key this machine does not hold, or whose
-endpoint is down, gets `unknown` and a sentence saying which. Five entries are `unknown`
-today for exactly those two reasons.
+endpoint is down, gets `unknown` and a sentence saying which. An entry is `unknown` only
+for those two reasons.
 
 ## Retiring a source
 
-Removing a module from `_CLIENT_MODULES` does **not** retire a source, and discovering that
-is why this section exists.
+Removing a module from `_CLIENT_MODULES` does **not** retire a source.
 
 Every `api_*.py` calls `register_client()` at import scope, so anything that imports the
 module — a test, a debug session — puts the source straight back into the process-wide
-registry. That is exactly what happened to IEEE Xplore: the tier-2/3 tests imported it
-directly and **kept passing when they should have failed**.
+registry. A test that imports a retired client directly would **keep passing when it
+should fail**.
 
 Retirement therefore has two halves, and both are required:
 
@@ -276,7 +270,7 @@ Keep the client on disk. Retirement on *terms* is reversible in a way retirement
 
 ## Verifying
 
-All four, before opening a pull request:
+Before opening a pull request:
 
 ```bash
 .venv/bin/python -m pytest -q                    # hermetic suite
@@ -306,9 +300,9 @@ A test that passes is not evidence. Break the behavior on purpose and confirm th
 fails: comment out the date filter, return the wrong field, collapse a list to its first
 element. If nothing goes red, the test asserts shape rather than behavior.
 
-One caution learned here: a mutation can survive because a **second** layer catches it. When
-ERIC's year rounding was mutated, all twelve tests still passed — not a coverage gap, but a
-re-filter downstream doing its job. Check the behavior, not only the test result.
+A mutation can survive because a **second** layer catches it. Mutating ERIC's year rounding
+leaves all twelve of its tests passing — not a coverage gap, but a re-filter downstream doing
+its job. Check the behavior, not only the test result.
 
 ---
 
@@ -321,5 +315,4 @@ with the reason.
 For a source, lead with the terms: which clause permits durable local storage, and any
 obligation the catalog entry now records.
 
-If your research **contradicts** the brief or the survey you were working from, say so
-prominently. That has happened on every delegated batch so far and has been right every time.
+If your research **contradicts** the survey you were working from, say so prominently.
