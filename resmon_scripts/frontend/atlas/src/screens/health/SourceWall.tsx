@@ -184,6 +184,9 @@ function Row({ source, runs, largest, picked, column, onPick }: {
 /**
  * One cell, read: the source, the run and its time, the cell's label and the
  * engine's sentence about what happened, and the facts the sentence rests on.
+ * The recorded zero reason is not listed among them: the label is the
+ * engine's words for it and the sentence says it in full, so its stored code
+ * would only say the same thing again, as an identifier.
  */
 function Reading({ wall, slug, column }: { wall: Wall; slug: string; column: number }) {
   const source = wall.sources.find((s) => s.slug === slug);
@@ -209,7 +212,6 @@ function Reading({ wall, slug, column }: { wall: Wall; slug: string; column: num
             </dd>
           </div>
         )}
-        {cell.zero_reason && <div><dt>Recorded reason</dt><dd><code className="cron">{cell.zero_reason}</code></dd></div>}
         <div><dt>In this run’s selection</dt><dd>{selectionWords(cell.in_selection)}</dd></div>
       </dl>
     </section>
