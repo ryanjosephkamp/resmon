@@ -53,6 +53,11 @@ def spoken_day(iso: str) -> str:
     return f"{moment:%B} {moment.day}, {moment.year}"
 
 
+def words(n: int) -> str:
+    """A small count in words, as the provenance line says it."""
+    return ["no", "one", "two", "three", "four", "five", "six"][n] if n < 7 else str(n)
+
+
 def write(name: str, data: dict) -> None:
     path = SITE_DATA / name
     path.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
@@ -106,17 +111,18 @@ def main() -> None:
     write("plate.json", {
         "provenance": (
             f"Drawn from the engine's own map and Today, exported unedited from a collection of "
-            f"{len(plate['points']['id']):,} public arXiv papers built on {day}. The papers are real, and so "
-            "are the day's runs that found the new ones; when the earlier papers were collected is laid out "
-            "from each paper's publication date."
+            f"{len(plate['points']['id']):,} papers built on {day}: {words(len(WATCHES))} watches' papers from "
+            f"arXiv, and {words(len(SEARCHES))} searches' from the sources they asked. The papers are real, and so are the day's runs that found "
+            "the new ones; when the watches' earlier papers were collected is laid out from each paper's "
+            "publication date."
         ),
         "map": plate,
         "today": today,
     })
     write("run-record.json", {
         "provenance": (
-            f"The Source wall of the same collection on {day}, exported unedited: two searches and each "
-            "watch's run of the day, every one asked of the public sources for real."
+            f"The Source wall of the same collection on {day}, exported unedited: {words(len(SEARCHES))} searches "
+            "and each watch's run of the day, every one asked of the public sources for real."
         ),
         "wall": wall,
         "runs": runs,

@@ -49,10 +49,10 @@ GIF's length and size and says when one is over 3 MB; together they stay under 1
 The papers are real, and so is most of what is done with them; one part is laid out
 rather than run, and the recordings show it.
 
-- **Real:** every paper, fetched from arXiv's public API (titles, authors and abstracts
-  are arXiv's metadata, which arXiv releases under CC0); today's run of each watch; the
-  Deep Sweep and the Deep Dive made during the build; and every source outcome those
-  runs recorded. CORE has no key here, and today's run of the protein watch recorded
+- **Real:** every paper: the watches' from arXiv's public API (titles, authors and
+  abstracts are arXiv's metadata, which arXiv releases under CC0), and the searches'
+  from the sources they asked; today's run of each watch; the three searches made
+  during the build; and every source outcome those runs recorded. CORE has no key here, and today's run of the protein watch recorded
   that, so the Watchdog's "CORE has no API key configured" is the engine's own finding.
 - **Reconstructed:** the watches' daily runs before today. Each topic's papers are laid
   out as the runs that would have collected them, by each paper's own publication date:
