@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
@@ -219,9 +219,23 @@ export function Today() {
   // A paper chosen on the map that the list does not hold opens beside it, in the list's place.
   const opened = selectedId !== null && !listed.has(selectedId) ? selectedId : null;
   const look = mapLook.look;
+  // Escape clears a chosen paper wherever the keyboard is, as it does on the map. Not once something else has
+  // taken the key, not from a text field (the find has its own Escape), and not while a dialog or popover is
+  // open. A paper the list does not hold is MapPaper's, which answers Escape itself. When the keyboard was in
+  // the list, it goes to the paper's title, where the reader was.
+  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || selectedId === null || !listed.has(selectedId)) return;
+    const from = event.target instanceof Element ? event.target : null;
+    if (from?.closest('input, textarea, select, [contenteditable]') || document.querySelector('dialog[open], :popover-open')) return;
+    event.preventDefault();
+    setSelectedId(null);
+    if (from?.closest('.index')) {
+      event.currentTarget.querySelector<HTMLElement>(`[data-paper="${selectedId}"] .entry-title`)?.focus();
+    }
+  };
 
   return (
-    <section className="today" aria-label="Today">
+    <section className="today" aria-label="Today" onKeyDown={onKeyDown}>
       <div className="today-plate">
         {sky && ready && (
           <MapBar name="today" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}

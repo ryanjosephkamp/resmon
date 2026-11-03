@@ -1,6 +1,9 @@
-/** Today keeps the time it says to the reader. */
+/**
+ * Today keeps the time it says to the reader, and Escape clears the paper a
+ * reader chose from its list.
+ */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { engine } from '../../../api/client';
 import { DEFAULT_VIEW } from '../../sky/look';
 import { collectionSky } from '../../sky/collectionSky';
@@ -98,5 +101,49 @@ describe('the time Today says', () => {
     act(() => { jest.advanceTimersByTime(60_000); });
     expect(await screen.findByText(fullDate(new Date('2026-11-03T12:09:00Z')))).toBeInTheDocument();
     expect((collectionSky as jest.Mock).mock.calls.length).toBe(built);
+  });
+});
+
+describe('Escape in the list', () => {
+  async function chosen() {
+    mount();
+    const title = await screen.findByRole('button', { name: 'Sparse recovery' });
+    fireEvent.click(title);
+    await waitFor(() => expect(title).toHaveAttribute('aria-pressed', 'true'));
+    return title;
+  }
+
+  test('clears the chosen paper and returns the keyboard to its title', async () => {
+    const title = await chosen();
+    const save = screen.getAllByRole('button', { name: 'Save to your reading queue' })[1] as HTMLElement;
+    save.focus();
+    fireEvent.keyDown(save, { key: 'Escape' });
+    await waitFor(() => expect(title).toHaveAttribute('aria-pressed', 'false'));
+    expect(title).toHaveFocus();
+  });
+
+  test('leaves the choice when the key was already handled, was typed in a field, or a dialog is open', async () => {
+    const title = await chosen();
+    const save = screen.getAllByRole('button', { name: 'Save to your reading queue' })[1] as HTMLElement;
+
+    save.addEventListener('keydown', (event) => event.preventDefault(), { once: true });
+    fireEvent.keyDown(save, { key: 'Escape' });
+    expect(title).toHaveAttribute('aria-pressed', 'true');
+
+    const field = document.createElement('input');
+    screen.getByLabelText('Today').append(field);
+    fireEvent.keyDown(field, { key: 'Escape' });
+    expect(title).toHaveAttribute('aria-pressed', 'true');
+    field.remove();
+
+    const dialog = document.createElement('dialog');
+    dialog.setAttribute('open', '');
+    document.body.append(dialog);
+    fireEvent.keyDown(save, { key: 'Escape' });
+    expect(title).toHaveAttribute('aria-pressed', 'true');
+    dialog.remove();
+
+    fireEvent.keyDown(save, { key: 'Escape' });
+    await waitFor(() => expect(title).toHaveAttribute('aria-pressed', 'false'));
   });
 });
