@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
+import { useMinute } from '../lib/useMinute';
 import { FirstRun } from './today/FirstRun';
 import { answerKey, useOpening } from './today/opening';
 import { Plate, PlateKey, type PlateHandle, type PlateHover } from './today/Plate';
@@ -63,7 +64,9 @@ export function Today() {
     queryFn: () => answer(engine().GET('/api/backup/last')) as Promise<{ last_backup?: { created_at_utc?: string; path?: string } | null }>,
   });
 
-  const [now] = useState(() => new Date());
+  // Said to the reader as the time (the plate's date line, "Backed up …", "Next run …"), so it advances by the minute.
+  const now = useMinute();
+  const day = epochDay(now);
   // New papers mean new stars: when Today's count moves, the map is asked
   // again. Not on arrival, when the count is the cached one: the map is read
   // on arrival anyway, and asking again then fetched the whole map twice.
@@ -89,8 +92,8 @@ export function Today() {
   const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
 
   const ready = map.data?.state === 'ready' ? map.data : null;
-  // Built once for every page that draws the whole collection.
-  const built = useMemo(() => (ready ? collectionSky(ready, epochDay(now)) : null), [ready, now]);
+  // Built once for every page that draws the whole collection, and again only when the day turns.
+  const built = useMemo(() => (ready ? collectionSky(ready, day) : null), [ready, day]);
   const sky = built?.sky ?? null;
   const field = built?.field ?? null;
   const corner = useMemo(() => (sky ? emptiestCorner(sky) : 'tr'), [sky]);
