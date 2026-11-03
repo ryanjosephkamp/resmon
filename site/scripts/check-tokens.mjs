@@ -21,6 +21,7 @@
  * Usage, from `site/`:   node scripts/check-tokens.mjs
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { stripTypeScriptTypes } from 'node:module';
 import { join, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -59,7 +60,7 @@ const isNotAColor = (match, line) =>
   /href=|url\(|#\$\{|aria-|\[#|id="/.test(line) || !/^#[0-9a-fA-F]{3,8}$/.test(match);
 
 const files = [
-  ...walk(SRC).filter((file) => file.endsWith('.astro')),
+  ...walk(SRC).filter((file) => file.endsWith('.astro') || file.endsWith('.tsx')),
   join(SRC, 'styles', 'base.css'),
 ].filter((file) => file !== TOKENS);
 
@@ -104,6 +105,30 @@ for (const file of files) {
 const tokenSource = readFileSync(TOKENS, 'utf8');
 const darkStart = tokenSource.indexOf('prefers-color-scheme: dark');
 
+/*
+ * The night chart is written twice: once for the system's preference, once
+ * for a reader's choice. They must be the same block.
+ */
+const blockAfter = (selector) => {
+  const at = tokenSource.indexOf(selector);
+  return at < 0 ? '' : tokenSource.slice(at, tokenSource.indexOf('}', at));
+};
+const systemDark = declarationsIn(blockAfter(":root:not([data-theme='light']) {"));
+const chosenDark = declarationsIn(blockAfter(":root[data-theme='dark'] {"));
+chosenDark.delete('color-scheme');
+const darkDiffers = [...new Set([...systemDark.keys(), ...chosenDark.keys()])].filter(
+  (name) => systemDark.get(name) !== chosenDark.get(name),
+);
+if (!systemDark.size || darkDiffers.length) {
+  problems.push({
+    file: relative(SITE, TOKENS),
+    line: 0,
+    name: 'dark blocks differ',
+    match: darkDiffers.join(', ') || 'a dark block is missing',
+    text: "the prefers-color-scheme block and :root[data-theme='dark'] must declare the same values",
+  });
+}
+
 /** The token declarations in one slice of the file, later wins. */
 function declarationsIn(slice) {
   const map = new Map();
@@ -113,11 +138,16 @@ function declarationsIn(slice) {
   return map;
 }
 
-/** Resolve `var(--x)` chains down to a literal. */
+/**
+ * Resolve `var(--x)` chains down to a literal. `var(--x, fallback)` takes the
+ * fallback where `--x` is not declared in the file: the dial's properties are
+ * set on the page by script, and their fallbacks are the tones at rest.
+ */
 function resolve(name, declarations) {
   let value = declarations.get(name);
   for (let hops = 0; hops < 8 && value?.startsWith('var('); hops += 1) {
-    value = declarations.get(value.slice(4, value.indexOf(')')).trim());
+    const [, ref, fallback] = /^var\(\s*(--[\w-]+)\s*(?:,\s*([^)]+))?\)$/.exec(value) ?? [];
+    value = declarations.get(ref) ?? fallback?.trim();
   }
   return value;
 }
@@ -156,6 +186,12 @@ const CONTRAST_PAIRS = [
   ['--color-fault', '--color-canvas', 4.5],
   ['--color-fault', '--color-surface', 4.5],
   ['--color-mast-muted', '--color-mast', 4.5],
+  ['--color-notice-text', '--color-notice-bg', 4.5],
+  // Marks a reader has to see, at the non-text line.
+  ['--color-accent-mark', '--color-canvas', 3],
+  ['--color-accent-mark', '--color-surface', 3],
+  ['--color-mark-quiet', '--color-canvas', 3],
+  ['--color-mark-quiet', '--color-surface', 3],
 ];
 
 let contrastChecked = 0;
@@ -195,6 +231,70 @@ for (const [label, slice] of [
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * The color dial.
+ *
+ * The top bar turns the accent's hue (`src/lib/dial.ts`), and each position's
+ * tones come from the app's own `accentTones`. Every one of the 360 positions
+ * is held here to every pair above, in both schemes, and the tones at rest
+ * must be the fallbacks `tokens.css` declares, so the page a reader sees
+ * before choosing is the dial's own default.
+ * ------------------------------------------------------------------------- */
+
+const dataUrl = (source) => `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+const ACCENT_TS = join(SITE, '..', 'resmon_scripts', 'frontend', 'atlas', 'src', 'theme', 'accent.ts');
+const accentModule = dataUrl(stripTypeScriptTypes(readFileSync(ACCENT_TS, 'utf8')));
+const dial = await import(
+  dataUrl(
+    stripTypeScriptTypes(readFileSync(join(SRC, 'lib', 'dial.ts'), 'utf8')).replace(
+      "'../../../resmon_scripts/frontend/atlas/src/theme/accent'",
+      `'${accentModule}'`,
+    ),
+  )
+);
+
+const schemes = {
+  light: declarationsIn(tokenSource.slice(0, darkStart)),
+  dark: new Map([...declarationsIn(tokenSource.slice(0, darkStart)), ...declarationsIn(tokenSource.slice(darkStart))]),
+};
+const atRest = dial.dialProperties(dial.DEFAULT_HUE);
+for (const [name, value] of Object.entries(atRest)) {
+  const scheme = name.startsWith('--dial-light-') ? 'light' : 'dark';
+  const declared = [...schemes[scheme].values()]
+    .map((v) => new RegExp(`^var\\(${name},\\s*(#[0-9a-f]{6})\\)$`, 'i').exec(v)?.[1])
+    .find(Boolean);
+  if (declared?.toLowerCase() !== value) {
+    problems.push({
+      file: relative(SITE, TOKENS),
+      line: 0,
+      name: 'dial fallback',
+      match: `${name} falls back to ${declared ?? 'nothing'}`,
+      text: `the dial at rest draws ${value}`,
+    });
+  }
+}
+
+let dialChecked = 0;
+for (let hue = 0; hue < 360; hue += 1) {
+  const props = dial.dialProperties(hue);
+  for (const [label, base] of Object.entries(schemes)) {
+    const declarations = new Map([...base, ...Object.entries(props)]);
+    for (const [text, surface, minimum] of CONTRAST_PAIRS) {
+      const ratio = contrast(resolve(text, declarations), resolve(surface, declarations));
+      dialChecked += 1;
+      if (ratio < minimum) {
+        problems.push({
+          file: 'src/lib/dial.ts',
+          line: 0,
+          name: 'dial contrast below WCAG AA',
+          match: `${text} on ${surface} (${label}, hue ${hue}) is ${ratio.toFixed(2)}:1, needs ${minimum}:1`,
+          text: `${resolve(text, declarations)} on ${resolve(surface, declarations)}`,
+        });
+      }
+    }
+  }
+}
+
 if (problems.length) {
   process.stdout.write(`check-tokens: ${problems.length} hard-coded value(s)\n`);
   for (const problem of problems) {
@@ -210,5 +310,6 @@ const tokenCount = (tokenSource.match(/^\s*--[\w-]+:/gm) ?? []).length;
 process.stdout.write(
   `check-tokens: OK — ${files.length} file(s) checked, 0 hard-coded values, ` +
     `${tokenCount} token declarations in src/styles/tokens.css, ` +
-    `${contrastChecked} text-on-surface pairs at or above WCAG AA\n`,
+    `${contrastChecked} text-on-surface pairs at or above WCAG AA, and all ${dialChecked} ` +
+    'pairs across the dial\'s 360 hues\n',
 );

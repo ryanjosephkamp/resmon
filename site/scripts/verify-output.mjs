@@ -5,8 +5,8 @@
  * Every check here is about the output as it stands, not about any other
  * version of it:
  *
- *   - the output ships `.nojekyll`, no Jekyll scaffolding, and no client
- *     JavaScript;
+ *   - the output ships `.nojekyll` and no Jekyll scaffolding, and every
+ *     page's scripts are this site's own, within their budget;
  *   - every internal link, every link written inside a document, and every
  *     image resolves to something the site serves, and none is a GitHub `blob`
  *     page;
@@ -25,6 +25,7 @@
  * nothing true about the site.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { gzipSync } from 'node:zlib';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -76,13 +77,64 @@ function htmlFiles(root, prefix = '') {
 
 const pages = htmlFiles(OUT);
 
-// No client JavaScript. The site is content; a script tag on a content page
-// would be something that crept in rather than something that was chosen.
-const withScripts = pages.filter((page) => /<script[\s>]/i.test(readFileSync(join(OUT, page), 'utf8')));
-if (withScripts.length) {
-  fail(`${withScripts.length} of ${pages.length} pages carry a <script> tag: ${withScripts.slice(0, 5).join(', ')}`);
+/*
+ * Scripts are this site's own, and small. A page may carry two kinds: the one
+ * classic inline script in the head that sets a theme and color chosen on an
+ * earlier visit before the page paints, the same on every page, and modules
+ * built from this site's sources, served from `/resmon/static/` or, where
+ * Astro finds one small enough, written inline. Nothing is loaded from anywhere
+ * else, and each page's modules, compressed as GitHub Pages sends them, stay
+ * under its budget: the home page carries the plate, which is the app's own
+ * map, and every other page only the appearance control.
+ */
+const SCRIPT_BUDGET = { home: 60 * 1024, page: 6 * 1024 };
+const inlineScripts = new Set();
+const moduleSize = new Map();
+let heaviest = { page: '', bytes: 0 };
+for (const page of pages) {
+  const html = readFileSync(join(OUT, page), 'utf8');
+  let bytes = 0;
+  for (const [, attributes, body] of html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    const src = /\bsrc="([^"]+)"/.exec(attributes)?.[1];
+    if (!src) {
+      if (/\btype="module"/.test(attributes)) bytes += gzipSync(body).length;
+      else inlineScripts.add(body.trim());
+      continue;
+    }
+    if (!/\btype="module"/.test(attributes) || !src.startsWith(`${BASE_PATH}/static/`) || !src.endsWith('.js')) {
+      fail(`${page} loads a script that is not one of this site's modules: ${src}`);
+      continue;
+    }
+    const file = fileFor(src);
+    if (!existsSync(file)) {
+      fail(`${page} loads ${src}, which the output does not hold`);
+      continue;
+    }
+    // A module's own imports count too: Vite splits shared code into chunks the entry imports.
+    const seen = new Set();
+    const visit = (path) => {
+      if (seen.has(path)) return;
+      seen.add(path);
+      const code = readFileSync(path, 'utf8');
+      if (!moduleSize.has(path)) moduleSize.set(path, gzipSync(code).length);
+      for (const [, spec] of code.matchAll(/(?:import|from)\s*\(?\s*["'](\.{1,2}\/[^"']+\.js)["']/g)) {
+        visit(resolve(dirname(path), spec));
+      }
+    };
+    visit(file);
+    for (const path of seen) bytes += moduleSize.get(path) ?? 0;
+  }
+  const budget = page === 'index.html' ? SCRIPT_BUDGET.home : SCRIPT_BUDGET.page;
+  if (bytes > budget) fail(`${page} carries ${(bytes / 1024).toFixed(1)} KB of compressed script, over its ${budget / 1024} KB budget`);
+  if (bytes > heaviest.bytes) heaviest = { page, bytes };
+}
+if (inlineScripts.size > 1) {
+  fail(`${inlineScripts.size} different classic inline scripts across the pages; only the head's appearance script is allowed`);
 } else {
-  pass(`all ${pages.length} built pages ship zero client JavaScript`);
+  pass(
+    `every page's scripts are this site's own: one inline appearance script and this site's modules; ` +
+      `the heaviest page, ${heaviest.page || 'none'}, carries ${(heaviest.bytes / 1024).toFixed(1)} KB compressed`,
+  );
 }
 
 /*
