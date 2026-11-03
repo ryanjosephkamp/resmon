@@ -22,12 +22,12 @@ import {
   RAMP_DAYS,
   buildSky,
   density,
-  emptiestCorner,
   epochDay,
   gridCell,
   placeName,
   watchShape,
   type Box,
+  type Corner,
   type MapRegion,
 } from '../../../resmon_scripts/frontend/atlas/src/screens/today/model';
 import {
@@ -137,15 +137,7 @@ export const frame = { margin: MARGIN, inner };
 
 // ---- Names: the title block's corner first, then regions, then watches ---
 
-export const corner = emptiestCorner(sky, CARTOUCHE.w, CARTOUCHE.h);
 const placed: Box[] = [];
-{
-  const w = SIZE * CARTOUCHE.w + 12;
-  const h = SIZE * CARTOUCHE.h + 12;
-  const left = corner.endsWith('l') ? SIZE * CARTOUCHE_INSET - 6 : SIZE * (1 - CARTOUCHE_INSET) - w + 6;
-  const top = corner.startsWith('t') ? SIZE * CARTOUCHE_INSET - 6 : SIZE * (1 - CARTOUCHE_INSET) - h + 6;
-  placed.push({ x: left, y: top, w, h });
-}
 const free = (b: Box) => !placed.some((p) => b.x < p.x + p.w && p.x < b.x + b.w && b.y < p.y + p.h && p.y < b.y + b.h);
 const inside = (b: Box) =>
   b.x >= inner.x + 4 && b.y >= inner.y + 4 && b.x + b.w <= inner.x + inner.w - 4 && b.y + b.h <= inner.y + inner.h - 4;
@@ -173,6 +165,33 @@ const arrivals = [...today.papers].reverse().map((paper, k) => {
     cell: at === undefined ? null : gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds),
   };
 });
+/** The title block's box in the plate's pixels, in a corner, with a little room around it. */
+function cartoucheBox(c: Corner): Box {
+  const w = SIZE * CARTOUCHE.w + 12;
+  const h = SIZE * CARTOUCHE.h + 12;
+  const left = c.endsWith('l') ? SIZE * CARTOUCHE_INSET - 6 : SIZE * (1 - CARTOUCHE_INSET) - w + 6;
+  const top = c.startsWith('t') ? SIZE * CARTOUCHE_INSET - 6 : SIZE * (1 - CARTOUCHE_INSET) - h + 6;
+  return { x: left, y: top, w, h };
+}
+const ringsUnder = (b: Box) =>
+  arrivals.filter(({ x, y }) => x !== null && y !== null && x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h).length;
+
+/**
+ * Which corner the title block sits in. The app sets it in the corner with the
+ * fewest papers and steps it aside when it covers what you point at; a page
+ * cannot step it aside, so here it sits where it covers no new paper, and of
+ * those corners the one with the fewest papers. Where every corner would cover
+ * one, it sits under the plate instead (`'below'`), so every ring the index
+ * numbers can be seen.
+ */
+export const corner: Corner | 'below' = (() => {
+  const clear = (['tr', 'tl', 'br', 'bl'] as Corner[])
+    .filter((c) => ringsUnder(cartoucheBox(c)) === 0)
+    .sort((a, b) => papersUnder(cartoucheBox(a)) - papersUnder(cartoucheBox(b)));
+  return clear[0] ?? 'below';
+})();
+if (corner !== 'below') placed.push(cartoucheBox(corner));
+
 const clearOfRings = (b: Box) =>
   !arrivals.some(({ x, y }) => x !== null && y !== null && x + 8 > b.x && x - 8 < b.x + b.w && y + 8 > b.y && y - 8 < b.y + b.h);
 

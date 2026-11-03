@@ -4,6 +4,9 @@
  * title block, and the index of what is new, each ringed paper paired with
  * one numbered entry.
  *
+ * The title block sits in a corner of the plate that covers no new paper, or
+ * under the plate where every corner would.
+ *
  * Everything is laid out at build time (`../lib/plate.ts`, with the app's own
  * map model) and drawn as inline SVG, so the plate takes the page's colors in
  * either scheme and needs no script. The one motion on the page is here: the
@@ -720,7 +723,7 @@ const paired = rings
   /* ---- Wide: the title block on the plate, the index beside it --------- */
 
   @media (min-width: 48rem) {
-    .cartouche {
+    .plate:not(.corner-below) .cartouche {
       position: absolute;
       width: var(--cartouche-width);
       margin: 0;
