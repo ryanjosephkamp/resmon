@@ -8,7 +8,9 @@
  *      `resmon.pyz`, isolated) names this build's version and the app it sits in.
  *   2. With the packaged app launched against an isolated instance, `resmon
  *      service status --json` and two read commands answer from that instance.
- *   3. The engine started a map fit and a PDF worker, and both finished.
+ *   3. The engine started a map fit and a PDF worker, and both finished. (On
+ *      Windows the PDF worker cannot start: it reads only files the Library
+ *      retains, and the Library is unavailable there, which this checks.)
  *   4. On Windows, no console window appeared at any point (the watcher in
  *      `fixtures/watch-windows.ps1`), and the app's folder is byte for byte as it
  *      was: nothing wrote bytecode into the bundle.
@@ -129,20 +131,30 @@ test('the command line in the packaged app answers from the instance, and no con
       await expect.poll(async () => (await engine<{ state: string }>(win, '/api/map')).state,
         { timeout: 180_000, intervals: [500] }).toBe('ready');
 
-      // ...and a PDF worker, to read the one page of a retained file.
-      const library = await engine<{ vault: { vault_id: string } }>(win, '/api/library/vault',
-        { method: 'POST', json: { parent_directory: scratch } });
-      const vault = library.vault.vault_id;
-      const pdf = writePdf([{ lines: [{ x: 72, y: 720, size: 14, text: 'A page for the PDF worker to read.' }] }]);
-      const imported = await engine<{ file: { file_id: string; version_id: string } }>(
-        win, `/api/library/files?expected_vault_id=${vault}&filename=worker.pdf`, { method: 'POST', bytes: [...pdf] });
-      const { file_id: fileId, version_id: versionId } = imported.file;
-      const route = `/api/library/files/${fileId}/shared-wording`;
-      await engine(win, route, { method: 'POST', json: { expected_vault_id: vault, expected_version_id: versionId } });
-      await expect.poll(
-        async () => (await engine<{ state: string }>(win, `${route}?expected_vault_id=${vault}&expected_version_id=${versionId}`)).state,
-        { timeout: 120_000, intervals: [500] },
-      ).toBe('done');
+      // ...and a PDF worker, to read the one page of a retained file. The worker reads only
+      // files the Library retains, and the Library needs descriptor-relative file access,
+      // which Windows does not have: there it answers 503, so no PDF worker can start.
+      if (process.platform === 'win32') {
+        const refused = await engine(win, '/api/library/vault', { method: 'POST', json: { parent_directory: scratch } })
+          .then(() => 'answered', (err: Error) => err.message);
+        expect(refused).toContain('HTTP 503');
+        expect(refused).toContain('unsupported_platform');
+        console.log('NOT VERIFIED on Windows: the PDF worker, which runs only for the Library, and the Library is unavailable here.');
+      } else {
+        const library = await engine<{ vault: { vault_id: string } }>(win, '/api/library/vault',
+          { method: 'POST', json: { parent_directory: scratch } });
+        const vault = library.vault.vault_id;
+        const pdf = writePdf([{ lines: [{ x: 72, y: 720, size: 14, text: 'A page for the PDF worker to read.' }] }]);
+        const imported = await engine<{ file: { file_id: string; version_id: string } }>(
+          win, `/api/library/files?expected_vault_id=${vault}&filename=worker.pdf`, { method: 'POST', bytes: [...pdf] });
+        const { file_id: fileId, version_id: versionId } = imported.file;
+        const route = `/api/library/files/${fileId}/shared-wording`;
+        await engine(win, route, { method: 'POST', json: { expected_vault_id: vault, expected_version_id: versionId } });
+        await expect.poll(
+          async () => (await engine<{ state: string }>(win, `${route}?expected_vault_id=${vault}&expected_version_id=${versionId}`)).state,
+          { timeout: 120_000, intervals: [500] },
+        ).toBe('done');
+      }
 
       // 6. A unit written by this engine, which the packaged app started, runs the app. (Written
       // to this instance's own unit folder and never registered. On Linux the unit runs the engine:
