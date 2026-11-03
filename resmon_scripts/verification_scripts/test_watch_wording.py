@@ -3,11 +3,14 @@
 Identifiers, columns, API field names, and routes keep their stored names;
 these tests hold only the words a person reads: a run's label on the source
 wall, a notification's subject, an email, a run log's header, the Watchdog's
-fallback names, and the sentences admission refuses with.
+fallback names and advice, the sentences admission refuses with, a watch's
+coverage audit and its destinations' refusals, and Analytics' note.
 """
 
 from __future__ import annotations
 
+import ast
+import re
 import sqlite3
 import sys
 from datetime import datetime, timedelta, timezone
@@ -18,7 +21,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from implementation_scripts import source_wall, watchdog  # noqa: E402
+from implementation_scripts import coverage_audit, source_wall, watchdog  # noqa: E402
 from implementation_scripts.admission import RoutineAlreadyRunning, RoutineFireWaiting  # noqa: E402
 from implementation_scripts.database import init_db, insert_routine, record_missed_fire  # noqa: E402
 from implementation_scripts.email_notifier import compose_notification  # noqa: E402
@@ -79,3 +82,43 @@ def test_the_watchdog_names_an_unnamed_watch_as_a_watch():
 ])
 def test_admission_refuses_in_a_sentence_that_says_watch(error, expected):
     assert str(error) == expected
+
+
+def _sentences(module: Path) -> list[tuple[int, str]]:
+    """The string literals in *module* that are words for a person.
+
+    Docstrings, log lines, SQL, and dictionary keys are left out: they name
+    the ``routines`` table and its columns, which keep their names.
+    """
+    tree = ast.parse(module.read_text(encoding="utf-8"))
+    skip: set[int] = set()
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) and body
+                and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant)):
+            skip.add(id(body[0].value))
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id in {"logger", "logging"}):
+            skip.update(id(sub) for sub in ast.walk(node))
+        if isinstance(node, ast.Subscript):
+            skip.update(id(sub) for sub in ast.walk(node.slice))
+    sql = re.compile(r"\b(SELECT|FROM|JOIN|UPDATE|INSERT|WHERE|DELETE)\b")
+    return [
+        (node.lineno, node.value) for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in skip
+        and " " in node.value.strip() and not sql.search(node.value)
+    ]
+
+
+@pytest.mark.parametrize("module", ["coverage_audit", "delivery", "watchdog", "analytics"])
+def test_the_sentences_a_watch_s_tabs_and_health_show_say_watch(module):
+    # A watch's What it finds tab (the coverage audit), its Where reports go tab
+    # (a destination's refusals and a feed's subtitle), the Watchdog's advice,
+    # and Analytics' note when there are no watches.
+    path = PROJECT_ROOT / "resmon_scripts" / "implementation_scripts" / f"{module}.py"
+    said = [(line, text) for line, text in _sentences(path) if re.search(r"\broutines?\b", text, re.I)]
+    assert said == []
+
+
+def test_what_the_coverage_audit_cannot_see_is_said_of_watches_and_searches():
+    assert coverage_audit.CANNOT_SEE.endswith("never have been collected by any watch or search.")

@@ -297,7 +297,7 @@ def routine_health(conn: sqlite3.Connection) -> dict:
         "stale_after": STALE_RUN_THRESHOLD,
         "sample_size": len(out),
         "sufficient": bool(out),
-        "insufficient_reason": None if out else "No routines created yet.",
+        "insufficient_reason": None if out else "No watches yet.",
     }
 
 

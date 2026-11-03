@@ -932,7 +932,7 @@ def _check_routines(
                             "is a prompt to check, not a fault."
                         ),
                         what_to_do=(
-                            "Open the routine and widen one term, or check the "
+                            "Open the watch and widen one term, or check the "
                             "Watchdog entries for the sources it uses — a source "
                             "that has gone quiet produces this too."
                         ),

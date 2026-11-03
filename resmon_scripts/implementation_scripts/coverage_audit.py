@@ -63,7 +63,7 @@ __all__ = [
 # The sentence, in one place, because three surfaces render it.
 CANNOT_SEE = (
     "resmon can only compare against papers it already holds. A paper missing "
-    "from this list may simply never have been collected by any routine."
+    "from this list may simply never have been collected by any watch or search."
 )
 
 # Below this many embedded results, a distribution is not a distribution. The
@@ -164,7 +164,7 @@ def audit_routine(
     payload["results"] = len(returned)
     if not returned:
         payload["reason"] = (
-            "This routine has not returned any papers yet, so there is nothing to "
+            "This watch has not returned any papers yet, so there is nothing to "
             "compare against its intent."
         )
         return payload
@@ -184,7 +184,7 @@ def audit_routine(
     payload["results_embedded"] = len(ranked)
     if not ranked:
         payload["reason"] = (
-            "None of this routine's papers are embedded yet, so resmon cannot say how "
+            "None of this watch's papers are embedded yet, so resmon cannot say how "
             "close they are to its intent. Run the backfill in Settings → AI."
         )
         return payload
@@ -195,7 +195,7 @@ def audit_routine(
         # a cutoff drawn from nine numbers would be a number pretending to be a
         # measurement.
         payload["reason"] = (
-            f"Only {len(distances)} of this routine's papers are embedded. resmon "
+            f"Only {len(distances)} of this watch's papers are embedded. resmon "
             f"needs at least {MIN_RESULTS_FOR_DISTRIBUTION} before a distribution "
             "means anything, so no off-target cutoff is drawn."
         )
@@ -305,7 +305,7 @@ def summary_line(audit: dict) -> Optional[str]:
         if reason:
             return reason
         return (
-            "Nothing stands out: no result sits unusually far from this routine's "
+            "Nothing stands out: no result sits unusually far from this watch's "
             "intent, and nothing in the corpus close to it was missed."
         )
 
