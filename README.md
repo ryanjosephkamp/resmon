@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="site/public/favicon.svg" width="72" height="72" alt="">
+  <img src="site/public/mark.png" width="80" height="80" alt="">
 </p>
 
 <h1 align="center">resmon</h1>
