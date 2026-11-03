@@ -29,6 +29,8 @@
   --grid-minor: #f4f3f0;
   --frame-line: #8c897f;
   --dim-star: #928e86;
+  --band-line: #b9b6ae;
+  --bound-line: #7d7a72;
 
   /* ---- The one color: amber, deepened on paper to hold its contrast ----- */
   --amber-ink: #b94900;
@@ -83,6 +85,11 @@
   --color-star: var(--ink);
   --color-star-dim: var(--dim-star);
   --color-ring: var(--amber-mark);
+  /* A watch's outline, dashed, and the faint lines joining its regions. */
+  --color-bound: var(--bound-line);
+  --color-band: var(--band-line);
+  /* Where papers crowd, the ink shows through the plate this much at the densest. */
+  --shading-strength: 0.085;
 
   /* ---- Source-state marks: drawn by shape, never told apart by color ---- */
   --color-mark-ink: var(--ink);
@@ -196,12 +203,39 @@
   --entry-number: 3rem;
   --entry-label: 8rem;
   --date-column: 12rem;
+  /* The catalog's facts, as columns on a wide screen. */
+  --fact-key: 7.5rem;
+  --fact-rate: 5.5rem;
+  --fact-dates: 6rem;
   --measure-display: 16ch;
+  --measure-lead: 22ch;
+  /* The plate is square and as tall as the screen leaves room for under the
+     title, so the first view holds the title, the plate, and its index. */
+  --plate-fit: calc(100svh - 19.5rem);
+  --plate-min: 30rem;
+  --index-cap: 70svh;
+  --badge: 1.375rem;
+  --cartouche-width: 36%;
+  /* Type on the plate, in the plate's own pixels: it is drawn 720 across and
+     scaled to its column, about 600 on a laptop, so each is set a size above
+     the app's to read at the app's size there. On a phone, where the plate is
+     drawn at half that, only the margin's letters are kept, set larger.
+     `src/lib/plate.ts` places names by these sizes. */
+  --plate-text-region: 12.5px;
+  --plate-text-watch: 16px;
+  --plate-text-number: 12px;
+  --plate-text-margin: 11.5px;
+  --plate-text-margin-narrow: 21px;
 
   /* ---- Motion: the app's ease and its one duration ---------------------- */
   --duration-fast: 180ms;
   --duration-fill: 480ms;
   --duration-settle: 1600ms;
+  /* The opening: the new papers light one after another, in the order they
+     were collected, on the plate and in its index at once. */
+  --light-start: 500ms;
+  --light-step: 110ms;
+  --unlit: 0.18;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
@@ -226,6 +260,8 @@
     --grid-minor: #141415;
     --frame-line: #4a4842;
     --dim-star: #68655f;
+    --band-line: #3a3935;
+    --bound-line: #77736b;
 
     --amber-ink: #ff8a3d;
     --amber-mark: #ff8a3d;
@@ -249,5 +285,7 @@
     --duration-fast: 0ms;
     --duration-fill: 0ms;
     --duration-settle: 0ms;
+    --light-start: 0ms;
+    --light-step: 0ms;
   }
 }

@@ -1,26 +1,45 @@
 ---
 /**
- * The Source wall from a real session, drawn as the app draws it: one row per
- * source, one column per run, one mark per cell.
+ * The Source wall from a real collection, drawn as the app draws it: one row
+ * per source, one column per run, one mark per cell.
  *
- * The data is `../data/run-record.json`, exported from the app's own
- * `GET /api/coverage/source-wall` and not edited; its `provenance` field says
- * where it came from and is printed under the grid. Marks are told apart by
- * shape, so the grid reads the same in either color scheme and to a reader who
- * does not see color. Each cell also carries its state in words for a screen
- * reader.
- *
- * The one motion on the page lives here: as the grid scrolls into view, each
- * column of marks fills in after the one before it, the way the runs happened.
- * It is CSS scroll-driven animation, so it needs no script; where that is not
- * supported, or motion is reduced, the grid is simply drawn.
+ * The data is `../data/run-record.json`: the engine's own
+ * `GET /api/coverage/source-wall`, and each run's record, exported unedited
+ * by `resmon_scripts/frontend/demos/export_site.py`. Its `provenance` field
+ * says where it came from and is printed under the grid. Marks are told apart
+ * by shape, so the grid reads the same in either color scheme and to a reader
+ * who does not see color. Each cell also carries its state in words for a
+ * screen reader.
  */
 import record from '../data/run-record.json';
 
-const runs = record.runs;
-const utc = (iso: string) => `${iso.slice(11, 16)} UTC`;
+const KIND: Record<string, string> = { deep_dive: 'Deep Dive', deep_sweep: 'Deep Sweep', automated_sweep: 'Watch' };
+const TIME = new Intl.DateTimeFormat('en-US', {
+  hour: 'numeric', minute: '2-digit', timeZoneName: 'short', timeZone: 'America/New_York',
+});
+const DAY = new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/New_York' });
+const NUMBER = new Intl.NumberFormat('en-US');
+
+const wall = record.wall;
+const byId = new Map(record.runs.map((run) => [run.id, run]));
+const runs = wall.runs.map((run) => {
+  const own = byId.get(run.execution_id);
+  // The wall's label is the kind and, for a watch, its name after a dash.
+  const name = run.label.split(' — ')[1] ?? null;
+  const sources = own?.repositories?.length ?? 0;
+  return {
+    id: run.execution_id,
+    kind: KIND[run.execution_type] ?? 'Run',
+    name,
+    query: own?.query ?? null,
+    sources,
+    at: TIME.format(new Date(run.started_at)),
+    returned: own?.result_count ?? null,
+    added: own?.new_result_count ?? null,
+  };
+});
 const footnotes: { n: number; text: string }[] = [];
-const rows = record.sources.map((source) => ({
+const rows = wall.sources.map((source) => ({
   name: source.name,
   cells: source.cells.map((cell) => {
     let note: number | null = null;
@@ -31,15 +50,14 @@ const rows = record.sources.map((source) => ({
     return { ...cell, note };
   }),
 }));
-const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateString('en-US', {
-  year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
-});
+const recordedOn = DAY.format(new Date(wall.runs[0]?.started_at ?? Date.UTC(2026, 10, 3)));
 ---
+
 
 <figure class="record">
   <blockquote class="verdict">
-    <p>“{record.verdict.headline}”</p>
-    {record.verdict.detail.map((line) => <p class="verdict-detail">{line}</p>)}
+    <p>“{wall.verdict.headline}”</p>
+    {wall.verdict.detail.map((line) => <p class="verdict-detail">{line}</p>)}
   </blockquote>
 
   <div class="grid-wrap">
@@ -51,7 +69,7 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
         <tr>
           <th scope="col" class="source-head">Source</th>
           {runs.map((run) => (
-            <th scope="col" class="run-head mono">
+            <th scope="col" class="run-head">
               <span class="visually-hidden">Run </span>{run.id}
             </th>
           ))}
@@ -61,14 +79,14 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
         {rows.map((row) => (
           <tr>
             <th scope="row" class="source">{row.name}</th>
-            {row.cells.map((cell, col) => (
-              <td class="cell" style={`--col: ${col}`}>
+            {row.cells.map((cell) => (
+              <td class="cell">
                 <span class:list={['state', `state-${cell.state}`]} aria-hidden="true" />
                 <span class="visually-hidden">{cell.label}</span>
-                {cell.state === 'answered' && typeof cell.count === 'number' && (
-                  <span class="count mono">{cell.count}</span>
+                {cell.state === 'answered' && typeof cell.result_count === 'number' && (
+                  <span class="count">{NUMBER.format(cell.result_count)}</span>
                 )}
-                {cell.note && <sup class="mono">{cell.note}</sup>}
+                {cell.note && <sup>{cell.note}</sup>}
               </td>
             ))}
           </tr>
@@ -79,10 +97,14 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
     <ol class="runs">
       {runs.map((run) => (
         <li>
-          <span class="mono run-n">{run.id}</span>
+          <span class="run-n">{run.id}</span>
           <span>
-            <strong>{run.label}</strong>, “{run.query}”, {run.sources} {run.sources === 1 ? 'source' : 'sources'}
-            <span class="mono run-facts">{utc(run.started_at)} · {run.returned} returned · {run.new} new</span>
+            <strong>{run.kind}</strong>{run.name ? <>, <span class="name">{run.name}</span></> : run.query && <>, “{run.query}”</>}{`, ${run.sources} ${run.sources === 1 ? 'source' : 'sources'}`}
+            <span class="run-facts">
+              {run.at}
+              {run.returned !== null && ` · ${NUMBER.format(run.returned)} returned`}
+              {run.added !== null && ` · ${NUMBER.format(run.added)} new`}
+            </span>
           </span>
         </li>
       ))}
@@ -90,7 +112,7 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
   </div>
 
   <ul class="legend">
-    {record.legend.map((entry) => (
+    {wall.state_legend.map((entry) => (
       <li>
         <span class:list={['state', `state-${entry.state}`]} aria-hidden="true" />
         <span><strong>{entry.label}</strong> {entry.meaning}</span>
@@ -100,7 +122,7 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
 
   <figcaption>
     {footnotes.map((f) => (
-      <p class="footnote"><span class="mono">{f.n}</span> {f.text}</p>
+      <p class="footnote"><span class="footnote-n">{f.n}</span> {f.text}</p>
     ))}
     <p class="provenance">{record.provenance}</p>
   </figcaption>
@@ -258,8 +280,27 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
     margin-top: 0;
   }
 
+  .run-n,
+  .run-head,
+  .count,
+  sup,
+  .footnote-n {
+    font-variant-numeric: tabular-nums;
+  }
+
   .run-n {
     font-weight: var(--weight-semibold);
+  }
+
+  .name {
+    font-family: var(--font-serif);
+    font-style: italic;
+  }
+
+  .state-answered_in_part {
+    border-radius: 50%;
+    background: linear-gradient(90deg, var(--color-mark-ink) 50%, transparent 50%);
+    border: var(--mark-stroke) solid var(--color-mark-ink);
   }
 
   .run-facts {
@@ -306,29 +347,6 @@ const recordedOn = new Date(`${record.recorded_on}T12:00:00Z`).toLocaleDateStrin
 
     .legend {
       grid-template-columns: 1fr 1fr;
-    }
-  }
-
-  /* ---- The fill -------------------------------------------------------- */
-
-  @supports (animation-timeline: view()) {
-    @media (prefers-reduced-motion: no-preference) {
-      .cell .state {
-        animation: fill linear both;
-        animation-timeline: view();
-        animation-range: entry calc(var(--col) * 9%) entry calc(var(--col) * 9% + 40%);
-      }
-    }
-  }
-
-  @keyframes fill {
-    from {
-      opacity: 0.12;
-      transform: scale(0.4);
-    }
-    to {
-      opacity: 1;
-      transform: none;
     }
   }
 </style>

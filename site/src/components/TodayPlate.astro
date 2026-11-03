@@ -1,0 +1,759 @@
+---
+/**
+ * The app's Today, drawn by the site from a real collection: the plate, its
+ * title block, and the index of what is new, each ringed paper paired with
+ * one numbered entry.
+ *
+ * Everything is laid out at build time (`../lib/plate.ts`, with the app's own
+ * map model) and drawn as inline SVG, so the plate takes the page's colors in
+ * either scheme and needs no script. The one motion on the page is here: the
+ * new papers light one after another, in the order they were collected, on
+ * the plate and in the index at once. With motion reduced they are drawn lit.
+ * Pointing at an entry rings its paper, and pointing at a ring marks its
+ * entry, through `:has()`; where that is not supported, nothing is lost but
+ * the pairing.
+ */
+import * as plate from '../lib/plate';
+import { sourceName } from '../lib/sources';
+
+const { SIZE, frame, grid, margins, stars, shading, outlines, constellations, regionLabels, watchNames, rings } = plate;
+const inner = frame.inner;
+const paired = rings
+  .map(({ n }) =>
+    [
+      `.today:has([data-entry="${n}"]:is(:hover, :focus-within)) [data-ring="${n}"] .pointed { opacity: 1; }`,
+      `.today:has([data-ring="${n}"]:hover) [data-entry="${n}"] { background: var(--color-accent-surface); }`,
+    ].join('\n'),
+  )
+  .join('\n');
+---
+
+<section class="today" aria-labelledby="index-title">
+  <figure class="plate-figure">
+    <div class:list={['plate', `corner-${plate.corner}`]}>
+      <svg class="sky" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={plate.plateLabel}>
+        <defs>
+          <clipPath id="plate-inner">
+            <rect x={inner.x} y={inner.y} width={inner.w} height={inner.h} />
+          </clipPath>
+          <mask id="plate-shading" maskUnits="userSpaceOnUse" x="0" y="0" width={SIZE} height={SIZE}>
+            <image href={shading.href} x={shading.x} y={shading.y} width={shading.size} height={shading.size}
+              preserveAspectRatio="none" />
+          </mask>
+        </defs>
+        <rect class="ground" width={SIZE} height={SIZE} />
+        <g clip-path="url(#plate-inner)">
+          <path class="grid" d={grid.map(({ x, y }) =>
+            `M${x} ${inner.y}V${inner.y + inner.h}M${inner.x} ${y}H${inner.x + inner.w}`).join('')} />
+          <rect class="shading" width={SIZE} height={SIZE} mask="url(#plate-shading)" />
+          <path class="outline" d={outlines} />
+          <path class="band" d={constellations} />
+          {stars.map((star) => (
+            <path class="stars" d={star.d} stroke-width={star.width} opacity={star.opacity} />
+          ))}
+          {regionLabels.map((region) => (
+            <text class="region" x={region.x} y={region.y}>{region.label}</text>
+          ))}
+          {watchNames.map((watch) => (
+            <text class="watch" x={watch.x} y={watch.y}>{watch.name}</text>
+          ))}
+          <g class="rings" aria-hidden="true">
+            {rings.map((ring) => (
+              <g class="ring" data-ring={ring.n} style={`--n: ${ring.n}`}>
+                <circle class="pointed" cx={ring.x} cy={ring.y} r="7.5" />
+                <circle class="hit" cx={ring.x} cy={ring.y} r="9" />
+                <circle class="mark" cx={ring.x} cy={ring.y} r={plate.ringRadius} />
+                <circle class="core" cx={ring.x} cy={ring.y} r={Math.min(1.6, plate.ringRadius * 0.3)} />
+                {ring.numbered && <text class="ring-n" x={ring.x + 7} y={ring.y - 9}>{ring.n}</text>}
+              </g>
+            ))}
+          </g>
+        </g>
+        <rect class="neat" x={inner.x + 0.5} y={inner.y + 0.5} width={inner.w - 1} height={inner.h - 1} />
+        <rect class="neat-outer" x={inner.x - 3.5} y={inner.y - 3.5} width={inner.w + 7} height={inner.h + 7} />
+        <g class="margins" aria-hidden="true">
+          {margins.map((m) => (
+            <>
+              <text x={m.x} y={frame.margin / 2 - 1}>{m.letter}</text>
+              <text x={m.x} y={SIZE - frame.margin / 2 + 1}>{m.letter}</text>
+              <text x={frame.margin / 2} y={m.y}>{m.number}</text>
+              <text x={SIZE - frame.margin / 2} y={m.y}>{m.number}</text>
+            </>
+          ))}
+        </g>
+      </svg>
+
+      <aside class="cartouche" aria-label="Today in brief">
+        <p class="date">{plate.dateLine}</p>
+        <p class="count">{plate.total === 1 ? '1 new paper' : `${plate.total} new papers`}</p>
+        <p class="since">{plate.since}</p>
+        {
+          plate.fromWatches.length > 0 && (
+            <ul class="split">
+              {plate.fromWatches.map((w) => (
+                <li><b>{w.n}</b> from <span class="name">{w.name}</span></li>
+              ))}
+            </ul>
+          )
+        }
+      </aside>
+    </div>
+
+    <figcaption>
+      <ul class="key">
+        <li class="ages">
+          {plate.rampDays.map((days, k) => (
+            <span class="age"><span class:list={['dot', `dot-${k}`]} aria-hidden="true" />{days}</span>
+          ))}
+          <span>days since collected</span>
+        </li>
+        <li><span class="ring-key" aria-hidden="true" />{plate.heading.replace(/^New/, 'new')}</li>
+        <li><span class="bound-key" aria-hidden="true" />a watch’s papers</li>
+        <li><span class="shade-key" aria-hidden="true" />more papers nearby</li>
+      </ul>
+      <p class="provenance">
+        The plate: all {plate.skyCount} papers on the map, {plate.basis} {plate.provenance}
+      </p>
+    </figcaption>
+  </figure>
+
+  <section class="index" aria-labelledby="index-title">
+    <header class="index-bar">
+      <h2 id="index-title">{plate.heading} <span class="index-total">{plate.total}</span></h2>
+    </header>
+    <div class="index-scroll" tabindex="0" role="region" aria-labelledby="index-title">
+      {
+        plate.groups.map((group) => (
+          <section class="group" aria-label={group.name}>
+            <div class="ghead">
+              <h3 class="name">{group.name}</h3>
+              <span class="gcount">{group.total}</span>
+            </div>
+            <p class="gsub">{group.run}</p>
+            <ol class="entries">
+              {group.papers.map((paper) => (
+                <li class="entry" data-entry={paper.n} style={`--n: ${paper.n}`}>
+                  <span class="badge" aria-label={`Number ${paper.n}`}>{paper.n}</span>
+                  <div class="entry-body">
+                    <h4>
+                      {paper.link ? <a href={paper.link} rel="noopener">{paper.title}</a> : paper.title}
+                    </h4>
+                    <p class="meta">
+                      <span>{paper.authors}</span>
+                      <span class="sep" aria-hidden="true" />
+                      <span>{sourceName(paper.source)}</span>
+                      {paper.cell && (
+                        <>
+                          <span class="sep" aria-hidden="true" />
+                          <span class="cell" title={`On the plate at ${paper.cell}`}>{paper.cell}</span>
+                        </>
+                      )}
+                    </p>
+                    {paper.lede && (
+                      <p class="sum"><span class="by">From the abstract</span> {paper.lede}</p>
+                    )}
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        ))
+      }
+      {
+        plate.quiet.length > 0 && (
+          <section class="group quiet" aria-label="Watches with nothing new">
+            <div class="ghead"><h3>Nothing new from</h3></div>
+            {plate.quiet.map((watch) => (
+              <div class="quiet-watch">
+                <span class="name">{watch.name}</span>
+                <p class="gsub">{watch.run}</p>
+                {watch.trouble.length > 0 && (
+                  <details class="trouble">
+                    <summary>
+                      {watch.trouble.map((part) => (
+                        <span class="trouble-part">
+                          <svg class:list={['trouble-mark', part.category === 'non_answer' ? 'fault' : 'unknown']}
+                            width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+                            {part.category === 'non_answer'
+                              ? <><circle cx="8" cy="8" r="5.75" /><path d="M4 12 12 4" /></>
+                              : <rect x="4.5" y="4.5" width="7" height="7" />}
+                          </svg>
+                          {part.text}
+                        </span>
+                      ))}
+                      <span class="why">Why</span>
+                    </summary>
+                    <ul class="notes">
+                      {watch.notes.map((note) => <li><b>{note.name}.</b> {note.note}</li>)}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            ))}
+          </section>
+        )
+      }
+    </div>
+  </section>
+</section>
+
+<style is:global set:html={paired}></style>
+
+<style>
+  .today {
+    display: grid;
+    gap: var(--space-5);
+  }
+
+  /* ---- The plate ------------------------------------------------------ */
+
+  .plate-figure {
+    margin: 0;
+    min-width: 0;
+  }
+
+  .plate {
+    position: relative;
+  }
+
+  .sky {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: var(--font-sans);
+  }
+
+  .ground {
+    fill: var(--color-canvas);
+  }
+
+  .grid {
+    fill: none;
+    stroke: var(--color-grid);
+    stroke-width: 1;
+  }
+
+  .shading {
+    fill: var(--color-star);
+    opacity: var(--shading-strength);
+  }
+
+  .outline {
+    fill: none;
+    stroke: var(--color-bound);
+    stroke-width: 1;
+    stroke-dasharray: 3 3.5;
+  }
+
+  .band {
+    fill: none;
+    stroke: var(--color-band);
+    stroke-width: 0.75;
+  }
+
+  .stars {
+    fill: none;
+    stroke: var(--color-star);
+    stroke-linecap: round;
+  }
+
+  .sky text {
+    paint-order: stroke;
+    stroke: var(--color-canvas);
+    stroke-linejoin: round;
+    dominant-baseline: middle;
+  }
+
+  .region {
+    font-size: var(--plate-text-region);
+    font-weight: 560;
+    fill: var(--color-text-muted);
+    stroke-width: 4.5;
+    text-anchor: middle;
+  }
+
+  .watch {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-size: var(--plate-text-watch);
+    fill: var(--color-text);
+    stroke-width: 3;
+    text-anchor: middle;
+  }
+
+  .ring {
+    animation: light var(--duration-fill) var(--ease) both;
+    animation-delay: calc(var(--light-start) + var(--n) * var(--light-step));
+  }
+
+  .ring .mark {
+    fill: none;
+    stroke: var(--color-accent-mark);
+    stroke-width: 1.25;
+  }
+
+  .ring .core {
+    fill: var(--color-star);
+  }
+
+  .ring .pointed {
+    fill: none;
+    stroke: var(--color-accent-mark);
+    stroke-width: 1.25;
+    opacity: 0;
+    transition: opacity var(--duration-fast) var(--ease);
+  }
+
+  .ring .hit {
+    fill: transparent;
+    pointer-events: all;
+  }
+
+  .ring-n {
+    font-size: var(--plate-text-number);
+    font-weight: 620;
+    fill: var(--color-accent-text);
+    stroke-width: 3;
+  }
+
+  .neat {
+    fill: none;
+    stroke: var(--color-frame);
+    stroke-width: 1;
+  }
+
+  .neat-outer {
+    fill: none;
+    stroke: var(--color-frame);
+    stroke-width: 0.5;
+  }
+
+  .margins text {
+    font-size: var(--plate-text-margin);
+    font-weight: 500;
+    fill: var(--color-text-faint);
+    stroke: none;
+    text-anchor: middle;
+  }
+
+  @keyframes light {
+    from {
+      opacity: var(--unlit);
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ---- The title block: the app's, in the plate's emptiest corner ------ */
+
+  .cartouche {
+    margin-top: var(--space-4);
+    padding: var(--space-4) var(--space-5);
+    background: var(--color-canvas);
+    border: var(--border-width) solid var(--color-border-strong);
+    box-shadow:
+      inset 0 0 0 var(--space-1) var(--color-canvas),
+      inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border);
+  }
+
+  .cartouche p {
+    margin: 0;
+  }
+
+  .date {
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .count {
+    margin-top: var(--space-2);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-tight);
+    line-height: var(--leading-tight);
+  }
+
+  .since {
+    margin-top: var(--space-1);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .split {
+    margin: var(--space-3) 0 0;
+    padding: var(--space-3) 0 0;
+    list-style: none;
+    border-top: var(--border-width) solid var(--color-border);
+    font-size: var(--text-sm);
+  }
+
+  .split li + li {
+    margin-top: var(--space-1);
+  }
+
+  .split b {
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .name {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: var(--weight-normal);
+  }
+
+  /* ---- The key and where the plate came from --------------------------- */
+
+  figcaption {
+    margin-top: var(--space-3);
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .key li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .ages {
+    gap: var(--space-3);
+  }
+
+  .age {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .dot {
+    display: inline-block;
+    width: var(--space-2);
+    height: var(--space-2);
+    border-radius: 50%;
+    background: var(--color-star);
+    transform: scale(var(--s, 1));
+  }
+
+  .dot-0 { --s: 0.92; }
+  .dot-1 { opacity: 0.86; --s: 0.72; }
+  .dot-2 { opacity: 0.7; --s: 0.56; }
+  .dot-3 { opacity: 0.58; --s: 0.44; }
+  .dot-4 { opacity: 0.5; --s: 0.34; }
+
+  .ring-key {
+    width: var(--space-3);
+    height: var(--space-3);
+    border-radius: 50%;
+    border: var(--border-width) solid var(--color-accent-mark);
+    background: radial-gradient(circle, var(--color-star) 0 18%, transparent 22%);
+  }
+
+  .bound-key {
+    width: var(--space-5);
+    border-top: var(--border-width) dashed var(--color-bound);
+  }
+
+  .shade-key {
+    width: var(--space-4);
+    height: var(--space-3);
+    background: var(--color-surface);
+    border: var(--border-width) solid var(--color-border);
+  }
+
+  .provenance {
+    margin: var(--space-2) 0 0;
+    max-width: var(--measure);
+    color: var(--color-text-faint);
+    line-height: var(--leading-snug);
+  }
+
+  /* ---- The index -------------------------------------------------------- */
+
+  .index {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .index-bar {
+    padding-block: var(--space-3);
+    border-bottom: var(--border-width) solid var(--color-border);
+  }
+
+  .index-bar h2 {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+  }
+
+  .index-total {
+    margin-inline-start: var(--space-2);
+    color: var(--color-text-faint);
+    font-weight: var(--weight-normal);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .index-scroll {
+    max-height: var(--index-cap);
+    overflow-y: auto;
+    overscroll-behavior: auto;
+  }
+
+  .index-scroll:focus-visible {
+    outline-offset: calc(-1 * var(--border-width-heavy));
+  }
+
+  .group {
+    padding-top: var(--space-4);
+  }
+
+  .ghead {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-3);
+  }
+
+  .ghead h3 {
+    margin: 0;
+    font-size: var(--text-xl);
+    line-height: var(--leading-tight);
+  }
+
+  .quiet .ghead h3 {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+  }
+
+  .gcount {
+    color: var(--color-text-faint);
+    font-size: var(--text-sm);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .gsub {
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .entries {
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .entry {
+    display: grid;
+    grid-template-columns: var(--badge) minmax(0, 1fr);
+    gap: var(--space-3);
+    margin: 0;
+    padding: var(--space-3) var(--space-2) var(--space-3) 0;
+    border-top: var(--border-width) solid var(--color-border);
+    transition: background-color var(--duration-fast) var(--ease);
+  }
+
+  .badge {
+    display: grid;
+    place-items: center;
+    width: var(--badge);
+    height: var(--badge);
+    margin-top: var(--border-width-heavy);
+    border: var(--border-width) solid var(--color-accent-mark);
+    border-radius: 50%;
+    color: var(--color-accent-text);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    font-variant-numeric: tabular-nums;
+    animation: light var(--duration-fill) var(--ease) both;
+    animation-delay: calc(var(--light-start) + var(--n) * var(--light-step));
+  }
+
+  .entry h4 {
+    margin: 0;
+    font-size: var(--text-base);
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-snug);
+    text-wrap: pretty;
+  }
+
+  .entry h4 a {
+    color: inherit;
+    text-decoration-color: transparent;
+  }
+
+  .entry h4 a:hover {
+    text-decoration-color: var(--color-link-underline-hover);
+  }
+
+  .meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+    margin: var(--space-1) 0 0;
+    font-size: var(--text-xs);
+    color: var(--color-text-muted);
+  }
+
+  .sep {
+    width: var(--space-1);
+    height: var(--space-1);
+    border-radius: 50%;
+    background: var(--color-border-strong);
+  }
+
+  .cell {
+    font-variant-numeric: tabular-nums;
+    color: var(--color-text);
+  }
+
+  .sum {
+    display: -webkit-box;
+    margin: var(--space-2) 0 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    font-size: var(--text-sm);
+    line-height: var(--leading-snug);
+    color: var(--color-text-muted);
+  }
+
+  .by {
+    margin-inline-end: var(--space-1);
+    font-size: var(--text-xs);
+    color: var(--color-text-faint);
+  }
+
+  .quiet {
+    padding-bottom: var(--space-4);
+  }
+
+  .quiet-watch {
+    margin-top: var(--space-2);
+  }
+
+  .trouble {
+    margin-top: var(--space-2);
+    font-size: var(--text-xs);
+  }
+
+  .trouble summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-3);
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .trouble summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .trouble-part {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .trouble-mark {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.4;
+  }
+
+  .trouble-mark.fault {
+    color: var(--color-fault);
+  }
+
+  .why {
+    text-decoration: underline;
+    text-decoration-color: var(--color-link-underline);
+    text-underline-offset: var(--underline-offset);
+  }
+
+  .trouble[open] .why {
+    text-decoration-color: var(--color-link-underline-hover);
+  }
+
+  .notes {
+    margin: var(--space-2) 0 0;
+    padding-inline-start: var(--space-5);
+    color: var(--color-text-muted);
+    line-height: var(--leading-snug);
+  }
+
+  /* ---- A phone: the plate alone, its title block under it --------------- */
+
+  @media (max-width: 39.99rem) {
+    .region,
+    .watch,
+    .ring-n {
+      display: none;
+    }
+
+    .margins text {
+      font-size: var(--plate-text-margin-narrow);
+    }
+  }
+
+  /* ---- Wide: the title block on the plate, the index beside it --------- */
+
+  @media (min-width: 48rem) {
+    .cartouche {
+      position: absolute;
+      width: var(--cartouche-width);
+      margin: 0;
+      padding: var(--space-4);
+    }
+
+    .corner-tl .cartouche { top: 5%; left: 5%; }
+    .corner-tr .cartouche { top: 5%; right: 5%; }
+    .corner-bl .cartouche { bottom: 5%; left: 5%; }
+    .corner-br .cartouche { bottom: 5%; right: 5%; }
+  }
+
+  @media (min-width: 64rem) {
+    .today {
+      grid-template-columns: min(var(--plate-fit), 58%) minmax(0, 1fr);
+      gap: var(--space-6);
+      align-items: start;
+    }
+
+    .plate-figure {
+      min-width: var(--plate-min);
+    }
+
+    .index {
+      align-self: stretch;
+      height: 0;
+      min-height: 100%;
+    }
+
+    .index-scroll {
+      flex: 1;
+      max-height: none;
+      min-height: 0;
+    }
+  }
+</style>

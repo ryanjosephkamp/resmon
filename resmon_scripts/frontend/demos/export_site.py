@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Write the site's home-page data from the demo collection.
+
+Run it with the engine's own interpreter, after ``build_collection.py``:
+
+    python resmon_scripts/frontend/demos/export_site.py /path/to/collection
+
+It copies the collection's state into a temporary folder, starts the engine
+headless over the copy (the collection itself is never written), and saves the
+engine's own answers, unedited, beside the site's other data:
+
+- ``site/src/data/plate.json``: ``GET /api/map`` and ``GET /api/today``, the
+  two answers Today is drawn from. The site draws its plate from them with the
+  app's own map model.
+- ``site/src/data/run-record.json``: ``GET /api/coverage/source-wall`` over the
+  collection's last runs, with each run's own record: the two searches and each watch's run of the day,
+  which ``build_collection.py`` made for real, after the history it laid out.
+
+Each file carries a ``provenance`` line, printed under what the site draws.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+import tempfile
+import time
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from build_collection import FORBIDDEN, SEARCHES, WATCHES, Engine  # noqa: E402
+
+SITE_DATA = HERE.parents[2] / "site" / "src" / "data"
+#: The runs ``build_collection.py`` made for real, last: its searches, then one run of each watch.
+REAL_RUNS = len(SEARCHES) + len(WATCHES)
+#: A run record's fields the Source wall already holds, that only the run's own page needs, or that
+#: name the temporary copy the engine ran over.
+RECORD_SKIP = {"coverage", "identity", "progress_events", "source_outcomes", "ai_lanes",
+               "log_path", "result_path", "owner_pid", "owner_runtime_id", "last_seen_at_utc"}
+
+
+def say(message: str) -> None:
+    print(f"[site] {message}", flush=True)
+
+
+def spoken_day(iso: str) -> str:
+    """"2026-11-03T16:20:00Z" -> "November 3, 2026"."""
+    moment = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    return f"{moment:%B} {moment.day}, {moment.year}"
+
+
+def write(name: str, data: dict) -> None:
+    path = SITE_DATA / name
+    path.write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n")
+    say(f"wrote {path} ({path.stat().st_size // 1024} KB)")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("collection", type=Path, help="a folder build_collection.py made")
+    args = parser.parse_args()
+    root = args.collection.expanduser().resolve()
+    if root == FORBIDDEN or FORBIDDEN in root.parents:
+        raise SystemExit("That is the installed app's own state. Give the demo collection's folder.")
+    if not (root / "state" / "resmon.db").exists():
+        raise SystemExit(f"{root} holds no collection; run build_collection.py first.")
+
+    with tempfile.TemporaryDirectory(prefix="resmon-site-") as scratch:
+        state = Path(scratch) / "state"
+        shutil.copytree(root / "state", state)
+        env = {
+            "RESMON_STATE_DIR": str(state),
+            "RESMON_DB_PATH": str(state / "resmon.db"),
+            "RESMON_REPORTS_DIR": str(state / "reports"),
+            "RESMON_PORT_FILE": str(state / "resmon.port"),
+            "RESMON_SERVICE_UNIT_DIR": str(state / "service-units"),
+            "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
+            "RESMON_AI_CLI_DISCOVERY": "configured-only",
+            "RESMON_DISABLE_SCHEDULER": "1",
+        }
+        engine = Engine(env, sys.executable, Path(scratch) / "engine.log")
+        try:
+            deadline = time.monotonic() + 300
+            plate = engine.call("GET", "/api/map")
+            while plate.get("state") != "ready" and time.monotonic() < deadline:
+                time.sleep(2)
+                plate = engine.call("GET", "/api/map")
+            if plate.get("state") != "ready":
+                raise SystemExit(f"The map is {plate.get('state')!r}, not ready; nothing was written.")
+            today = engine.call("GET", "/api/today")
+            wall = engine.call("GET", f"/api/coverage/source-wall?limit={REAL_RUNS}")
+            # Each run's own record, for what it asked and what it found; the
+            # per-source detail the wall already carries is left out.
+            runs = [
+                {k: v for k, v in engine.call("GET", f"/api/executions/{run['execution_id']}").items() if k not in RECORD_SKIP}
+                for run in wall["runs"]
+            ]
+        finally:
+            engine.stop()
+
+    day = spoken_day(today["now"])
+    write("plate.json", {
+        "provenance": (
+            f"Drawn from the engine's own map and Today, exported unedited from a collection of "
+            f"{len(plate['points']['id']):,} public arXiv papers built on {day}. The papers are real, and so "
+            "are the day's runs that found the new ones; when the earlier papers were collected is laid out "
+            "from each paper's publication date."
+        ),
+        "map": plate,
+        "today": today,
+    })
+    write("run-record.json", {
+        "provenance": (
+            f"The Source wall of the same collection on {day}, exported unedited: two searches and each "
+            "watch's run of the day, every one asked of the public sources for real."
+        ),
+        "wall": wall,
+        "runs": runs,
+    })
+
+
+if __name__ == "__main__":
+    main()
