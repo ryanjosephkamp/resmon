@@ -2,7 +2,6 @@
 title: "Quick start"
 summary: "A first search, a first watch, and the one switch that makes a watch run on its own."
 order: 2
-readmeLines: []
 ---
 This page takes you from a fresh install to a watch that runs by itself. It assumes resmon is installed and open; if not, start with [Install and launch](/resmon/guide/install/).
 

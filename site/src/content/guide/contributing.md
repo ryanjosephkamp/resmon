@@ -2,7 +2,6 @@
 title: "Contributing"
 summary: "Reporting a problem, opening a pull request, the checks to run, and how docs and tests move with a change."
 order: 18
-readmeLines: []
 ---
 Contributions are welcome. resmon is a single-maintainer project, so please open an issue before starting substantial work, so the scope can be agreed first. [CONTRIBUTING.md](CONTRIBUTING.md) is the full version; this page is the short one. To add a scholarly source, read [`docs/adding-a-source.md`](docs/adding-a-source.md).
 

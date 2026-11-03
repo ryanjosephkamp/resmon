@@ -1,28 +1,19 @@
 #!/usr/bin/env node
 /**
- * Check the built site against the live Jekyll site that it replaces.
+ * Check the built site.
  *
- * Two questions, both answered against `capture/`, which was taken from the
- * published site before `docs/` was touched:
+ * Every check here is about the output as it stands, not about any other
+ * version of it:
  *
- *   1. **Does the app still see the same feed?** Not "is the XML valid" and not
- *      "are the bytes the same" — the bytes are not the same and cannot be. The
- *      question is whether `BlogTab.tsx` derives the same post list from the new
- *      feed as from the old one. So this script runs the app's own
- *      `parseAtomFeed` over both feeds and diffs the five fields it produces
- *      per entry: `id`, `title`, `link`, `published` and the 240-character
- *      `summary`. That function is reproduced below from
- *      resmon 2.3's `frontend/src/components/AboutResmon/BlogTab.tsx` with one
- *      adaptation, marked where it occurs.
+ *   - the output ships `.nojekyll`, no Jekyll scaffolding, and no client
+ *     JavaScript;
+ *   - every internal link, every link written inside a document, and every
+ *     image resolves to something the site serves, and none is a GitHub `blob`
+ *     page;
+ *   - every source document has a published page that carries its text;
+ *   - every page has exactly one `<h1>`.
  *
- *   2. **Does every URL the old site served still resolve?** All 54 of them,
- *      asserted against the files on disk rather than spot-checked. A URL that
- *      ends in `/` must be a directory with an `index.html` in it, because that
- *      is what GitHub Pages serves for such a URL.
- *
- * Exits non-zero on any difference that matters, and prints a table either way.
- * Differences that are intended are listed in EXPECTED_FEED_DIFFERENCES and are
- * reported but not fatal; anything not in that list is fatal.
+ * Exits non-zero on any failure, and prints a line per check either way.
  *
  * Usage, from `site/`:   node scripts/verify-output.mjs [--dir <tree>]
  *
@@ -31,25 +22,19 @@
  * `sync-docs.mjs` is what adds the preserved sources — the Markdown documents
  * and `api-contract/openapi.json` — and only `docs/` has them. Run against
  * `dist/` this script fails three checks on `openapi.json` alone and says
- * nothing true about the site. It defaulted to `dist/` until now, which meant
- * the documented command, bare `npm run verify`, was red while the command
- * anyone actually ran carried an explicit `--dir ../docs`. A staleness gate in
- * CI running the documented name would have shipped red on arrival.
+ * nothing true about the site.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createHash } from 'node:crypto';
-import { DOMParser } from '@xmldom/xmldom';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SITE = join(HERE, '..');
-const CAPTURE = join(SITE, 'capture');
 
 const dirArgIndex = process.argv.indexOf('--dir');
 const OUT = resolve(SITE, dirArgIndex === -1 ? '../docs' : process.argv[dirArgIndex + 1]);
 
-const BLOG_ORIGIN = 'https://ryanjosephkamp.github.io';
+const SITE_ORIGIN = 'https://ryanjosephkamp.github.io';
 const BASE_PATH = '/resmon';
 
 let failures = 0;
@@ -59,275 +44,7 @@ const fail = (message) => {
 };
 const pass = (message) => process.stdout.write(`  ok    ${message}\n`);
 
-// ---------------------------------------------------------------------------
-// The app's parser, reproduced.
-//
-// Copied from `parseAtomFeed` in `BlogTab.tsx`. The one adaptation: the browser
-// reports a malformed document by inserting a `<parsererror>` element, which
-// the component checks for with `querySelector`. `@xmldom/xmldom` instead calls
-// an error handler, so the check is wired to that. Everything else — the
-// element names, the `rel="alternate"` preference, the origin lock, the
-// `published`-then-`updated` fallback, the `summary`-then-`content` fallback,
-// the tag strip, the whitespace collapse, the 240-character slice and the sort
-// — is the component's own logic, unchanged. If this drifts from the component
-// the comparison stops meaning anything, which is why it is quoted rather than
-// paraphrased.
-// ---------------------------------------------------------------------------
-
-function parseAtomFeed(xml) {
-  try {
-    let parseError = false;
-    const doc = new DOMParser({
-      onError: () => {
-        parseError = true;
-      },
-    }).parseFromString(xml, 'application/xml');
-    if (parseError) return [];
-    const entries = Array.from(doc.getElementsByTagName('entry'));
-    const posts = [];
-    for (const entry of entries) {
-      const title = entry.getElementsByTagName('title')[0]?.textContent?.trim() ?? '(untitled)';
-      const links = Array.from(entry.getElementsByTagName('link'));
-      const altLink = links.find((l) => (l.getAttribute('rel') ?? 'alternate') === 'alternate');
-      const href = (altLink ?? links[0])?.getAttribute('href') ?? '';
-      if (!href || !href.startsWith(BLOG_ORIGIN)) continue; // origin lock
-      const id = entry.getElementsByTagName('id')[0]?.textContent?.trim() || href;
-      const published =
-        entry.getElementsByTagName('published')[0]?.textContent?.trim() ||
-        entry.getElementsByTagName('updated')[0]?.textContent?.trim() ||
-        null;
-      const summaryRaw =
-        entry.getElementsByTagName('summary')[0]?.textContent ||
-        entry.getElementsByTagName('content')[0]?.textContent ||
-        '';
-      const summary = summaryRaw.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 240);
-      posts.push({ id, title, link: href, published, summary });
-    }
-    posts.sort((a, b) => {
-      const ta = a.published ? Date.parse(a.published) : 0;
-      const tb = b.published ? Date.parse(b.published) : 0;
-      return tb - ta;
-    });
-    return posts;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Feed-level differences that are deliberate. Each is a difference in the XML,
- * none of them in a field the app reads, and each has a reason.
- */
-const EXPECTED_FEED_DIFFERENCES = [
-  ['<generator>', 'Jekyll 3.10.0 -> Astro. The site is built by Astro now; the app does not read it.'],
-  [
-    '<updated> (feed level)',
-    'was the build clock, now the newest post\'s timestamp, so two builds of the same ' +
-      'content produce the same bytes. The app does not read it.',
-  ],
-  [
-    '<content> HTML',
-    'rendered by remark/rehype rather than kramdown. Equivalent, not identical: attribute ' +
-      'order, some entity spellings and the code-block markup differ. The app strips every ' +
-      'tag out of this before using it, and the stripped text is compared below.',
-  ],
-  ['feed element whitespace', 'jekyll-feed emitted a stray space in the opening <feed ...> tag.'],
-];
-
-// ---------------------------------------------------------------------------
-// 0. Is the copy above still the component's parser?
-//
-// Everything the feed comparison claims rests on `parseAtomFeed` being the
-// app's function and not a paraphrase of it. That is true on the day it is
-// copied and silently stops being true afterwards, so it is pinned.
-//
-// The copy is NOT byte-identical to the component and cannot be: the component
-// is TypeScript, the copy is JavaScript with the annotations removed, and the
-// browser's `<parsererror>` check is replaced by `@xmldom/xmldom`'s error
-// callback because the browser mechanism does not exist in Node. What is
-// pinned instead is the component's own function, comments and whitespace
-// removed, so a comment or a reformat does not trip it and a change to what it
-// reads from an entry does. When it trips, re-read the component, bring the
-// copy into line, and update the hash in the same change.
-// ---------------------------------------------------------------------------
-
-const COMPONENT_PATH = join(
-  SITE, '..', 'resmon_scripts', 'frontend', 'src', 'components', 'AboutResmon', 'BlogTab.tsx',
-);
-
-/** sha256 of the component's `parseAtomFeed`, comments and whitespace stripped. */
-const PINNED_PARSER = 'd8b289296668585bc553c989b0c7174357af1cb252241d1d526ce893cdaf7915';
-
-function extractFunction(source, signature) {
-  const start = source.indexOf(signature);
-  if (start === -1) return null;
-  let index = source.indexOf('{', start);
-  let depth = 0;
-  for (; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    else if (source[index] === '}') {
-      depth -= 1;
-      if (depth === 0) return source.slice(start, index + 1);
-    }
-  }
-  return null;
-}
-
-const stripNoise = (code) =>
-  code
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/^[ \t]*\/\/.*$/gm, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-process.stdout.write('\nParser — is the copy in this file still the component\'s?\n');
-
-if (!existsSync(COMPONENT_PATH)) {
-  process.stdout.write('  note  BlogTab.tsx not found; the pin could not be checked\n');
-} else {
-  const fn = extractFunction(readFileSync(COMPONENT_PATH, 'utf8'), 'function parseAtomFeed(');
-  if (!fn) {
-    fail('parseAtomFeed is no longer a top-level function in BlogTab.tsx — re-read it');
-  } else {
-    const digest = createHash('sha256').update(stripNoise(fn)).digest('hex');
-    if (digest === PINNED_PARSER) {
-      pass(`BlogTab.tsx's parseAtomFeed is unchanged (sha256 ${digest.slice(0, 12)}…)`);
-    } else {
-      fail(
-        `BlogTab.tsx's parseAtomFeed has changed. The copy in this file may no longer be the ` +
-          `app's parser, which is what the feed comparison below depends on.\n` +
-          `        pinned  ${PINNED_PARSER}\n        now     ${digest}\n` +
-          `        Re-read the component, update the copy, then update PINNED_PARSER.`,
-      );
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 1. The feed
-// ---------------------------------------------------------------------------
-
-process.stdout.write('\nFeed — the app\'s own parser over the old feed and the new one\n');
-
-const oldFeedPath = join(CAPTURE, 'jekyll-feed.xml');
-const newFeedPath = join(OUT, 'feed.xml');
-
-if (!existsSync(newFeedPath)) {
-  fail(`${newFeedPath} does not exist — the build produced no feed`);
-} else {
-  const oldXml = readFileSync(oldFeedPath, 'utf8');
-  const newXml = readFileSync(newFeedPath, 'utf8');
-
-  const before = parseAtomFeed(oldXml);
-  const after = parseAtomFeed(newXml);
-
-  if (before.length === 0) fail('the captured feed parsed to zero entries — the capture is unusable');
-  if (after.length === 0) {
-    fail('the new feed parsed to ZERO entries. The in-app Blog tab would show an empty post list.');
-  }
-
-  /*
-   * The entry count is the one thing about this feed that is deliberately not
-   * what the capture holds.
-   *
-   * `jekyll-feed` capped the feed at its own default of 10 and the old
-   * `_config.yml` never overrode it, so the capture is a 10-entry feed. The
-   * app's Blog tab has no pagination: its post list is whatever the feed
-   * carries, which meant 17 of the 27 updates could not be opened from inside
-   * the app at all. `FEED_LIMIT` in `src/pages/feed.xml.ts` now carries every
-   * post, so the count is expected to differ and the capture is *not* reissued
-   * to match — it is the record of what the old site served and stays that way.
-   *
-   * What replaces the equal-count assertion is two stronger ones:
-   *
-   *   1. every post source on disk has an entry, so the expectation is derived
-   *      from the posts rather than from a number typed here that would go
-   *      stale on the 28th post; and
-   *   2. the 10 entries the captured feed carried are still the first 10 of the
-   *      new feed, in the same order, identical in all five fields the app
-   *      reads. A feed that grew by reordering or by rewriting an `<id>` would
-   *      make every row in the app's list look new, and that is what this
-   *      catches.
-   */
-  const postSources = readdirSync(join(SITE, '..', 'docs', '_posts')).filter((name) =>
-    name.endsWith('.md'),
-  );
-
-  if (after.length !== postSources.length) {
-    fail(
-      `the feed carries ${after.length} of the ${postSources.length} posts in docs/_posts. ` +
-        'The Blog tab shows the feed and nothing else, so the rest cannot be opened in the app.',
-    );
-  } else {
-    pass(
-      `${after.length} entries — every one of the ${postSources.length} posts in docs/_posts ` +
-        `(the captured feed carried ${before.length})`,
-    );
-  }
-
-  const FIELDS = ['id', 'title', 'link', 'published', 'summary'];
-  let mismatches = 0;
-  const rows = [];
-  for (let index = 0; index < before.length; index += 1) {
-    const a = before[index];
-    const b = after[index];
-    if (!b) {
-      mismatches += 1;
-      rows.push(`  [${index}] in the captured feed only: ${a.id}`);
-      continue;
-    }
-    const differing = FIELDS.filter((field) => a[field] !== b[field]);
-    if (differing.length === 0) {
-      rows.push(`  [${index}] identical  ${a.id.replace(`${BLOG_ORIGIN}${BASE_PATH}`, '')}`);
-    } else {
-      mismatches += 1;
-      rows.push(`  [${index}] DIFFERS in ${differing.join(', ')}`);
-      for (const field of differing) {
-        rows.push(`        old ${field}: ${JSON.stringify(a[field])}`);
-        rows.push(`        new ${field}: ${JSON.stringify(b[field])}`);
-      }
-    }
-  }
-  for (let index = before.length; index < after.length; index += 1) {
-    rows.push(
-      `  [${index}] added     ${after[index].id.replace(`${BLOG_ORIGIN}${BASE_PATH}`, '')}`,
-    );
-  }
-  process.stdout.write(`${rows.join('\n')}\n`);
-
-  if (mismatches === 0) {
-    pass(
-      `all ${FIELDS.length} fields the app reads (${FIELDS.join(', ')}) are identical ` +
-        `for all ${before.length} entries the captured feed carried, and in the same order`,
-    );
-  } else {
-    fail(`${mismatches} of ${before.length} captured entries differ in a field the app reads`);
-  }
-
-  // Byte comparison, reported rather than asserted — the answer is known to be
-  // "no", and saying so precisely is more useful than pretending otherwise.
-  const identicalBytes = oldXml === newXml;
-  process.stdout.write(
-    `  note  bytes ${identicalBytes ? 'identical' : 'differ'}: ` +
-      `${Buffer.byteLength(oldXml)} -> ${Buffer.byteLength(newXml)}\n`,
-  );
-  for (const [what, why] of EXPECTED_FEED_DIFFERENCES) {
-    process.stdout.write(`  note  intended difference — ${what}: ${why}\n`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// 2. Every URL the old site served
-// ---------------------------------------------------------------------------
-
-process.stdout.write('\nURLs — every path the live Jekyll site linked to\n');
-
-const captured = readFileSync(join(CAPTURE, 'jekyll-urls.txt'), 'utf8')
-  .split('\n')
-  .map((line) => line.trim())
-  .filter(Boolean);
-
-/** `/resmon/2026/09/21/resmon-update-26/` -> the file GitHub Pages would serve. */
+/** `/resmon/guide/install/` -> the file GitHub Pages would serve. */
 function fileFor(urlPath) {
   const relative = urlPath.startsWith(`${BASE_PATH}/`)
     ? urlPath.slice(BASE_PATH.length + 1)
@@ -336,61 +53,12 @@ function fileFor(urlPath) {
   return join(OUT, relative);
 }
 
-const missing = [];
-const present = [];
-for (const urlPath of captured) {
-  const file = fileFor(urlPath);
-  if (existsSync(file) && statSync(file).isFile()) present.push(urlPath);
-  else missing.push(urlPath);
-}
-
-const posts = captured.filter((p) => /^\/resmon\/\d{4}\/\d{2}\/\d{2}\//.test(p));
-const missingPosts = missing.filter((p) => posts.includes(p));
-
-process.stdout.write(`  ${present.length} of ${captured.length} captured URLs resolve to a file\n`);
-if (missingPosts.length) {
-  fail(`${missingPosts.length} of the ${posts.length} post permalinks do not resolve:`);
-  for (const p of missingPosts) process.stdout.write(`        ${p}\n`);
-} else {
-  pass(`all ${posts.length} post permalinks resolve`);
-}
-
-/**
- * URLs that are gone on purpose. `assets/main.css` was the `minima` theme's
- * stylesheet; the theme is gone, so the file is too. Nothing outside the old
- * site's own pages ever linked to it, and the app does not fetch it.
- *
- * The other four were internal verification records published as reference
- * documents. They described how releases and spikes were checked, not how to
- * use resmon, so their sources left `docs/` and the pages left the site. The
- * app links to none of them.
- */
-const INTENTIONALLY_GONE = new Set([
-  `${BASE_PATH}/assets/main.css`,
-  `${BASE_PATH}/release-verification/`,
-  `${BASE_PATH}/sqlite-vec-feasibility/`,
-  `${BASE_PATH}/ui-verification-feasibility/`,
-  `${BASE_PATH}/voice-feasibility/`,
-]);
-
-const unexpected = missing.filter((p) => !INTENTIONALLY_GONE.has(p));
-if (unexpected.length) {
-  fail(`${unexpected.length} URL(s) no longer resolve and are not on the intended-removal list:`);
-  for (const p of unexpected) process.stdout.write(`        ${p}\n`);
-} else {
-  const gone = missing.filter((p) => INTENTIONALLY_GONE.has(p));
-  pass(
-    `every other captured URL resolves` +
-      (gone.length ? `; ${gone.length} removed on purpose: ${gone.join(', ')}` : ''),
-  );
-}
-
 process.stdout.write('\nOutput\n');
 
 if (existsSync(join(OUT, '.nojekyll'))) pass('.nojekyll present — GitHub Pages serves the files as they are');
 else fail('.nojekyll is missing — GitHub Pages would run Jekyll over the built site');
 
-for (const guard of ['_config.yml', 'Gemfile', '_posts/index.html']) {
+for (const guard of ['_config.yml', 'Gemfile']) {
   if (existsSync(join(OUT, guard))) fail(`${guard} is still in the output — Jekyll scaffolding left behind`);
 }
 
@@ -418,10 +86,10 @@ if (withScripts.length) {
 }
 
 /*
- * Internal links resolve. This is the check that covers the README split: the
- * old readme's `docs/backup.md` links and its two in-page anchors were
- * rewritten to site URLs, and a rewrite that produced a plausible-looking URL
- * nothing serves would otherwise go unnoticed until someone clicked it.
+ * Internal links resolve. The guide's links to `docs/*.md` and its in-page
+ * anchors are rewritten to site URLs, and a rewrite that produced a
+ * plausible-looking URL nothing serves would otherwise go unnoticed until
+ * someone clicked it.
  */
 const linkPattern = /(?:href|src)="(\/resmon\/[^"#?]*)/g;
 const broken = new Map();
@@ -472,12 +140,9 @@ if (broken.size) {
  *     not the same as a working link.
  *
  * **Existence is decided before extension, and that ordering is the point.**
- * Keying the buckets off the extension alone, which is what this did first,
- * put every `.md` link in "raw source" whether or not anything served it. On
- * the published site that read as 25 raw-source links and 7 404s when the
- * truth was 9 and 21: it understated the worst category threefold and
- * overstated the mildest. The bucket a link lands in now is the answer a
- * browser would get.
+ * Keying the buckets off the extension alone would put every `.md` link in
+ * "raw source" whether or not anything served it, understating the 404s. The
+ * bucket a link lands in is the answer a browser would get.
  *
  * `src/lib/markdown.ts` rewrites these at render time. This is what says it
  * worked.
@@ -506,7 +171,7 @@ const documentLinks = { offBase: [], notFound: [], rawServed: [] };
 let documentLinkCount = 0;
 for (const page of pages) {
   const html = readFileSync(join(OUT, page), 'utf8');
-  const pageUrl = new URL(publishedUrlOf(page), BLOG_ORIGIN);
+  const pageUrl = new URL(publishedUrlOf(page), SITE_ORIGIN);
   for (const match of html.matchAll(/<a\b[^>]*\shref="([^"]+)"/g)) {
     const href = match[1];
     if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)) continue;
@@ -525,24 +190,9 @@ const KINDS = [
   ['rawServed', 'are served, but as raw source text rather than the page that renders it'],
 ];
 
-/**
- * Four links in three posts point at files that are not in the repository at
- * all — `update_4_25_26_workflow.md` and three like it, written when those
- * files sat beside the post and gone before the repository was public. There
- * is nowhere to rewrite them to. They are listed by name so that the number
- * below is a decision rather than a tolerance, and they stay in the posts
- * because a post is a dated record and is not edited after the fact.
- */
-const UNRESOLVABLE = new Set([
-  '/resmon/2026/04/25/update_4_25_26/update_4_25_26_workflow.md',
-  '/resmon/2026/04/27/update_4_27_26/update_4_27_26_workflow.md',
-  '/resmon/2026/05/05/resmon-update-4/resmon_update_4_overview.md',
-  '/resmon/2026/05/05/resmon-update-4/update_5_5_26_workflow.md',
-]);
-
 let documentLinkProblems = 0;
 for (const [kind, description] of KINDS) {
-  const rows = documentLinks[kind].filter((row) => !UNRESOLVABLE.has(row.split('  ->  ')[1]));
+  const rows = documentLinks[kind];
   documentLinkProblems += rows.length;
   if (rows.length) {
     fail(`${rows.length} link(s) written inside a document ${description}:`);
@@ -551,27 +201,19 @@ for (const [kind, description] of KINDS) {
   }
 }
 if (documentLinkProblems === 0) {
-  const tolerated = [...documentLinks.offBase, ...documentLinks.notFound, ...documentLinks.rawServed];
-  pass(
-    `all ${documentLinkCount - tolerated.length} of ${documentLinkCount} document links resolve ` +
-      `to a rendered page or off-site; the other ${tolerated.length} are the named files that ` +
-      'left the repository before it was public',
-  );
+  pass(`all ${documentLinkCount} document links resolve to a rendered page or off-site`);
 }
 
 /*
  * Images, which the check above cannot see.
  *
- * It matches `<a … href>`, and an `<img src>` is neither. That gap was not
- * theoretical: `rewriteLinks` resolves `![alt](src)` through the same five
- * characters of Markdown as a link, so a relative image in a document source
- * rendered as `<img src="https://github.com/…/blob/main/…png">`. A `blob` URL
- * is GitHub's HTML page *about* a file, so the image renders broken — and
- * every check in this script still reported PASS. A reviewer found that by
- * adding one image, which is the only reason it is known.
+ * It matches `<a … href>`, and an `<img src>` is not one. `rewriteLinks`
+ * resolves `![alt](src)` through the same five characters of Markdown as a
+ * link, so a relative image in a document source could render as
+ * `<img src="https://github.com/…/blob/main/…png">`. A `blob` URL is GitHub's
+ * HTML page *about* a file, so the image would render broken.
  *
- * Two properties, because either alone leaves the same hole open one element
- * over. Every internal `src` resolves to a file the site serves; and no `src`
+ * Two properties, because either alone leaves a hole. Every internal `src` resolves to a file the site serves; and no `src`
  * anywhere is a `blob` URL, whatever host wrote it.
  */
 process.stdout.write('\nImages — every <img> points at something that is an image\n');
@@ -582,7 +224,7 @@ const blobImages = [];
 let imageCount = 0;
 for (const page of pages) {
   const html = readFileSync(join(OUT, page), 'utf8');
-  const pageUrl = new URL(publishedUrlOf(page), BLOG_ORIGIN);
+  const pageUrl = new URL(publishedUrlOf(page), SITE_ORIGIN);
   for (const match of html.matchAll(/<img\b[^>]*?\ssrc="([^"]+)"/g)) {
     const src = match[1];
     imageCount += 1;
@@ -617,18 +259,11 @@ if (!blobImages.length && !unservedImages.length) {
 // ---------------------------------------------------------------------------
 // 4. Every rendered page actually carries its document
 //
-// The URL check above asserts that a file exists at each published path. That
-// is not the same as the page having anything on it, and the difference is not
-// hypothetical: setting `html = ''` in `[...permalink].astro` left all 27 post
-// pages in place, took the built output from 459,594 bytes to 196,108 — 57% of
-// what the app's `<webview>` displays, gone — and every check in this script
-// still reported PASS. A reviewer found that, not this file.
-//
-// `capture/` holds the old feed and the old URL list, not the old page HTML, so
-// there is nothing to diff the rendering against. The source Markdown is the
-// thing that is available, and it is the right thing anyway: it asks whether
-// the page says what its source says, which is the property, rather than
-// whether two renderers agree.
+// The link checks above assert that a file exists at each published path. That
+// is not the same as the page having anything on it: a page template that
+// rendered an empty body would leave every page in place and every link
+// check green. The source Markdown is the thing to compare against: it asks
+// whether the page says what its source says.
 //
 // Two assertions per page, because either alone is weak. A length floor catches
 // a page that lost most of itself but not a page that lost one section; a set
@@ -706,11 +341,9 @@ function renderableSource(source) {
  * and an entity, which survives tag-stripping as its name. Those three are the
  * exclusions.
  *
- * The first attempt excluded emphasis, code and pipes too, and left 5 of the 67
- * documents with nothing to sample — four early posts and one guide page, all
- * heavily formatted. Widening the filter to what normalization actually makes
- * safe covers them, and the remaining count is reported either way rather than
- * being allowed to read as full coverage.
+ * The filter allows everything normalization makes safe, so heavily formatted
+ * documents still have lines to sample, and the count of documents with none is
+ * reported rather than being allowed to read as full coverage.
  */
 function proseFragments(body, wanted) {
   const candidates = body
@@ -733,20 +366,6 @@ function proseFragments(body, wanted) {
 function documentPairs() {
   const repo = join(SITE, '..');
   const pairs = [];
-
-  // Posts. The published directory is found by slug rather than by re-deriving
-  // the date, so this does not quietly repeat whatever `postPath` decided.
-  const postDir = join(repo, 'docs', '_posts');
-  const postPages = pages.filter((page) => /^\d{4}\/\d{2}\/\d{2}\//.test(page));
-  for (const file of readdirSync(postDir).filter((name) => name.endsWith('.md'))) {
-    const slug = file.replace(/\.md$/, '').replace(/^\d{4}-\d{2}-\d{2}-/, '');
-    const page = postPages.find((candidate) => candidate.split('/')[3] === slug);
-    if (!page) {
-      fail(`no published page found for docs/_posts/${file}`);
-      continue;
-    }
-    pairs.push({ page, source: join(postDir, file), label: `docs/_posts/${file}` });
-  }
 
   // Reference documents.
   const docsDir = join(repo, 'docs');
@@ -782,11 +401,10 @@ function documentPairs() {
 }
 
 /**
- * The floor for how much of the source's text must reach the page. Measured
- * ratios across all 67 documents run from 1.00 to 1.61 — above 1 because the
- * page adds its own chrome, and never below because Markdown syntax is the only
- * thing normalization removes from the source. 0.90 therefore sits clear of the
- * real minimum, while an emptied body scores about 0.03.
+ * The floor for how much of the source's text must reach the page. The ratio
+ * is never below 1 for a complete page — the page adds its own chrome, and
+ * Markdown syntax is the only thing normalization removes from the source —
+ * while an emptied body scores near 0. 0.90 sits clear of both.
  */
 const COVERAGE_FLOOR = 0.9;
 
@@ -911,33 +529,6 @@ if (wrongH1.length) {
   for (const row of wrongH1.slice(0, 5)) process.stdout.write(`        ${row.page}: ${row.count}\n`);
 } else {
   pass(`all ${pages.length} pages have exactly one <h1>`);
-}
-
-/*
- * `<time datetime="...">` must be a valid HTML date string. The posts' front
- * matter is not one — `2026-04-24 12:00:00 -0400` uses a space for the
- * separator and an offset with no colon — and an attribute filled with it
- * looks machine-readable without being so, which is the kind of thing nothing
- * complains about until something tries to read it. Accepts the forms HTML
- * allows here: a date, or a date and time with `Z` or a `±HH:MM` offset.
- */
-const DATETIME_OK = /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2}))?$/;
-const badDatetimes = [];
-let datetimeCount = 0;
-for (const page of pages) {
-  const html = readFileSync(join(OUT, page), 'utf8');
-  for (const match of html.matchAll(/<time[^>]*\sdatetime="([^"]*)"/g)) {
-    datetimeCount += 1;
-    if (!DATETIME_OK.test(match[1])) badDatetimes.push({ page, value: match[1] });
-  }
-}
-if (badDatetimes.length) {
-  fail(`${badDatetimes.length} of ${datetimeCount} <time datetime> values are not valid HTML date strings:`);
-  for (const bad of badDatetimes.slice(0, 5)) {
-    process.stdout.write(`        ${bad.page}: ${JSON.stringify(bad.value)}\n`);
-  }
-} else {
-  pass(`all ${datetimeCount} <time datetime> values are valid HTML date strings`);
 }
 
 process.stdout.write(

@@ -2,7 +2,6 @@
 title: "Sources and their terms"
 summary: "The 26 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms."
 order: 14
-readmeLines: []
 ---
 resmon asks 26 open scholarly sources. Every statement on this page comes from the catalog that **Settings › Sources** and **Search › Ask the sources** read, so the app and this page cannot disagree about someone else's service. Some of what follows is what a provider publishes about itself. Where resmon does not know, the catalog says so.
 

@@ -2,7 +2,6 @@
 title: "Search"
 summary: "Searching what you hold, asking the sources for more, runs, saved searches, and shared wording."
 order: 5
-readmeLines: []
 ---
 **Search** has four tabs: **Your collection**, **Ask the sources**, **Saved**, and **Shared wording**. The two buttons at the top of Your collection, **Deep Dive** and **Deep Sweep**, open Ask the sources with that kind chosen.
 

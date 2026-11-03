@@ -1,7 +1,7 @@
 ---
 /**
- * A rendered Markdown document: the reference pages, the guide pages split out
- * of the README, and the update posts all use this.
+ * A rendered Markdown document: the reference pages and the guide pages use
+ * this.
  *
  * The contents list is built from the generated heading ids rather than from a
  * hand-written list, so it cannot fall out of step with the document. It only
@@ -21,7 +21,7 @@ interface Props {
    * listing entry carries its section, not as a label above the heading.
    */
   eyebrow?: string;
-  /** Rendered beneath the title: a date, a summary, a source path. */
+  /** Rendered beneath the title: a summary or a source path. */
   meta?: string;
   html: string;
   headings: Heading[];

@@ -17,7 +17,6 @@
  *   - `docs/adding-a-source.md`, `docs/source-landscape.md`,
  *     `docs/local-api-security.md` and the rest are linked by repository path
  *     from the README, CONTRIBUTING.md, and the source tree.
- *   - `docs/_posts/` holds the 27 posts, at URLs already published.
  *
  * So those files stay exactly where they are, the site reads them in place, and
  * this script copies the build output around them. PROTECTED below is the list,
@@ -52,8 +51,6 @@ const DOCS = join(SITE, '..', 'docs');
  * single `*` matches one path segment.
  */
 const PROTECTED = [
-  // The 27 published posts, read in place by the site's content loader.
-  '_posts/**',
   // The generated, guarded API contract, plus its own explainer.
   'api-contract/*.md',
   'api-contract/*.json',
@@ -71,10 +68,10 @@ const PROTECTED_PATTERNS = PROTECTED.map((pattern) => toPattern(pattern.toLowerC
 
 /*
  * Matched case-insensitively, because the filesystem this runs on is. A build
- * file at `_POSTS/…` matched no pattern while resolving to the same inode as a
- * protected post, so the copy overwrote the post and the script exited 0 — the
- * collision guard below never saw it. A reviewer found that. Lowercasing both
- * sides costs nothing and removes the whole class.
+ * file at `API-CONTRACT/HTTP.md` matched no pattern while resolving to the same
+ * inode as a protected file, so the copy overwrote it and the script exited 0 —
+ * the collision guard below never saw it. Lowercasing both sides costs nothing
+ * and removes the whole class.
  */
 const isProtected = (relativePath) =>
   PROTECTED_PATTERNS.some((pattern) => pattern.test(relativePath.toLowerCase()));
@@ -120,9 +117,9 @@ const doomed = existing.filter((relativePath) => !isProtected(relativePath));
  *
  * `PROTECTED` is a list, and the failure this script is designed against is a
  * file somebody adds to `docs/` later and forgets to add to the list. Deleting
- * quietly is exactly what hides that: a reviewer planted
- * `docs/api-contract/openapi.yaml` and `docs/api-contract/schemas/paper.json`,
- * both were removed, the preserved count did not move, and the run exited 0.
+ * quietly is exactly what hides that: a file planted at
+ * `docs/api-contract/openapi.yaml` would be removed, the preserved count would
+ * not move, and the run would exit 0.
  *
  * A file the build is about to replace is ordinary and not worth a line. A file
  * that is being removed and *not* replaced is the interesting case, and every
@@ -179,10 +176,9 @@ if (collisions.length) {
 
 /*
  * Without this file GitHub Pages runs Jekyll over whatever is in `docs/`, which
- * would take a built static site and try to build it again. It is also what
- * makes paths beginning with an underscore servable, which `docs/_posts/`
- * needs. It is written here rather than only in `public/` so that the file is
- * guaranteed present even if someone copies `dist/` by hand.
+ * would take a built static site and try to build it again. It is written
+ * here rather than only in `public/` so that the file is guaranteed present
+ * even if someone copies `dist/` by hand.
  */
 writeFileSync(join(DOCS, '.nojekyll'), '', 'utf8');
 

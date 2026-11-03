@@ -2,7 +2,6 @@
 title: "AI settings"
 summary: "Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends."
 order: 11
-readmeLines: []
 ---
 Three things in resmon use a model, and **Settings › AI** sets up all three:
 

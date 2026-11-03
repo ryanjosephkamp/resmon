@@ -2,7 +2,6 @@
 title: "The Library"
 summary: "The reading queue, and copies of PDF, TXT, and MD files kept in a folder you choose."
 order: 8
-readmeLines: []
 ---
 **Library** has three tabs: **Reading queue**, **Your files**, and **Evidence**. The queue is the list of papers you meant to read. **Your files** keeps copies of files in a folder of yours. [Evidence](/resmon/guide/projects/) works on those files.
 

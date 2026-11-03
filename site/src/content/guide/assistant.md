@@ -2,7 +2,6 @@
 title: "Ask and the MCP server"
 summary: "The assistant, what it can and cannot do, and driving resmon from another program over MCP."
 order: 10
-readmeLines: []
 ---
 **Ask** is an assistant for questions about your own monitoring: what a watch found, why a paper is in your collection, which sources failed last night. It answers from resmon itself, through the same tools an outside program can use over MCP. Anything that would change something waits for you.
 

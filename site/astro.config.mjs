@@ -5,15 +5,12 @@ import { defineConfig } from 'astro/config';
  * The site is published by GitHub Pages from the repository's ``docs/`` folder,
  * under the project path ``/resmon/``. Both halves of that matter:
  *
- *   - ``site`` + ``base`` together produce the absolute URLs the in-app Blog
- *     tab checks against. ``BlogTab.tsx`` refuses any feed entry whose link
- *     does not start with ``https://ryanjosephkamp.github.io``, so a wrong
- *     ``site`` here does not merely look wrong, it empties the app's post list.
- *   - ``trailingSlash: 'always'`` plus ``build.format: 'directory'`` reproduce
- *     Jekyll's ``/:year/:month/:day/:title/`` permalinks as real directories
- *     with an ``index.html`` inside, which is what GitHub Pages serves for a
- *     URL ending in a slash. Every one of the 27 published post URLs depends
- *     on this pair.
+ *   - ``site`` + ``base`` together produce the absolute URLs in the canonical
+ *     and Open Graph links, so a wrong ``site`` here points every page's
+ *     canonical link at the wrong place.
+ *   - ``trailingSlash: 'always'`` plus ``build.format: 'directory'`` publish
+ *     every page as a directory with an ``index.html`` inside, which is what
+ *     GitHub Pages serves for a URL ending in a slash.
  *
  * ``outDir`` is a staging directory, not ``../docs``. ``docs/api-contract/``
  * holds generated files that a Python test regenerates and diffs

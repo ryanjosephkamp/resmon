@@ -2,7 +2,6 @@
 title: "Watches and people"
 summary: "Making a watch, its schedule and dates, where reports go, the coverage audit, and watching for a person."
 order: 6
-readmeLines: []
 ---
 A **watch** is a search resmon runs on a schedule and keeps the papers of. **Watches** has three tabs: **Searches** (your watches), **Calendar** (when each is due), and **People** (the researchers resmon looks for on the papers it collects). The engine's HTTP API calls a watch a *routine*.
 

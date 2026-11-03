@@ -2,7 +2,6 @@
 title: "Install and launch"
 summary: "The downloads and their status, the first launch, updates, the resmon command, the background service, and running from source."
 order: 3
-readmeLines: []
 ---
 Download a build from [Releases](https://github.com/ryanjosephkamp/resmon/releases). Each build carries its own Python runtime and everything resmon needs, so installing needs no Python, Node, or `pip`.
 

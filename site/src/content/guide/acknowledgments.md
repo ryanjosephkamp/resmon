@@ -2,7 +2,6 @@
 title: "Acknowledgments"
 summary: "The open-access providers, the open-source projects, and the standards resmon is built on."
 order: 20
-readmeLines: []
 ---
 resmon is built on a broad ecosystem of open scholarly infrastructure and open-source software. The project gratefully acknowledges:
 

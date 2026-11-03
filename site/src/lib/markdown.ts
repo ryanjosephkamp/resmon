@@ -5,21 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { createMarkdownProcessor } from '@astrojs/markdown-remark';
 
 /**
- * One Markdown processor, used by every page **and** by the Atom feed.
+ * One Markdown processor, used by every page.
  *
- * The feed is not decoration. ``BlogTab.tsx`` fetches ``/feed.xml`` on every
- * tab open, parses it with ``DOMParser``, and builds the post list's preview
- * text by stripping the tags out of each entry's ``<content>`` and taking the
- * first 240 characters. If the feed's HTML came from a different renderer than
- * the post pages, the preview in the app and the page the user then opens could
- * disagree about what the post says. Sharing the processor removes that
- * possibility rather than testing for it.
- *
- * The settings match Astro's own defaults for ``.md`` files — GitHub-flavored
- * Markdown, SmartyPants, and generated heading ids — which are also what
- * Jekyll's kramdown produced for these 27 posts. The HTML is therefore
- * equivalent to the old feed's, not byte-identical to it; the differences are
- * enumerated in ``scripts/verify-output.mjs``.
+ * The settings match Astro's own defaults for ``.md`` files: GitHub-flavored
+ * Markdown, SmartyPants, and generated heading ids.
  */
 const processor = await createMarkdownProcessor({
   gfm: true,
@@ -44,9 +33,9 @@ const REPO_RAW = 'https://raw.githubusercontent.com/ryanjosephkamp/resmon/main';
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 /**
- * Anchors that pointed at a heading inside the single 165 KB ``README.md`` and
- * now point at a different page. Listed one by one, because a guess at where a
- * fragment used to resolve is a broken link that looks like a working one.
+ * Anchors that point at a heading in the root ``README.md`` and are served by
+ * a different page here. Listed one by one, because a guess at where a
+ * fragment resolves is a broken link that looks like a working one.
  */
 const README_ANCHORS: Record<string, string> = {
   '#configuration': `${BASE}/guide/configuration/`,
@@ -65,7 +54,7 @@ const README_ANCHORS: Record<string, string> = {
  * link needs the directory it was written from, which only the page that
  * renders the document knows, so each one passes it in.
  */
-export type SourceDirectory = '.' | 'docs' | 'docs/_posts' | 'docs/api-contract';
+export type SourceDirectory = '.' | 'docs' | 'docs/api-contract';
 
 export interface RewriteOptions {
   /** The document's directory in the repository. */
@@ -93,11 +82,9 @@ function normalizeRepoPath(directory: string, target: string): string | null {
  *
  * Three outcomes, in order of preference: the rendered page, when the site
  * publishes one; the file on GitHub, when it exists in the repository but has
- * no page; and nothing, when the path is not in the repository at all. The
- * last case is four links in three 2026 posts, pointing at working notes that
- * were never committed. A link left broken is visibly broken. A link rewritten
- * to a GitHub URL that 404s looks right and is not, which is worse, and
- * editing the posts to remove them would be editing a dated record.
+ * no page; and nothing, when the path is not in the repository at all. A link
+ * left broken is visibly broken. A link rewritten to a GitHub URL that 404s
+ * looks right and is not, which is worse.
  */
 function siteTargetFor(repoPath: string): string | null {
   // `docs/api-contract/` — a directory, written with its trailing slash.
@@ -119,7 +106,7 @@ function siteTargetFor(repoPath: string): string | null {
     return `${BASE}/${reference[1]}/`;
   }
 
-  // The root README is the 16 guide pages now.
+  // The root README's content is the guide.
   if (repoPath === 'README.md') return `${BASE}/guide/`;
 
   // Anything else that is really in the repository: send the reader to GitHub,
@@ -132,17 +119,10 @@ function siteTargetFor(repoPath: string): string | null {
 /**
  * The same question for an image, which has a different right answer.
  *
- * `![alt](src)` is the same five characters of Markdown as a link and was
- * going through the same function, which meant an image in a document would
- * have been rewritten to `${REPO_BLOB}/…`. A `blob` URL is GitHub's HTML page
- * *about* a file; an `<img>` pointed at one renders as a broken image. The
- * `raw.githubusercontent.com` host is the file itself, which is why REPO_RAW
- * exists, and before this it was reachable only from the README banner's raw
- * `src=` attribute.
- *
- * There are no relative images in the content today, so nothing was rendering
- * wrong — a reviewer found it by adding one. It is the same defect this pass
- * exists to remove, one element over.
+ * `![alt](src)` is the same five characters of Markdown as a link, but a
+ * `blob` URL is GitHub's HTML page *about* a file, and an `<img>` pointed at
+ * one renders as a broken image. The `raw.githubusercontent.com` host is the
+ * file itself, which is why REPO_RAW exists.
  *
  * `site/public/**` is copied verbatim into the output, so an image that lives
  * there is served by the site and that is the better target.
@@ -244,7 +224,7 @@ export interface Rendered {
   headings: Heading[];
 }
 
-/** Render Markdown to the HTML string both the pages and the feed use. */
+/** Render Markdown to the HTML string the pages use. */
 export async function renderMarkdown(
   markdown: string,
   options: RewriteOptions = {},

@@ -2,7 +2,6 @@
 title: "Evidence"
 summary: "Projects of exact file versions, pinned passages, and cited answers from excerpts you choose."
 order: 9
-readmeLines: []
 ---
 **Library › Evidence** is where you work on the files in **Your files**. A **project** gathers exact versions of files. In a project you read pages, pin passages with notes, export what you chose, and ask a question of excerpts you pick. If no library exists yet, Evidence says so and links to **Your files**. Evidence is unavailable on Windows; see [Install and launch](/resmon/guide/install/).
 

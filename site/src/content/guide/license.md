@@ -2,7 +2,6 @@
 title: "License"
 summary: "The project license and where the third-party notices live."
 order: 19
-readmeLines: []
 ---
 resmon is released under the **MIT License**. Copyright (c) 2026 Ryan Kamp. The full text is in [LICENSE](LICENSE) at the root of the repository, and in **Settings › About resmon**, under "The license in full".
 

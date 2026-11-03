@@ -2,7 +2,6 @@
 title: "Configuration"
 summary: "Saved searches and watch copies, moving them between computers, and what each Settings group holds."
 order: 15
-readmeLines: []
 ---
 resmon keeps two kinds of reusable configuration, saved searches and watches, and a set of settings. Saved searches and the copies of watches are listed in **Search › Saved**. Everything else is in **Settings**.
 

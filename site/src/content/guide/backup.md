@@ -2,7 +2,6 @@
 title: "Backup and restore"
 summary: "What a backup holds and leaves out, where it goes, restoring it, and keeping a copy in Google Drive."
 order: 13
-readmeLines: []
 ---
 **Settings › Backup** writes one folder holding everything resmon keeps for you locally, and restores it on this computer or another.
 

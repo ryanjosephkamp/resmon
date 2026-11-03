@@ -2,7 +2,6 @@
 title: "Email, delivery, and notifications"
 summary: "Email, folder, feed, and webhook delivery, how a delivery is recorded, and desktop notifications."
 order: 12
-readmeLines: []
 ---
 When a watch finishes a run, resmon can notify you, email you the report, and send it on to a folder, a feed, or a webhook. Where reports go is set per watch. The mail account and the notification rules are set once, in **Settings**. This page covers all three, and how resmon records whether a report arrived.
 

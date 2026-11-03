@@ -5,19 +5,11 @@
  * Set as a listing: the 26 sources are numbered, counted entries, each with
  * the facts the app shows before a search, read from the catalog in the app's
  * own source (`src/data/sources.json`, kept current by a backend test). Below
- * the listing are the tour, a real run's record, what the app does, how to get
- * it, and every update.
- *
- * Two readers at once. A visitor wants to know what resmon is and how to get
- * it; the app's Blog tab loads this exact URL into its embedded reader on first
- * open, at about 840 px wide, and its reader wants the update list. Both are
- * here, and the update list is complete rather than truncated.
+ * the listing are the tour, a real run's record, what the app does, and how to
+ * get it.
  */
-import { getCollection } from 'astro:content';
 import Base from '../layouts/Base.astro';
-import PostList from '../components/PostList.astro';
 import RunRecord from '../components/RunRecord.astro';
-import { byDateDescending } from '../lib/posts';
 import { url, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
 import {
   SOURCES,
@@ -32,7 +24,6 @@ import {
   namedAndRest,
 } from '../lib/sources';
 
-const posts = (await getCollection('posts')).sort(byDateDescending);
 const { named, rest } = namedAndRest(['arXiv', 'PubMed', 'OpenAlex', 'CrossRef']);
 
 const description =
@@ -350,18 +341,6 @@ const platforms = [
         </p>
       </div>
     </div>
-  </section>
-
-  <section id="updates" class="band" aria-labelledby="updates-title">
-    <header class="band-head">
-      <h2 id="updates-title">Updates</h2>
-      <p class="count mono">{posts.length} posts</p>
-    </header>
-    <p class="band-lede">
-      Every release update, newest first. The app’s <strong>About resmon → Blog</strong> tab reads
-      the same posts from <a href={url('/feed.xml')}>this site’s Atom feed</a>.
-    </p>
-    <PostList posts={posts} withSummary />
   </section>
 </Base>
 

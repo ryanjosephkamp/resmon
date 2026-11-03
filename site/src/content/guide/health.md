@@ -2,7 +2,6 @@
 title: "Health"
 summary: "The Source wall, the Watchdog, retraction checks, analytics, and which engine a window uses."
 order: 7
-readmeLines: []
 ---
 A literature monitor fails silently. A source that stopped answering and a field that went quiet produce the same empty list, and most tools leave you to tell them apart. **Health** is where resmon tells you. It has four tabs: **Source wall**, **Watchdog**, **Analytics**, and **This engine**.
 

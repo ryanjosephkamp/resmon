@@ -2,7 +2,6 @@
 title: "Architecture"
 summary: "The engine, the window, the scheduler, how runs are admitted and recorded, and the source tree."
 order: 16
-readmeLines: []
 ---
 resmon is a local-first desktop application with three parts that talk only over HTTP on your own computer: a Python engine, an Electron shell, and Atlas, the React interface the shell shows.
 
