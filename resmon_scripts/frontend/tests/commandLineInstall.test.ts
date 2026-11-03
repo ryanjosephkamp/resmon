@@ -87,6 +87,19 @@ describe('on macOS', () => {
     expect(result.message).toContain('There is no resmon command');
   });
 
+  it.each([
+    ['a translocated app', ['private', 'var', 'folders', 'AppTranslocation', 'ABC', 'd']],
+    ['a mounted disk image', ['Volumes', 'resmon 1.0.0']],
+  ])('refuses to install from %s, in one sentence, and writes nothing', async (_name, parts) => {
+    // The check reads the path, not the disk, so the folders need not exist.
+    const ctx = context('darwin', { resourcesPath: `/${parts.join('/')}/resmon.app/Contents/Resources` });
+    const result = await installCommandLine(ctx);
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('move resmon to Applications');
+    expect(result.message.split('. ')).toHaveLength(1);
+    expect(fs.existsSync(path.join(ctx.macBinDir, 'resmon'))).toBe(false);
+  });
+
   it('refuses plainly when the app has no command line inside it', async () => {
     const result = await installCommandLine(context('darwin'));
     expect(result.ok).toBe(false);

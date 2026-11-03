@@ -31,6 +31,16 @@ export function shellQuote(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * True when a macOS app runs from a place that will not be there next time: an
+ * unsigned app opened from Downloads or a disk image runs from a random
+ * read-only copy under `/AppTranslocation/`, and one opened from the disk image
+ * itself runs from `/Volumes/`. A launcher that points into either stops working.
+ */
+export function runsFromTemporaryPlace(appPath: string): boolean {
+  return /\/AppTranslocation\//.test(appPath) || /^\/Volumes\//.test(appPath);
+}
+
 /** The interpreter and archive inside a macOS app bundle. */
 export function macBundlePaths(appPath: string): { python: string; archive: string } {
   const backend = `${appPath.replace(/\/+$/, '')}/Contents/Resources/backend`;

@@ -12,7 +12,8 @@ import * as path from 'path';
 import {
   BROADCAST_ENVIRONMENT_CHANGE, MAC_LAUNCHER, addToWindowsPath, administratorScript,
   installAsAdministrator, linuxLauncher, macBundlePaths, macLauncher, parseRegQuery, pathHasDir,
-  regWritePathArgs, removalDecision, removeAsAdministrator, removeFromWindowsPath, windowsLauncher,
+  regWritePathArgs, removalDecision, removeAsAdministrator, removeFromWindowsPath, runsFromTemporaryPlace,
+  windowsLauncher,
 } from './commandLine';
 
 /** What a menu item reports back: shown as a dialog, or logged under the e2e suite. */
@@ -115,6 +116,10 @@ async function asAdministrator(shell: string): Promise<boolean> {
 
 async function installOnMac(ctx: CommandLineContext): Promise<Outcome> {
   const appPath = path.resolve(ctx.resourcesPath, '..', '..');
+  if (runsFromTemporaryPlace(appPath)) {
+    return failure('resmon is running from a disk image or a download, which will not be there next time: '
+      + 'move resmon to Applications, open it from there, and install the command again.');
+  }
   const bundle = macBundlePaths(appPath);
   if (!fs.existsSync(bundle.python) || !fs.existsSync(bundle.archive)) {
     return failure('This copy of resmon has no command line inside it to install.',

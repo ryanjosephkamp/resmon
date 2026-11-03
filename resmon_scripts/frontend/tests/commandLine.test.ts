@@ -6,7 +6,7 @@
 import {
   LAUNCHER_MARKER, addToWindowsPath, administratorScript, installAsAdministrator, isResmonLauncher,
   linuxLauncher, macBundlePaths, macLauncher, parseRegQuery, pathHasDir, regWritePathArgs,
-  removalDecision, removeFromWindowsPath, shellQuote, windowsLauncher,
+  removalDecision, runsFromTemporaryPlace, removeFromWindowsPath, shellQuote, windowsLauncher,
 } from '../electron/commandLine';
 
 describe('the macOS launcher', () => {
@@ -169,4 +169,19 @@ describe('the administrator prompt', () => {
       + "&& /bin/chmod 755 '/usr/local/bin/resmon'",
     );
   });
+});
+
+describe('an app that runs from a place that will not be there next time', () => {
+  it.each([
+    '/private/var/folders/ab/xyz/AppTranslocation/6F1D/d/resmon.app',
+    '/Volumes/resmon 1.0.0/resmon.app',
+    '/Volumes/Backup/Apps/resmon.app',
+  ])('%s', (appPath) => expect(runsFromTemporaryPlace(appPath)).toBe(true));
+
+  it.each([
+    '/Applications/resmon.app',
+    '/Users/ada/Applications/resmon.app',
+    '/Users/ada/Volumes/resmon.app',
+    '/opt/AppTranslocationTools/resmon.app',
+  ])('%s is a place to stay', (appPath) => expect(runsFromTemporaryPlace(appPath)).toBe(false));
 });
