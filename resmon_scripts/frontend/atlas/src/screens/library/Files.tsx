@@ -7,7 +7,7 @@ import { count, number, when } from '../today/format';
 import { CompareButton, FileWording } from './FileWording';
 import { LibraryTabs } from './LibraryTabs';
 import {
-  LIBRARY, LIBRARY_KEY, download, importFile, importWords, kindOf, readable, sizeWords,
+  LIBRARY, LIBRARY_KEY, download, importFile, importWords, kindOf, readable, retryLibrary, sizeWords, unsupportedWords,
   type LibraryFile, type LibraryImported, type LibraryStatus,
 } from './libraryApi';
 import { commandEnter } from '../../shell/shortcuts';
@@ -38,14 +38,17 @@ export function Files() {
   const status = useQuery({
     queryKey: LIBRARY_KEY,
     queryFn: () => answer(engine().GET('/api/library', LIBRARY)),
+    retry: retryLibrary,
   });
   const data = status.data;
+  const unsupported = unsupportedWords(status.error);
   return (
     <div className="page library files-page" aria-busy={status.isFetching}>
       <LibraryTabs />
       <div className="library-head"><h1 className="page-title">Your files</h1></div>
       {status.isPending && <p className="page-lede">Reading the library.</p>}
-      {status.isError && <p className="page-lede">The library could not be read ({errorWords(status.error)}).</p>}
+      {unsupported && <p className="page-lede" role="alert" data-library="unsupported">{unsupported}</p>}
+      {status.isError && !unsupported && <p className="page-lede">The library could not be read ({errorWords(status.error)}).</p>}
       {data?.status === 'unconfigured' && <Setup limits={data.limits} />}
       {data && data.vault && data.status !== 'unconfigured' && (
         data.status === 'ready'

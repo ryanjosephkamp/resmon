@@ -20,10 +20,13 @@ export class EngineError extends Error {
    * shows this rather than the route and status, which say only that it failed.
    */
   readonly detail: string | null;
+  /** The engine's code for the refusal, where it gave one (`{reason, message}`): "unsupported_platform". */
+  readonly reason: string | null;
 
-  constructor(readonly status: number, message: string, detail: string | null = null) {
+  constructor(readonly status: number, message: string, detail: string | null = null, reason: string | null = null) {
     super(message);
     this.detail = detail;
+    this.reason = reason;
   }
 }
 
@@ -59,6 +62,13 @@ export function engineSentence(error: unknown): string | null {
   return typeof message === 'string' ? message : null;
 }
 
+/** The `reason` of the Library's and Evidence's `{reason, message}` detail, where a refusal has one. */
+export function engineReason(error: unknown): string | null {
+  const said = (error as { detail?: unknown } | undefined)?.detail;
+  const reason = said && typeof said === 'object' ? (said as { reason?: unknown }).reason : undefined;
+  return typeof reason === 'string' ? reason : null;
+}
+
 /**
  * The body of a successful answer, or a thrown `EngineError` naming the route
  * and status. For TanStack Query, which shows a thrown read as a failure and
@@ -70,7 +80,7 @@ export async function answer<T>(
   const { data, error, response } = await call;
   if (error !== undefined || data === undefined) {
     const route = new URL(response.url).pathname;
-    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`, engineSentence(error));
+    throw new EngineError(response.status, `${route} answered HTTP ${response.status}`, engineSentence(error), engineReason(error));
   }
   return data;
 }

@@ -10,7 +10,7 @@ import { evidence, evidenceFetch, EvidenceRefusal, type Anchor, type FileRecord,
 import { bundleRefusal, pinOf } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
 import { Reader } from './Reader';
-import { LIBRARY, LIBRARY_KEY, kindOf, sizeWords, type LibraryFile } from './libraryApi';
+import { LIBRARY, LIBRARY_KEY, kindOf, retryLibrary, sizeWords, unsupportedWords, type LibraryFile } from './libraryApi';
 
 function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
@@ -29,13 +29,18 @@ function errorWords(error: unknown): string {
  * files chosen and their records, and nothing of any other.
  */
 export function Evidence() {
-  const status = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)) });
+  const status = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)), retry: retryLibrary });
+  const unsupported = unsupportedWords(status.error);
   const vault = status.data?.status === 'ready' ? status.data.vault?.vault_id ?? null : null;
   return (
     <div className="page library evidence-page" aria-busy={status.isFetching}>
       <LibraryTabs />
       <div className="library-head"><h1 className="page-title">Evidence</h1></div>
       {status.isPending && <p className="page-lede">Reading the library.</p>}
+      {unsupported && <p className="page-lede" role="alert" data-evidence="unsupported">{unsupported}</p>}
+      {status.isError && !unsupported && (
+        <p className="page-lede" role="alert">The library could not be read ({errorWords(status.error)}).</p>
+      )}
       {status.data && !vault && (
         <p className="page-lede" data-evidence="no-vault">
           Evidence works on files kept in your library. <Link to="/library/files">Make the library first, under Your files</Link>.
