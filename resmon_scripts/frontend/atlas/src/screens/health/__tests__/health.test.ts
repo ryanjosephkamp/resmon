@@ -128,13 +128,13 @@ describe('the watchdog', () => {
     const ieee = findingWords(finding({
       scope: { type: 'source', id: 'ieee' }, title: 'ieee was withdrawn from resmon',
       detail: 'ieee has been withdrawn, and resmon got nothing from it on each of its last 4 runs. IEEE Xplore was withdrawn.',
-      what_to_do: 'No active routine selects ieee any more, so no future run will ask for it and nothing needs changing.',
+      what_to_do: 'No active watch selects ieee any more, so no future run will ask for it and nothing needs changing.',
       evidence: { consecutive_errors: 4, last_zero_reason: 'retired' },
     }), names);
     expect(ieee.title).toBe('IEEE Xplore was withdrawn from resmon');
     expect(ieee.detail).toBe('IEEE Xplore has been withdrawn, and resmon got nothing from it on each of its last 4 runs. '
       + 'IEEE Xplore was withdrawn.');
-    expect(ieee.what_to_do).toMatch(/^No active routine selects IEEE Xplore any more/);
+    expect(ieee.what_to_do).toMatch(/^No active watch selects IEEE Xplore any more/);
     expect(ieee.withdrawn).toBe(true);
     // The engine labels it for what it is: not broken, and not an alarm.
     expect(findingWords(finding({ scope: { type: 'source', id: 'gone' }, severity: 'withdrawn',

@@ -635,7 +635,7 @@ def to_markdown(record: dict) -> str:
     )
     if search.get("routine_name"):
         lines.append(
-            f"| Routine | {search['routine_name']} "
+            f"| Watch | {search['routine_name']} "
             f"(`{search.get('routine_schedule') or ''}`) |"
         )
     if search.get("configuration_name"):

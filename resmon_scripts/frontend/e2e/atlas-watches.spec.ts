@@ -255,7 +255,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
     await expect(quietPage.locator('.night-list')).toHaveCount(1);
     await win.getByRole('button', { name: 'Run now', exact: true }).click();
     const said = quietPage.locator('.run-now-said');
-    await expect(said).toContainText('This routine is not scheduled; it was run once because you asked for it.');
+    await expect(said).toContainText('This watch is not scheduled; it was run once because you asked for it.');
     await expect(quietPage.locator('.night')).toHaveCount(1, { timeout: 60_000 });
     await expect(quietPage.locator('.night').first()).not.toHaveAttribute('data-status', 'running', { timeout: 60_000 });
     // Its one run brought in nothing new: the strip states no tallest bar,
