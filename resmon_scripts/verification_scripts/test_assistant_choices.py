@@ -1,4 +1,4 @@
-"""R04c choices: actual resolver and SQLite; no account compatibility inference."""
+"""Assistant choices: actual resolver and SQLite; no account compatibility inference."""
 from __future__ import annotations
 
 import json

@@ -8,7 +8,7 @@ model's decisions are deterministic.
 
 **Why this file exists separately from `test_assistant_api_runtime.py`.** That
 file watches what resmon *sends*. This one watches what the backend *does*, and
-they are different claims: 2.0a's gate is structural because the CLI has no path
+they are different claims: the CLI path's gate is structural because the CLI has no path
 to a write except the permission tool, and the API-key runtime's gate is
 structural for a different reason — the loop itself will not dispatch a tool in
 ``WRITE_TOOLS`` before ``ask_backend`` has answered. A property that rests on a
@@ -38,7 +38,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.
@@ -195,7 +195,7 @@ def backend(tmp_path_factory, provider):
     server = Backend(state)
     with _started_backend(server):
         # Configured through the real settings API — nothing monkeypatched, which
-        # is the point: Ledger 33 was a setting the PUT stored and no run read.
+        # is the point: a setting the PUT stores and no run reads would go unnoticed.
         _API.put(f"{server.base}/api/settings/ai", json={"settings": {
             "ai_provider": "custom",
             "ai_custom_base_url": provider.base_url,
@@ -344,7 +344,7 @@ def test_the_write_is_still_waiting_while_the_card_is_open(backend, provider):
 
     A deny that arrives after the fact would satisfy every check above. This one
     reads the backend **while the loop is blocked on the answer** — the same
-    thing 2.0a's live gate test does against a real model.
+    thing the live gate test does against a real model.
     """
     provider.script = _create_routine_script("in-flight-routine")
     session_id = _session(backend.base)["id"]

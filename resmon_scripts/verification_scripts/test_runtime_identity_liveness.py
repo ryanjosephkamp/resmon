@@ -1,10 +1,9 @@
 """The four branches of ``runtime_identity.process_is_alive``, pinned once.
 
-The rule used to be written out three times -- in ``resmon``'s startup
-reconciliation, in ``delivery.requeue_orphaned`` and inline in
-``selected_evidence_runtime._startup`` -- and three copies of a one-sided rule
-are three chances for one of them to drift towards "dead" and tell a user a
-live run has stopped. This file is where the rule is tested; the three call
+The rule is one function, used by ``resmon``'s startup reconciliation, by
+``delivery.requeue_orphaned`` and by ``selected_evidence_runtime._startup``;
+three copies of a one-sided rule would be three chances for one of them to
+drift towards "dead" and tell a user a live run has stopped. This file is where the rule is tested; the three call
 sites are tested for what they *do* with the answer, in their own suites.
 """
 import builtins

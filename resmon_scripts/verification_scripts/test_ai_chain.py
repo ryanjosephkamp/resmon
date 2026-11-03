@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_ai_chain.py
-"""Fallback chain execution (1.8b).
+"""Fallback chain execution.
 
 The test that matters most in this file is
 ``test_a_document_local_failure_does_not_cost_the_lane``. Everything else here

@@ -1,9 +1,9 @@
 """P2's live half — resmon's own code really asks a real source about a person.
 
-**This is the largest gap the 2.1a handback named** (§4.1), and it is the one
-that matters most. The capability table's syntaxes were established by a probe
-that built its own URLs; that resmon's *client code* builds and sends them
-correctly was unverified for all twenty askable sources. A wrong parameter name
+**This is the check that matters most.** The capability table's syntaxes are
+established by a probe that builds its own URLs; that resmon's *client code*
+builds and sends them correctly is what these cases verify for every askable
+source. A wrong parameter name
 would not raise — it would come back with nothing, and "this person has
 published nothing" is a silent, plausible, wrong answer, which is the worst
 failure shape this app has.
@@ -20,7 +20,7 @@ really carry that author** — the round trip resmon performs, end to end,
 including the client's own query construction and its parsing. It does *not*
 establish that the ranking is any good, and it does not establish that the person
 is the right person: that is what local verification and the basis rule are for,
-and grading their precision is the field test.
+and grading their precision is a field test.
 
 ## Two honest arms rather than one optimistic one
 

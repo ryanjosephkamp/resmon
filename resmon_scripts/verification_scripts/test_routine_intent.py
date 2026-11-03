@@ -1,12 +1,11 @@
 """``routines.intent``, from the editor's request body to the audit that reads it.
 
-The column shipped in 1.9a and the coverage audit has read it since 1.9b, but
-nothing could *write* one: no request body carried the field, so every audit in
-the field fell back to the routine's keywords and compared a query against
-results that query produced. The panel said so, honestly, and the reading was
-still circular.
+The coverage audit reads the column, so a request body has to be able to
+*write* one: without the field every audit falls back to the routine's
+keywords and compares a query against results that query produced. The panel
+says so, honestly, and the reading is still circular.
 
-**The property (R1): an intent written in the routine editor arrives at
+**The property: an intent written in the routine editor arrives at
 ``routines.intent``, and the audit for that routine reports it as ``stated``.**
 The boundary here is the HTTP API against a real database — the renderer's half
 (that the modal puts the field in the body) is jsdom in
@@ -140,7 +139,7 @@ def test_the_audit_compares_against_a_stored_intent_and_labels_it_stated():
 
     **Mutation:** drop ``"intent"`` from ``create_routine``'s ``routine_dict``
     (or from ``insert_routine``'s column list) and this fails on
-    ``intent_source``, which is exactly the circular reading R1 exists to end.
+    ``intent_source``, which is exactly the circular reading this property ends.
     """
     client = _client()
     rid = client.post("/api/routines", json=_body(intent=INTENT)).json()["id"]
@@ -160,7 +159,7 @@ def test_without_one_the_audit_still_falls_back_to_the_keywords():
 
 
 def test_every_audit_payload_carries_the_two_list_totals():
-    """R2's shape, including on the early returns.
+    """The payload shape, including on the early returns.
 
     The panel reads ``off_target_total`` to say "showing 25 of N". Three of the
     four payloads ``_coverage_for_routine`` can return are hand-built early exits

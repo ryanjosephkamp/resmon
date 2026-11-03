@@ -12,8 +12,7 @@ resmon", and ``cannot_see`` travels in the payload rather than being left to
 whichever surface renders it.
 
 Vectors are hand-written so distances are exact and the distribution is
-predictable; the real corpus is where the *feature* was exercised (see the 1.9b
-handback's field-test section).
+predictable; the real corpus is where the *feature* is exercised.
 """
 
 from __future__ import annotations
@@ -306,12 +305,12 @@ def test_the_summary_never_states_a_count_without_the_caveat(conn, seeded):
 
 
 def test_a_finding_survives_a_reason_that_only_covers_the_other_half(conn, seeded):
-    """The bug this test was written for.
+    """A reason about one half must not hide the other half's finding.
 
     ``seeded`` has four embedded results — too few for an off-target cutoff — and
-    two papers the routine missed. An earlier ``summary_line`` returned only the
-    "too few results" reason and silently dropped the missed papers, which are
-    the actionable half. Both are reported now.
+    two papers the routine missed. A ``summary_line`` returning only the
+    "too few results" reason would silently drop the missed papers, which are
+    the actionable half. Both are reported.
     """
     audit = coverage_audit.audit_routine(
         conn, seeded["routine"], MODEL, _v(1.0, 0.0, 0.0, 0.0))

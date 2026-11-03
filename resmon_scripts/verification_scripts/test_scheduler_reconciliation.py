@@ -1,5 +1,4 @@
-"""Update 4 / Batch 1 regression tests — Fix A (cascade + reconcile)
-and Fix B (misfire_grace_time=3600).
+"""Scheduler job-store tests — cascade + reconcile and misfire_grace_time=3600.
 
 Covers:
 * ``database.delete_routine`` cascades to ``apscheduler_jobs``.
@@ -63,7 +62,7 @@ def _routine_dict(name: str = "r") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Fix A — delete_routine cascades to apscheduler_jobs
+# delete_routine cascades to apscheduler_jobs
 # ---------------------------------------------------------------------------
 
 def test_delete_routine_cascades_apscheduler_jobs(tmp_path: Path):
@@ -116,7 +115,7 @@ def test_delete_routine_tolerates_missing_jobstore_table(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Fix A — startup reconciliation removes orphan jobs
+# Startup reconciliation removes orphan jobs
 # ---------------------------------------------------------------------------
 
 def test_reconcile_jobstore_removes_orphans(tmp_path: Path):
@@ -177,7 +176,7 @@ def test_reconcile_jobstore_keeps_all_when_all_active(tmp_path: Path):
 
 
 # ---------------------------------------------------------------------------
-# Fix B — misfire_grace_time=3600 on routine jobs
+# misfire_grace_time=3600 on routine jobs
 # ---------------------------------------------------------------------------
 
 def test_routine_jobs_use_one_hour_misfire_grace(tmp_path: Path):

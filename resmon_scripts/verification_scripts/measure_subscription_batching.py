@@ -11,14 +11,15 @@ Run it::
     .venv/bin/python resmon_scripts/verification_scripts/measure_subscription_batching.py \\
         --database ~/path/to/resmon.db --sizes 5 10 25 --provider claude_code
 
-Why it exists. Phase 1.8.5 makes the subscription lane the primary AI route,
-and the order inside the phase is a constraint: repair, batch, **measure**,
-flip. Flipping first would ship the slow path as the default. So the flip is
-gated on numbers this script produces, and it reports them whether or not they
-pass:
+Why it exists. The subscription lane is the primary AI route, and making it
+the default is only safe if batching is cheaper than per-document calls and
+does not carry content between documents. So the choice is gated on numbers
+this script produces, and it reports them whether or not they pass:
 
+* **Cost** — total cost and input-side tokens per paper, batched against
+  per-document. The gate is ≤ 0.40 of per-document at the chosen size.
 * **Speed** — median wall-clock per paper, batched against per-document. The
-  gate is ≤ ¼ of per-document at the chosen size.
+  gate is ≤ 0.60 of per-document.
 * **Leakage** — the accuracy risk batching introduces, and the reason this
   script exists at all rather than a stopwatch. Ten abstracts in one context
   is ten opportunities to carry a fact from paper three into paper seven's
@@ -27,8 +28,6 @@ pass:
 * **Band compliance** — summaries inside the configured word-count band, which
   is the cheapest available proxy for "the summary is still a summary". The
   gate is no worse than the per-document run.
-* **Fallback rate** — batches that could not be answered as a batch. The gate
-  is ≤ 10 %.
 
 The canaries matter more than the real abstracts for leakage. Papers from one
 sweep are on one topic by construction, so a phrase shared between two real
@@ -264,11 +263,11 @@ def run_batched(client, documents, params, size) -> dict:
             print(f"    ! {exc.kind.value}: {exc.message}", file=sys.stderr)
             answered = [None] * len(slice_docs)
         elapsed = time.monotonic() - one
-        # Which document a short batch missed, not just how many. Every real
-        # batched run in D3 came back one summary short and the script could
-        # not say whether it was the same paper each time -- so "one abstract
-        # this model will not summarize" and "batching drops one at random"
-        # were indistinguishable, and they call for different responses.
+        # Which document a short batch missed, not just how many. A real batched
+        # run that comes back one summary short must say whether it was the
+        # same paper each time -- otherwise "one abstract this model will not
+        # summarize" and "batching drops one at random" are indistinguishable,
+        # and they call for different responses.
         for offset, answer in enumerate(answered):
             if not answer:
                 print(
@@ -324,31 +323,26 @@ def score(result: dict, tokens: list[str] | None, bounds) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# The flip gate
+# The gate
 # ---------------------------------------------------------------------------
 #
 # Evaluated here rather than by hand afterwards, so re-running this script
-# reproduces the verdict as well as the numbers. The thresholds are the ones
-# phase 1.8.5's brief adopted:
+# reproduces the verdict as well as the numbers:
 #
-#   speed      median wall-clock per paper <= 1/4 of the per-document run
+#   cost       total cost and input-side tokens per paper <= 0.40 of the
+#              per-document run
+#   speed      median wall-clock per paper <= 0.60 of the per-document run
 #   leakage    0 canary tokens in another document's summary
 #   band       band compliance no worse than the per-document run
-#   fallback   <= 10 % of batches fell back to per-document calls
-
-# Restated at the 1.8.5 reconciliation, and the restatement is the point.
 #
-# The first version of this gate required wall-clock per paper <= 1/4 of the
-# per-document run. That measured the wrong quantity: the document cap and the
-# not-default-for-bulk guard existed to protect the **plan's usage window**,
-# which is spent in tokens. Batching amortises a ~5.6k-token fixed cost per
-# call -- the constitution and the prompt scaffold -- so it moves tokens far
-# more than it moves seconds, and a seconds threshold answered a question
-# nobody was asking.
+# Cost leads because the document cap and the not-default-for-bulk guard exist
+# to protect the **plan's usage window**, which is spent in tokens. Batching
+# amortises a ~5.6k-token fixed cost per call -- the constitution and the
+# prompt scaffold -- so it moves tokens far more than it moves seconds, and a
+# seconds threshold alone would answer a question nobody is asking.
 #
-# The fallback-rate criterion is gone. A batch answering four of five costs one
-# re-send call, not a summary, and D3 showed it is the normal case on real
-# abstracts.
+# There is no fallback-rate criterion. A batch answering four of five costs one
+# re-send call, not a summary, and that is the normal case on real abstracts.
 COST_RATIO_GATE = 0.40      # total_cost_usd per paper, and input-side tokens
 WALL_RATIO_GATE = 0.60      # wall-clock per paper
 
@@ -364,7 +358,7 @@ def _print_gate(rows: list[dict]) -> None:
     for row in rows:
         groups.setdefault((row["provider"], row["corpus"]), []).append(row)
 
-    print("\n## Flip gate (restated at the 1.8.5 reconciliation)\n")
+    print("\n## Gate\n")
     print("| provider | corpus | mode | cost/paper | ×base | in-tok/paper | ×base "
           "| s/paper | ×base | leakage | band | verdict |")
     print("|---|---|---|---|---|---|---|---|---|---|---|---|")

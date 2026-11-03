@@ -1,10 +1,9 @@
 """Routine ``execution_location`` after the cloud service was removed.
 
-``execution_location`` used to choose between the local daemon and the
-resmon-cloud scheduler. The cloud service is gone, so ``'local'`` is the only
-value that means anything. The column itself stays: dropping it would mean
-rebuilding ``routines`` on every existing install to remove a field nothing
-reads.
+``'local'`` is the only ``execution_location`` that means anything: a routine
+runs on the local daemon, and there is no cloud scheduler. The column itself
+stays: dropping it would mean rebuilding ``routines`` on every existing install
+to remove a field nothing reads.
 
 Two things have to hold, and only one of them is about fresh installs:
 
@@ -13,7 +12,7 @@ Two things have to hold, and only one of them is about fresh installs:
     scheduler that was supposed to run it no longer exists.
 2.  A database that *already* has such a routine is repaired on upgrade. This
     is the half CI cannot catch on its own -- every other test starts from an
-    empty database -- and it is the same gap that let the 1.5.0 upgrade P0
+    empty database -- and it is the same gap that lets an upgrade failure
     through. See ``test_schema_upgrade.py``.
 """
 
@@ -130,7 +129,7 @@ def test_database_layer_rejects_cloud_directly():
 
 
 def test_active_local_routine_is_scheduled():
-    """The scheduler used to skip cloud routines. Nothing is skipped now."""
+    """A local routine is scheduled; the scheduler skips nothing."""
     client = _client()
     resp = client.post("/api/routines", json=_routine_body("Runs", is_active=True))
     rid = resp.json()["id"]
@@ -142,8 +141,8 @@ def test_active_local_routine_is_scheduled():
 # Upgrading a database that still has a cloud routine in it
 # ---------------------------------------------------------------------------
 
-# ``routines`` as an install from before this release would have it: the
-# CHECK constraint still admits 'cloud', and a row may be sitting on it.
+# ``routines`` with the older CHECK constraint, which still admits 'cloud', and
+# a row may be sitting on it.
 LEGACY_ROUTINES_SCHEMA = """
 CREATE TABLE routines (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

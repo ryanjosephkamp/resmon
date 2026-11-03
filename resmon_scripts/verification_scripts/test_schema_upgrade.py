@@ -1,12 +1,11 @@
-"""Upgrading a database created by an earlier resmon.
+"""Upgrading a database created with an older schema.
 
 CI builds every database from scratch, so it can only ever prove that a *fresh*
-install works. It cannot catch a migration that breaks an existing one -- and
-that is exactly what happened: 1.5.0 shipped an index on a column that the
-migration had not added yet, so ``CREATE TABLE IF NOT EXISTS`` left the old
-table alone, the index referenced a column that was not there, and the whole
-schema script failed with ``no such column: pub_sort``. Every existing user's
-backend refused to start.
+install works. It cannot catch a migration that breaks an existing one: an
+index on a column that the migration has not added yet leaves
+``CREATE TABLE IF NOT EXISTS`` to skip the old table, the index references a
+column that is not there, and the whole schema script fails with
+``no such column: pub_sort``. Every existing backend would refuse to start.
 
 These tests build databases with older schemas and then upgrade them.
 """
@@ -25,10 +24,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 from implementation_scripts import explorer  # noqa: E402
 from implementation_scripts.database import init_db  # noqa: E402
 
-# The documents table as it stood before Phase 2b: no pub_sort, no facet
-# tables, no indexes. Anything created by resmon 1.4.0 or earlier looks like
-# this.
-PRE_2B_SCHEMA = """
+# The oldest documents table the migration handles: no pub_sort, no facet
+# tables, no indexes.
+OLDEST_DOCUMENTS_SCHEMA = """
 CREATE TABLE documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     source_repository TEXT NOT NULL,
@@ -49,10 +47,10 @@ CREATE TABLE documents (
 
 @pytest.fixture
 def legacy_conn():
-    """A database as an earlier resmon would have left it, with real rows."""
+    """A database as the oldest schema leaves it, with real rows."""
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
-    c.executescript(PRE_2B_SCHEMA)
+    c.executescript(OLDEST_DOCUMENTS_SCHEMA)
     c.executemany(
         "INSERT INTO documents (source_repository, external_id, doi, title, "
         "authors, abstract, publication_date, url, categories, metadata_hash) "

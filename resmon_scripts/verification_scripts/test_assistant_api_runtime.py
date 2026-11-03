@@ -1,6 +1,6 @@
 """The API-key assistant runtime: P14.
 
-Two boundaries, and every ledger row says which:
+Two boundaries, and each property below says which:
 
 * **real dependency, in-process** — a loopback HTTP server speaking each
   family's shape (``provider_server.py``). The socket, the HTTP stack, the JSON
@@ -11,8 +11,7 @@ Two boundaries, and every ledger row says which:
   dependency to be real about.
 
 What neither can see is that a *real* provider accepts these schemas. Nothing in
-this file spends a token, and the *Not covered* section of the handback says so
-in those words.
+this file spends a token.
 """
 
 from __future__ import annotations
@@ -115,10 +114,11 @@ def run(runtime: ak.ApiKeyRuntime, prompt: str = "how many routines?", **kwargs)
 def test_the_constitution_arrives_on_the_system_channel_and_not_in_the_turn(family):
     """P14a, at the only boundary that can show it: the request body.
 
-    1.8.4's defect was a lane that told a model to follow rules it was never
-    given, and the model invented a file search rather than admit it. That the
-    runtime *loads* the constitution proves nothing; that this server *received*
-    it, on the field the provider treats as a system instruction, is the claim.
+    The failure to rule out is a lane that tells a model to follow rules it was
+    never given, so that the model invents a file search rather than admit it.
+    That the runtime *loads* the constitution proves nothing; that this server
+    *received* it, on the field the provider treats as a system instruction, is
+    the claim.
     """
     with ProviderServer(family) as server:
         server.script = [{"text": "hello", "calls": []}]
@@ -139,8 +139,8 @@ def test_every_family_has_a_transmission_case():
     ``FAMILIES`` is the list the runtime dispatches on, so a fourth request
     shape cannot arrive without a case here — the same guard shape as
     ``test_every_runtime_kind_has_a_transmission_test``, one level down, because
-    "the runtime sends it" was true of the runtime and false of two of its
-    paths in 1.8.4.
+    "the runtime sends it" can be true of the runtime and false of some of its
+    paths.
     """
     assert set(PROVIDER_FOR_FAMILY) == set(FAMILIES)
     for family in FAMILIES:
@@ -298,7 +298,7 @@ def test_a_turn_is_stopped_at_the_token_ceiling():
 def test_the_ceilings_are_derived_from_the_measured_table():
     """Numbers with a reason, so raising one is a decision rather than a nudge.
 
-    Four tool calls was the most any of 2.0a's ten canonical requests needed;
+    Four tool calls was the most any of the ten canonical requests needed;
     ~53,400 tokens was the dearest turn's total. Both ceilings are twice those.
     """
     assert ak.MAX_TOOL_ITERATIONS == 8

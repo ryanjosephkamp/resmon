@@ -1,8 +1,8 @@
 """What a staged restore tells the user will apply it.
 
 A restore runs when a backend starts. With the background service, reopening
-the window is not a start: the service keeps running, so the old "Restart
-resmon to restore" left the restore staged however often the window was
+the window is not a start: the service keeps running, so a "Restart resmon to
+restore" sentence would leave the restore staged however often the window was
 reopened. And where another service holds the lock, a window's own backend
 refuses the restore at start. Each case gets the sentence that is true of it.
 """

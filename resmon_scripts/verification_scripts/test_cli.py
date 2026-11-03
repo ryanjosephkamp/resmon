@@ -631,11 +631,11 @@ def test_a_route_this_resmon_lacks_is_named_as_missing(monkeypatch):
 
     monkeypatch.setattr(cli_engine, "_send", fake_send)
     engine = cli_engine.Engine(port=1, token="t" * 43, how="service", state=Path("."),
-                               health={"version": "2.2.0", "pid": 5}, lock_pid=6)
+                               health={"version": "0.9.0", "pid": 5}, lock_pid=6)
     with pytest.raises(cli_engine.CliError) as missing:
         engine.get("/api/today")
     assert missing.value.code == "missing_route"
-    assert "This resmon (2.2.0) has no GET /api/today" in missing.value.message
+    assert "This resmon (0.9.0) has no GET /api/today" in missing.value.message
     with pytest.raises(cli_engine.CliError) as absent:
         engine.get("/api/executions/9")
     assert absent.value.code == "not_found"

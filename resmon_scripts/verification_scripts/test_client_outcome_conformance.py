@@ -12,16 +12,14 @@ everything, and requires the recorded outcome to derive to a reason meaning
 
 *Row 2* drives every registered client against HTTP 200 carrying a body no
 client can read, and requires ``parse_failure`` -- the reason whose sentence
-is "answered, and resmon could not read the reply". It found ten clients that
-instead let ``json.JSONDecodeError`` escape ``search()``; they were marked
-``xfail`` and named in ``_RAISES_ON_UNREADABLE_BODY`` with what they did
-instead, and fixing them was its own pull request. That list is now empty and
-the mechanism around it is kept; the note on the constant says why.
+is "answered, and resmon could not read the reply". A client that instead lets
+``json.JSONDecodeError`` escape ``search()`` is marked ``xfail`` and named in
+``_RAISES_ON_UNREADABLE_BODY`` with what it does instead. That list is empty
+and the mechanism around it is kept; the note on the constant says why.
 
-Both rows exist because the 2026-10-18 audit found three engine defects that a
-table-driven suite would have caught on the day each client was written, and
-the repair for each was applied to the one client that happened to fail in a
-live run. The sibling file ``test_client_failure_conformance.py`` is the first
+Both rows exist because a table-driven suite catches these defects on the day
+each client is written, where a repair applied to the one client that happened
+to fail in a live run leaves the rest exposed. The sibling file ``test_client_failure_conformance.py`` is the first
 row and the shape all of them follow: the denominator is read from
 ``api_registry.list_repositories()`` rather than written here, so a
 twenty-seventh source is covered on the day it is registered;
@@ -271,8 +269,8 @@ _UNREADABLE_BODIES = {
 #: ``search()`` -- any records already collected from earlier pages were
 #: discarded. That third consequence was reasoned about here and then
 #: measured: ``test_client_partial_page_conformance.py`` serves nine of the
-#: ten one good page and then an unreadable one, and before the fix they lost
-#: between 50 and 1,000 records each, 1,850 in all on one body shape.
+#: ten one good page and then an unreadable one, and without the fix they lose
+#: between 50 and 1,000 records each.
 #:
 #: The list stays, empty, rather than being deleted with the mechanism around
 #: it. ``xfail(strict=True)`` means a name put back here has to be a name that
@@ -358,10 +356,10 @@ def test_a_json_body_with_no_known_container_splits_the_clients():
     uniform group either: ten of them reach ``answered_empty`` only because
     the container they look for is missing from a body that did decode, which
     is the reading ``api_openalex`` makes and this census declines to call
-    wrong. Those ten are the clients that used to raise on a body that does
-    *not* decode; ``read_json_body`` changed what they do with an undecodable
-    reply and deliberately changed nothing about this one, which is why both
-    sets below are unchanged by that fix.
+    wrong. Those ten are the clients that would raise on a body that does
+    *not* decode were it not for ``read_json_body``, which handles an
+    undecodable reply and deliberately does nothing about this one, which is
+    why both sets below do not depend on it.
     """
     body = b'{"unexpected_root": {"nothing": 1}}'
     unreadable, empty_answer, other = set(), set(), {}

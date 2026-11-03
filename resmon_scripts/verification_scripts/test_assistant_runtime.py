@@ -1,18 +1,18 @@
 """The assistant runtime: the command it builds, and the events it emits.
 
-Two boundaries, and each row of the handback's ledger says which:
+Two boundaries, and each property below says which:
 
 * **argv** — what the CLI is actually spawned with. This is where P1 lives, and
-  it is the boundary because 1.8.4's defect was invisible everywhere else: the
-  constitution loaded, memoised and was under 16 KB, and two lanes still sent
+  it is the boundary because the failure is invisible everywhere else: the
+  constitution can load, memoise and stay under 16 KB while a lane still sends
   "follow the attached constitution" with nothing attached.
 * **a real subprocess running a hermetic double** — a Python script that speaks
   stream-json and performs the real permission handshake, but hosts no model.
   Real process, real pipes, real kill; fake decisions.
 
-What neither can see is listed in the handback's *Not covered* and checked
-against the installed CLI under ``live_network``: that the real binary still
-accepts these flags, and that the session really receives only resmon's tools.
+What neither can see is checked against the installed CLI under
+``live_network``: that the real binary still accepts these flags, and that the
+session really receives only resmon's tools.
 """
 
 from __future__ import annotations
@@ -104,8 +104,8 @@ def test_the_constitution_is_re_sent_on_a_resumed_turn():
 def test_every_runtime_kind_has_a_transmission_test():
     """The denominator, so a second runtime cannot ship without answering P1.
 
-    Modelled on ``test_every_lane_kind_has_a_transmission_test``, which is the
-    guard v1.8.4 added after the constitution reached one lane of three.
+    Modelled on ``test_every_lane_kind_has_a_transmission_test``, the guard
+    against a constitution that reaches only some of the lanes.
     """
     tested = set(_TRANSMISSION_TESTS)
     assert tested == set(ar.RUNTIME_KINDS), (
@@ -119,7 +119,7 @@ _TRANSMISSION_TESTS = {
     # Codex has no system-prompt flag; the constitution is the AGENTS.md in the
     # turn's working directory, read back from what the double found there.
     "codex_cli": "test_assistant_codex.py::test_the_constitution_arrives_as_agents_md_and_not_in_the_turn",
-    # 2.0b. In ``test_assistant_api_runtime.py``, parametrised over the three
+    # In ``test_assistant_api_runtime.py``, parametrised over the three
     # request families, against a loopback server that records what was actually
     # sent — the argv equivalent for a runtime that speaks HTTP.
     "api_key": (
@@ -165,9 +165,9 @@ def test_the_pre_approved_tools_are_exactly_the_read_tools():
     assert allowed == {f"mcp__resmon__{n}" for n in mcp_server.READ_TOOLS}
     for name in mcp_server.WRITE_TOOLS:
         assert f"mcp__resmon__{name}" not in allowed, name
-    # 15 through contract v2.1; contract v2.2 adds three read tools
-    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`) and one
-    # write tool, and the write one is *not* here — which is the whole assertion
+    # 18 pre-approved read tools, including the three watch-profile reads
+    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`); the
+    # watch-profile write tool is *not* here — which is the whole assertion
     # above, stated as a number so a silent drift is a failure.
     assert len(allowed) == 18
 
@@ -189,8 +189,8 @@ def test_the_mcp_config_names_the_backend_port_explicitly():
     """A named port is never widened to the default, and this is why.
 
     With no port named, an MCP server started beside a *different* resmon on the
-    default port answers every question truthfully about the wrong corpus. Which
-    happened, in v1.8.2, against a launchd daemon from April.
+    default port answers every question truthfully about the wrong corpus, for example
+    against a launchd daemon left running from an earlier day.
     """
     config = ar.ClaudeCliRuntime(backend_port=51234).mcp_config(7, "/tmp/wd")
     servers = config["mcpServers"]
@@ -219,14 +219,13 @@ def test_the_child_environment_does_not_leak_resmons_own(monkeypatch):
 def test_the_child_environment_keeps_what_the_cli_needs_to_find_its_login(monkeypatch):
     """``USER``, and the reason it is named here rather than assumed.
 
-    This started as an allowlist of variables that looked necessary. It dropped
-    ``USER``, and without ``USER`` the ``claude`` CLI cannot read its stored
-    login: every turn came back "Not logged in · Please run /login" from a CLI
-    that was signed in, which would have shipped as "the assistant does not work
-    for anybody". Bisected against the real binary — ``USER`` alone restores it;
-    ``LOGNAME``, ``SHELL``, ``TMPDIR`` and ``XPC_SERVICE_NAME`` do not.
+    Without ``USER`` the ``claude`` CLI cannot read its stored login: every turn
+    comes back "Not logged in · Please run /login" from a CLI that is signed in,
+    which reads as "the assistant does not work for anybody". Established
+    against the real binary — ``USER`` alone restores it; ``LOGNAME``,
+    ``SHELL``, ``TMPDIR`` and ``XPC_SERVICE_NAME`` do not.
 
-    Kept as a named regression rather than folded into the test above, because
+    Kept as its own test rather than folded into the test above, because
     the interesting claim is not "the denylist works" but "this exact variable
     matters and here is what happens without it".
     """
@@ -357,9 +356,9 @@ def test_a_failing_cli_becomes_an_error_event_with_a_sentence(tmp_path):
 def test_the_turn_carries_a_spending_ceiling_the_cli_enforces_itself():
     """Token efficiency is a contract term, so something has to enforce it.
 
-    Until 2.0 the only things holding it were small page sizes and a
-    constitution asking nicely. ``--max-budget-usd`` is a stop the CLI applies
-    to itself, and it fails detectably — verified against 2.1.258, which answers
+    Small page sizes and a constitution asking nicely do not hold it.
+    ``--max-budget-usd`` is a stop the CLI applies to itself, and it fails
+    detectably — verified against claude 2.1.258, which answers
     ``subtype: error_max_budget_usd``.
     """
     argv = argv_for(ar.ClaudeCliRuntime())
@@ -373,8 +372,7 @@ def test_the_turn_carries_a_spending_ceiling_the_cli_enforces_itself():
 def test_the_two_ceilings_are_derived_from_the_measurement():
     """The arithmetic, so a ceiling cannot be raised to make a guard pass.
 
-    Two numbers from one table
-    (``workspace/handbacks/2.0/evidence/assistant-cost.md``): the runaway stop
+    Two numbers from one table of measured costs: the runaway stop
     the CLI enforces (4x the dearest request measured) and the regression
     detector in ``test_assistant_budget.py`` (2x). That file is
     ``live_network``, so this hermetic half lives here and runs on every job.
@@ -472,15 +470,13 @@ def test_cancelling_nothing_says_so_rather_than_claiming_success():
 
 
 def test_a_cli_that_never_says_anything_fails_fast_and_says_what_to_do(tmp_path):
-    """The v2.0.1 field defect, as a test.
+    """A CLI that hangs before its first line must not hold the user for minutes.
 
-    A packaged install of 2.0.0 and 2.0.1 whose CLI hung before its first line
-    left the user watching a spinner for **five minutes** and then told them
-    "resmon could not finish that turn" — a sentence that names nothing and
-    suggests nothing.
+    Left alone, such a CLI would leave the user watching a spinner for **five
+    minutes** and then telling them "resmon could not finish that turn" — a
+    sentence that names nothing and suggests nothing.
 
-    Two things are asserted, and the first is the one that failed in the field:
-    the wait is bounded by the *startup* deadline rather than the silence one,
+    Two things are asserted: the wait is bounded by the *startup* deadline rather than the silence one,
     and the message is specific enough to act on.
     """
     runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path), timeout=300)
@@ -491,7 +487,7 @@ def test_a_cli_that_never_says_anything_fails_fast_and_says_what_to_do(tmp_path)
 
     assert elapsed < ar.FIRST_OUTPUT_TIMEOUT + 15, (
         f"waited {elapsed:.0f}s for a CLI that said nothing; the startup "
-        f"deadline is {ar.FIRST_OUTPUT_TIMEOUT}s and the old code waited "
+        f"deadline is {ar.FIRST_OUTPUT_TIMEOUT}s and the silence timeout is "
         f"{runtime.timeout}s"
     )
     assert [e["type"] for e in events] == ["error"]
@@ -502,7 +498,7 @@ def test_a_cli_that_never_says_anything_fails_fast_and_says_what_to_do(tmp_path)
     )
     assert events[0]["detail"] == "startup_timeout"
     assert "could not finish that turn" not in message, (
-        "the generic sentence is what shipped; it must not be what a silent "
+        "the generic sentence names nothing; it must not be what a silent "
         "CLI produces"
     )
     assert not ar.is_running(1)
@@ -511,9 +507,8 @@ def test_a_cli_that_never_says_anything_fails_fast_and_says_what_to_do(tmp_path)
 def test_the_startup_deadline_is_far_above_every_measured_first_line():
     """30 s against a first line that has never taken more than 2.98 s.
 
-    The measurements are in the hotfix section of the 2.0 handback: shell,
-    packaged bundle, dev app, spawned by Node, spawned by Electron, with and
-    without MCP servers, cold and warm. Ten times the slowest is a deadline that
+    The measurements covered shell, packaged bundle, dev app, spawned by Node,
+    spawned by Electron, with and without MCP servers, cold and warm. Ten times the slowest is a deadline that
     fires on a hang and never on a slow machine.
     """
     assert ar.FIRST_OUTPUT_TIMEOUT >= 10 * 3
@@ -599,11 +594,10 @@ def test_the_status_reports_codex_even_when_it_is_not_found(monkeypatch):
 # P16 — a session whose CLI id cannot be resumed says so
 # ---------------------------------------------------------------------------
 #
-# 2.0a left P10's second clause unproven and said so: nothing made a resume fail
-# and watched what the user was told. Deleting the CLI's own session file was
-# rightly refused — reaching into another program's private state proves
-# something about that program, not about resmon. The route taken instead is the
-# one the reconciliation named: establish the real shape once against the binary
+# Nothing here makes a real resume fail and watches what the user is told.
+# Deleting the CLI's own session file is the wrong route — reaching into another
+# program's private state proves something about that program, not about
+# resmon. The route taken instead: establish the real shape once against the binary
 # (recorded in ``fixtures/fake_claude.py`` and re-established live by
 # ``test_assistant_live.py``), then make the double answer with exactly it.
 
@@ -622,7 +616,7 @@ def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
 
 
 def test_a_normalised_result_carries_the_clis_errors_array():
-    """2.0a dropped this field; the whole recovery hangs off it."""
+    """The recovery hangs off this field, so normalising must keep it."""
     (done,) = ar._normalise(json.dumps({
         "type": "result", "subtype": "error_during_execution", "is_error": True,
         "errors": ["No conversation found with session ID: zzz"], "usage": {},

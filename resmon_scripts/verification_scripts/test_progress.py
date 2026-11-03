@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_progress.py
-"""Verification tests for IMPL-16: Backend Progress Infrastructure.
+"""Verification tests for the backend progress infrastructure.
 
 Tests cover:
   - ProgressStore thread-safety under concurrent access

@@ -1,17 +1,15 @@
 #!/usr/bin/env python3
 """Which live tests a machine with nothing but a network connection can run.
 
-`live_network` has meant two different things since it was invented, and the
-difference only mattered once something went unheard. Most of those tests need
+`live_network` covers two different things. Most of those tests need
 **the internet and nothing else**: a scholarly API, a loopback backend, a socket.
 A minority need **something that belongs to the person running them** — an agent
 CLI they installed and signed into, a provider key in their keyring, a model
 serving on their own machine. No CI runner has any of those, and no runner can be
 given them.
 
-Nothing ran either group on a schedule, and in 1.9 a live test that contradicted
-the shipped MCP contract sat red on ``main`` for two releases with nobody
-hearing about it (2.0a *Decided* 8). The fix is not "run the live suite in CI" —
+A live test that contradicts the shipped MCP contract and is never run on a
+schedule stays red on ``main`` with nobody hearing about it. The fix is not "run the live suite in CI" —
 half of it cannot run there. It is to say, in code, which half can, and to run
 that half every week.
 
@@ -123,9 +121,8 @@ def summary() -> str:
             lines.append(f"- `{node}`")
         lines.append("")
     lines += [
-        "These run on a developer's own machine and are reported in the phase "
-        "handback that touches them. **A green tick here is not a statement "
-        "about them.**",
+        "These run on a developer's own machine, not here. **A green tick here "
+        "is not a statement about them.**",
         "",
     ]
     return "\n".join(lines)

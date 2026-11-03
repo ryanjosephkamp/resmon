@@ -9,7 +9,7 @@ function the double replaced. So the HTTP tests here stand up **a real HTTP
 server on loopback** and let the real ``safe_request`` talk to it over a real
 socket, retries and all.
 
-That is only affordable because ``safe_request`` now reads its timeout, retry
+That is only affordable because ``safe_request`` reads its timeout, retry
 count and backoff base from ``config`` at call time: with the shipped values an
 exhausted 503 sleeps 1 + 2 + 4 = 7 s and an exhausted timeout ~127 s, on every
 Python in CI's matrix.
@@ -347,8 +347,8 @@ def test_the_channel_is_empty_on_a_fresh_thread(http_server, fast_retries):
 # ---------------------------------------------------------------------------
 #
 # The denominator is ``api_registry.list_repositories()``: the slugs a sweep
-# can actually reach. The brief named ``_CLIENT_MODULES``, which is a local
-# inside ``_ensure_loaded`` and so not importable, and is also one short of the
+# can actually reach. ``_CLIENT_MODULES`` is a local inside
+# ``_ensure_loaded`` and so not importable, and is also one short of the
 # truth -- medRxiv and bioRxiv share ``api_biorxiv.py``, so a module list would
 # leave medRxiv unexercised. Parametrising over the registry means a source
 # cannot be added without appearing here.
@@ -851,8 +851,8 @@ def test_the_search_worker_clears_the_channel_before_it_starts(
 
     Today the engine gives every search its own fresh thread, so a thread-local
     channel is empty when the worker starts and the reset changes nothing —
-    which means removing it fails no other test in this file. That was found by
-    mutating it and watching everything stay green.
+    which means removing it fails no other test in this file. Mutating it
+    leaves everything else green.
 
     The reset is not decoration: ``lifecycle.py`` calls ``safe_request``
     outside any search, and a pooled or reused thread would carry that call's
@@ -877,12 +877,12 @@ def test_the_search_worker_clears_the_channel_before_it_starts(
 # P14 — the event carries the sentence, and it is the same sentence
 # ---------------------------------------------------------------------------
 #
-# Reconciliation found this hole by mutation: setting ``zero_message`` to
-# ``None`` on the ``repo_done`` event left the whole backend suite green and
-# the whole jsdom suite green, because the jsdom cases build their own fixture
-# events. Only the Playwright spec noticed, and the Playwright spec does not
-# run in the hermetic suite. So the contract between the engine's event and
-# the monitor had exactly one guard, in the slowest place.
+# Setting ``zero_message`` to ``None`` on the ``repo_done`` event would leave
+# the rest of the backend suite and the whole jsdom suite green, because the
+# jsdom cases build their own fixture events. Only the Playwright spec would
+# notice, and it does not run in the hermetic suite. So the contract between
+# the engine's event and the monitor needs a guard here, not only in the
+# slowest place.
 #
 # The property is not "the field is present". It is that the sentence on the
 # event is the *same sentence* the task log and the search record carry for
@@ -1000,20 +1000,20 @@ def test_hal_budget_expiry_is_stored_in_the_row_record_log_and_report(
 ):
     """An actual HAL request can fail before retry without becoming empty success.
 
-    The budget is spent by the upstream, not by the runner. An earlier version
-    of this case let a 503 exhaust a 0.3 s budget inside ``safe_request``'s own
-    backoff pause, so whether the second attempt happened depended on how
-    precisely ``time.sleep`` returned — a loaded runner could outrun it and see
-    two hits. Here the server holds the very first request open for far longer
+    The budget is spent by the upstream, not by the runner. Letting a 503
+    exhaust a 0.3 s budget inside ``safe_request``'s own backoff pause would make
+    whether the second attempt happened depend on how precisely ``time.sleep``
+    returned — a loaded runner could outrun it and see two hits. Here the
+    server holds the very first request open for far longer
     than the budget, so the deadline expires while the one attempt is still in
     flight on a real socket. What is asserted is behaviour: one attempt,
     ``operation_deadline``, and that sentence stored in the row, the record, the
     log and the report.
 
     The budget is two seconds, not 0.2. The server counts a hit only once it has
-    read the request, and on a loaded CI runner 0.2 s ran out before it had: the
-    client had made its one attempt and the server had counted none (October 28,
-    2026, Python 3.11 job, ``assert 1 == 0``). Two seconds is the time the
+    read the request, and on a loaded CI runner 0.2 s can run out before it has:
+    the client has made its one attempt and the server has counted none
+    (``assert 1 == 0``). Two seconds is the time the
     request needs to arrive, not a guess at how long the runner might stall.
     """
     from pathlib import Path

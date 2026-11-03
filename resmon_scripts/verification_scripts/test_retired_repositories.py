@@ -1,14 +1,14 @@
 """Retired sources stay retired, and say why.
 
-IEEE Xplore was withdrawn in v1.8.1 on its terms rather than its behavior
-(see ``api_registry.RETIRED_REPOSITORIES``). Retirement has two halves and both
-are load-bearing: the module is not imported, and the registry refuses the slug
-even if something imports it anyway. The second half exists because the first
-one silently failed — the tier-2/3 tests imported ``api_ieee`` directly, its
-module-scope ``_register()`` put the source back, and the suite went on passing.
+IEEE Xplore is withdrawn on its terms rather than its behavior (see
+``api_registry.RETIRED_REPOSITORIES``). Retirement has two halves and both are
+load-bearing: the module is not imported, and the registry refuses the slug even
+if something imports it anyway. The second half exists because the first can
+fail silently — a test that imports ``api_ieee`` directly runs its module-scope
+``_register()``, which would put the source back while the suite went on passing.
 
-OAPEN was withdrawn in October 2026 for neither its terms nor its client: its
-search API answers HTTP 403. The same two halves apply to it.
+OAPEN is withdrawn for neither its terms nor its client: its search API answers
+HTTP 403. The same two halves apply to it.
 """
 
 import importlib
@@ -32,7 +32,7 @@ def test_ieee_is_retired():
 
 
 def test_oapen_is_retired():
-    """Withdrawn in October 2026 because its search API answers HTTP 403.
+    """Withdrawn because its search API answers HTTP 403.
 
     The parametrized cases below read their slugs from RETIRED_REPOSITORIES,
     so dropping the entry would quietly stop them covering OAPEN; this one

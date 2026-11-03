@@ -11,10 +11,9 @@ rather than the protocol, and would not exercise the environment at all.
 **Two mechanisms name a backend and this file covers both**, 2 of 2 as
 ``mcp_server._candidate_ports`` reads them: ``RESMON_PORT`` in the
 environment, and the port file at ``config.PORT_FILE``. The third case -- no
-mechanism naming one -- used to fall through to resmon's default port, and the
-parity register's external-harness row has always called that out as
-forbidden: a wrong or absent app is a refusal, never a silent fallback. It is
-now a refusal, and the last test here is what says so.
+mechanism naming one -- must not fall through to resmon's default port: a wrong
+or absent app is a refusal, never a silent fallback. It is a refusal, and the
+last test here is what says so.
 
 **Nothing here addresses resmon's background service or the port it uses.**
 ``_free_port`` refuses to hand that port back, the two backends bind ephemeral
@@ -153,11 +152,10 @@ def test_with_neither_mechanism_naming_a_port_the_harness_is_refused(
         two_backends, shared_state, tmp_path):
     """Two resmons are listening and the harness attaches to neither.
 
-    The register's external-harness row states the invariant the old code broke
-    -- a wrong or absent app is a refusal, never a silent fallback -- and this
-    is that row's third clause at the socket. Both backends' access logs are
-    read before and after: a request served by either one would appear there,
-    so this does not take the refusal's own word for it.
+    The invariant is that a wrong or absent app is a refusal, never a silent
+    fallback, and this is its third clause at the socket. Both backends' access
+    logs are read before and after: a request served by either one would appear
+    there, so this does not take the refusal's own word for it.
     """
     mine, other = two_backends
     before = {b.port: b.log.read_text() for b in (mine, other)}
@@ -219,7 +217,7 @@ def test_the_refusal_tells_the_operator_what_to_do(two_backends, shared_state, t
     # This does not pin every way the message could go wrong, and the one
     # worth naming is the near miss it misses: a message that said to set
     # RESMON_STATE_DIR and let the server work the port out would pass here,
-    # and that is the misconception this change's three documents exist to
+    # and that is the misconception the documentation exists to
     # correct. What catches *that* is not a string assertion but the behavior
     # tests -- the server would still have to find a port, and it cannot.
     assert "8742" not in message

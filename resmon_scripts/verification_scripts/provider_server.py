@@ -5,17 +5,15 @@ against this: a real socket, a real ``httpx`` request, real status codes, real
 JSON. The only thing that is not real is the model, whose replies a test scripts
 turn by turn so the loop is deterministic.
 
-That is the distinction the whole handback format turns on, and this file exists
-because of it. The property under test is **what resmon sends** — where the
+That distinction is why this file exists. The property under test is **what resmon sends** — where the
 constitution lands, which tools are offered, how a tool result is fed back — and
 that is only observable in the request body a server actually receives.
 ``calls`` keeps every one of them.
 
-In the ledger, a row checked against this server is **real dependency,
-in-process**: the socket and the HTTP stack are real, the provider is not, and
-the row says so. What it cannot see is written down there too — whether the real
-provider accepts these schemas, and whether a real model does anything sensible
-with them.
+A check against this server is a **real dependency, in-process**: the socket
+and the HTTP stack are real, the provider is not. What it cannot see is whether
+the real provider accepts these schemas, and whether a real model does anything
+sensible with them.
 
 ## Scripting a turn
 

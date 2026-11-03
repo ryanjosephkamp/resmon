@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_sse_background.py
-"""Verification tests for IMPL-17: SSE Endpoint and Background Execution.
+"""Verification tests for the SSE endpoint and background execution.
 
 Tests cover:
   - POST /api/search/dive returns execution_id without blocking

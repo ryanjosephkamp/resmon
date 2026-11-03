@@ -1,11 +1,11 @@
 """A keyring that will not answer must not be reported as "no key set".
 
-Found on a real install, 2026-08-20: macOS binds keychain access to an app's
-code signature, so an unsigned build is denied items an earlier build stored.
-The denial arrives as a prompt no background process can answer, the call
-times out, and the app told the user their keys were absent — while they sat
-in the keychain untouched. Silently behaving as unconfigured is exactly the
-class of lie phase 1.7 exists to remove.
+macOS binds keychain access to an app's code signature, so an unsigned build is
+denied items a differently signed build stored. The denial arrives as a prompt
+no background process can answer, the call times out, and an app that treats
+that as "absent" tells the user their keys are gone while they sit in the
+keychain untouched. Silently behaving as unconfigured is exactly the class of
+lie these tests exist to rule out.
 
 Two behaviors are pinned here:
 

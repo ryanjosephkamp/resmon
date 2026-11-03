@@ -24,9 +24,9 @@ import pytest
 # on sys.path, and most of the rest import ``resmon`` and
 # ``implementation_scripts`` directly, which needs ``resmon_scripts/``.
 #
-# Both used to work only by accident: ``python -m pytest`` puts the working
-# directory on sys.path, the bare ``pytest`` console script does not. The suite
-# therefore passed locally and failed in CI with ``No module named
+# Both would work only by accident otherwise: ``python -m pytest`` puts the
+# working directory on sys.path, the bare ``pytest`` console script does not.
+# The suite would then pass locally and fail in CI with ``No module named
 # 'resmon_scripts'``. Setting both here makes the suite independent of how it
 # was invoked and from which directory.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -186,17 +186,16 @@ def pytest_runtest_makereport(item, call):
 # test does. Returning ``None`` hands the value back to pytest's own
 # generation, so every short parameter is untouched.
 #
-# 512, not 64. The first version used 64 and a reviewer measured what that
-# cost: 20 of 3,562 ids changed, no collisions, but five of them lost readable
-# content while sitting nowhere near any limit -- ``[raw-bytes74]`` at 74
-# bytes, and, pointedly, this branch's own new gate rendered as
+# 512, not 64. A cap of 64 changes 20 of 3,562 ids with no collisions, but
+# five of them lose readable content while sitting nowhere near any limit --
+# ``[raw-bytes74]`` at 74 bytes, and a gate rendered as
 # ``[test_evidence_reader.py-case-str66]``. A cap is meant to stop a line that
 # breaks a reader, not to shorten ids for its own sake. At 512 those five
 # stay legible at roughly 600 bytes, which is a hundredfold under the 64 KiB
 # scanner limit, and the 256 KiB parameters are still described rather than
 # printed.
 #
-# Until a run predates this, the whole log is still available through
+# The whole log of a run is also available through
 #   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
 _MAX_PARAMETRIZE_ID = 512
 
@@ -352,7 +351,7 @@ keyring.set_keyring(InMemoryKeyring())
 
 
 # ---------------------------------------------------------------------------
-# The local API token (2.2 lock-down)
+# The local API token
 # ---------------------------------------------------------------------------
 #
 # The backend refuses every request that does not carry its token, name a
@@ -419,9 +418,9 @@ def _join_execution_threads() -> None:
     """Block until every pipeline worker thread has finished.
 
     ``Thread.join(timeout)`` returns nothing and raises nothing when it gives
-    up, so a worker that outlives the timeout used to sail past this silently
-    and teardown closed its connection underneath it. ``close_db`` now refuses
-    that close outright, which is what actually prevents the crash -- but a
+    up, so a worker that outlives the timeout sails past this silently and
+    teardown closes its connection underneath it. ``close_db`` refuses that
+    close outright, which is what actually prevents the crash -- but a
     straggler still means the next test starts with a live worker from the last
     one, so it is worth being told about rather than left to be inferred.
     """
@@ -480,9 +479,9 @@ def _reset_progress_store() -> None:
     ``GET /api/executions/{id}/progress/stream`` streams with heartbeats and
     never terminates while the store still considers that id live, so a stale
     registration from an earlier test turned a batch read into an infinite
-    stream and pytest-timeout eventually killed the whole run. The same
-    collision is what BUG-018 fixed inside ``register()``; clearing here removes
-    the rest of the class rather than the one instance.
+    stream and pytest-timeout eventually killed the whole run. ``register()``
+    handles the same collision for one id; clearing here removes the rest of the
+    class rather than the one instance.
     """
     from implementation_scripts.progress import progress_store as _ps
     for attr in ("_events", "_locks", "_cancel_flags", "_completed"):
@@ -495,13 +494,13 @@ def _reset_progress_store() -> None:
 # Hermeticity guard
 # ---------------------------------------------------------------------------
 #
-# Marking the live-network tests by hand is not enough on its own: two of them
-# were missed in the first pass and only surfaced when arXiv rate-limited a CI
-# runner and pytest-timeout killed the whole job. Both tests swallow their own
-# network errors, so locally they simply passed and nothing indicated that the
-# "hermetic" suite was reaching the internet.
+# Marking the live-network tests by hand is not enough on its own: a test that
+# is missed surfaces only when arXiv rate-limits a CI runner and pytest-timeout
+# kills the whole job. A test that swallows its own network errors simply
+# passes locally, and nothing indicates that the "hermetic" suite is reaching
+# the internet.
 #
-# So the property is now checked rather than assumed. Any test without the
+# So the property is checked rather than assumed. Any test without the
 # live_network marker that opens a non-loopback socket fails immediately, and
 # names itself while doing it.
 

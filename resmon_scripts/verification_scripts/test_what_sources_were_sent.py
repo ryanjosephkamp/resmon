@@ -4,9 +4,10 @@
 The words a person types are not the query a source receives. arXiv is sent
 each word as its own ``all:`` term joined with AND, with a submission-date
 clause; Crossref gets ``query`` and a ``filter``; DBLP is sent nothing at all
-for a window shorter than a calendar year. The search record used to put the
-typed words under "Query as sent", and the run's log said ``dblp: 0 results``
-beside the sentence explaining that DBLP could not answer. These cases drive
+for a window shorter than a calendar year. The search record must not put the
+typed words under "Query as sent", and the run's log must not say
+``dblp: 0 results`` beside the sentence explaining that DBLP could not answer.
+These cases drive
 real clients through the real ``safe_request`` over a transport that answers
 locally, and hold:
 

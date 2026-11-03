@@ -18,7 +18,7 @@ is an ordinary document slug. No collision exists today — that was checked
 across every path segment under ``docs/`` — so this was latent rather than
 live.
 
-It was fixed on both sides, and this module is about why *both* are still here:
+Both sides are guarded, and this module is about why *both* are kept:
 
 1. ``.gitignore`` ends with a ``docs/`` negation, so a built page at such a
    path is **committable**.
@@ -28,15 +28,14 @@ It was fixed on both sides, and this module is about why *both* are still here:
 They are redundant today, and that redundancy is the problem this module
 solves. With the negation in place, nothing under ``docs/`` is ignored, so the
 flag never fires and never would during any ordinary failure — it cannot be
-demonstrated in CI at all while its partner is present, which is why the
-evidence for it in that pull request is local. A layer that is both redundant
+demonstrated in CI at all while its partner is present. A layer that is both redundant
 and unexercised is a layer somebody deletes while tidying, in perfect good
 faith, and the deletion has no observable effect on the day it happens. The
 flag becomes the only defense precisely at the moment it has never been tried.
 
-So the rule is held here rather than left to a reviewer noticing. Neither
-assertion claims the layer *works* — the pull request's own demonstrations did
-that, each half with the other removed. What these claim is narrower and is the
+So the rule is held here rather than left to somebody noticing. Neither
+assertion claims the layer *works*; that has to be shown with each half removed
+in turn. What these claim is narrower and is the
 part that erodes: both layers are still present, so removing either is a
 decision somebody makes in a diff rather than something that happens to them.
 
@@ -145,11 +144,11 @@ def test_the_site_job_asks_git_about_ignored_files():
     """
     job = _site_job_text()
 
-    # The *command*, not the job text. The first version of this asserted the
-    # flag appeared anywhere in the job and passed a mutation that deleted it
-    # from the command and left the comment above it in place — the comment
-    # explains the flag at length, so it satisfied the search on its own. A
-    # check that a comment can satisfy is not a check on the code.
+    # The *command*, not the job text. Asserting the flag appears anywhere in
+    # the job would pass a mutation that deleted it from the command and left
+    # the comment above it in place — the comment explains the flag at length,
+    # so it would satisfy the search on its own. A check that a comment can
+    # satisfy is not a check on the code.
     commands = [
         line
         for line in job.splitlines()

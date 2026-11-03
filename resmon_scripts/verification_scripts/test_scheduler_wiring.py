@@ -1,11 +1,11 @@
-"""Tests for IMPL-R3: scheduler callback refactor + coalesce/misfire grace.
+"""Tests for the scheduler callback and its coalesce/misfire grace.
 
 Covers:
     (a) set_dispatcher + fire calls dispatcher exactly once
     (b) add_routine idempotent with replace_existing=True
     (c) remove_routine idempotent (second call does not raise)
     (d) coalesce=True present on the registered job
-    (e) misfire_grace_time=3600 present on the registered job (Update 4 / Fix B)
+    (e) misfire_grace_time=3600 present on the registered job
     (f) _routine_callback with no dispatcher installed logs and returns
     (g) dispatcher exception is swallowed and logged
 """

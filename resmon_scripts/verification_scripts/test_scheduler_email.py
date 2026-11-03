@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_scheduler_email.py
-"""Step 10 verification: scheduler and email notifier."""
+"""Verification tests for the scheduler and email notifier."""
 
 import sqlite3
 import sys

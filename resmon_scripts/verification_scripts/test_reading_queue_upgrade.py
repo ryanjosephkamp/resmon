@@ -1,27 +1,26 @@
-"""Schema 14 on a database an earlier resmon actually built.
+"""Schema 14 on a database that schema 13's code actually built.
 
 CI creates every database from scratch, so on its own it can only ever say that
-a *fresh* install works. Schema 13 shipped an index over a column its migration
-had not added yet: fresh databases were fine and every existing corpus refused
-to start. That is the failure this file exists to catch, one version later.
+a *fresh* install works. An index over a column its migration has not added yet
+is fine on a fresh database and makes every existing corpus refuse to start.
+That is the failure this file exists to catch.
 
 The baseline here is not "a current database with its version marker changed".
 It is `fixtures/reading_queue/schema_13.sql`, dumped from a database built by
-the code at commit a1a377b — the last public `main` before this feature — and
-then filled with rows the way a real corpus is filled. What is asserted is not
+schema 13's code and then filled with rows the way a real corpus is filled.
+What is asserted is not
 only that the upgrade does not raise: it is that **every row that was there
 before is there afterwards, field for field**, that the new table arrives
 empty, and that a migration which fails does not leave the marker claiming it
 succeeded.
 
 The fixture also carries resmon's own `documents_fts_insert` / `_update` /
-`_delete` triggers. The first version of this file did not: it filtered the
-dump on the prefix `documents_fts`, which is how SQLite names the shadow tables
-it creates for itself *and* how resmon names those three triggers, so all six
-were dropped together. Reconciliation found it by comparing against a database
-built by the old code. `test_the_fixture_holds_every_object_the_application_owns`
-now derives the shadow-name set at run time and compares against a fresh
-database, so the fixture cannot silently lose an object again.
+`_delete` triggers. Filtering the dump on the prefix `documents_fts` would drop
+them: it is how SQLite names the shadow tables it creates for itself *and* how
+resmon names those three triggers, so all six would go together.
+`test_the_fixture_holds_every_object_the_application_owns` derives the
+shadow-name set at run time and compares against a fresh database, so the
+fixture cannot silently lose an object.
 
 Boundary: a real SQLite database and the real `init_db`. Nothing is doubled.
 """
@@ -137,7 +136,7 @@ def build_schema_13(path: Path) -> sqlite3.Connection:
     # `documents_fts_insert` trigger, so the three inserts above already
     # populated it — writing the rows again by hand would index each paper
     # twice, and a fixture that needs hand-feeding is a fixture whose triggers
-    # are missing. That is exactly what the first version of this file hid.
+    # are missing.
     conn.execute(
         "INSERT INTO saved_configurations (name, config_type, parameters, created_at, "
         "updated_at) VALUES ('Weekly arXiv', 'manual_sweep', ?, '2026-01-10 08:00:00', "
@@ -472,13 +471,13 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):
-    """The check reconciliation had to make by hand, now in the suite.
+    """Every object the application owns is in the schema 13 fixture.
 
     A fresh database built by the current code is the denominator: subtract
-    schemas 14 through 20's own objects and what is left is precisely what an upgrading
-    schema-13 corpus must already have. Comparing against that, rather than
-    against a list in this file, is what makes a silently dropped trigger fail
-    here instead of passing for another phase.
+    schemas 14 through 20's own objects and what is left is precisely what an
+    upgrading schema-13 corpus must already have. Comparing against that, rather
+    than against a list in this file, is what makes a silently dropped trigger
+    fail here.
     """
     fresh = sqlite3.connect(tmp_path / "fresh-for-compare.db")
     fresh.row_factory = sqlite3.Row

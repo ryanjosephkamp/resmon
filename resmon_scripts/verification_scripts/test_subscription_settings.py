@@ -1,4 +1,4 @@
-"""Model lists, effort levels, and what resmon may claim about them (1.8.5 D5).
+"""Model lists, effort levels, and what resmon may claim about them.
 
 The whole subject of this file is the difference between two sentences:
 

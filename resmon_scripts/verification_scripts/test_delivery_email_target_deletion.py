@@ -1,24 +1,23 @@
 # resmon_scripts/verification_scripts/test_delivery_email_target_deletion.py
 """Deleting a routine's email destination has to stick across its next run.
 
-Two halves of the same defect, found in order. The first was the schema-21
-seed: ``init_db`` re-created an email target for every routine with
-``email_enabled = 1`` on *every* launch, so a deletion lasted until the next
-start. That is gated on the 20 -> 21 upgrade now, and
-``test_startup_idempotence`` holds it.
+Two halves of one concern. The first is the schema-21 seed: ``init_db``
+re-creating an email target for every routine with ``email_enabled = 1`` on
+*every* launch would make a deletion last only until the next start. The seed
+is gated on the 20 -> 21 upgrade, and ``test_startup_idempotence`` holds it.
 
 The second is this one. ``delivery.enqueue_for_execution`` re-creates the same
 row on the routine's **next completed run** -- its docstring calls that
 deliberate, and for a routine that has never had a target it is: the switch
-alone used to be the whole configuration, and a routine created with the switch
-on and no target still has to send. But it cannot tell a routine that never had
-a target from one whose target the user just deleted, because ``email_enabled``
-and the target row are two representations of one intent and nothing kept them
-in step. So the delete button worked until the routine next ran, and then the
-destination came back.
+alone is the whole configuration, and a routine created with the switch on and
+no target still has to send. But it cannot tell a routine that never had a
+target from one whose target the user just deleted, because ``email_enabled``
+and the target row are two representations of one intent and nothing keeps them
+in step. So the delete button would work until the routine next ran, and then
+the destination would come back.
 
 ``email_enabled`` is the Routines page switch; the target row is the
-destination. Removing the last destination now turns the switch off in the same
+destination. Removing the last destination turns the switch off in the same
 write, so the two cannot disagree and the enqueue path needs no new special
 case. The user sees the switch move, which is the honest report of what the
 deletion did.

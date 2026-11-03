@@ -1,4 +1,4 @@
-"""The first-run card's facts — P15a and P15c.
+"""The first-run card's facts.
 
 What the card renders is decided here, not in the renderer, so this is where the
 two claims live: **it shows only on a fresh install**, and **it never says a lane
@@ -57,7 +57,7 @@ def test_every_step_carries_a_state_and_a_sentence(client):
 
 
 def test_no_step_claims_anything_works(client):
-    """P15c. `found` and `configured`, never `ready`, `working` or `connected`.
+    """`found` and `configured`, never `ready`, `working` or `connected`.
 
     An assertion on the words rather than on the shape, because the failure this
     guards is a sentence someone writes later that sounds more helpful.
@@ -128,9 +128,9 @@ def test_dismissal_is_not_a_settings_group_the_assistant_can_reach():
 def test_an_unreadable_keyring_is_not_reported_as_a_missing_key(client, monkeypatch):
     """`done: null` is a third state, and it exists for a real failure.
 
-    An unsigned macOS build is denied the keychain items an earlier build
+    An unsigned macOS build is denied the keychain items a signed build
     stored. Reporting that as "no key" tells someone to add a key they already
-    have — and the credentials endpoint learned the same lesson in 1.9.
+    have, and the credentials endpoint draws the same distinction.
     """
     monkeypatch.setattr(resmon_mod, "probe_credential", lambda _name: "absent")
     monkeypatch.setattr(resmon_mod, "keyring_is_responsive", lambda: False)

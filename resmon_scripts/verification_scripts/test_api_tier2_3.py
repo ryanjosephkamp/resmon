@@ -26,9 +26,9 @@ import implementation_scripts.api_springer
 from implementation_scripts.api_base import NormalizedResult, reset_search_outcome, search_outcome
 from implementation_scripts.api_registry import list_repositories, get_client
 
-# NOTE: SSRN and RePEc were removed from the active registry on 2026-04-18
-# because both sources block programmatic access (SSRN: Cloudflare 403; RePEc:
-# htsearch CGI no longer publicly reachable). See .ai/prep/repos.md.
+# NOTE: SSRN and RePEc are not in the active registry because both sources
+# block programmatic access (SSRN: Cloudflare 403; RePEc: htsearch CGI not
+# publicly reachable).
 TIER_2_3_REPOS = ["hal", "plos", "springer"]
 
 
@@ -67,9 +67,8 @@ def test_hal_search():
 def test_tier3_graceful_failure():
     """A keyed Tier 2/3 client returns an empty list rather than raising.
 
-    Covered IEEE Xplore until v1.8.1 retired that source on its terms; Springer
-    is the remaining keyed client with the same degrade-don't-raise contract,
-    and without a stored key it exercises exactly that path.
+    Springer is a keyed client with the degrade-don't-raise contract, and
+    without a stored key it exercises exactly that path.
     """
     client = get_client("springer")
     results = client.search(query="nonexistent_test_query_xyz_12345", max_results=1)

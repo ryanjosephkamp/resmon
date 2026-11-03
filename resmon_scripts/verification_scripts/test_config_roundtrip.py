@@ -3,17 +3,19 @@
 
 The app offers one Export control and one Import control on the Configurations
 page, and the page's help text tells the user the second takes what the first
-produced. It did not. ``export_configs`` writes a ZIP holding one JSON member
-per selected configuration; ``import_configs`` called ``json.load`` on whatever
-it was handed, so the exported archive parsed as nothing and the batch reported
-zero imported. The renderer never got that far -- it refused any filename not
-ending ``.json`` before the upload left the page.
+produced. ``export_configs`` writes a ZIP holding one JSON member per selected
+configuration, so ``import_configs`` has to read that archive: calling
+``json.load`` on whatever it is handed would parse the exported archive as
+nothing and the batch would report zero imported. The renderer must accept it
+too, rather than refusing any filename not ending ``.json`` before the upload
+leaves the page.
 
-Two existing tests appear to cover this and do not: ``test_e2e_config_export_import``
-and the configurations leg of ``test_response_models`` both open the archive in
-the test and hand the *members* to the import route. That is the one step a user
-cannot perform from the Configurations page, and doing it in the test is what
-kept the seam green while the journey was broken.
+Two other tests exercise nearby code and do not cover this:
+``test_e2e_config_export_import`` and the configurations leg of
+``test_response_models`` both open the archive in the test and hand the
+*members* to the import route. That is the one step a user cannot perform from
+the Configurations page, and doing it in the test would keep the seam green
+while the journey was broken.
 
 So the tests here take the bytes at the path the export route reports and post
 those exact bytes back, under the name the export route gave them. Nothing is
@@ -85,8 +87,8 @@ def _post_artifact(client, path: Path, content_type: str = "application/zip"):
     """Hand the import route the exported file, byte for byte, under its own name.
 
     A browser posts the file's own basename and its own media type. The name
-    matters: the backend used to decide what it had been given from the suffix
-    of the temporary file it wrote, which is not the suffix of the file the
+    matters: the backend must not decide what it has been given from the suffix
+    of the temporary file it writes, which is not the suffix of the file the
     user chose.
     """
     return client.post(
@@ -102,8 +104,7 @@ def _post_artifact(client, path: Path, content_type: str = "application/zip"):
 def test_the_exported_archive_imports_without_being_unpacked_first(client):
     """Export one configuration, import that exact file, get it back.
 
-    This is the journey the Configurations page advertises and the walk of the
-    shipped build could not complete.
+    This is the journey the Configurations page advertises.
     """
     cid = _save_dive(client, "codex-walk")
     archive = _export(client, [cid])

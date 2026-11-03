@@ -41,8 +41,8 @@ def test_missing_required_key_completes_with_footer(monkeypatch):
     report_path = Path(result["report_path"])
     assert report_path.exists()
     text = report_path.read_text(encoding="utf-8")
-    # The footer generalised in 1.8.6: it names every source that returned
-    # nothing and why, rather than only the ones missing a key. A missing key
+    # The footer names every source that returned nothing and why, rather
+    # than only the ones missing a key. A missing key
     # keeps its own wording, which was already the right sentence, and sits
     # with the sources that did not answer rather than those that answered.
     assert "## Sources that did not answer, and why" in text
@@ -52,11 +52,11 @@ def test_missing_required_key_completes_with_footer(monkeypatch):
 
 
 def test_a_zero_nothing_observed_is_reported_as_not_recorded(monkeypatch):
-    """The zero this phase exists for: no key involved, nothing came back.
+    """A zero with no key involved and nothing coming back.
 
-    Before 1.8.6 this report said nothing at all about the source. The
-    sentence it carries now is built from what the outcome channel recorded,
-    and a run that recorded nothing says "not recorded" rather than guessing.
+    The report names the source anyway. The sentence it carries is built from
+    what the outcome channel recorded, and a run that recorded nothing says
+    "not recorded" rather than guessing.
     """
     conn = sqlite3.connect(":memory:")
     init_db(conn=conn)
@@ -86,8 +86,8 @@ def _section(text: str, heading: str) -> str:
 
 def test_a_quiet_source_and_a_refusal_are_never_under_one_heading():
     """A source that answered with nothing is a quiet field; one that could not
-    answer the window says nothing about the field. The report used to list both
-    under "Sources that returned nothing"."""
+    answer the window says nothing about the field. The report must not list
+    both under "Sources that returned nothing"."""
     from implementation_scripts.report_generator import generate_report
     from implementation_scripts import zero_reason
 

@@ -1,9 +1,8 @@
 """Every MCP tool, called against a real backend.
 
-This file exists because the previous verification was a *sample*. Six of
-seventeen tools were driven end to end and the result was reported as "verified
-end to end"; two of the eleven never called were broken for every input, and
-both failed the first time a person used them.
+This file exists because a sample proves little: a tool that is broken for
+every input can sit beside tools that work, and fails the first time a person
+uses it.
 
 **A tool surface is verified when every tool has been called against a real
 backend, not when the suite is green and a sample works.** So this parametrises
@@ -71,9 +70,9 @@ def backend(tmp_path_factory):
             poll=0.4,
         )
         _API.token = token
-        # ``pin`` rather than assigning ``_base``/``_tried``: since 2.2 an
-        # address without its token is not a usable backend, and pin is the one
-        # entry point that sets both at once.
+        # ``pin`` rather than assigning ``_base``/``_tried``: an address without
+        # its token is not a usable backend, and pin is the one entry point that
+        # sets both at once.
         mcp.backend.pin(base, token)
         yield base
     finally:
@@ -112,8 +111,8 @@ _ARGS: dict[str, dict] = {
     "run_sweep": None,        # starts real work; covered separately
     "create_routine": None,   # writes; covered separately
     "run_routine": {"routine_id": 999999},
-    # v2.0. Two of the three reach the backend with an id that does not exist,
-    # which is a real answer and proves the call landed. ``update_settings`` is
+    # Routine and settings tools. Two of the three reach the backend with an id
+    # that does not exist, which is a real answer and proves the call landed. ``update_settings`` is
     # not one of those: an unknown *group* is refused in this file without a
     # request, so it would pass this test having spoken to nothing. It gets a
     # group that exists and a key that exists, and its own tests below.
@@ -121,8 +120,8 @@ _ARGS: dict[str, dict] = {
     "deactivate_routine": {"routine_id": 999999},
     "update_settings": {"group": "notifications",
                         "settings": {"notify_manual": "true"}},
-    # v2.2. The three reads take an id that does not exist, which is a real
-    # answer from the backend and proves the call landed.
+    # Watch profile tools. The three reads take an id that does not exist, which
+    # is a real answer from the backend and proves the call landed.
     # ``create_watch_profile`` writes a row, so it is covered separately below
     # for the same reason ``create_routine`` is.
     "list_watch_profiles": {},
@@ -145,8 +144,7 @@ def test_every_tool_has_a_live_case():
 def test_tool_reaches_the_backend(backend, name):
     """Each tool either succeeds or fails for a reason the backend gave.
 
-    What this rules out is the failure that shipped: a tool that cannot work
-    for *any* input because it asks the backend for something that does not
+    What this rules out is a tool that cannot work for *any* input because it asks the backend for something that does not
     exist. Those surface here as upstream_error or internal_error.
     """
     result = mcp.call_tool(name, _ARGS[name])
@@ -161,7 +159,7 @@ def test_tool_reaches_the_backend(backend, name):
 
 
 def test_search_corpus_semantic_mode_reaches_the_backend_and_says_what_it_served(backend):
-    """1.9 / P10. A mode the backend cannot serve must be *reported*, not faked.
+    """A mode the backend cannot serve must be *reported*, not faked.
 
     This backend has an empty corpus and no embedding lane, so the honest answer
     is keyword order with the reason attached. The failure this rules out is the
@@ -186,7 +184,7 @@ def test_search_corpus_rejects_a_mode_it_does_not_have(backend):
 
 
 def test_find_similar_answers_with_a_reason_rather_than_a_bare_empty_list(backend):
-    """1.9 / P10. "Nothing similar" and "nothing embedded" are different claims."""
+    """A reply of "nothing similar" and one of "nothing embedded" are different claims."""
     result = mcp.call_tool("find_similar", {"doc_id": 999999})
     body = _payload(result)
     if result["isError"]:
@@ -197,7 +195,7 @@ def test_find_similar_answers_with_a_reason_rather_than_a_bare_empty_list(backen
 
 
 def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend):
-    """P10, the success path — the one the two declining tests above cannot reach.
+    """The success path — the one the two declining tests above cannot reach.
 
     Everything here is out of process: a real backend on a real socket, a real
     embedding server on another, a real sqlite-vec index, and both tools called
@@ -205,8 +203,8 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
     deterministic vector so the expected order is a fact rather than a guess.
 
     Written because "the tool reached the backend" and "the tool returns a
-    ranking" are different claims, and v1.8.2 shipped two tools that satisfied
-    the first for every input and the second for none.
+    ranking" are different claims: a tool can satisfy the first for every input
+    and the second for none.
     """
     pytest.importorskip("sqlite_vec")
     from embedding_server import EmbeddingServer, deterministic_vector  # noqa: PLC0415
@@ -273,15 +271,10 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
 
         # The two modes return *different sets*, and that is the contract.
         #
-        # This block asserted they were equal -- "a sort, not a search" -- until
-        # 2.0a found it red on ``main``. It was written against the first draft
-        # of contract v1.2's amendment and never updated when the field test
-        # retired that draft before it shipped: semantic mode ranks the corpus
-        # within the structured filters, and ``query`` is the thing distance is
-        # measured *from* rather than a text filter, so keyword's set is a
-        # subset of semantic's. The contract says so in as many words. CI does
-        # not run ``live_network``, which is why a test contradicting the
-        # shipped contract stayed red without anyone hearing about it.
+        # Semantic mode ranks the corpus within the structured filters, and
+        # ``query`` is the thing distance is measured *from* rather than a text
+        # filter, so keyword's set is a subset of semantic's. The contract says
+        # so in as many words.
         keyword = _payload(mcp.call_tool(
             "search_corpus", {"query": phrase, "mode": "keyword", "limit": 100}
         ))
@@ -323,10 +316,10 @@ def test_semantic_search_and_find_similar_over_a_really_embedded_corpus(backend)
 
 
 def test_get_execution_results_works_for_a_real_execution(backend):
-    """The v1.8.2 defect, against a real backend and a real execution.
+    """Every export format, against a real backend and a real execution.
 
-    A stub cannot establish this: the bug was that the backend rejected the
-    format the tool asked for, and only the backend knows which formats exist.
+    A stub cannot establish this: a tool can ask for a format the backend
+    rejects, and only the backend knows which formats exist.
     """
     created = _API.post(f"{backend}/api/search/dive", json={
         "repository": "arxiv", "query": "quantum", "max_results": 1,
@@ -359,11 +352,11 @@ def test_export_references_works_for_a_real_execution(backend):
 
 
 # ---------------------------------------------------------------------------
-# The v2.0 tools, against a real backend — P11, P12
+# The routine and settings tools, against a real backend
 # ---------------------------------------------------------------------------
 
 def test_activate_and_deactivate_really_move_a_routine_on_and_off_its_schedule(backend):
-    """P12. Not "the call landed": the routine's own state, read back.
+    """Not "the call landed": the routine's own state, read back.
 
     A stub cannot establish this. ``is_active`` is written by
     ``update_routine`` and the scheduler is told separately, so the failure
@@ -387,11 +380,11 @@ def test_activate_and_deactivate_really_move_a_routine_on_and_off_its_schedule(b
 
 
 # ---------------------------------------------------------------------------
-# The v2.2 tools, against a real backend — P9
+# The watch profile tools, against a real backend
 # ---------------------------------------------------------------------------
 
 def test_creating_a_watch_profile_without_an_orcid_returns_the_warning(backend):
-    """P9. The sentence a harness must repeat, in the payload it actually reads.
+    """The sentence a harness must repeat, in the payload it actually reads.
 
     Not "the endpoint returns it" — ``test_api_profiles`` establishes that. What
     this establishes is that it survives the tool's own reshaping, which is the
@@ -495,11 +488,10 @@ def test_a_watch_routine_over_unaskable_sources_carries_the_warning_through(back
 
 
 def test_update_settings_changes_exactly_the_keys_it_named(backend):
-    """P11. Every other key in the group is read before and after and compared.
+    """Every other key in the group is read before and after and compared.
 
-    The read path is the real one — no monkeypatched group — which is what
-    Ledger 33 was about: ``ai_cli_path`` rode one key list and not the other for
-    a whole release because the test that would have caught it patched the read.
+    The read path is the real one — no monkeypatched group — because a patched
+    read hides a key that rides one key list and not the other.
     """
     before = _API.get(f"{backend}/api/settings/ai", timeout=10).json()
     assert "ai_effort" in before, "the group's real key list is what this checks against"
@@ -521,11 +513,10 @@ def test_update_settings_reaches_every_group_on_its_allowlist(backend):
     """Denominator: ``mcp_server.SETTINGS_GROUPS``, not a hand-written list.
 
     A group named in the allowlist that the backend does not serve would be a
-    tool that fails for every input in that group — the v1.8.2 defect shape.
-    Since 2.3 the key is picked from ``SETTINGS_KEYS_WRITABLE`` rather than by
-    sorting the group: a group whose first key happens to be withheld would
-    otherwise read as the same failure, and a group with *no* writable key is
-    the one this still has to catch.
+    tool that fails for every input in that group. The key is picked from
+    ``SETTINGS_KEYS_WRITABLE`` rather than by sorting the group: a group whose
+    first key happens to be withheld would otherwise read as the same failure,
+    and a group with *no* writable key is the one this still has to catch.
     """
     for group in mcp.SETTINGS_GROUPS:
         current = _API.get(f"{backend}/api/settings/{group}", timeout=10)
@@ -555,8 +546,8 @@ def test_the_writable_allowlist_names_nothing_the_app_does_not_have(backend):
     ``test_mcp_settings_allowlist`` checks the two lists against
     ``resmon._SETTINGS_GROUPS``, which is the same process reading its own
     source. This reads the keys a running backend actually serves, so a key
-    that exists in the dict and never reaches the GET — the Ledger 33 shape —
-    shows up as an allowlist entry that admits nothing.
+    that exists in the dict and never reaches the GET shows up as an allowlist
+    entry that admits nothing.
     """
     served: set[str] = set()
     for group in mcp.SETTINGS_GROUPS:

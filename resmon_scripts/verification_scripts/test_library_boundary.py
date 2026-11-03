@@ -16,7 +16,7 @@ import httpx
 import pytest
 from implementation_scripts import api_auth
 
-# 2.2: the run-owned backend is handed this process's test token and renderer
+# The run-owned backend is handed this process's test token and renderer
 # origin, exactly as Electron hands its own over, and every request carries it.
 TOKEN=api_auth.current_token()
 AUTH=f'Authorization: Bearer {TOKEN}\r\n'

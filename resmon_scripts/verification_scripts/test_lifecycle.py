@@ -510,7 +510,7 @@ def test_a_provider_failure_on_one_paper_is_recorded_not_swallowed(conn):
 
 
 # ---------------------------------------------------------------------------
-# Running to completion (1.7.1)
+# Running to completion
 # ---------------------------------------------------------------------------
 
 
@@ -543,8 +543,7 @@ def test_arxiv_version_checks_are_batched_not_one_per_paper(conn):
 
 
 def test_run_until_done_covers_the_whole_corpus_in_one_call(conn):
-    """The fix for the real defect: at the old default a 15,000-paper corpus
-    needed seventy-nine presses of the button."""
+    """A 15,000-paper corpus must not need seventy-nine presses of the button."""
     for i in range(25):
         _doc(conn, ext=str(i), doi=f"10.1/{i}")
 
@@ -602,7 +601,7 @@ def test_run_until_done_stops_rather_than_spinning_on_papers_it_cannot_advance(c
 
 
 def test_the_default_limit_is_workable_on_a_real_corpus(conn):
-    """15,645 papers at the old default of 200 was 79 presses."""
+    """15,645 papers at a default of 200 would be 79 presses."""
     assert lifecycle.DEFAULT_LIMIT >= 1000
 
 

@@ -178,8 +178,8 @@ def _runs_of(rid: int) -> list:
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
 def test_run_now_at_the_limit_is_queued_and_says_it_will_start_on_its_own(client):
-    """The answer used to be a 409 telling the person to wait and try again,
-    while the fire was in fact queued: trying again queued a second one."""
+    """The answer is not a 409 telling the person to wait and try again while
+    the fire is in fact queued: trying again would queue a second one."""
     rid = _make_routine(is_active=1)
     _Busy()
     resp = client.post(f"/api/routines/{rid}/run")

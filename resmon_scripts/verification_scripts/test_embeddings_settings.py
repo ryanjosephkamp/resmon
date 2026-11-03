@@ -1,13 +1,11 @@
 """The embedding settings, driven through the real endpoints.
 
-This file exists because of **Ledger 33**, and it is shaped by how that one
-escaped. Three subscription-lane settings were reachable through
-``PUT /api/settings/ai`` in the renderer's mind only: absent from
-``_AI_SETTING_KEYS`` and from ``_SETTINGS_GROUPS["ai"]``, the PUT dropped them
-before they were stored and no run ever read them. **A setting is only real when
-it appears in both places.** It survived a release because
-``test_api_ai_cli_status.py`` monkeypatched ``_get_settings_group``, so the test
-could not see the gap it was standing in.
+This file guards against a setting that is reachable through a settings
+endpoint in the renderer's mind only: a key absent from ``_AI_SETTING_KEYS``
+and from ``_SETTINGS_GROUPS["ai"]`` is dropped by the PUT before it is stored,
+and no run ever reads it. **A setting is only real when it appears in both
+places.** A test that monkeypatches ``_get_settings_group`` cannot see that gap,
+which is why ``test_api_ai_cli_status.py`` goes through the real read path.
 
 So nothing here patches a settings reader. Everything goes through
 ``TestClient`` — the real routing, the real Pydantic model, the real
@@ -51,12 +49,12 @@ def server():
 
 
 # ---------------------------------------------------------------------------
-# The Ledger 33 guard — structural, not enumerated
+# The storable-and-readable guard — structural, not enumerated
 # ---------------------------------------------------------------------------
 
 
 def test_the_storable_keys_and_the_readable_keys_are_the_same_list():
-    """One tuple, two uses. The gap that cost 1.8.5 a release cannot open here.
+    """One tuple, two uses. A gap between the two cannot open here.
 
     ``_SETTINGS_GROUPS["embeddings"]`` is built *from*
     ``EMBEDDING_SETTING_KEYS`` and ``_load_embedding_settings`` iterates the same
@@ -75,8 +73,8 @@ def test_the_storable_keys_and_the_readable_keys_are_the_same_list():
 
 
 def test_every_key_survives_a_put_and_comes_back_from_the_get(client):
-    """The whole tuple, not a sample. The two 1.8.5 keys that vanished were the
-    ones nobody wrote a case for."""
+    """The whole tuple, not a sample. The keys that vanish are the ones nobody
+    wrote a case for."""
     payload = {
         "embedding_enabled": "true",
         "embedding_provider": "local",
@@ -98,7 +96,7 @@ def test_every_key_survives_a_put_and_comes_back_from_the_get(client):
 
 
 def test_the_stored_settings_actually_build_the_lane_a_run_would_use(client):
-    """Storage is half of it; Ledger 33's other half was the loader never reading."""
+    """Storage is half of it; the other half is the loader actually reading."""
     client.put("/api/settings/embeddings", json={"settings": {
         "embedding_enabled": "true",
         "embedding_provider": "local",

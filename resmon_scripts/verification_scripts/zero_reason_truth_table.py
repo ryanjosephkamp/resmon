@@ -5,15 +5,13 @@ the query resmon sent it, and ``source_coverage.outcome`` is the categorizer
 built on top of it. The renderer has to apply both itself in one place: the
 live run page, where a ``repo_done`` event carries a reason slug and a rendered
 sentence and no classification at all. ``outcomeOf`` in
-``frontend/atlas/src/screens/runs/model.ts`` does that; the classic renderer
-before it did it from a **hand transcription** whose own docstring said so.
+``frontend/atlas/src/screens/runs/model.ts`` does that.
 
-The vocabulary had already been pulled out of the renderer's hands --
+The vocabulary is already out of the renderer's hands --
 ``zeroReasonVocabulary.ts`` is generated from ``zero_reason.py`` and
-byte-compared, so a new reason reddens the frontend suite. The *rule* was
-still two files agreeing by hand, and a reviewer measured the gap exactly:
-make ``answered`` return ``True`` for ``not_recorded`` and every renderer test
-stays green. That is the same defect class, one level up, as the one that put
+byte-compared, so a new reason reddens the frontend suite. The *rule* would
+still be two files agreeing by hand: make ``answered`` return ``True`` for
+``not_recorded`` and every renderer test stays green. That is the same defect class, one level up, as the one that put
 a green tick on the seven sources that have no author query.
 
 **This module is the backend half of a two-sided guard, and it has to be two
@@ -114,19 +112,19 @@ def recorded_statuses(path: Path = SOURCE_COVERAGE_PATH) -> tuple[str, ...]:
     raises and names what it found. A guard that shrugs at a shape it does not
     recognize is a guard that agrees with whatever is there.
 
-    **Why the gate expression and not the whole function.** An earlier draft
-    walked every ``Compare`` in ``outcome`` and skipped the ones that were not
-    ``ast.In``. A reviewer broke it in one line, which is the failure this
-    whole module exists to prevent -- not a crash, a *wrong table, silently*::
+    **Why the gate expression and not the whole function.** Walking every
+    ``Compare`` in ``outcome`` and skipping the ones that are not ``ast.In`` is
+    broken in one line, which is the failure this whole module exists to
+    prevent -- not a crash, a *wrong table, silently*::
 
         valid = (valid_count and (status in {"ok", ...} or status == "interrupted")
                  and ...)
 
-    The ``status ==`` arm was skipped rather than counted, so the "exactly one"
-    check never fired, the axis came back as the four it already knew, and both
-    guards stayed green while ``source_coverage.outcome`` genuinely changed: an
-    ``interrupted`` row moved from ``unknown`` to ``non_answer`` and the
-    renderer went on saying ``unknown``. ``interrupted`` is a real
+    The ``status ==`` arm would be skipped rather than counted, so the "exactly
+    one" check would never fire, the axis would come back as the four it already
+    knew, and both guards would stay green while ``source_coverage.outcome``
+    genuinely changed: an ``interrupted`` row moving from ``unknown`` to
+    ``non_answer`` while the renderer went on saying ``unknown``. ``interrupted`` is a real
     ``executions.status`` as of schema 19, so that is a plausible edit rather
     than shape-golf.
 
@@ -264,15 +262,13 @@ def _category(status: object, count: object, reason: object) -> str:
     feeds the *sentences*, which the backend renders and the renderer only
     displays, and the *partial* flag, which it does not.
 
-    An earlier version of this docstring said the partial flag was "served to
-    the renderer rather than computed by it". That is wrong on the one path
-    that matters: the renderer has its own partial check (``readInPart`` in
-    Atlas's ``runs/model.ts``), and
-    ``sweep_engine`` puts ``zero_detail`` on the ``repo_done`` event, so the
-    renderer both computes the flag and has the material to compute it
-    exactly. It currently computes a deliberately weaker predicate. Extending
-    this table with a ``zero_detail`` axis would cover that too; it is not
-    covered today and the PR says so.
+    The partial flag is not simply "served to the renderer rather than computed
+    by it". On the one path that matters, the renderer has its own partial
+    check (``readInPart`` in Atlas's ``runs/model.ts``), and ``sweep_engine``
+    puts ``zero_detail`` on the ``repo_done`` event, so the renderer both
+    computes the flag and has the material to compute it exactly. It currently
+    computes a deliberately weaker predicate. Extending this table with a
+    ``zero_detail`` axis would cover that too; it is not covered today.
     """
     row = {
         "source": "demo",
@@ -332,9 +328,8 @@ def _cell(value: object) -> str:
 def _render_rows(rows: list[list[object]], indent: str) -> str:
     """Rows one per line, columns aligned, so the table can actually be read.
 
-    A fixture nobody can read is a guard in name only -- the reviewer's words,
-    and the reason this pads rather than handing the whole structure to
-    ``json.dumps``. The output is still ordinary JSON; only the whitespace is
+    A fixture nobody can read is a guard in name only, which is why this pads
+    rather than handing the whole structure to ``json.dumps``. The output is still ordinary JSON; only the whitespace is
     chosen.
     """
     cells = [[_cell(value) for value in row] for row in rows]

@@ -1,10 +1,10 @@
 """The Danger Zone's key erasures count the keys they removed, not the names they asked about.
 
-Each eraser used to answer with the length of its list of names, so on a
-computer with no key stored "Erase all AI API keys" said it removed 8 and the
-source-key erase said 6, and every composite erase repeated both. A count is a
-claim about what was there; these tests pin it to what was actually stored and
-is now gone, through the routes a person reaches.
+An eraser that answered with the length of its list of names would, on a
+computer with no key stored, have "Erase all AI API keys" say it removed 8 and
+the source-key erase say 6, and every composite erase would repeat both. A count
+is a claim about what was there; these tests pin it to what was actually stored
+and is now gone, through the routes a person reaches.
 """
 
 from __future__ import annotations
