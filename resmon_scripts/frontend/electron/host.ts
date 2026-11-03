@@ -64,15 +64,12 @@ export function engineFlags(argv: readonly string[]): string[] {
 /**
  * The executable a service unit should start to run this app, which the app
  * tells the engines it starts (`RESMON_APP_EXECUTABLE`), or null when no unit
- * could run it: a source checkout, or the extracted Linux folder. An AppImage
- * mounts at a new path on every run, so on Linux the one path that lasts is the
- * AppImage file itself, which the runtime names in `APPIMAGE`.
+ * could run it: a source checkout, or Linux. On Linux the unit runs the engine
+ * itself: a `systemd --user` unit has no display, which Electron needs to start,
+ * while the bare engine runs headless.
  */
-export function appExecutable(
-  platform: NodeJS.Platform, execPath: string, env: NodeJS.ProcessEnv, packaged: boolean,
-): string | null {
-  if (!packaged) return null;
-  if (platform === 'linux') return env.APPIMAGE ? env.APPIMAGE : null;
+export function appExecutable(platform: NodeJS.Platform, execPath: string, packaged: boolean): string | null {
+  if (!packaged || platform === 'linux') return null;
   return execPath;
 }
 

@@ -7285,6 +7285,8 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     """
     try:
         path = _service_manager.install(port=body.port, register=body.register_service)
+    except _service_manager.TemporaryPlaceError as exc:
+        raise HTTPException(409, str(exc))
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
     return {"installed": True, "unit_path": str(path)}

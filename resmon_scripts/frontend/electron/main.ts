@@ -421,7 +421,7 @@ function stopOwnBackend(): Promise<void> {
 
 /** Tell an engine this app starts which executable runs this app, or that none does. */
 function setAppExecutable(env: NodeJS.ProcessEnv): void {
-  const executable = appExecutable(process.platform, process.execPath, process.env, app.isPackaged);
+  const executable = appExecutable(process.platform, process.execPath, app.isPackaged);
   if (executable) env.RESMON_APP_EXECUTABLE = executable;
   else delete env.RESMON_APP_EXECUTABLE;
 }

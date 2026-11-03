@@ -55,12 +55,30 @@ def default_app_executable() -> Optional[str]:
     """The packaged app's executable, as the app's own main process told this engine.
 
     Electron sets ``RESMON_APP_EXECUTABLE`` on the engine it starts, and only when
-    the app is packaged (on Linux, only when it runs as an AppImage, whose file is
-    the one path that outlives a run). A unit installed from such an engine starts
-    the app with ``--service``. Without it (a source checkout, the extracted Linux
-    folder) the unit starts the engine itself.
+    the app is packaged on macOS or Windows. A unit installed from such an engine
+    starts the app with ``--service``. Without it (a source checkout) the unit
+    starts the engine itself.
+
+    Linux always runs the engine: a ``systemd --user`` unit has no display, which
+    Electron needs to start, so the app cannot be the service there, while the
+    bare engine runs headless.
     """
+    if sys.platform.startswith("linux"):
+        return None
     return os.environ.get("RESMON_APP_EXECUTABLE") or None
+
+
+class TemporaryPlaceError(RuntimeError):
+    """The unit would point into a place that will not be there next time."""
+
+
+def runs_from_temporary_place(path: str) -> bool:
+    """True for a path under ``/AppTranslocation/`` or ``/Volumes/``.
+
+    An unsigned app opened from Downloads or from its disk image runs from a
+    random read-only copy, or from the image, and both are gone later.
+    """
+    return "/AppTranslocation/" in path or path.startswith("/Volumes/")
 
 
 def default_port() -> int:
@@ -283,6 +301,13 @@ def install(
     target.parent.mkdir(parents=True, exist_ok=True)
     if app_executable is None and python is None:
         app_executable = default_app_executable()
+    # Both forms name a path inside the running app: the app's executable, or the
+    # bundled interpreter.
+    started = app_executable or python or default_python()
+    if runs_from_temporary_place(started):
+        raise TemporaryPlaceError(
+            "resmon is running from a disk image or a download, which will not be there next time: "
+            "move resmon to Applications, open it from there, and install the background service again.")
     rendered = render_template(python=python, port=port, workdir=workdir, log_dir=log_dir,
                                app_executable=app_executable)
     target.write_text(rendered, encoding="utf-8")

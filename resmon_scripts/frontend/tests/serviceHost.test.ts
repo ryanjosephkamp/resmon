@@ -137,20 +137,18 @@ describe('the app run by a service unit', () => {
 
   describe('the executable a unit should start', () => {
     it('is the app on macOS and Windows when packaged', () => {
-      expect(appExecutable('darwin', '/Applications/resmon.app/Contents/MacOS/resmon', {}, true))
+      expect(appExecutable('darwin', '/Applications/resmon.app/Contents/MacOS/resmon', true))
         .toBe('/Applications/resmon.app/Contents/MacOS/resmon');
-      expect(appExecutable('win32', 'C:\\resmon\\resmon.exe', {}, true)).toBe('C:\\resmon\\resmon.exe');
+      expect(appExecutable('win32', 'C:\\resmon\\resmon.exe', true)).toBe('C:\\resmon\\resmon.exe');
     });
 
-    it('is the AppImage file on Linux, never the path it is mounted at', () => {
-      const env = { APPIMAGE: '/home/ada/Apps/resmon-1.0.0-x86_64.AppImage' };
-      expect(appExecutable('linux', '/tmp/.mount_resmonAbC/resmon', env, true)).toBe(env.APPIMAGE);
+    it('is nothing on Linux, even from an AppImage: its unit runs the engine, which needs no display', () => {
+      expect(appExecutable('linux', '/tmp/.mount_resmonAbC/resmon', true)).toBeNull();
     });
 
-    it('is nothing from a source checkout, or the extracted Linux folder', () => {
-      expect(appExecutable('darwin', '/x/electron', {}, false)).toBeNull();
-      expect(appExecutable('linux', '/x/electron', { APPIMAGE: '/a.AppImage' }, false)).toBeNull();
-      expect(appExecutable('linux', '/x/linux-unpacked/resmon', {}, true)).toBeNull();
+    it('is nothing from a source checkout', () => {
+      expect(appExecutable('darwin', '/x/electron', false)).toBeNull();
+      expect(appExecutable('win32', 'C:\\x\\electron.exe', false)).toBeNull();
     });
   });
 });

@@ -145,8 +145,8 @@ test('the command line in the packaged app answers from the instance, and no con
       ).toBe('done');
 
       // 6. A unit written by this engine, which the packaged app started, runs the app. (Written
-      // to this instance's own unit folder and never registered. On Linux it runs the app only
-      // as an AppImage, which this unpacked folder is not.)
+      // to this instance's own unit folder and never registered. On Linux the unit runs the engine:
+      // a systemd user unit has no display, which the app needs.)
       const unit = await engine<{ unit_path: string }>(win, '/api/service/install',
         { method: 'POST', json: { register: false } });
       expect(unit.unit_path.startsWith(stateDir)).toBe(true);
