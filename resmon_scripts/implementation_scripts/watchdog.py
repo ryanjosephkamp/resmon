@@ -336,7 +336,7 @@ def _active_routine_sources(routines: list[dict]) -> dict[str, list[str]]:
         if not routine.get("is_active"):
             continue
         for source in _routine_repositories(routine):
-            selected.setdefault(source, []).append(routine.get("name") or "a routine")
+            selected.setdefault(source, []).append(routine.get("name") or "a watch")
     return selected
 
 
@@ -501,7 +501,7 @@ def _check_sources(
                     ),
                     what_to_do=(
                         "Add the key under Settings › Sources, or remove "
-                        f"{name} from the routines that select it."
+                        f"{name} from the watches that select it."
                     ),
                     evidence={
                         # The row a person reads, in words. The slot itself
@@ -585,7 +585,7 @@ def _check_sources(
                         + " Nothing about the source needs checking: it will "
                         "not be asked again."
                         if still_selected else
-                        f"No active routine selects {source} any more, so no "
+                        f"No active watch selects {source} any more, so no "
                         "future run will ask for it and nothing needs changing. "
                         "Mute this if the record of those runs is no longer useful."
                     ),
@@ -617,7 +617,7 @@ def _check_sources(
                 what_to_do=(
                     f"Check whether {source} is reachable and whether any key it "
                     "needs is still valid. Until it answers, results from it are "
-                    "missing from every routine that selects it."
+                    "missing from every watch that selects it."
                 ),
                 evidence=evidence,
             ))
@@ -728,7 +728,7 @@ def _check_sources(
                 what_to_do=(
                     f"Run a Deep Dive against {source} with a deliberately broad "
                     "query. If that returns papers, the source is fine and the "
-                    "routine's query is the thing to look at."
+                    "watch's query is the thing to look at."
                 ),
                 evidence={
                     "zero_runs": zero_streak,
@@ -757,7 +757,7 @@ def _check_skipped_fires(conn: sqlite3.Connection, routines: list[dict],
     of the cadence its owner set, and until this rule that showed only on the
     watch's own Schedule tab and in the engine log.
     """
-    active = {int(r["id"]): r.get("name") or f"Routine {r['id']}"
+    active = {int(r["id"]): r.get("name") or f"Watch {r['id']}"
               for r in routines if r.get("is_active")}
     if not active:
         return []
@@ -851,7 +851,7 @@ def _check_routines(
             continue
 
         routine_id = routine["id"]
-        name = routine.get("name") or f"Routine {routine_id}"
+        name = routine.get("name") or f"Watch {routine_id}"
         runs = runs_by_routine.get(routine_id, [])
         cadence = _observed_cadence_days(runs)
 
@@ -881,7 +881,7 @@ def _check_routines(
                 scope={"type": "routine", "id": routine_id, "name": name},
                 title=f"'{name}' has not run for {_humanise_days(silent_days)}",
                 detail=(
-                    f"This routine is active and has run every "
+                    f"This watch is active and has run every "
                     f"{_humanise_days(cadence)} on average across its last "
                     f"{len(runs)} runs. It has now been silent for "
                     f"{_humanise_days(silent_days)}. Scheduled runs happen in "

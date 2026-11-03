@@ -120,7 +120,7 @@ def send_routine_completion_email(
         new_count = execution.get("new_count", 0)
 
     payload = {
-        "routine_name": routine.get("name", "Unknown Routine"),
+        "routine_name": routine.get("name", "Unknown watch"),
         "start_time": execution.get("start_time", "—"),
         "end_time": execution.get("end_time", "—"),
         "status": execution.get("status", "unknown"),

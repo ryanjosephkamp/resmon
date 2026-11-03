@@ -439,10 +439,13 @@ function Parameters({ raw, nameOf }: { raw: string | null; nameOf: (slug: string
  * a person reads: its kind in words, each source by name, and each instant
  * in the reader's own time zone, whatever the field is called in the engine.
  */
-function Metadata({ run, names }: { run: Run; names: ReadonlyMap<string, string> }) {
+export function Metadata({ run, names }: { run: Run; names: ReadonlyMap<string, string> }) {
   // `ai_lanes` is said in words under the run's head.
   const skip = new Set(['coverage', 'identity', 'progress_events', 'source_outcomes', 'ai_lanes']);
   const nameOf = (slug: string) => sourceName(slug, names);
+  // A run that has ended is at no stage; the one it recorded is the last it reached.
+  const ended = run.status !== 'running' && run.status !== 'queued';
+  const label = (key: string) => (key === 'current_stage' && ended ? 'Last stage' : words(key));
   const value = (key: string, v: unknown): ReactNode => {
     if (key === 'execution_type' && typeof v === 'string') return runKind(v);
     if (key === 'repositories' && Array.isArray(v)) return v.map((slug) => nameOf(String(slug))).join(', ') || <span className="nr">none</span>;
@@ -452,7 +455,7 @@ function Metadata({ run, names }: { run: Run; names: ReadonlyMap<string, string>
   return (
     <dl className="record-dl">
       {Object.entries(run).filter(([k]) => !skip.has(k)).map(([k, v]) => (
-        <div key={k}><dt>{words(k)}</dt><dd>{value(k, v)}</dd></div>
+        <div key={k}><dt>{label(k)}</dt><dd>{value(k, v)}</dd></div>
       ))}
     </dl>
   );

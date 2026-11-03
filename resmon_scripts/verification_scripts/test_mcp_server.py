@@ -948,7 +948,7 @@ def test_an_unknown_tool_is_reported_not_raised():
 def test_run_routine_calls_the_new_endpoint():
     with _stub({("POST", "/api/routines/3/run"): {
         "execution_id": 11, "routine_id": 3, "was_inactive": True,
-        "detail": "This routine is not scheduled; it was run once because you asked for it.",
+        "detail": "This watch is not scheduled; it was run once because you asked for it.",
     }}):
         body = _payload(mcp.call_tool("run_routine", {"routine_id": 3}))
     assert body["execution_id"] == 11

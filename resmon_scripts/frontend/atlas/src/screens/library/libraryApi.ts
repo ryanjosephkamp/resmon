@@ -19,6 +19,21 @@ export type LibraryImported = components['schemas']['LibraryImported'];
 export const LIBRARY = { headers: { 'X-Resmon-Library': '1' } } as const;
 export const LIBRARY_KEY = ['library'] as const;
 
+/**
+ * The engine's own sentence when the Library cannot exist on this computer
+ * (its files are kept through descriptor-relative access, which Windows does
+ * not have), or null for any other failure.
+ */
+export function unsupportedWords(error: unknown): string | null {
+  if (!(error instanceof EngineError) || error.reason !== 'unsupported_platform') return null;
+  return error.detail ?? 'The library is not available on this computer.';
+}
+
+/** A refusal that says the Library cannot exist here is final; asking again changes nothing. */
+export function retryLibrary(failures: number, error: Error): boolean {
+  return unsupportedWords(error) === null && failures < 1;
+}
+
 /** The three kinds the Library keeps, by the media type it records. */
 export const KIND: Record<string, string> = {
   'application/pdf': 'PDF',

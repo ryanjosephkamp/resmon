@@ -65,7 +65,7 @@ def compose_notification(
     "Results in Email" routine option to ship the full execution ``.zip``
     bundle alongside the completion notice.
     """
-    routine_name = execution_data.get("routine_name", "Unknown Routine")
+    routine_name = execution_data.get("routine_name", "Unknown watch")
     status = execution_data.get("status", "unknown")
     result_count = _count(execution_data, "result_count")
     new_count = _count(execution_data, "new_count")
@@ -75,7 +75,7 @@ def compose_notification(
     subject = f"[resmon] {routine_name} - {status}"
 
     body_lines = [
-        f"Routine: {routine_name}",
+        f"Watch: {routine_name}",
         f"Status: {status}",
         f"Start: {start_time}",
         f"End: {end_time}",

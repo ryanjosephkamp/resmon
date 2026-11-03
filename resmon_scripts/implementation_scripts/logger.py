@@ -87,7 +87,7 @@ class TaskLogger:
             f"Operation Type: {operation_type}",
         ]
         if routine_name:
-            header_lines.append(f"Routine Name: {routine_name}")
+            header_lines.append(f"Watch Name: {routine_name}")
         if execution_id is not None:
             header_lines.append(f"Execution ID: {execution_id}")
         header_lines.append(f"Start Time: {self._start_iso}")

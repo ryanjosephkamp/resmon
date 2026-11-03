@@ -11,6 +11,7 @@ from implementation_scripts.database import init_db
 from implementation_scripts.normalizer import (
     normalize_result, deduplicate_batch, clean_abstract,
 )
+from implementation_scripts.report_exporter import _build_digest_tex, _parse_report
 from implementation_scripts.report_generator import generate_report
 
 
@@ -57,3 +58,27 @@ def test_report_generation():
     assert "# resmon Literature Report" in report
     assert "Paper A" in report
     assert "Auth A" in report
+
+
+def test_report_names_its_sources_and_says_its_dates_as_words():
+    """The header and each paper name a source as the catalog does, and the range is said as dates."""
+    docs = [
+        {"title": "Paper A", "authors": ["Auth A"], "abstract": "Abstract A",
+         "publication_date": "2026-04-15", "url": "", "source_repository": "biorxiv",
+         "external_id": "10.1101/1", "categories": []},
+    ]
+    metadata = {"query": "machine learning", "repositories": ["biorxiv", "arxiv", "ieee"],
+                "date_from": "2025-11-03", "date_to": "2026-11-03T00:00:00", "total": 1, "new": 1}
+    report = generate_report(docs, metadata)
+    assert "**Sources:** bioRxiv, arXiv, IEEE Xplore  " in report
+    assert "**Repositories:**" not in report
+    assert "- **Source:** bioRxiv (10.1101/1)" in report
+    assert "**Date Range:** November 3, 2025 to November 3, 2026  " in report
+    # The PDF and LaTeX renderings are made from the same Markdown and carry both lines.
+    tex = _build_digest_tex(_parse_report(report))
+    assert "Sources & bioRxiv, arXiv, IEEE Xplore" in tex
+    assert "Date Range & November 3, 2025 to November 3, 2026" in tex
+    # A slug the catalog does not know, and a bound that is not a day, are shown as stored.
+    odd = generate_report([], {"query": "q", "repositories": ["nowhere"], "date_from": "last week", "date_to": None})
+    assert "**Sources:** nowhere  " in odd
+    assert "**Date Range:** from last week, with no end date  " in odd

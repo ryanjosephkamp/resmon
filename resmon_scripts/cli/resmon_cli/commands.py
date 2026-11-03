@@ -47,11 +47,31 @@ def _optional(engine: Engine, path: str, params: Optional[Mapping[str, Any]] = N
         raise
 
 
-def source_names(engine: Engine) -> dict[str, str]:
+# The names withdrawn sources were shown under, as ``api_registry.RETIRED_NAMES``
+# has them (``test_cli.py`` holds the two equal). The command line carries its
+# own copy because it ships without the engine's modules.
+RETIRED_NAMES = {
+    "ieee": "IEEE Xplore",
+    "oapen": "OAPEN Library",
+    "repec": "RePEc/IDEAS",
+    "ssrn": "SSRN",
+}
+
+
+def catalog_names(engine: Engine) -> dict[str, str]:
     """``{slug: name}`` from the catalog the app's Repositories page reads."""
     catalog = _optional(engine, "/api/repositories/catalog") or []
     return {str(e["slug"]): str(e.get("name") or e["slug"])
             for e in catalog if isinstance(e, dict) and e.get("slug")}
+
+
+def source_names(engine: Engine) -> dict[str, str]:
+    """``{slug: name}`` for every source a run can name: the catalog's, and the withdrawn ones.
+
+    A run from before a source was withdrawn still records an outcome under its
+    slug, and a line that said "ieee" would read as a key rather than as
+    IEEE Xplore, which is how the source wall names it."""
+    return {**RETIRED_NAMES, **catalog_names(engine)}
 
 
 def resolve_sources(engine: Engine, given: list[str]) -> list[str]:
@@ -62,7 +82,7 @@ def resolve_sources(engine: Engine, given: list[str]) -> list[str]:
     is a claim about the corpus that a typo does not earn."""
     if not given:
         return []
-    names = source_names(engine)
+    names = catalog_names(engine)
     if not names:
         return given
     by_word = {slug.lower(): slug for slug in names}
@@ -516,21 +536,34 @@ def wall(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     if not runs_ or not sources:
         return 0
 
-    width = max(len(str(s.get("name"))) for s in sources) + 2
-    out.line()
-    arrow = "→" if out.unicode else "->"
-    out.line(" " * width + f"#{runs_[0].get('execution_id')} {arrow} #{runs_[-1].get('execution_id')}, "
-             "oldest to newest")
+    rows = []
     for source in sources:
         # A state this command has no mark for is drawn as "not recorded":
         # failing toward "resmon does not know", as ``knownState`` does in the app.
         cells = " ".join(marks.get(c.get("state"), marks["not_recorded"]) for c in source.get("cells") or [])
         tally = [f"{n} {legend.get(state, {}).get('label', state)}"
                  for state, n in (source.get("counts") or {}).items() if n]
-        name = str(source.get("name")) + ("" if source.get("in_catalog", True) else " (not in the catalog)")
+        rows.append((source, cells, tally))
+
+    def label(source: dict, suffix: str) -> str:
+        return str(source.get("name")) + ("" if source.get("in_catalog", True) else suffix)
+
+    # The name column fits the longest name as printed, suffix included, with
+    # two spaces before the first mark. Where that would push the marks past
+    # the width, the suffix is shortened; a source's name never is.
+    suffix = " (not in the catalog)"
+    longest_cells = max(len(cells) for _, cells, _ in rows)
+    if max(len(label(s, suffix)) for s, _, _ in rows) + 2 + longest_cells > out.width:
+        suffix = " (unlisted)"
+    width = max(len(label(s, suffix)) for s, _, _ in rows) + 2
+    out.line()
+    arrow = "→" if out.unicode else "->"
+    out.line(" " * width + f"#{runs_[0].get('execution_id')} {arrow} #{runs_[-1].get('execution_id')}, "
+             "oldest to newest")
+    for source, cells, tally in rows:
         # " · " between counts, because one of the engine's labels ("answered,
         # zero") carries a comma of its own.
-        out.line(f"{name:<{width}}{cells}   {' · '.join(tally)}")
+        out.line(f"{label(source, suffix):<{width}}{cells}   {' · '.join(tally)}")
     out.line()
     out.packed([f"{marks[s]} {legend.get(s, {}).get('label', s)}" for s in data.get("states") or MARKS
                 if s in marks])

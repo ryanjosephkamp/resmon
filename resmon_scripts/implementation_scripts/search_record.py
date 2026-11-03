@@ -540,7 +540,7 @@ def _outcome_label(source: dict) -> str:
         return _OUTCOME_LABELS.get(reason, reason.replace("_", " "))
     if source.get("zero_reason") == "retired":
         return _OUTCOME_LABELS["retired"]
-    return source["status"].replace("_", " ")
+    return zero_reason_module.status_label(source["status"])
 
 
 def _text(value: object) -> str:
@@ -635,7 +635,7 @@ def to_markdown(record: dict) -> str:
     )
     if search.get("routine_name"):
         lines.append(
-            f"| Routine | {search['routine_name']} "
+            f"| Watch | {search['routine_name']} "
             f"(`{search.get('routine_schedule') or ''}`) |"
         )
     if search.get("configuration_name"):

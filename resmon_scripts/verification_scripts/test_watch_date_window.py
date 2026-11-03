@@ -330,13 +330,13 @@ def test_the_report_states_the_dates_and_how_they_were_set():
     window = {"sentence": "Papers published since the previous run: from October 26, 2026, with no end date."}
     text = generate_report([], {"query": "graph", "date_from": "2026-10-26", "date_to": None,
                                 "date_window": window, "total": 0, "new": 0})
-    assert "**Date Range:** from 2026-10-26, with no end date  " in text
+    assert "**Date Range:** from October 26, 2026, with no end date  " in text
     assert f"**How the dates were set:** {window['sentence']}  " in text
     plain = generate_report([], {"query": "graph", "date_from": "", "date_to": "", "total": 0, "new": 0})
     assert "**Date Range:** no date limit  " in plain
     assert "How the dates were set" not in plain
     fixed = generate_report([], {"query": "graph", "date_from": "2026-05-03", "date_to": "2026-05-04", "total": 0})
-    assert "**Date Range:** 2026-05-03 to 2026-05-04  " in fixed
+    assert "**Date Range:** May 3, 2026 to May 4, 2026  " in fixed
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)

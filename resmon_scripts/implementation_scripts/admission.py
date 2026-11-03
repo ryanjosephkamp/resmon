@@ -305,7 +305,7 @@ class RoutineAlreadyRunning(Exception):
         self.routine_id = int(routine_id)
         self.execution_id = execution_id
         super().__init__(
-            f"Routine {routine_id} is already running"
+            f"Watch {routine_id} is already running"
             + (f" as execution {execution_id}." if execution_id is not None
                else ".")
         )
@@ -323,7 +323,7 @@ class RoutineFireWaiting(Exception):
     def __init__(self, routine_id: int, decision: RoutineAdmission) -> None:
         self.routine_id = int(routine_id)
         self.decision = decision
-        super().__init__(f"Routine {routine_id} was {decision}, not started.")
+        super().__init__(f"Watch {routine_id} was {decision}, not started.")
 
 
 class RoutineClaimRegistry:

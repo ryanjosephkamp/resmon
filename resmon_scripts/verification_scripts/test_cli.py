@@ -41,10 +41,11 @@ for _path in (SCRIPTS, CLI):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
-from implementation_scripts import daemon, database, normalizer  # noqa: E402
+from implementation_scripts import api_registry, daemon, database, normalizer  # noqa: E402
 from implementation_scripts.api_base import NormalizedResult  # noqa: E402
 from perf import instance  # noqa: E402
 from resmon_cli import __version__  # noqa: E402
+from resmon_cli import commands as cli_commands  # noqa: E402
 from resmon_cli import engine as cli_engine  # noqa: E402
 from resmon_cli import install as cli_install  # noqa: E402
 from resmon_cli import main as cli_main  # noqa: E402
@@ -400,6 +401,64 @@ def test_the_source_wall(service):
 
     status, out, _ = cli(cli_env(backend.state), "wall", "--json")
     assert json.loads(out) == data
+
+
+def _wall_lines(width: int, sources: list[dict]) -> list[str]:
+    """What ``resmon wall`` prints for these sources, from an engine that holds nothing else."""
+    cells = [{"state": "answered"}, {"state": "not_selected"}, {"state": "could_not_be_asked"}]
+    body = {"runs": [{"execution_id": 1}, {"execution_id": 3}], "window": {"runs_available": 3},
+            "sources": [{**s, "cells": cells, "counts": {"answered": 1}} for s in sources],
+            "state_legend": [{"state": "answered", "label": "answered"}]}
+
+    class Stub:
+        def get(self, path, params=None):
+            return body
+
+    stream = io.StringIO()
+    cli_commands.wall(Stub(), type("Args", (), {"runs": 3, "json": False, "legend": False})(),
+                      cli_text.Out(stream, width))
+    return stream.getvalue().splitlines()
+
+
+def test_the_wall_makes_room_for_its_longest_name():
+    lines = _wall_lines(100, [{"name": "IEEE Xplore", "in_catalog": False}, {"name": "arXiv"}])
+    row = next(line for line in lines if line.startswith("IEEE Xplore"))
+    # The marks start two spaces past the longest name as printed, suffix included.
+    assert row.startswith("IEEE Xplore (not in the catalog)  ● – ⊘")
+    other = next(line for line in lines if line.startswith("arXiv"))
+    assert other.index("●") == row.index("●")
+
+
+def test_the_wall_shortens_its_suffix_before_it_shortens_a_name():
+    lines = _wall_lines(36, [{"name": "IEEE Xplore", "in_catalog": False}, {"name": "arXiv"}])
+    row = next(line for line in lines if line.startswith("IEEE Xplore"))
+    assert row.startswith("IEEE Xplore (unlisted)  ● – ⊘")
+    assert "not in the catalog" not in "\n".join(lines)
+
+
+def test_a_withdrawn_source_is_named_as_the_wall_names_it():
+    assert cli_commands.RETIRED_NAMES == api_registry.RETIRED_NAMES
+    run = {"execution_id": 5, "status": "completed", "ended_at": "2026-11-03T08:00:00Z", "sources_total": 2,
+           "sources_answered": 1,
+           "sources_not_answered": [
+               {"source": "dblp", "label": "could not answer this window", "note": "It timed out"},
+               {"source": "ieee", "label": "withdrawn", "note": "Its terms do not allow it"}]}
+    today = {"total": 0, "papers": [], "since": "2026-11-02T09:00:00Z", "window": "since_last_look",
+             "from_searches": 0,
+             "watches": [{"id": 1, "name": "Agents", "is_active": True, "new_count": 0, "last_run": run,
+                          "next_fire_at": None, "members": []}]}
+
+    class Stub:
+        def get(self, path, params=None):
+            return {"/api/today": today, "/api/repositories/catalog": [{"slug": "dblp", "name": "DBLP"}]}.get(path)
+
+    stream = io.StringIO()
+    cli_commands.today(Stub(), type("Args", (), {"action": None, "json": False, "all": False, "limit": 5})(),
+                       cli_text.Out(stream, 100))
+    out = stream.getvalue()
+    assert "DBLP: could not answer this window. It timed out" in out
+    assert "IEEE Xplore: withdrawn. Its terms do not allow it" in out
+    assert "ieee:" not in out
 
 
 def test_search_as_the_explorer_does(service):

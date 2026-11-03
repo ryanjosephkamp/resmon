@@ -4,17 +4,35 @@
 import logging
 import shlex
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 from . import zero_reason
+from .api_registry import RETIRED_NAMES
+from .repo_catalog import REPOSITORY_CATALOG
 from .utils import now_iso
 
 logger = logging.getLogger(__name__)
 
+_CATALOG_NAMES = {entry.slug: entry.name for entry in REPOSITORY_CATALOG}
+
+
+def _source_name(slug: str) -> str:
+    """A source by the name the catalog shows it under, a withdrawn one included."""
+    return _CATALOG_NAMES.get(slug) or RETIRED_NAMES.get(slug) or slug
+
 
 def _date_bound(value: object) -> str:
+    """A stored day as words, "November 3, 2025", as the report's other sections say dates.
+    Text that is not a day is left as written."""
     text = str(value).strip() if value is not None else ""
-    return "" if text in ("", "N/A", "None") else text
+    if text in ("", "N/A", "None"):
+        return ""
+    try:
+        day = date.fromisoformat(text[:10])
+    except ValueError:
+        return text
+    return f"{_MONTH_NAMES[day.month]} {day.day}, {day.year}"
 
 
 def _date_range(date_from: object, date_to: object) -> str:
@@ -70,9 +88,9 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 
     repositories = metadata.get("repositories")
     if isinstance(repositories, list) and repositories:
-        repos_display = ", ".join(str(r) for r in repositories)
+        repos_display = ", ".join(_source_name(str(r)) for r in repositories)
     elif isinstance(repositories, str) and repositories.strip():
-        repos_display = repositories
+        repos_display = _source_name(repositories.strip())
     else:
         repos_display = None
 
@@ -99,7 +117,7 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
     if cancellation:
         lines.append("**Status:** Cancelled before the run finished  ")
     if repos_display is not None:
-        lines.append(f"**Repositories:** {repos_display}  ")
+        lines.append(f"**Sources:** {repos_display}  ")
     if isinstance(watch_profile, str) and watch_profile.strip():
         # A watch run followed a person, not a set of words. "Query: N/A" is
         # true of the words and says nothing about what the run was for.
@@ -452,7 +470,7 @@ def generate_watch_report(profile: dict, findings: dict, check: dict) -> str:
         if row.get("doi"):
             lines.append(f"- **Paper DOI:** {row['doi']}")
         if row.get("source_repository"):
-            lines.append(f"- **Source:** {row['source_repository']}")
+            lines.append(f"- **Source:** {_source_name(str(row['source_repository']))}")
         if row.get("notice_date"):
             lines.append(f"- **Notice date:** {row['notice_date']}")
         notice = row.get("notice_url") or row.get("notice_doi")
@@ -569,7 +587,7 @@ def _format_paper_entry(doc: dict) -> list[str]:
     source = doc.get("source_repository", "")
     ext_id = doc.get("external_id", "")
     if source:
-        source_line = f"- **Source:** {source}"
+        source_line = f"- **Source:** {_source_name(str(source))}"
         if ext_id:
             source_line += f" ({ext_id})"
         lines.append(source_line)

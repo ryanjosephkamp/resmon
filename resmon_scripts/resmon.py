@@ -1031,7 +1031,7 @@ def _desktop_notification_body(
     subject = routine_name or {
         "deep_dive": "Deep Dive",
         "deep_sweep": "Deep Sweep",
-        "automated_sweep": "Routine",
+        "automated_sweep": "Watch",
     }.get(execution_type, "Run")
 
     try:
@@ -1711,7 +1711,7 @@ def get_routine(routine_id: int):
     try:
         routine = get_routine_by_id(conn, routine_id)
         if not routine:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         # Coerce the same boolean-ish columns the list endpoint exposes
         # so the renderer doesn't have to re-coerce ``0/1`` integers.
         for col in (
@@ -1845,7 +1845,7 @@ def _entity_source_warning(entity: Optional[dict], parameters: dict) -> Optional
     if askable:
         return None
     return (
-        "None of the sources this routine names can be asked about an author, "
+        "None of the sources this watch names can be asked about an author, "
         "so it will find nothing until you add one that can. Each run will say "
         "so on the source's row.")
 
@@ -1920,7 +1920,7 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
     try:
         existing = get_routine_by_id(conn, routine_id)
         if not existing:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         updates = {}
         if body.name is not None:
             updates["name"] = body.name
@@ -1971,7 +1971,7 @@ def delete_routine_endpoint(routine_id: int):
     try:
         existing = get_routine_by_id(conn, routine_id)
         if not existing:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         _sched_remove_routine(routine_id)
         _delete_routine_config(conn, routine_id)
         delete_routine(conn, routine_id)
@@ -1987,7 +1987,7 @@ def activate_routine(routine_id: int):
     try:
         existing = get_routine_by_id(conn, routine_id)
         if not existing:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         update_routine(conn, routine_id, {"is_active": 1})
         _sync_routine_config(conn, routine_id)
         _sched_add_routine(routine_id)
@@ -2013,7 +2013,7 @@ def list_routine_delivery_targets(routine_id: int):
     conn = _get_db()
     try:
         if not get_routine_by_id(conn, routine_id):
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         return {
             "routine_id": routine_id,
             "targets": delivery.list_targets(conn, routine_id),
@@ -2031,7 +2031,7 @@ def add_routine_delivery_target(routine_id: int, body: DeliveryTargetCreate):
     conn = _get_db()
     try:
         if not get_routine_by_id(conn, routine_id):
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         try:
             target_id = delivery.add_target(
                 conn, routine_id, channel=body.channel, target=body.target,
@@ -2085,7 +2085,7 @@ def list_routine_deliveries(routine_id: int, limit: int = 100):
     conn = _get_db()
     try:
         if not get_routine_by_id(conn, routine_id):
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         return {
             "routine_id": routine_id,
             "deliveries": delivery.list_deliveries_for_routine(
@@ -2263,7 +2263,7 @@ def run_routine_now(routine_id: int, response: Response):
     try:
         existing = get_routine_by_id(conn, routine_id)
         if not existing:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
 
         was_inactive = not bool(existing.get("is_active"))
         # A window the engine cannot read is said here, with its sentence,
@@ -2303,7 +2303,7 @@ def run_routine_now(routine_id: int, response: Response):
                         "as it allows at once, so this one is queued"
                         + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
                         + ". It starts on its own when a slot frees; there is nothing more to do."
-                        + (" The routine stays paused: this is one run because you asked for it."
+                        + (" The watch stays paused: this is one run because you asked for it."
                            if was_inactive else "")
                     ),
                 }
@@ -2321,11 +2321,11 @@ def run_routine_now(routine_id: int, response: Response):
             # to branch on the reason does not have to parse English.
             raise HTTPException(
                 409,
-                (f"This routine is already running as execution "
+                (f"This watch is already running as execution "
                  f"{conflict.execution_id}. Wait for that run to finish, or "
                  "cancel it, before starting another."
                  if conflict.execution_id is not None else
-                 "This routine is already running. Wait for that run to "
+                 "This watch is already running. Wait for that run to "
                  "finish, or cancel it, before starting another."),
                 headers={
                     "X-Resmon-Conflict": "routine_already_running",
@@ -2341,7 +2341,7 @@ def run_routine_now(routine_id: int, response: Response):
             # not read, or a date window (checked above, so a race).
             raise HTTPException(
                 409,
-                "resmon could not start this routine: its stored parameters could "
+                "resmon could not start this watch: its stored parameters could "
                 "not be read. Open it and save it again.",
             )
 
@@ -2358,7 +2358,7 @@ def run_routine_now(routine_id: int, response: Response):
             "was_inactive": was_inactive,
             "missed_fires_marked_ran_late": ran_late,
             "detail": (
-                "This routine is not scheduled; it was run once because you "
+                "This watch is not scheduled; it was run once because you "
                 "asked for it." if was_inactive else
                 "Running now, in addition to its schedule."
             ),
@@ -2374,7 +2374,7 @@ def deactivate_routine(routine_id: int):
     try:
         existing = get_routine_by_id(conn, routine_id)
         if not existing:
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         update_routine(conn, routine_id, {"is_active": 0})
         _sync_routine_config(conn, routine_id)
         _sched_remove_routine(routine_id)
@@ -2396,7 +2396,7 @@ def routine_documents(routine_id: int, limit: int = Query(2000, ge=1, le=10000))
     conn = _get_db()
     try:
         if not get_routine_by_id(conn, routine_id):
-            raise HTTPException(404, "Routine not found")
+            raise HTTPException(404, "Watch not found")
         ids, total = get_routine_document_ids(conn, routine_id, limit=limit)
         return {"routine_id": routine_id, "document_ids": ids, "total": total, "limit": limit}
     finally:
@@ -3388,7 +3388,7 @@ async def import_configurations(files: list[UploadFile] = File(...)):
             inner_params = payload.get("parameters") if isinstance(payload.get("parameters"), dict) else {}
             ai_settings = payload.get("ai_settings")
             routine_dict = {
-                "name": row.get("name") or "Imported Routine",
+                "name": row.get("name") or "Imported watch",
                 "schedule_cron": payload.get("schedule_cron") or "0 8 * * *",
                 "parameters": json.dumps(inner_params),
                 "is_active": 0,  # deactivated by default on import
@@ -4400,7 +4400,7 @@ def _coverage_for_routine(conn, routine_id: int) -> dict:
     """Shared by the HTTP route and the MCP surface, so they cannot diverge."""
     routine = get_routine_by_id(conn, routine_id)
     if routine is None:
-        raise HTTPException(404, f"No routine with id {routine_id}.")
+        raise HTTPException(404, f"No watch with id {routine_id}.")
     audit = _coverage_payload(conn, routine_id, routine)
     # A watch whose window moves never asked for an older paper, so the
     # "never returned" list can hold papers it missed by date, not by terms.
@@ -4430,9 +4430,9 @@ def _coverage_payload(conn, routine_id: int, routine: dict) -> dict:
             "missed_in_corpus_total_is_lower_bound": False,
             "distribution": None,
             "reason": (
-                "This routine has no intent and no keywords, so there is nothing to "
+                "This watch has no intent and no keywords, so there is nothing to "
                 "compare its results against. Add a sentence describing what it is "
-                "for in the routine's settings."
+                "for in the watch's settings."
             ),
         }
 
@@ -4451,7 +4451,7 @@ def _coverage_payload(conn, routine_id: int, routine: dict) -> dict:
             "missed_in_corpus_total_is_lower_bound": False,
             "distribution": None,
             "reason": (
-                "Nothing is embedded yet, so resmon cannot compare this routine's "
+                "Nothing is embedded yet, so resmon cannot compare this watch's "
                 "results against its intent. Set up an embedding model in "
                 "Settings → AI → Embeddings."
             ),
@@ -8906,7 +8906,7 @@ def delete_watch_profile(profile_id: int):
         if watching:
             names = ", ".join(f"'{r['name']}'" for r in watching)
             response["detail"] = (
-                f"{len(watching)} routine(s) watched this profile: {names}. "
+                f"{len(watching)} watch{'es' if len(watching) != 1 else ''} followed this profile: {names}. "
                 f"They are still saved and will now fail on their next run "
                 f"until you point them somewhere else or delete them.")
         return response
