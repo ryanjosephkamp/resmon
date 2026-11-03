@@ -1,5 +1,5 @@
 {
- "provenance": "Drawn from the engine's own map and Today, exported unedited from a collection of 1,662 public arXiv papers built on November 3, 2026. The papers are real, and so are the day's runs that found the new ones; when the earlier papers were collected is laid out from each paper's publication date.",
+ "provenance": "Drawn from the engine's own map and Today, exported unedited from a collection of 1,662 papers built on November 3, 2026: three watches' papers from arXiv, and three searches' from the sources they asked. The papers are real, and so are the day's runs that found the new ones; when the watches' earlier papers were collected is laid out from each paper's publication date.",
  "map": {
   "state": "ready",
   "basis": "words",
@@ -8746,7 +8746,7 @@
   }
  },
  "today": {
-  "now": "2026-11-03T15:45:12Z",
+  "now": "2026-11-03T16:33:24Z",
   "since": "2026-11-03T15:36:27Z",
   "window": "since_last_look",
   "total": 18,
@@ -9983,7 +9983,7 @@
        "source": "core",
        "name": "CORE",
        "category": "non_answer",
-       "label": "skipped missing key",
+       "label": "no API key configured",
        "note": "Selected, but the API key it requires was not configured, so this source returned nothing. It did not contribute to the search."
       }
      ]
