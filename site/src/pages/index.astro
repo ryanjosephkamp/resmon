@@ -13,6 +13,8 @@
 import Base from '../layouts/Base.astro';
 import TodayPlate from '../components/TodayPlate.astro';
 import RunRecord from '../components/RunRecord.astro';
+// Written beside the tour by `resmon_scripts/frontend/demos/media.ts`: where each segment starts.
+import tour from '../../public/media/resmon-tour.json';
 import { url, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
 import {
   SOURCES,
@@ -84,6 +86,10 @@ const parts = [
       'Every run writes a report. A watch can email it, post it to a signed webhook, or put it in a folder or a feed on your own disk. Back up the database to a folder you keep.',
   },
 ];
+
+/** "0:42", for a chapter's start. */
+const clock = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+const tourVideo = url('/media/resmon-tour.mp4');
 
 const platforms = [
   { name: 'macOS, Apple Silicon', file: 'DMG', status: 'Used daily.' },
@@ -192,6 +198,36 @@ const platforms = [
     <RunRecord />
   </section>
 
+  <section id="tour" class="band" aria-labelledby="tour-title">
+    <header class="band-head">
+      <h2 id="tour-title">The tour</h2>
+      <p class="band-count">{Math.round(tour.seconds)} seconds</p>
+    </header>
+    <div class="tour" data-tour>
+      <video class="tour-video" controls muted playsinline preload="metadata"
+        poster={url('/media/resmon-tour-poster.webp')} width="1920" height="1080">
+        <source src={tourVideo} type="video/mp4" />
+        <a href={tourVideo}>Download the tour (MP4)</a>
+      </video>
+      <ol class="chapters">
+        {
+          tour.chapters.map((chapter) => (
+            <li>
+              <a class="chapter-at" href={`${tourVideo}#t=${chapter.start}`} data-at={chapter.start}>
+                {clock(chapter.start)}
+              </a>
+              <span><strong>{chapter.title}</strong> {chapter.line}</span>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+    <p class="band-note">
+      Recorded on November 3, 2026, in a copy of the collection drawn above. The searches in it asked the public
+      sources for real; the clicks are scripted, at a person's pace.
+    </p>
+  </section>
+
   <section id="what" class="band" aria-labelledby="what-title">
     <header class="band-head">
       <h2 id="what-title">What it does</h2>
@@ -278,6 +314,22 @@ const platforms = [
     </div>
   </section>
 </Base>
+
+<script>
+  // A chapter's time plays the tour from there, in place. Without scripts it opens the video at that moment.
+  for (const tour of document.querySelectorAll<HTMLElement>('[data-tour]')) {
+    const video = tour.querySelector('video');
+    for (const link of tour.querySelectorAll<HTMLAnchorElement>('[data-at]')) {
+      link.addEventListener('click', (event) => {
+        if (!video) return;
+        event.preventDefault();
+        video.currentTime = Number(link.dataset.at);
+        void video.play();
+        video.focus();
+      });
+    }
+  }
+</script>
 
 <style>
   /* ---- The title ---------------------------------------------------------- */
@@ -625,6 +677,57 @@ const platforms = [
     .install {
       grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
       align-items: start;
+    }
+  }
+
+  /* ---- The tour ---------------------------------------------------------- */
+
+  .tour {
+    display: grid;
+    gap: var(--space-5);
+  }
+
+  .tour-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--color-canvas);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+  }
+
+  .chapters {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0 var(--space-6);
+    font-size: var(--text-sm);
+  }
+
+  .chapters li {
+    display: grid;
+    grid-template-columns: var(--space-7) minmax(0, 1fr);
+    gap: var(--space-2);
+    margin: 0;
+    padding-block: var(--space-2);
+    border-bottom: var(--border-width) solid var(--color-border);
+    color: var(--color-text-muted);
+  }
+
+  .chapters strong {
+    color: var(--color-text);
+    font-weight: var(--weight-semibold);
+  }
+
+  .chapter-at {
+    color: var(--color-accent-text);
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (min-width: 52rem) {
+    .chapters {
+      grid-template-columns: 1fr 1fr;
     }
   }
 </style>
