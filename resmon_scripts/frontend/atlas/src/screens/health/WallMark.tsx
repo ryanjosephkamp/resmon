@@ -3,8 +3,8 @@ import { markOf, pointRadius } from './model';
 /**
  * The mark for one state, drawn rather than typed: a point (its area grows
  * with the count), a ring, a ring half filled, a struck circle, a dotted ring,
- * a dash, or nothing. `data-mark` names it, so a reader of the markup reads
- * the mark and not a color.
+ * a small dot, or a dash. `data-mark` names it, so a reader of the markup
+ * reads the mark and not a color.
  */
 export function WallMark({ state, count, largest = 0 }: { state: string; count?: number | null; largest?: number }) {
   const mark = markOf(state);
@@ -26,6 +26,7 @@ export function WallMark({ state, count, largest = 0 }: { state: string; count?:
         </>
       )}
       {mark === 'dotted' && <circle cx="8" cy="8" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeDasharray="1.7 1.8" strokeLinecap="round" />}
+      {mark === 'dot' && <circle cx="8" cy="8" r="1.5" fill="currentColor" />}
       {mark === 'dash' && <path d="M5 8h6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />}
       {mark === 'unknown' && <rect x="4.5" y="4.5" width="7" height="7" fill="none" stroke="currentColor" strokeWidth="1.3" />}
     </svg>

@@ -25,6 +25,17 @@ describe('the Source wall\'s marks', () => {
     expect(svg?.querySelector('path')?.getAttribute('fill')).toBe('currentColor');
   });
 
+  test('a source the run did not ask is drawn as a dash, and a gap in the record as a dot, as the command line draws them', () => {
+    const drawn = (state: string) => render(createElement(WallMark, { state })).container.querySelector('svg.wall-mark');
+    const notAsked = drawn('not_selected');
+    expect(notAsked?.getAttribute('data-mark')).toBe('dash');
+    expect(notAsked?.querySelector('path')?.getAttribute('stroke')).toBe('currentColor');
+    const notRecorded = drawn('not_recorded');
+    expect(notRecorded?.getAttribute('data-mark')).toBe('dot');
+    expect(notRecorded?.querySelector('circle')?.getAttribute('fill')).toBe('currentColor');
+    expect(Number(notRecorded?.querySelector('circle')?.getAttribute('r'))).toBeLessThan(pointRadius(0, 1));
+  });
+
   test('a state this build does not know is not drawn as one it does', () => {
     expect(markOf('something_new')).toBe('unknown');
     expect(Object.values(MARK)).not.toContain('unknown');

@@ -27,9 +27,11 @@ export const WALL_SPANS = [12, 24, 48] as const;
  * One mark per state, so no two states can be told apart only by color: an
  * answer is a point, an empty answer a ring, an answer in part a ring filled
  * on its right (newer) half, a failure a struck circle, a source that could
- * not be asked a dotted ring, a gap in the record a dash, and a source the
- * run did not ask nothing at all. A state this build does not know is drawn
- * as a square rather than as one of these.
+ * not be asked a dotted ring, a gap in the record a small dot, and a source
+ * the run did not ask a dash, the quietest mark that is still seen. A state
+ * this build does not know is drawn as a square rather than as one of these.
+ * The command line's legend draws the same two: "–" not asked, "·" not
+ * recorded.
  */
 export const MARK: Record<string, string> = {
   answered: 'point',
@@ -37,8 +39,8 @@ export const MARK: Record<string, string> = {
   answered_in_part: 'half',
   failed: 'struck',
   could_not_be_asked: 'dotted',
-  not_recorded: 'dash',
-  not_selected: 'blank',
+  not_recorded: 'dot',
+  not_selected: 'dash',
 };
 
 export function markOf(state: string): string {

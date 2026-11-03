@@ -1379,7 +1379,11 @@ code.path {
 [data-state="answered_empty"] > .wall-mark, .wall-mark[data-mark="ring"] { color: var(--ink-2); }
 .wall-mark[data-mark="half"] { color: var(--ink); }
 .wall-mark[data-mark="struck"] { color: var(--fault); }
-.wall-mark[data-mark="dotted"], .wall-mark[data-mark="dash"], .wall-mark[data-mark="unknown"] { color: var(--ink-3); }
+.wall-mark[data-mark="dotted"], .wall-mark[data-mark="dot"], .wall-mark[data-mark="unknown"] { color: var(--ink-3); }
+/* Not asked: quieter than any answer, and still 3:1 against the cell, the chosen column, and the key's ground
+   (`sky/__tests__/marks.test.ts`). On the chosen cell's wash it takes the stronger quiet ink. */
+.wall-mark[data-mark="dash"] { color: var(--chart-context); }
+.wall-cell button[aria-pressed="true"] .wall-mark[data-mark="dash"] { color: var(--ink-3); }
 
 .wall-scroll { margin-top: 12px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--panel); }
 .wall-grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: max-content; font: 400 12.5px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
