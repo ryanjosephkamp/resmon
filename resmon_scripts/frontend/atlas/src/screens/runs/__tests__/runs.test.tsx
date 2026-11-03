@@ -17,6 +17,7 @@ import {
   type ProgressEvent,
 } from '../model';
 import { runsCountWords } from '../RunLog';
+import { Metadata } from '../RunTabs';
 
 describe("a source's outcome from its count and reason", () => {
   test.each([
@@ -403,5 +404,23 @@ describe('a source answered in part, live', () => {
   test('is an answer, not a non-answer', () => {
     expect(outcomeOf(0, 'answered_in_part')).toBe('answered');
     expect(ZERO_LABELS.answered_in_part).toBe('answered in part');
+  });
+});
+
+describe('the Metadata tab labels the stage by whether the run has ended', () => {
+  const metadata = (status: string) => render(
+    <Metadata run={{ id: 7, status, current_stage: 'finalizing' } as unknown as Parameters<typeof Metadata>[0]['run']} names={new Map()} />,
+  );
+
+  test.each(['completed', 'failed', 'cancelled', 'interrupted'])('a %s run has a last stage', (status) => {
+    const { container } = metadata(status);
+    expect(container.textContent).toContain('Last stagefinalizing');
+    expect(container.textContent).not.toContain('Current stage');
+  });
+
+  test.each(['running', 'queued'])('a %s run has a current stage', (status) => {
+    const { container } = metadata(status);
+    expect(container.textContent).toContain('Current stagefinalizing');
+    expect(container.textContent).not.toContain('Last stage');
   });
 });
