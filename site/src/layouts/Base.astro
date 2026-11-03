@@ -81,6 +81,8 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     <script is:inline>
       // A theme and color chosen on an earlier visit, set before the page paints. The top bar's
       // appearance control (src/scripts/appearance.ts) keeps them; only its own names and colors are read.
+      // `scripted` lets a page hold room for what its scripts will draw.
+      document.documentElement.classList.add('scripted');
       try {
         const kept = JSON.parse(localStorage.getItem('resmon:appearance') || 'null');
         if (kept) {

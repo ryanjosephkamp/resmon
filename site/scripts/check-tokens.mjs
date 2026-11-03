@@ -192,6 +192,8 @@ const CONTRAST_PAIRS = [
   ['--color-accent-mark', '--color-surface', 3],
   ['--color-mark-quiet', '--color-canvas', 3],
   ['--color-mark-quiet', '--color-surface', 3],
+  ['--color-field-edge', '--color-canvas', 3],
+  ['--color-field-edge', '--color-surface', 3],
 ];
 
 let contrastChecked = 0;

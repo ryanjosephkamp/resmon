@@ -4,17 +4,23 @@
  * it can be zoomed, panned, pointed at, and chosen from as Today is.
  *
  * What the app's Today screen does around its plate is done here with this
- * page's own markup: the title block rides on the plate and fades while the
- * view is away from home; a tip names the paper under the pointer; pointing at
- * an entry in the index rings its paper, and choosing either chooses both; a
- * paper the index does not hold opens in the index's place, as the app opens
- * it beside its map; Escape clears the choice. The opening, the new papers
- * lighting in turn, carries on from where the built plate's had got to, on the
- * same schedule.
+ * page's own markup: the map's own bar (`MapControls.tsx`) finds a title or an
+ * author, filters what is lit, and colors the papers by watch, source, or age;
+ * the title block rides on the plate and fades while the view is away from
+ * home; a tip names the paper under the pointer; pointing at an entry in the
+ * index rings its paper, and choosing either chooses both; a paper the index
+ * does not hold opens in the index's place, as the app opens it beside its
+ * map; Escape clears the choice. The opening, the new papers lighting in turn,
+ * carries on from where the built plate's had got to, on the same schedule.
  *
- * The data is the page's own (`plate/sky.json`; `plate/papers.json`, fetched
- * the first time a reader points at the map). Where anything here cannot run,
- * the plate the page was built with stays, and so does everything it says.
+ * The data is the page's own: `plate/sky.json`; `plate/papers.json`, fetched
+ * the first time a reader points at the map or types a find; `plate/facets.json`,
+ * fetched when the bar's menus are opened or a view needs it. The find is the
+ * engine's (`map_facets.find`), run here over the same records: a title or an
+ * author that contains the words, ignoring the case of ASCII letters, newest
+ * first. A view is held for the visit only; the app keeps it in the engine.
+ * Where anything here cannot run, the plate the page was built with stays,
+ * and so does everything it says.
  */
 import { render } from 'preact';
 import { createPortal } from 'preact/compat';
@@ -30,6 +36,17 @@ import {
 } from '../../../resmon_scripts/frontend/atlas/src/screens/today/model';
 import { authors, daysAgo, number, publishedWords } from '../../../resmon_scripts/frontend/atlas/src/screens/today/format';
 import { NO_OPENING, type Opening } from '../../../resmon_scripts/frontend/atlas/src/screens/today/opening';
+import { ColorKey, DimKey, MapBar } from '../../../resmon_scripts/frontend/atlas/src/screens/sky/MapControls';
+import {
+  DEFAULT_VIEW,
+  FIND_MIN,
+  filterCount,
+  joinFacts,
+  lookOf,
+  needsFacts,
+  type Facets,
+  type MapView,
+} from '../../../resmon_scripts/frontend/atlas/src/screens/sky/look';
 
 interface SkyData {
   recorded: string;
@@ -79,6 +96,67 @@ function usePapers(url: string) {
       });
   }, [url]);
   return { rows, want };
+}
+
+/** How long typing rests before the find runs, as the app waits before asking the engine. */
+const FIND_SETTLE_MS = 220;
+
+/** ASCII letters in lower case and nothing else, as SQLite's `LIKE` compares them. */
+const ascii = (text: string) => text.replace(/[A-Z]/g, (c) => c.toLowerCase());
+
+/**
+ * The engine's find (`map_facets.find`), over the same records: papers whose
+ * title or authors contain the words, the words' spaces collapsed, newest
+ * collected first.
+ */
+function findIn(rows: Map<number, PaperRow>, term: string): number[] {
+  const needle = ascii(term);
+  return [...rows.values()]
+    .filter((row) => ascii(row[1]).includes(needle) || ascii(row[2] ?? '').includes(needle))
+    .sort((a, b) => (b[5] ?? '').localeCompare(a[5] ?? '') || b[0] - a[0])
+    .map((row) => row[0]);
+}
+
+/** The map's look, as the app's `useMapLook` works it out, with the facets and the find read from this page. */
+function useLook(sky: ReturnType<typeof buildSky>, rows: Map<number, PaperRow> | null, wantRows: () => void,
+  facetsUrl: string, names: (slug: string) => string) {
+  const [view, setView] = useState<MapView>(DEFAULT_VIEW);
+  const [wanted, setWanted] = useState(false);
+  const [facets, setFacets] = useState<Facets | null>(null);
+  const [facetsError, setFacetsError] = useState<Error | null>(null);
+  const needed = wanted || needsFacts(view);
+  useEffect(() => {
+    if (facets || !needed) return undefined;
+    let current = true;
+    fetch(facetsUrl)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`the page's facets answered ${r.status}`))))
+      .then((data: Facets) => { if (current) { setFacets(data); setFacetsError(null); } })
+      .catch((error: Error) => { if (current) setFacetsError(error); });
+    return () => { current = false; };
+  }, [facets, needed, facetsUrl]);
+  const facts = useMemo(() => (facets ? joinFacts(sky, facets) : null), [sky, facets]);
+
+  const [typed, setTyped] = useState('');
+  const [term, setTerm] = useState('');
+  const words = typed.split(/\s+/).filter(Boolean).join(' ');
+  useEffect(() => {
+    if (words) wantRows();
+    if (words === term) return undefined;
+    const settle = window.setTimeout(() => setTerm(words), FIND_SETTLE_MS);
+    return () => window.clearTimeout(settle);
+  }, [words, term, wantRows]);
+  const finding = term.length >= FIND_MIN;
+  const matches = useMemo(() => (finding && rows ? findIn(rows, term) : null), [finding, rows, term]);
+  const look = useMemo(() => lookOf(sky, facts, view, matches, names), [sky, facts, view, matches, names]);
+  const plateLook = useMemo(() => ({ lit: look.lit, group: look.group, colors: look.colors, found: look.found }), [look]);
+  return {
+    view, setView, look, plateLook, facts, facetsError, wantFacets: () => setWanted(true),
+    find: {
+      typed, setTyped, finding,
+      waiting: (words !== term && words.length >= FIND_MIN) || (finding && !rows),
+      error: null,
+    },
+  };
 }
 
 /** "collected today", "collected yesterday", "collected 12 days ago": said from the plate's own moment. */
@@ -146,8 +224,8 @@ function PaperPanel({ row, cell, region, names, recorded, onBack, onShow }: {
   );
 }
 
-function Live({ data, today, papersUrl, cartouche }: {
-  data: SkyData; today: HTMLElement; papersUrl: string; cartouche: string | null;
+function Live({ data, today, papersUrl, facetsUrl, cartouche }: {
+  data: SkyData; today: HTMLElement; papersUrl: string; facetsUrl: string; cartouche: string | null;
 }) {
   const recorded = useMemo(() => new Date(data.recorded), [data]);
   const sky = useMemo(() => buildSky(data.points, data.regions, epochDay(recorded)), [data, recorded]);
@@ -167,6 +245,8 @@ function Live({ data, today, papersUrl, cartouche }: {
   const [away, setAway] = useState(false);
   const [palette, setPalette] = useState(0);
   const { rows, want } = usePapers(papersUrl);
+  const names = useCallback((slug: string) => data.names[slug] ?? slug, [data]);
+  const mapLook = useLook(sky, rows, want, facetsUrl, names);
   const chosen = useRef<number | null>(null);
   chosen.current = selectedId;
 
@@ -285,6 +365,20 @@ function Live({ data, today, papersUrl, cartouche }: {
     today.querySelector('.index')?.classList.toggle('showing-paper', opened !== null);
   }, [opened, panelHost, today, want]);
 
+  // Enter in the find steps through its matches, each chosen and flown to as a click on it would be.
+  const step = (direction: 1 | -1) => {
+    const found = mapLook.look.found;
+    if (found.length === 0) return;
+    const at = selectedId !== null ? found.indexOf(sky.indexOf.get(selectedId) ?? -1) : -1;
+    const next = at < 0 ? (direction === 1 ? 0 : found.length - 1) : (at + direction + found.length) % found.length;
+    const id = sky.ids[found[next] ?? 0];
+    if (id !== undefined) { setSelectedId(id); flyToPaper(id); }
+  };
+  const barHost = useMemo(() => today.querySelector<HTMLElement>('[data-map-bar]'), [today]);
+  const keyHost = useMemo(() => today.querySelector<HTMLElement>('[data-key-live]'), [today]);
+  const colored = mapLook.look.legend.length > 0;
+  useEffect(() => { today.classList.toggle('map-colored', colored); }, [today, colored]);
+
   const selectedIndex = selectedId !== null ? sky.indexOf.get(selectedId) ?? null : null;
   const pointedIndex = pointedId !== null ? sky.indexOf.get(pointedId) ?? null : null;
   const hoveredId = hover ? sky.ids[hover.index] ?? null : null;
@@ -309,6 +403,7 @@ function Live({ data, today, papersUrl, cartouche }: {
         label={data.label}
         onAway={setAway}
         toolsAt={data.corner === 'bl' ? 'right' : 'left'}
+        look={mapLook.plateLook}
         wheel="page"
       >
         {cartouche !== null && (
@@ -325,6 +420,20 @@ function Live({ data, today, papersUrl, cartouche }: {
             names={data.names} recorded={recorded} />
         )}
       </Plate>
+      {barHost && createPortal(
+        <MapBar name="today" view={mapLook.view} onView={mapLook.setView} look={mapLook.look} facts={mapLook.facts}
+          facetsError={mapLook.facetsError} total={sky.count} names={names} find={mapLook.find}
+          findAt={selectedIndex !== null ? mapLook.look.found.indexOf(selectedIndex) + 1 : 0} onStep={step}
+          onWant={mapLook.wantFacets} />,
+        barHost,
+      )}
+      {keyHost && createPortal(
+        <>
+          {colored && <ColorKey look={mapLook.look} />}
+          <DimKey look={mapLook.look} finding={mapLook.find.finding} filtered={filterCount(mapLook.view) > 0} />
+        </>,
+        keyHost,
+      )}
       {panelHost && opened !== null && createPortal(
         <PaperPanel
           row={rows?.get(opened)}
@@ -356,7 +465,11 @@ if (today && host && chart && host.dataset.sky && host.dataset.papers && 'Resize
     .then(([data]: [SkyData, unknown]) => {
       const built = chart.querySelector<HTMLElement>(':scope > .cartouche');
       const cartouche = data.corner === 'below' ? null : built?.innerHTML ?? null;
-      render(<Live data={data} today={today} papersUrl={host.dataset.papers ?? ''} cartouche={cartouche} />, host);
+      render(
+        <Live data={data} today={today} papersUrl={host.dataset.papers ?? ''} facetsUrl={host.dataset.facets ?? ''}
+          cartouche={cartouche} />,
+        host,
+      );
       chart.classList.add('is-live');
       chart.querySelector('svg.sky')?.setAttribute('aria-hidden', 'true');
     })

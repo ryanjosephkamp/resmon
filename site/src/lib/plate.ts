@@ -52,7 +52,7 @@ const RAMP_ALPHA = [1, 0.86, 0.7, 0.58, 0.5];
 /** The share of a watch name's box that may sit over papers before the name is dropped. */
 const NAME_COVER = 0.35;
 /** The title block's share of the plate, as the app reserves it. */
-const CARTOUCHE = { w: 0.36, h: 0.4 };
+const CARTOUCHE = { w: 0.42, h: 0.34 };
 /** Where the page sets it: this far in from the plate's edges, as shares of the whole plate (`TodayPlate.astro`). */
 const CARTOUCHE_INSET = 0.05;
 /** Times are said in the zone the collection was built in, with the zone named. */

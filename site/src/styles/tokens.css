@@ -32,6 +32,17 @@
   --band-line: #b9b6ae;
   --bound-line: #7d7a72;
   --quiet-line: #8c897f;
+  /* A field's edge, and the map's colors: four for watches or sources, five for age, newest first (the app's). */
+  --field-edge-line: #86827a;
+  --map-1: #2a78d6;
+  --map-2: #eda100;
+  --map-3: #e87ba4;
+  --map-4: #008300;
+  --age-0: #1c5cab;
+  --age-1: #2a78d6;
+  --age-2: #5598e7;
+  --age-3: #86b6ef;
+  --age-4: #b7d3f6;
 
   /* ---- The one color: amber unless a reader turns it, deepened on paper -- */
   /*
@@ -103,6 +114,7 @@
   /* ---- Source-state marks: drawn by shape, never told apart by color ---- */
   /* Not asked on a run: quieter than an answer, and still a mark at 3:1. */
   --color-mark-quiet: var(--quiet-line);
+  --color-field-edge: var(--field-edge-line);
 
   /* ---- A panel over the page: the appearance control's ------------------ */
   --shadow-panel: 0 0.75rem 2rem rgba(20, 20, 19, 0.14), 0 0.125rem 0.375rem rgba(20, 20, 19, 0.08);
@@ -224,16 +236,26 @@
   --measure-display: 16ch;
   --measure-lead: 22ch;
   /* The plate is square and as tall as the screen leaves room for under the
-     title, so the first view holds the title, the plate, and its index. */
-  --plate-fit: calc(100svh - 19.5rem);
-  --plate-min: 30rem;
+     title and the map's bar, so the first view holds the title, the bar, the
+     plate, and its index. */
+  --plate-fit: calc(100svh - 24.5rem);
+  --plate-min: 25rem;
   --index-cap: 70svh;
   --badge: 1.375rem;
   /* The live plate's zoom buttons, and the tip that names the paper under the pointer (the app's sizes). */
   --tools-inset: 2.75rem;
   --tool-size: 1.875rem;
   --tip-width: 18.75rem;
-  --cartouche-width: 36%;
+  /* The map's own bar over the plate: its height, held before it arrives, and its menus' width. */
+  --map-bar-height: 3.5rem;
+  --map-bar-height-narrow: 5.875rem;
+  --map-find-basis: 14rem;
+  --map-find-width: 21.25rem;
+  --map-menu-width: 21.25rem;
+  --map-menu-height: min(45rem, calc(100vh - 9rem));
+  --facet-box: 0.9375rem;
+  --facet-n: 1.125rem;
+  --cartouche-width: 42%;
   /* Type on the plate, in the plate's own pixels: it is drawn 720 across and
      scaled to its column, about 600 on a laptop, so each is set a size above
      the app's to read at the app's size there. On a phone, where the plate is
@@ -287,6 +309,16 @@
     --band-line: #3a3935;
     --bound-line: #77736b;
     --quiet-line: #77736b;
+    --field-edge-line: #73706a;
+    --map-1: #3987e5;
+    --map-2: #c98500;
+    --map-3: #d55181;
+    --map-4: #008300;
+    --age-0: #b7d3f6;
+    --age-1: #86b6ef;
+    --age-2: #5598e7;
+    --age-3: #2a78d6;
+    --age-4: #1c5cab;
 
     --accent-ink: var(--dial-dark-ink, #ff8a3d);
     --accent-mark: var(--dial-dark-mark, #ff8a3d);
@@ -322,6 +354,16 @@
   --band-line: #3a3935;
   --bound-line: #77736b;
   --quiet-line: #77736b;
+  --field-edge-line: #73706a;
+  --map-1: #3987e5;
+  --map-2: #c98500;
+  --map-3: #d55181;
+  --map-4: #008300;
+  --age-0: #b7d3f6;
+  --age-1: #86b6ef;
+  --age-2: #5598e7;
+  --age-3: #2a78d6;
+  --age-4: #1c5cab;
 
   --accent-ink: var(--dial-dark-ink, #ff8a3d);
   --accent-mark: var(--dial-dark-mark, #ff8a3d);

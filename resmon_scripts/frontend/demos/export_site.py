@@ -16,9 +16,10 @@ engine's own answers, unedited, beside the site's other data:
   collection's last runs, with each run's own record: the searches and each watch's run of the day,
   which ``build_collection.py`` made for real, after the history it laid out.
 - ``site/src/data/papers.json``: ``GET /api/documents/{id}`` for every paper on
-  the plate, the few fields its hover and its paper panel say: title, authors
-  (the first four names, which is as many as the app lists), source, dates,
-  and the paper's own link.
+  the plate, the few fields its hover, its paper panel, and its find read:
+  title, authors, source, dates, and the paper's own link.
+- ``site/src/data/facets.json``: ``GET /api/map/facets``, what the map's filters
+  and colors read: each paper's source, dates, and watches.
 
 Each file carries a ``provenance`` line, printed under what the site draws.
 """
@@ -67,12 +68,11 @@ PAPER_FIELDS = ["id", "title", "authors", "source", "published", "collected", "l
 
 
 def paper_row(doc: dict) -> list:
-    """One paper as its hover and panel say it. Authors are cut to the first
-    four names: the app lists three and says "et al." past them."""
-    names = [name.strip() for name in (doc.get("authors") or "").split(",") if name.strip()]
+    """One paper as its hover and panel say it and the map's find reads it: all
+    its authors, since the find matches any of them, as the engine's does."""
     url = doc.get("url") or ""
     link = url if url.startswith(("http://", "https://")) else (f"https://doi.org/{doc['doi']}" if doc.get("doi") else None)
-    return [doc["id"], doc["title"], ", ".join(names[:4]) or None, doc["source_repository"],
+    return [doc["id"], doc["title"], doc.get("authors") or None, doc["source_repository"],
             doc.get("publication_date"), doc.get("first_seen_at"), link]
 
 
@@ -123,6 +123,7 @@ def main() -> None:
                 for run in wall["runs"]
             ]
             papers = [paper_row(engine.call("GET", f"/api/documents/{doc_id}")) for doc_id in plate["points"]["id"]]
+            facets = engine.call("GET", "/api/map/facets")
         finally:
             engine.stop()
 
@@ -149,10 +150,14 @@ def main() -> None:
     write("papers.json", {
         "provenance": (
             f"Every paper on the plate, {len(papers):,} of them, from the engine's own record of each: its title, "
-            "its first four authors, its source, its dates, and its link."
+            "its authors, its source, its dates, and its link."
         ),
         "fields": PAPER_FIELDS,
         "papers": papers,
+    })
+    write("facets.json", {
+        "provenance": "The engine's own facets of the same collection, exported unedited: what the map's filters and colors read.",
+        "facets": facets,
     })
 
 
