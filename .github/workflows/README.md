@@ -1,6 +1,6 @@
 # Workflows
 
-Seven workflows, eleven jobs. Two things are true of every one of them, and a new job is not finished until
+Seven workflows, twelve jobs. Two things are true of every one of them, and a new job is not finished until
 both are true of it as well.
 
 **This page used to be the whole of the enforcement, and it had already drifted.** It said *ten* jobs
@@ -34,7 +34,7 @@ That second half matters more than the first. **A required status check that ski
 and branch protection waits for it forever with a symptom that does not look like its cause. Two
 consequences:
 
-- If this repository is ever renamed or transferred, all eleven jobs skip and merging freezes. The fix is to
+- If this repository is ever renamed or transferred, all twelve jobs skip and merging freezes. The fix is to
   update the literal in every workflow. A variable would avoid that, but a literal is the form that cannot
   be changed from inside a fork, which is the whole point.
 - A new job that is also a required check must have its guard true here before it is made required.
@@ -60,6 +60,7 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `journeys.yml` candidate | 40 | 8.6 min | 8 |
 | `live-network.yml` live | 45 | 3.2 min | 7, and the limit is deliberately far above it |
 | `release.yml` build | 60 | 7m09s, worst single leg | v2.2.0 and v2.3.0 |
+| `release.yml` publish | 10 | not yet measured | the job has not run |
 | `sqlite-vec-probe.yml` | 35 | 9.7 min (macos-x64) | 23 |
 | `voice-probe.yml` | 50 | 14.8 min (macos-x64) | 5 |
 
