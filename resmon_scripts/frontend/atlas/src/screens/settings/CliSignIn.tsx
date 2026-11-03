@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
@@ -31,12 +31,14 @@ const SIGN_IN_STATES = new Set(['signed_out', 'expired', 'unknown']);
  * not signed in, it is not run until Check again. Never on a timer, and the
  * answer is dropped when this leaves the screen.
  */
-export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen }: {
+export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen, onAnswer }: {
   provider: string;
   purpose: SignInPurpose;
   /** A fallback lane's own command, where it has one. */
   binaryPath?: string;
   checkOnOpen: boolean;
+  /** Told the state the check answered, and null until it has or once this has gone, so a description beside it can say what is still unverified. */
+  onAnswer?: (state: string | null) => void;
 }) {
   const [asked, setAsked] = useState(checkOnOpen);
   const name = NAMES[provider] ?? provider;
@@ -63,6 +65,8 @@ export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen }: {
   const fetching = asked && check.isFetching;
   const failed = asked && check.isError ? check.error : null;
   const state = data?.state;
+  useEffect(() => { onAnswer?.(fetching ? null : state ?? null); }, [onAnswer, fetching, state]);
+  useEffect(() => () => onAnswer?.(null), [onAnswer]);
   // Not offered while the first answer is on its way, so a signed-in command
   // does not flash a Sign in it does not need.
   const offer = state ? SIGN_IN_STATES.has(state) : !fetching;

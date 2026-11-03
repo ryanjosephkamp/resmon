@@ -491,14 +491,27 @@ export function effortsFor(catalog: ModelCatalog | null, model: string, known: r
   return all.length ? all : [...known];
 }
 
+/** The answers in which a command's own sign-in check said whether it is signed in (`ai_signin.parse_status`). */
+const SIGN_IN_SAID: ReadonlySet<string> = new Set(['signed_in', 'signed_out', 'expired']);
+
+/** What the engine says of Codex before its sign-in is checked (`assistant_runtime.codex_connection_reason`). */
+export const CODEX_UNVERIFIED = 'sign-in and model acceptance are unverified';
+
 /**
  * One way the assistant can run, in words that claim only what resmon
  * checked. Finding the command is not knowing anyone is signed into it, and
- * the engine's own reason for a key already says the key is untried.
+ * the engine's own reason for a key already says the key is untried. Once
+ * the command's own sign-in check has said whether it is signed in
+ * (`signIn`, its state), the sign-in is no longer unverified, and only
+ * whether the model accepts a message is said to be.
  */
-export function routeSentence(kind: string, available: boolean, reason: string, selected: boolean): string {
+export function routeSentence(kind: string, available: boolean, reason: string, selected: boolean, signIn: string | null = null): string {
   const said = /[.!?]$/.test(reason.trim()) ? reason.trim() : `${reason.trim()}.`;
   if (!available) return selected ? `cannot run. ${said}` : said;
-  if (kind === 'claude_cli') return `${said} Sign-in and model acceptance are unverified until the first message.`;
+  const checked = signIn !== null && SIGN_IN_SAID.has(signIn);
+  if (kind === 'claude_cli') {
+    return `${said} ${checked ? 'Whether the model accepts a message is' : 'Sign-in and model acceptance are'} unverified until the first message.`;
+  }
+  if (kind === 'codex_cli' && checked) return said.replace(CODEX_UNVERIFIED, 'whether the model accepts a message is unverified until the first message');
   return said;
 }

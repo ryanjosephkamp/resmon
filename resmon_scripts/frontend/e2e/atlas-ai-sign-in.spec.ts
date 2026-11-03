@@ -126,6 +126,10 @@ test('Claude Code sign-in: checked in Settings › AI, offered where a turn fail
     await expect(summaries).toContainText('The Claude Code command is signed in as reader@example.com (max).');
     await expect(assistant).toHaveAttribute('data-state', 'signed_in', { timeout: 30_000 });
     await expect(summaries.getByRole('button', { name: 'Sign in' })).toHaveCount(0);
+    // Beside the sign-in the command confirmed, Ask's route says only the model is unverified.
+    const route = win.locator('[data-ai="routes"] li[data-kind="claude_cli"]');
+    await expect(route).toContainText('Whether the model accepts a message is unverified until the first message.');
+    await expect(route).not.toContainText('Sign-in and model acceptance');
 
     // — the sign-in expires; Check again says so, and Sign in opens the command's login ---
     auth('expired');

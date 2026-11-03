@@ -87,7 +87,7 @@ describe('how much has been checked', () => {
       '2 have not been asked about yet.',
       '1 carries no DOI and no arXiv version number, so there is nothing to ask about it.',
       '2 could not be checked: a service failed on them, and they are asked about again after 30 days.',
-      'Last checked today at 1:30 PM. A paper is asked about again after 30 days.',
+      'Last checked today at 1:30\u00a0PM. A paper is asked about again after 30 days.',
     ]);
   });
 });
@@ -98,7 +98,7 @@ describe('the last check, in its own terms', () => {
       remaining: 3,
       unanswered: [{ service: 'crossref', name: 'Crossref', papers: 3, reason: 'Crossref answered HTTP 503' }],
     }), coverage(), NOW);
-    expect(headline).toBe('The check today at 1:30 PM could not check a single paper.');
+    expect(headline).toBe('The check today at 1:30\u00a0PM could not check a single paper.');
     expect(lines.map((l) => l.text)).toEqual([
       'Crossref did not answer for 3 papers (Crossref answered HTTP 503). They stay unchecked, not cleared, and are '
         + 'asked about again on the next check.',
@@ -111,7 +111,7 @@ describe('the last check, in its own terms', () => {
     const { headline, lines } = lastRunLines(run({
       stopped: true, checked_now: 1, outcomes: { ok: 1, no_identifier: 0, error: 0 }, not_asked: 1, remaining: 1,
     }), coverage(), NOW);
-    expect(headline).toBe('Stopped today at 1:30 PM, with 1 paper checked.');
+    expect(headline).toBe('Stopped today at 1:30\u00a0PM, with 1 paper checked.');
     expect(lines).toEqual([{ key: 'not-asked', text: '1 paper it had selected was not asked about, and stays unchecked.' }]);
   });
 
@@ -121,21 +121,21 @@ describe('the last check, in its own terms', () => {
       unanswered: [{ service: 'crossref', name: 'Crossref', papers: 2, reason: 'Server disconnected without sending a response.' }],
     });
     const { headline, lines } = lastRunLines(unaskable, coverage(), NOW);
-    expect(headline).toBe('The check today at 1:30 PM could not check a single paper.');
+    expect(headline).toBe('The check today at 1:30\u00a0PM could not check a single paper.');
     expect(lines[0]).toEqual({
       key: 'no-identifier',
       text: '1 paper carries no DOI and no arXiv version number, so there was nothing to ask about it; it is counted '
         + 'apart, never as clear.',
     });
     expect(lastRunLines(run({ checked_now: 2, outcomes: { ok: 0, no_identifier: 2, error: 0 } }), coverage(), NOW).headline)
-      .toBe('The check today at 1:30 PM had nothing it could ask about.');
+      .toBe('The check today at 1:30\u00a0PM had nothing it could ask about.');
   });
 
   test('a check with nothing due says why, with the engine\'s own interval', () => {
     expect(lastRunLines(run(), coverage({ checked: 10, unchecked: 0, recheck_after_days: 30 }), NOW).headline)
-      .toBe('The check today at 1:30 PM found no paper due: each has been asked about in the last 30 days, or carries nothing to ask about.');
+      .toBe('The check today at 1:30\u00a0PM found no paper due: each has been asked about in the last 30 days, or carries nothing to ask about.');
     expect(lastRunLines(run(), coverage({ corpus: 0, unchecked: 0 }), NOW).headline)
-      .toBe('The check today at 1:30 PM had nothing to check: your collection is empty.');
+      .toBe('The check today at 1:30\u00a0PM had nothing to check: your collection is empty.');
   });
 
   test('papers a service failed on part-way are named, with what went wrong', () => {
@@ -143,7 +143,7 @@ describe('the last check, in its own terms', () => {
       checked_now: 4, outcomes: { ok: 2, no_identifier: 0, error: 2 },
       errors: [{ document_id: 3, title: 'A preprint', error: 'bioRxiv answered HTTP 500' }, { document_id: 9, title: null, error: null }],
     }), coverage(), NOW);
-    expect(headline).toBe('Checked 2 papers today at 1:30 PM.');
+    expect(headline).toBe('Checked 2 papers today at 1:30\u00a0PM.');
     expect(lines.find((l) => l.key === 'errors')?.text).toBe(
       '2 papers could not be checked because a service failed on them part-way: “A preprint” (bioRxiv answered HTTP 500); '
         + 'paper 9 (no reason given).',
@@ -186,7 +186,7 @@ describe('one paper, with nothing recorded against it', () => {
   test('each way a check can end is said apart, and never checking is said too', () => {
     expect(paperState([], null, NOW)).toBe('Not yet checked for retractions or updates.');
     expect(paperState([], { checked_at: '2026-10-29 17:30:00', status: 'ok' }, NOW))
-      .toMatch(/^Checked today at 1:30 PM: nothing recorded\./);
+      .toMatch(/^Checked today at 1:30\u00a0PM: nothing recorded\./);
     expect(paperState([], { checked_at: '2026-10-29 17:30:00', status: 'no_identifier' }, NOW))
       .toMatch(/nothing to ask about it\. That is not a clean result\.$/);
     expect(paperState([], { checked_at: '2026-10-29 17:30:00', status: 'error' }, NOW))

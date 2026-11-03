@@ -920,6 +920,20 @@ def test_a_request_the_source_refused_is_named_as_a_refusal(conn):
     assert "The most recent one: the source refused the request." in finding["detail"]
 
 
+@pytest.mark.parametrize("kind,words", [
+    ("operation_deadline", "the search operation budget expired"),
+    ("request_error", "the request failed"),
+])
+def test_a_failure_s_recorded_kind_is_said_in_words(conn, kind, words):
+    failed = {"status": "ok", "result_count": 0, "zero_reason": "upstream_failure",
+              "zero_detail": {"detail": kind, "status": None, "attempts": 3}}
+    for days in (3, 2, 1):
+        _run(conn, days_ago=days, sources={"arxiv": failed})
+    finding = _by_kind(watchdog.report(conn, now=NOW), "source_errors")[0]
+    assert finding["evidence"]["last_error"] == words
+    assert f"The most recent one: {words}." in finding["detail"]
+
+
 def test_a_raised_error_is_still_the_most_recent_error_verbatim(conn):
     for days in (3, 2, 1):
         _run(conn, days_ago=days, sources={"arxiv": {

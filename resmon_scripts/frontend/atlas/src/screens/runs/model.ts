@@ -11,6 +11,7 @@
  */
 import type { components } from '../../api/schema';
 import { DID_NOT_ANSWER, ZERO_REASONS, type ZeroReason } from '../../api/zeroReasonVocabulary';
+import { timeTogether } from '../../lib/timeTogether';
 
 export type RunRow = components['schemas']['RunRow'];
 export type Run = components['schemas']['Run'];
@@ -272,7 +273,7 @@ const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', ye
 
 /** "October 28, 2026 at 9:14 AM", in the reader's own time zone. */
 export function dayAndTime(at: Date): string {
-  return `${DAY.format(at)} at ${MINUTES.format(at)}`;
+  return `${DAY.format(at)} at ${timeTogether(MINUTES.format(at))}`;
 }
 
 /**
@@ -304,7 +305,7 @@ export function reportInLocalTime(text: string): string {
 /** "4:34:12 PM": a progress event's time, in the reader's own time zone like every other time here. */
 export function eventTime(iso: string | null | undefined): string {
   const at = storedInstant(iso);
-  return at ? SECONDS.format(at) : '';
+  return at ? timeTogether(SECONDS.format(at)) : '';
 }
 
 /** A source's recorded outcome, as much of it as the log needs. */
@@ -346,7 +347,7 @@ export function logForReading(
     const stamp = /^(Start|End) Time: (\S+)$/.exec(line);
     if (stamp) {
       const at = storedInstant(stamp[2]);
-      return at ? `${stamp[1]} Time: ${DAY.format(at)} at ${SECONDS.format(at)}` : line;
+      return at ? `${stamp[1]} Time: ${DAY.format(at)} at ${timeTogether(SECONDS.format(at))}` : line;
     }
     const kind = /^Operation Type: (\S+)$/.exec(line);
     if (kind?.[1]) return `Operation Type: ${runKind(kind[1])}`;
@@ -364,7 +365,7 @@ export function logForReading(
         Number(hh), Number(mm), Number(ss)));
       while (at.getTime() < previous.getTime() - 1000) at.setUTCDate(at.getUTCDate() + 1);
       previous = at;
-      clock = `[${SECONDS.format(at)}]`;
+      clock = `[${timeTogether(SECONDS.format(at))}]`;
     }
     let said = body.replace(/^Querying repository: (\S+)$/, (_all, slug: string) => `Querying repository: ${named(slug)}`);
     const source = LOG_SOURCE.exec(said);

@@ -107,7 +107,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
     await expect(active.locator('.watch-state')).toHaveText('Watching');
     await expect(active.locator('.meta').first()).toContainText('Daily at 9:00 AM');
     const quiet = win.locator(`.watch[data-routine="${paused}"]`);
-    await expect(quiet.locator('.meta').first()).toHaveText(/^Paused\s*Mondays at 7:30 AM$/);
+    await expect(quiet.locator('.meta').first()).toHaveText(/^Paused\s*Mondays at 7:30\sAM$/);
 
     // Watching is not running: nothing runs a watch on schedule here, and the
     // list says so once, with the way to the switch that would, and each
@@ -166,7 +166,7 @@ test('Watches lists each watch, and Calendar its month ahead; a watch runs, paus
     const mark = month.locator('.fire-mark').filter({ has: win.locator(`.fire[data-routine="${watching}"]`) }).first();
     await expect(mark.locator('.fire-name')).toHaveText('Perovskite films');
     await expect(mark.locator('.fire-time')).toHaveText('9:00 AM');
-    await expect(mark).toHaveAttribute('aria-label', /^Perovskite films at 9:00 AM, due; nothing will run it\. Open the watch$/);
+    await expect(mark).toHaveAttribute('aria-label', /^Perovskite films at 9:00\sAM, due; nothing will run it\. Open the watch$/);
     await expect(month.locator(`.fire[data-routine="${paused}"]`)).toHaveCount(0);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-watches-calendar.png') });
 

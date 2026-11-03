@@ -226,7 +226,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(field('Sources')).toHaveText('arXiv, Springer Nature');
     // A search asked by hand belongs to no watch: that is a fact, not a gap in the record.
     await expect(field('Watch id')).toHaveText('none');
-    await expect(field('Start time')).toHaveText(/^[A-Z][a-z]+ \d{1,2}, \d{4} at \d{1,2}:\d{2} (AM|PM)$/);
+    await expect(field('Start time')).toHaveText(/^[A-Z][a-z]+ \d{1,2}, \d{4} at \d{1,2}:\d{2}\s(AM|PM)$/);
     // The file paths keep the engine's names for the files; nothing else does.
     await expect(metadata).not.toContainText(/Last seen at utc|"repositories"|\['arxiv'/);
     await win.locator('.run-panel').screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-run-metadata.png') });

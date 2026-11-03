@@ -1,5 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { EvidenceRefusal, type Note, type PageText } from '../evidenceApi';
-import { bundleRefusal, examinedWords, resolves, selectionAnchor, utf16Range } from '../evidenceModel';
+import { bundleRefusal, examinedWords, NO_SAVED_RECORDS, resolves, selectionAnchor, utf16Range } from '../evidenceModel';
 
 /** One page's canonical text: an emoji and a decomposed é before the passage, so UTF-16 and codepoints differ. */
 const TEXT = 'First \u{1F600} é exact passage\nrepeat needle\n';
@@ -78,4 +80,13 @@ describe('a refused export, in words a person can act on', () => {
     expect(bundleRefusal(refused('bundle_limit', 'Selected retained files exceed 256 MiB.'))).toBe('Selected retained files exceed 256 MiB.');
     expect(bundleRefusal(new Error('Network down'))).toBe('Network down');
   });
+});
+
+test('a project with no saved records says how one is made, by the buttons that make one', () => {
+  const panel = fs.readFileSync(path.join(__dirname, '..', 'Evidence.tsx'), 'utf8');
+  for (const button of ['Save passage', 'Save note']) {
+    expect(NO_SAVED_RECORDS).toContain(button);
+    expect(panel).toContain(`'${button}'`);
+  }
+  expect(panel).toContain('{NO_SAVED_RECORDS}');
 });

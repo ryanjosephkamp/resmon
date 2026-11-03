@@ -428,6 +428,10 @@ def _failure_detail(run: dict) -> str:
         return "resmon could not open a connection"
     if kind == "refused":
         return "the source refused the request"
+    if kind == "operation_deadline":
+        return "the search operation budget expired"
+    if kind == "request_error":
+        return "the request failed"
     if kind:
         return str(kind).replace("_", " ")
     return "the source did not answer"
@@ -928,7 +932,7 @@ def _check_routines(
                             "is a prompt to check, not a fault."
                         ),
                         what_to_do=(
-                            "Open the routine and widen one term, or check the "
+                            "Open the watch and widen one term, or check the "
                             "Watchdog entries for the sources it uses — a source "
                             "that has gone quiet produces this too."
                         ),

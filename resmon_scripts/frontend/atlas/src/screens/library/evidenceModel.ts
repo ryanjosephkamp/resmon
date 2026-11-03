@@ -98,6 +98,13 @@ export function examinedWords(page: PageText): string {
   return page.page_count === 1 ? said : `${said} Each page is read when you open it.`;
 }
 
+/**
+ * A project with no saved records yet, and how one is made, in the words of
+ * the notes panel's own buttons.
+ */
+export const NO_SAVED_RECORDS = 'None yet. Open a file in this project, select a passage in its text, and choose Save passage. '
+  + 'Save note keeps a note of your own.';
+
 /** A page status the engine reports, in words; only `extracted` has text a passage can be taken from. */
 export const PAGE_STATUS: Record<string, string> = {
   extracted: 'Text extracted',

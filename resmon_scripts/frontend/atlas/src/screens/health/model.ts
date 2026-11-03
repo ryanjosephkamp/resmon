@@ -9,6 +9,7 @@
  * stop being made in more than one place.
  */
 import type { components } from '../../api/schema';
+import { timeTogether } from '../../lib/timeTogether';
 
 export type Wall = components['schemas']['SourceWall'];
 export type WallRun = components['schemas']['SourceWallRun'];
@@ -27,9 +28,11 @@ export const WALL_SPANS = [12, 24, 48] as const;
  * One mark per state, so no two states can be told apart only by color: an
  * answer is a point, an empty answer a ring, an answer in part a ring filled
  * on its right (newer) half, a failure a struck circle, a source that could
- * not be asked a dotted ring, a gap in the record a dash, and a source the
- * run did not ask nothing at all. A state this build does not know is drawn
- * as a square rather than as one of these.
+ * not be asked a dotted ring, a gap in the record a small dot, and a source
+ * the run did not ask a dash, the quietest mark that is still seen. A state
+ * this build does not know is drawn as a square rather than as one of these.
+ * The command line's legend draws the same two: "–" not asked, "·" not
+ * recorded.
  */
 export const MARK: Record<string, string> = {
   answered: 'point',
@@ -37,8 +40,8 @@ export const MARK: Record<string, string> = {
   answered_in_part: 'half',
   failed: 'struck',
   could_not_be_asked: 'dotted',
-  not_recorded: 'dash',
-  not_selected: 'blank',
+  not_recorded: 'dot',
+  not_selected: 'dash',
 };
 
 export function markOf(state: string): string {
@@ -59,6 +62,11 @@ export function pointRadius(count: number | null | undefined, largest: number): 
 const DAY = new Intl.DateTimeFormat('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
+/** "Thu, Oct 29", with its month and day kept on one line where a narrow column wraps the heading. */
+const dayOf = (at: Date): string => DAY.format(at).replace(/ (\d+)$/, '\u00a0$1');
+/** "11:35 AM", never broken between the time and its AM or PM. */
+const timeOf = (at: Date): string => timeTogether(TIME.format(at));
+
 /** The engine's timestamps as instants: a zone-less one is UTC, as SQLite writes it. */
 export function instantOf(stamp: string | null | undefined): Date | null {
   if (!stamp) return null;
@@ -72,7 +80,7 @@ export function runDays(runs: readonly WallRun[]): { day: string; span: number }
   const days: { day: string; span: number }[] = [];
   for (const run of runs) {
     const at = instantOf(run.started_at);
-    const day = at ? DAY.format(at) : 'Not recorded';
+    const day = at ? dayOf(at) : 'Not recorded';
     const last = days[days.length - 1];
     if (last && last.day === day) last.span += 1;
     else days.push({ day, span: 1 });
@@ -82,12 +90,12 @@ export function runDays(runs: readonly WallRun[]): { day: string; span: number }
 
 export function runTime(run: WallRun): string {
   const at = instantOf(run.started_at);
-  return at ? TIME.format(at) : 'time not recorded';
+  return at ? timeOf(at) : 'time not recorded';
 }
 
 export function runWhen(run: WallRun): string {
   const at = instantOf(run.started_at);
-  return at ? `${DAY.format(at)}, ${TIME.format(at)}` : 'a time not recorded';
+  return at ? `${dayOf(at)}, ${timeOf(at)}` : 'a time not recorded';
 }
 
 /**

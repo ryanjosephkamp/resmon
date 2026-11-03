@@ -240,10 +240,14 @@ function Value({ value }: { value: unknown }): ReactNode {
     );
   }
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
-  // A stored instant reads as a local day and time, as the run's heading does; a plain date stays a date.
-  if (typeof value === 'string') return localStamp(value) ?? value;
+  // A stored instant reads as a local day and time, as the run's heading does; a plain date reads as a day in
+  // words ("October 1, 2026"), the calendar day it names and never moved by the zone.
+  if (typeof value === 'string') return localStamp(value) ?? (DAY_ONLY.test(value) ? publishedWords(value) : value);
   return String(value);
 }
+
+/** A date with no time: `2026-10-01`. */
+const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * What each source's requests carried, one source a line: arXiv's `all:`

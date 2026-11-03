@@ -29,14 +29,14 @@ const ACTIONS: readonly Action[] = [
     warning: `Every saved AI provider key on this computer is deleted from the keychain. Summaries and Ask stop working on a hosted provider until you add a key again in Settings › AI. ${KEPT}`,
   },
   {
-    id: 'repo_keys', label: 'Erase all repo API keys', route: '/api/admin/erase-repo-keys', typed: false,
+    id: 'repo_keys', label: 'Erase all source API keys', route: '/api/admin/erase-repo-keys', typed: false,
     removes: 'Every source key saved in this computer’s keychain.',
     warning: `Every saved source key on this computer is deleted from the keychain. A source that needs a key is recorded as not asked until you add it again in Settings › Sources. ${KEPT}`,
   },
   {
-    id: 'configs', label: 'Erase all configs', route: '/api/admin/erase-configs', typed: true,
-    removes: 'Every saved search, and every watch linked to a saved configuration.',
-    warning: `Every saved search is deleted, and so is every watch linked to a saved configuration: their scheduled runs stop. Runs that already happened are kept, without the link to what they came from. ${KEPT}`,
+    id: 'configs', label: 'Erase all saved searches', route: '/api/admin/erase-configs', typed: true,
+    removes: 'Every saved search, and every watch whose copy is in Search › Saved.',
+    warning: `Every saved search is deleted, and so is every watch whose copy is in Search › Saved: their scheduled runs stop. Runs that already happened are kept, without the link to what they came from. ${KEPT}`,
   },
   {
     id: 'executions', label: 'Erase execution history', route: '/api/admin/erase-executions', typed: true,
@@ -53,7 +53,7 @@ const ACTIONS: readonly Action[] = [
   },
   {
     id: 'execution_data', label: 'Erase all execution data', route: '/api/admin/erase-execution-data', typed: true,
-    removes: 'Erase all configs and Erase execution history together. Papers, settings, and keys are kept.',
+    removes: 'Erase all saved searches and Erase execution history together. Papers, settings, and keys are kept.',
     warning: `Every saved search, every watch linked to one, and every run are deleted, and the run counter starts again. Keys, settings, and your collected papers stay. ${KEPT}`,
   },
   {

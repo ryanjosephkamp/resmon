@@ -7,7 +7,7 @@ import { commandEnter } from '../../shell/shortcuts';
 import { count, number } from '../today/format';
 import { Answers } from './Answers';
 import { evidence, evidenceFetch, EvidenceRefusal, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
-import { bundleRefusal, pinOf } from './evidenceModel';
+import { bundleRefusal, NO_SAVED_RECORDS, pinOf } from './evidenceModel';
 import { LibraryTabs } from './LibraryTabs';
 import { Reader } from './Reader';
 import { LIBRARY, LIBRARY_KEY, kindOf, retryLibrary, sizeWords, unsupportedWords, type LibraryFile } from './libraryApi';
@@ -379,7 +379,7 @@ function NotesPanel({ project, file, member, anchor, onClose, editing, onEdit, n
       )}
       {said && !save.isPending && <p className="settings-said" role="status" data-evidence="saved">{said}</p>}
       <h3 className="record-sub">Saved records</h3>
-      {!notes.length && <p className="record-cap">None yet.</p>}
+      {!notes.length && <p className="record-cap">{NO_SAVED_RECORDS}</p>}
       <ol className="ev-saved">
         {notes.map((n) => (
           <li key={n.note_id} data-note={n.note_id} data-kind={n.kind} data-version={n.version_id}>

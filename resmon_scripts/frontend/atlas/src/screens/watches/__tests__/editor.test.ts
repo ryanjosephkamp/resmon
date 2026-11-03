@@ -24,11 +24,11 @@ const ROUTINE: Routine = {
 describe('each schedule offered stores a cron whose words are exact', () => {
   const at = (patch: Partial<ScheduleChoice>): ScheduleChoice => ({ ...blankForm().schedule, ...patch });
   test.each<[Partial<ScheduleChoice>, string, string]>([
-    [{ cadence: 'daily', hour: 6, minute: 0 }, '0 6 * * *', 'Daily at 6:00 AM'],
-    [{ cadence: 'weekdays', hour: 7, minute: 30 }, '30 7 * * 1-5', 'Weekdays at 7:30 AM'],
-    [{ cadence: 'weekly', weekday: 1, hour: 9, minute: 0 }, '0 9 * * 1', 'Mondays at 9:00 AM'],
-    [{ cadence: 'weekly', weekday: 0, hour: 18, minute: 15 }, '15 18 * * 0', 'Sundays at 6:15 PM'],
-    [{ cadence: 'monthly', monthDay: 28, hour: 0, minute: 0 }, '0 0 28 * *', 'Monthly on day 28 at 12:00 AM'],
+    [{ cadence: 'daily', hour: 6, minute: 0 }, '0 6 * * *', 'Daily at 6:00\u00a0AM'],
+    [{ cadence: 'weekdays', hour: 7, minute: 30 }, '30 7 * * 1-5', 'Weekdays at 7:30\u00a0AM'],
+    [{ cadence: 'weekly', weekday: 1, hour: 9, minute: 0 }, '0 9 * * 1', 'Mondays at 9:00\u00a0AM'],
+    [{ cadence: 'weekly', weekday: 0, hour: 18, minute: 15 }, '15 18 * * 0', 'Sundays at 6:15\u00a0PM'],
+    [{ cadence: 'monthly', monthDay: 28, hour: 0, minute: 0 }, '0 0 28 * *', 'Monthly on day 28 at 12:00\u00a0AM'],
     [{ cadence: 'hours', everyHours: 6, minute: 0 }, '0 */6 * * *', 'Every 6 hours'],
     [{ cadence: 'hours', everyHours: 1, minute: 20 }, '20 * * * *', 'Every hour, at :20'],
   ])('%j', (choice, cron, words) => {
@@ -110,7 +110,7 @@ describe('a stored watch, read into the form and saved back', () => {
     const kept = watchBody(formFrom(structured), structured);
     expect(kept.schedule_cron).toBe('0 0 */14 * *');
     expect(kept.parameters._schedule).toEqual({ type: 'interval', unit: 'weeks', every: 2, hour: 8, minute: 0 });
-    expect(scheduleWords(formFrom(structured), structured).words).toBe('Every 2 weeks at 8:00 AM');
+    expect(scheduleWords(formFrom(structured), structured).words).toBe('Every 2 weeks at 8:00\u00a0AM');
 
     const form = formFrom(structured);
     const changed = watchBody({ ...form, schedule: { ...form.schedule, cadence: 'daily', hour: 6, minute: 0 } }, structured);

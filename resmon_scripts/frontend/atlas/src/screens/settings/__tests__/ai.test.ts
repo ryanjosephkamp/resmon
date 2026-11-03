@@ -1,5 +1,7 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import {
-  composeChain, laneWords, planLimits, readChain, routeSentence, storedSummary, summaryChanged, summaryPayload,
+  CODEX_UNVERIFIED, composeChain, laneWords, planLimits, readChain, routeSentence, storedSummary, summaryChanged, summaryPayload,
   type AiSettings,
 } from '../summaryLanes';
 import {
@@ -136,11 +138,35 @@ describe('the summary chain, written back', () => {
   });
 });
 
+/** `assistant_runtime.codex_connection_reason`, as the engine serves it. */
+const CODEX_REASON = 'Codex command found; sign-in and model acceptance are unverified. Codex gets resmon\'s read-only tools only: '
+  + 'it cannot hold a call for you to allow, so it can look things up but cannot change anything.';
+
 describe('the ways Ask can run, claiming only what was checked', () => {
   test('a command that was found is not said to run: sign-in and the model are unverified', () => {
     const said = routeSentence('claude_cli', true, 'Found where the installer puts it: /Users/x/.local/bin/claude', true);
     expect(said).toBe('Found where the installer puts it: /Users/x/.local/bin/claude. Sign-in and model acceptance are unverified until the first message.');
     expect(said).not.toMatch(/can run/);
+  });
+
+  test.each(['signed_in', 'signed_out', 'expired'])('once the command\'s sign-in check said %s, only the model is unverified', (state) => {
+    const said = routeSentence('claude_cli', true, 'Found where the installer puts it: /Users/x/.local/bin/claude', true, state);
+    expect(said).toBe('Found where the installer puts it: /Users/x/.local/bin/claude. Whether the model accepts a message is unverified until the first message.');
+    const codex = routeSentence('codex_cli', true, CODEX_REASON, true, state);
+    expect(codex).toBe('Codex command found; whether the model accepts a message is unverified until the first message. Codex gets '
+      + 'resmon\'s read-only tools only: it cannot hold a call for you to allow, so it can look things up but cannot change anything.');
+    expect(`${said} ${codex}`).not.toMatch(/sign-in/i);
+  });
+
+  test.each([null, 'unknown', 'missing', 'failed'])('while the sign-in check has not said (%p), the sign-in is still unverified', (state) => {
+    expect(routeSentence('claude_cli', true, 'Using the path you set: /x/claude', true, state)).toContain('Sign-in and model acceptance are unverified');
+    expect(routeSentence('codex_cli', true, CODEX_REASON, true, state)).toBe(CODEX_REASON);
+  });
+
+  test('the words replaced in Codex\'s reason are the engine\'s own', () => {
+    const engine = fs.readFileSync(path.resolve(__dirname, '../../../../../../implementation_scripts/assistant_runtime.py'), 'utf8');
+    expect(engine).toContain(`"Codex command found; ${CODEX_UNVERIFIED}. Codex "`);
+    expect(CODEX_REASON).toContain(CODEX_UNVERIFIED);
   });
 
   test('a key keeps the engine’s own caveat, and what cannot run says so', () => {

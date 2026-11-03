@@ -873,8 +873,8 @@ def _deliver_folder(
     """
     if not target:
         raise DeliveryError(
-            "This folder destination has no directory set. Choose one in the "
-            "routine's Delivery list."
+            "This folder destination has no directory set. Choose one on the "
+            "watch's Where reports go tab."
         )
     root = Path(target).expanduser()
     # None of these messages names the directory. See ``_without_path``: this
@@ -1055,7 +1055,7 @@ def _deliver_webhook(
     if not secret:
         raise DeliveryError(
             "This webhook has no shared secret saved. Set one on the "
-            "destination in the routine's Delivery list, then retry: resmon "
+            "destination, on the watch's Where reports go tab, then retry: resmon "
             "signs every envelope and will not send an unsigned one."
         )
 
@@ -1251,7 +1251,7 @@ def render_feed(
     from . import source_coverage
     from .database import get_execution_sources
 
-    name = str(routine.get("name") or "resmon routine")
+    name = str(routine.get("name") or "resmon watch")
     updated = (_atom_timestamp(entries[0]["delivered_at_utc"]) if entries
                else _atom_timestamp(None))
     out = [
@@ -1261,7 +1261,7 @@ def render_feed(
         f"  <id>{_xml_escape(feed_id)}</id>",
         f"  <updated>{updated}</updated>",
         "  <generator>resmon</generator>",
-        f"  <subtitle>Runs of the resmon routine {_xml_escape(name)}.</subtitle>",
+        f"  <subtitle>Runs of the resmon watch {_xml_escape(name)}.</subtitle>",
     ]
     for entry in entries:
         execution = entry["execution"]
@@ -1322,8 +1322,8 @@ def _deliver_feed(
     """
     if not (target or "").strip():
         raise DeliveryError(
-            "This feed destination has no folder set. Choose one in the "
-            "routine's Delivery list."
+            "This feed destination has no folder set. Choose one on the "
+            "watch's Where reports go tab."
         )
     root = Path(target).expanduser()
     # None of these messages names the directory; see ``_without_path``.
@@ -1533,7 +1533,7 @@ class DeliveryQueue:
         if routine is None:
             self._record_failure(
                 conn, row,
-                "The routine this delivery belongs to no longer exists.",
+                "The watch this delivery belongs to no longer exists.",
                 terminal=True,
             )
             return

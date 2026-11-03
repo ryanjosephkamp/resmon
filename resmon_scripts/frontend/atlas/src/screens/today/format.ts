@@ -1,10 +1,14 @@
 /** The words Today uses for times, counts and people. US English throughout. */
+import { timeTogether } from '../../lib/timeTogether';
 
 const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 const WEEKDAY = new Intl.DateTimeFormat('en-US', { weekday: 'long' });
 const MONTH_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric' });
 const FULL_DATE = new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
 const NUMBER = new Intl.NumberFormat('en-US');
+
+/** "8:05 AM", never broken between the time and its AM or PM. */
+const time = (at: Date): string => timeTogether(TIME.format(at));
 
 /**
  * An engine timestamp as an instant. The engine stores UTC, and SQLite writes
@@ -36,7 +40,7 @@ export function when(iso: string | null | undefined, now: Date): string {
   if (!iso) return 'at a time not recorded';
   const at = instant(iso);
   if (Number.isNaN(at.getTime())) return 'at a time not recorded';
-  return `${dayWord(at, now)} at ${TIME.format(at)}`;
+  return `${dayWord(at, now)} at ${time(at)}`;
 }
 
 const PUBLISHED_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
@@ -61,11 +65,11 @@ export function publishedWords(stored: string | null | undefined): string {
 }
 
 export function clock(iso: string): string {
-  return TIME.format(instant(iso));
+  return time(instant(iso));
 }
 
 export function fullDate(at: Date): string {
-  return `${FULL_DATE.format(at)} · ${TIME.format(at)}`;
+  return `${FULL_DATE.format(at)} · ${time(at)}`;
 }
 
 export function number(n: number): string {

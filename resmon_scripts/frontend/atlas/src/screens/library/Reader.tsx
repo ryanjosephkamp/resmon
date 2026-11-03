@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as KeyEvent, type RefObject } from 'react';
 import { useQueryClient, useQuery } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
 import { isMac } from '../../bridge';
@@ -9,7 +9,7 @@ import { evidence, readerBusy, type Anchor, type FileRecord, type PageText, type
 import { PAGE_STATUS, examinedWords, matches, resolutionWords, selectionAnchor, utf16Range, type Pin } from './evidenceModel';
 import { usePdfSession, type Drawn } from './pdfDocument';
 import { PdfView, type PdfViewHandle } from './PdfView';
-import { FOCUS_ZOOM, OPENING_ZOOM, ZOOM_STEPS, findSelection, stepZoom, zoomPercent, type Zoom } from './readerModel';
+import { FOCUS_ZOOM, OPENING_ZOOM, ZOOM_STEPS, findSelection, literalMatches, stepMatch, stepZoom, zoomPercent, type Zoom } from './readerModel';
 
 function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
@@ -239,19 +239,28 @@ export function Reader({
     const el = pane.current;
     setSelected(data && el ? selectionAnchor(data, el.selectionStart, el.selectionEnd) : null);
   };
-  const findNext = (e: FormEvent) => {
-    e.preventDefault();
+  /**
+   * Find on the page's text: the next match, or the previous going back, wrapping, and which it is of how
+   * many. The match is shown selected in the text, which is where the keyboard goes, because a text field
+   * draws no selection while another has the keyboard; Enter and Shift+Enter there step on, as in the field.
+   */
+  const findStep = (back: boolean) => {
     if (!data || !find) return;
-    const from = pane.current?.selectionEnd ?? 0;
-    let at = data.text.indexOf(find, from);
-    if (at < 0) at = data.text.indexOf(find);
-    if (at < 0) { setFound('No literal match on this page’s text.'); return; }
-    pane.current?.focus();
-    pane.current?.setSelectionRange(at, at + find.length);
+    const all = literalMatches(data.text, find);
+    if (!all.length) { setFound('No literal match on this page’s text.'); return; }
+    const el = pane.current;
+    const i = stepMatch(all, find.length, { start: el?.selectionStart ?? 0, end: el?.selectionEnd ?? 0 }, back);
+    const at = all[i]!;
+    el?.focus();
+    el?.setSelectionRange(at, at + find.length);
     setSelected(selectionAnchor(data, at, at + find.length));
-    let n = 0;
-    for (let i = data.text.indexOf(find); i >= 0; i = data.text.indexOf(find, i + Math.max(1, find.length))) n += 1;
-    setFound(`${n} literal ${n === 1 ? 'match' : 'matches'} on this page’s text only.`);
+    setFound(`${i + 1} of ${all.length} literal ${all.length === 1 ? 'match' : 'matches'} on this page’s text only.`);
+  };
+  const findNext = (e: FormEvent) => { e.preventDefault(); findStep(false); };
+  const stepKey = (e: KeyEvent<HTMLElement>) => {
+    if (e.key !== 'Enter' || e.nativeEvent.isComposing || !find) return;
+    e.preventDefault();
+    findStep(e.shiftKey);
   };
 
   /** Text selected on a drawn page, looked up in that page's canonical text and offered to the notes as a passage. */
@@ -417,13 +426,14 @@ export function Reader({
                 {!readOnly && (
                   <form className="lib-link-form" onSubmit={findNext}>
                     <label htmlFor={`${ids}-find`}>Find on this page’s text</label>
-                    <input id={`${ids}-find`} value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} autoComplete="off" />
+                    <input id={`${ids}-find`} value={find} maxLength={200} onChange={(e) => setFind(e.target.value)} onKeyDown={stepKey}
+                      autoComplete="off" aria-keyshortcuts="Enter Shift+Enter" />
                     <button type="submit" className="btn sm" disabled={!find}>Find</button>
                     {found && <span className="record-cap" role="status" data-evidence="found">{found}</span>}
                   </form>
                 )}
                 <textarea ref={pane} className="ev-text" aria-label="Canonical page text" readOnly value={data.text} data-page={data.page_number}
-                  onSelect={choose} onKeyUp={choose} rows={14} />
+                  onSelect={choose} onKeyUp={choose} onKeyDown={readOnly ? undefined : stepKey} rows={14} />
                 {!readOnly && (
                   <div className="ev-use">
                     <button type="button" className="btn sm primary" disabled={!selected || !member} onClick={() => onAnchor?.(selected)}>Use selected passage</button>

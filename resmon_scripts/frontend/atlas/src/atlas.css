@@ -80,7 +80,7 @@ kbd {
 .cmdk {
   display: flex; align-items: center; gap: 9px;
   height: 32px; width: 280px; padding: 0 6px 0 11px;
-  border: 1px solid var(--rule-2); border-radius: 8px; background: var(--panel);
+  border: 1px solid var(--field-edge); border-radius: 8px; background: var(--panel);
   color: var(--ink-3); font: 400 13px/1 var(--sans); cursor: text; text-align: left; white-space: nowrap;
   transition: border-color var(--dur) var(--ease-out);
 }
@@ -173,7 +173,33 @@ kbd {
 .btn.quiet { background: transparent; border-color: transparent; color: var(--ink-2); padding: 0 8px; }
 .btn.quiet:hover:not(:disabled) { color: var(--ink); background: var(--panel-2); }
 .btn.sm { height: 28px; font-size: 12.5px; padding: 0 10px; }
-.btn:disabled { cursor: default; opacity: .45; }
+/* A control that cannot be used now is quiet and still there: no fill, its label in the quietest ink, and a dashed
+   edge 3:1 against what it sits on, so it reads as disabled rather than as missing or as a fainter button. */
+.btn:disabled, .btn:disabled:hover {
+  cursor: default; background: transparent; border-color: var(--field-edge); border-style: dashed; color: var(--ink-3);
+}
+.btn.quiet:disabled { border-color: transparent; }
+
+/* A box to tick, drawn rather than left to the system, whose unchecked box in dark is a gray fill that reads as
+   chosen: unchecked it is an outline 3:1 against what it sits on in both themes, ticked it is the accent with its
+   mark in the accent's own ink. A component may size it; a box that cannot be changed has a dashed edge. */
+:where(input[type="checkbox"], input[type="radio"]) { width: 15px; height: 15px; }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only) {
+  appearance: none; display: inline-grid; place-content: center; flex: none; vertical-align: middle;
+  border: 1.5px solid var(--field-edge); border-radius: 4px; background: transparent; cursor: pointer;
+}
+input[type="radio"]:not(.sr-only) { border-radius: 50%; }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only)::before { content: ""; transform: scale(0); }
+input[type="checkbox"]:not(.sr-only)::before {
+  width: 9px; height: 9px; background: var(--on-accent); clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%);
+}
+input[type="radio"]:not(.sr-only)::before { width: 7px; height: 7px; border-radius: 50%; background: var(--accent-fill); }
+input[type="checkbox"]:not(.sr-only):checked { background: var(--accent-fill); border-color: var(--accent-fill); }
+input[type="radio"]:not(.sr-only):checked { border-color: var(--accent-fill); }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only):checked::before { transform: scale(1); }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only):focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 2px; }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only):disabled { cursor: default; border-style: dashed; }
+input:is([type="checkbox"], [type="radio"]):not(.sr-only):disabled:checked { opacity: .6; }
 
 .badge {
   width: 26px; height: 26px; border-radius: 50%; flex: none;
@@ -254,7 +280,7 @@ kbd {
 .picker-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .picker-hex {
   display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px 0 6px;
-  border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--panel);
+  border: 1px solid var(--field-edge); border-radius: var(--r); background: var(--panel);
 }
 .picker-hex:focus-within { border-color: var(--accent-mark); }
 .picker-hex input {
@@ -430,7 +456,7 @@ kbd {
 }
 .map-find {
   display: inline-flex; align-items: center; gap: 6px; flex: 1 1 200px; max-width: 340px; min-width: 170px; height: 30px;
-  padding: 0 4px 0 10px; border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--panel); color: var(--ink-3);
+  padding: 0 4px 0 10px; border: 1px solid var(--field-edge); border-radius: var(--r); background: var(--panel); color: var(--ink-3);
 }
 .map-find:focus-within { border-color: var(--ink-3); }
 .map-find input {
@@ -468,7 +494,7 @@ kbd {
 .map-menu-group legend { padding: 4px 8px 6px; font: 600 12.5px/1.2 var(--sans); color: var(--ink); }
 .map-menu-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 8px 8px; font: 400 13px/1.3 var(--sans); color: var(--ink-2); }
 .map-menu-row select, .map-menu-row input {
-  width: 200px; height: 30px; padding: 0 8px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 200px; height: 30px; padding: 0 8px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans); color-scheme: inherit;
 }
 .map-menu-dates .facet-caption { margin-top: 2px; }
@@ -617,7 +643,7 @@ kbd {
 
 .terms {
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 26px;
-  min-height: 58px; padding: 10px 14px; border: 1px solid var(--rule-2); border-radius: var(--r-lg);
+  min-height: 58px; padding: 10px 14px; border: 1px solid var(--field-edge); border-radius: var(--r-lg);
   background: var(--panel); color: var(--ink-3); cursor: text;
   transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out);
 }
@@ -669,7 +695,7 @@ kbd {
 .window legend { padding: 0 0 8px; font: 600 15px/1.2 var(--sans); color: var(--ink); }
 .date, .cap { display: inline-flex; align-items: center; gap: 8px; font: 400 13px/1 var(--sans); color: var(--ink-2); }
 .date input, .cap input {
-  height: 32px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 32px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--panel); color: var(--ink); font: 400 13px/1 var(--sans); font-variant-numeric: tabular-nums;
   color-scheme: inherit;
 }
@@ -1085,7 +1111,7 @@ button.watch-skipped-open {
 .record-sub { margin: 22px 0 8px; font: 600 14px/1.3 var(--sans); color: var(--ink); }
 .record-sub:first-child { margin-top: 0; }
 .intent-form { display: grid; gap: 8px; max-width: 760px; }
-.intent-form textarea { width: 100%; resize: vertical; min-height: 58px; padding: 10px 12px; border: 1px solid var(--rule-2); border-radius: 8px; background: var(--panel); color: var(--ink); font: 400 14.5px/1.5 var(--sans); }
+.intent-form textarea { width: 100%; resize: vertical; min-height: 58px; padding: 10px 12px; border: 1px solid var(--field-edge); border-radius: 8px; background: var(--panel); color: var(--ink); font: 400 14.5px/1.5 var(--sans); }
 .intent-form textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 .intent-actions { display: flex; align-items: center; gap: 12px; }
 .intent-actions .record-cap { margin: 0; }
@@ -1157,7 +1183,7 @@ button.watch-skipped-open {
 .person-fields { display: grid; gap: 6px; }
 .person-fields label { margin-top: 8px; font: 600 13px/1.3 var(--sans); color: var(--ink); }
 .person-fields label span { font-weight: 400; color: var(--ink-3); margin-left: 6px; }
-.person-fields input, .person-fields textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 7px; background: var(--plate); color: var(--ink); font: 400 14px/1.45 var(--sans); }
+.person-fields input, .person-fields textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--field-edge); border-radius: 7px; background: var(--plate); color: var(--ink); font: 400 14px/1.45 var(--sans); }
 .person-fields textarea { resize: vertical; }
 .person-fields input:focus-visible, .person-fields textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 .person-warning { align-self: start; padding: 12px 14px; border-radius: 8px; background: var(--panel-2); }
@@ -1220,7 +1246,7 @@ code.path {
 .form-hint { margin: 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
 .settings-form > .form-hint { margin-top: 8px; }
 .form-field input {
-  width: 100%; height: 34px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 100%; height: 34px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 14px/1 var(--sans); font-variant-numeric: tabular-nums;
 }
 .form-field input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1257,7 +1283,7 @@ code.path {
 .keep-from { margin: 0; font: 400 13px/1.45 var(--sans); color: var(--ink-3); }
 .keep-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .keep-row input {
-  width: 280px; height: 32px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 280px; height: 32px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--panel); color: var(--ink); font: 400 13.5px/1 var(--sans);
 }
 .keep-row input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1275,7 +1301,7 @@ code.path {
 .editor-aside { margin-top: 18px; max-width: 64ch; font-size: 13px; color: var(--ink-2); }
 .person-pick { margin-top: 6px; max-width: 520px; }
 .form-field select, .date select {
-  height: 34px; padding: 0 30px 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 34px; padding: 0 30px 0 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 14px/1 var(--sans); color-scheme: inherit;
 }
 .date select { height: 32px; font-size: 13px; }
@@ -1289,7 +1315,7 @@ code.path {
 .window-start > span { flex: 1 1 40ch; }
 .editor-intent { margin-top: 26px; max-width: 760px; }
 .form-field textarea {
-  width: 100%; min-height: 58px; resize: vertical; padding: 9px 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 100%; min-height: 58px; resize: vertical; padding: 9px 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 14px/1.5 var(--sans);
 }
 .form-field textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1330,7 +1356,7 @@ code.path {
 .destination-acts { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .destination-acts .switch { min-width: 52px; }
 .destination-acts select, .destination-add select, .destination-add input, .destination-secret input {
-  height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans); color-scheme: inherit;
 }
 .destination-acts select:focus-visible, .destination-add select:focus-visible, .destination-add input:focus-visible,
@@ -1379,10 +1405,16 @@ code.path {
 [data-state="answered_empty"] > .wall-mark, .wall-mark[data-mark="ring"] { color: var(--ink-2); }
 .wall-mark[data-mark="half"] { color: var(--ink); }
 .wall-mark[data-mark="struck"] { color: var(--fault); }
-.wall-mark[data-mark="dotted"], .wall-mark[data-mark="dash"], .wall-mark[data-mark="unknown"] { color: var(--ink-3); }
+.wall-mark[data-mark="dotted"], .wall-mark[data-mark="dot"], .wall-mark[data-mark="unknown"] { color: var(--ink-3); }
+/* Not asked: quieter than any answer, and still 3:1 against the cell, the chosen column, and the key's ground
+   (`sky/__tests__/marks.test.ts`). On the chosen cell's wash it takes the stronger quiet ink. */
+.wall-mark[data-mark="dash"] { color: var(--chart-context); }
+.wall-cell button[aria-pressed="true"] .wall-mark[data-mark="dash"] { color: var(--ink-3); }
 
 .wall-scroll { margin-top: 12px; overflow: auto; border: 1px solid var(--rule); border-radius: var(--r-lg); background: var(--panel); }
-.wall-grid { border-collapse: separate; border-spacing: 0; width: 100%; min-width: max-content; font: 400 12.5px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
+/* The grid takes the frame's width, and where it is short a source's name and its When last asked wrap, so a laptop's
+   window shows every run of the twelve whole. More runs than fit scroll inside the frame. */
+.wall-grid { border-collapse: separate; border-spacing: 0; width: 100%; font: 400 12.5px/1.2 var(--sans); font-variant-numeric: tabular-nums; }
 .wall-grid th, .wall-grid td { border-bottom: 1px solid var(--rule); }
 .wall-grid tbody tr:last-child th, .wall-grid tbody tr:last-child td { border-bottom: 0; }
 .wall-grid thead th { font: 500 11.5px/1.2 var(--sans); color: var(--ink-3); background: var(--panel); text-align: center; padding: 0 6px; }
@@ -1394,7 +1426,7 @@ code.path {
 .wall-corner { text-align: left !important; vertical-align: bottom; padding: 0 12px 6px 18px !important; position: sticky; left: 0; z-index: 2; }
 .wall-source {
   position: sticky; left: 0; z-index: 1; text-align: left; padding: 0 16px 0 18px; height: 40px;
-  font: 550 14px/1.2 var(--sans); color: var(--ink); background: var(--panel); white-space: nowrap;
+  font: 550 14px/1.2 var(--sans); color: var(--ink); background: var(--panel);
 }
 /* Each cell is its own stack (z-index 0), so its button stays under the sticky Source and When last asked columns as the runs scroll. */
 .wall-cell { position: relative; z-index: 0; min-width: 64px; height: 40px; padding: 0; text-align: center; background: var(--panel); }
@@ -1413,11 +1445,19 @@ code.path {
 .wall-cell button[aria-pressed="true"] { background: var(--accent-wash-2); color: var(--ink); }
 .wall-cell button:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 /* When last asked is held at the right edge, as the source is at the left, so a narrow window scrolls the runs between them. */
-.wall-last { position: sticky; right: 0; z-index: 1; min-width: 200px; text-align: left; padding: 0 16px; border-left: 1px solid var(--rule); background: var(--panel); }
+.wall-last { position: sticky; right: 0; z-index: 1; min-width: 150px; text-align: left; padding: 0 16px; border-left: 1px solid var(--rule); background: var(--panel); }
 .wall-grid thead .wall-last { z-index: 2; }
-@media (max-width: 1100px) { .wall-last { min-width: 168px; padding: 0 12px; } }
+@media (max-width: 1100px) { .wall-last { padding: 0 12px; } }
+/* About 1,024 points wide: each run's column is narrower, its time a step smaller and still whole, and a day with one
+   run breaks its heading after the weekday. */
+@media (max-width: 1180px) {
+  .wall-cell { min-width: 54px; }
+  .wall-grid thead .wall-run, .wall-grid thead .wall-day { padding-left: 3px; padding-right: 3px; }
+  .wall-run a { font-size: 10.5px; }
+  .wall-day { white-space: normal; }
+}
 .wall-grid thead .wall-last { vertical-align: bottom; padding-bottom: 6px; text-align: left; }
-.wall-last b { display: flex; align-items: center; gap: 6px; font: 550 12.5px/1.2 var(--sans); color: var(--ink); }
+.wall-last b { display: flex; align-items: flex-start; gap: 6px; font: 550 12.5px/1.2 var(--sans); color: var(--ink); }
 .wall-last[data-state="failed"] b { color: var(--fault); }
 .wall-last small { display: block; margin-top: 2px; font-size: 11.5px; color: var(--ink-3); }
 .wall-grid tr[data-selected] .wall-source { color: var(--accent-ink); }
@@ -1623,7 +1663,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .lib-links a { color: var(--ink); text-underline-offset: 3px; }
 .lib-link-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; font: 400 13px/1.3 var(--sans); color: var(--ink-2); }
 .lib-link-form input {
-  width: 200px; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 200px; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans); font-variant-numeric: tabular-nums;
 }
 .lib-link-form input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1643,7 +1683,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-projects ol, .ev-members ol, .ev-saved, .ev-add ul, .ev-bundle ul { list-style: none; margin: 8px 0 0; padding: 0; }
 .ev-new { display: flex; gap: 6px; }
 .ev-new input, .ev-title-row input {
-  flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  flex: 1 1 auto; min-width: 0; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
 }
 .ev-new input:focus-visible, .ev-title-row input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1687,13 +1727,13 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-focus-name { display: none; }
 .ev-pages { display: flex; align-items: center; gap: 8px; font: 500 13px/1 var(--sans); color: var(--ink-2); white-space: nowrap; }
 .ev-page-input {
-  width: 4.5em; height: 28px; padding: 0 8px; border: 1px solid var(--rule-2); border-radius: var(--r);
+  width: 4.5em; height: 28px; padding: 0 8px; border: 1px solid var(--field-edge); border-radius: var(--r);
   background: var(--plate); color: var(--ink); font: 500 13px/1 var(--sans); text-align: right;
 }
 .ev-page-input:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
 .ev-zoom { display: inline-flex; align-items: center; gap: 2px; }
 .ev-zoom select {
-  height: 28px; padding: 0 6px; border: 1px solid var(--rule-2); border-radius: var(--r);
+  height: 28px; padding: 0 6px; border: 1px solid var(--field-edge); border-radius: var(--r);
   background: var(--plate); color: var(--ink); font: 400 12.5px/1 var(--sans); font-variant-numeric: tabular-nums;
 }
 .ev-zoom select:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1769,7 +1809,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-find {
   position: absolute; top: 10px; right: 18px; z-index: 4; display: flex; align-items: center; gap: 2px;
   width: min(390px, calc(100% - 36px)); padding: 4px 4px 4px 6px;
-  border: 1px solid var(--rule-2); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow);
+  border: 1px solid var(--field-edge); border-radius: var(--r); background: var(--raise); box-shadow: var(--shadow);
 }
 .ev-find input {
   flex: 1 1 auto; min-width: 0; height: 28px; padding: 0 8px; border: 0; border-radius: calc(var(--r) - 2px);
@@ -1835,7 +1875,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-notes-bar .record-sub { margin: 0; }
 .ev-notes-bar button { -webkit-app-region: no-drag; }
 .ev-text {
-  width: 100%; margin-top: 10px; padding: 10px 12px; resize: vertical; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 100%; margin-top: 10px; padding: 10px 12px; resize: vertical; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13.5px/1.6 var(--sans);
   /* As tall as the page's text, from four lines to twenty-four, then it scrolls. */
   field-sizing: content; min-height: calc(4lh + 22px); max-height: calc(24lh + 22px);
@@ -1846,7 +1886,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-note-form { display: grid; gap: 6px; padding-bottom: 14px; margin-bottom: 4px; border-bottom: 1px solid var(--rule); }
 .ev-note-form .record-sub { overflow-wrap: anywhere; }
 .ev-note-form textarea {
-  width: 100%; padding: 8px 10px; resize: vertical; border-radius: var(--r); border: 1px solid var(--rule-2);
+  width: 100%; padding: 8px 10px; resize: vertical; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13.5px/1.5 var(--sans);
 }
 .ev-note-form textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -1893,7 +1933,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ev-step { margin: 0; padding: 12px 0 0; border: 0; border-top: 1px solid var(--rule); display: grid; gap: 8px; min-width: 0; }
 .ev-step legend { padding: 0; font: 600 14px/1.3 var(--sans); color: var(--ink); }
 .ev-step textarea, .ev-row input, .ev-row select, .ev-pick-page input {
-  height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
 }
 .ev-step textarea { height: auto; padding: 8px 10px; font-size: 13.5px; line-height: 1.5; resize: vertical; }
@@ -1962,7 +2002,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .conv-rail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .conv-rail-head .btn[aria-pressed="true"] { border-color: var(--accent-mark); }
 .conv-filter {
-  height: 32px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 32px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
 }
 .conv-filter:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
@@ -2068,7 +2108,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .conv-choice { display: grid; gap: 4px; }
 .conv-choice label { font: 600 12px/1.2 var(--sans); color: var(--ink-2); }
 .conv-choices select, .conv-choices input {
-  height: 30px; padding: 0 9px; min-width: 11em; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 30px; padding: 0 9px; min-width: 11em; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
 }
 .conv-choices input { min-width: 16em; }
@@ -2082,10 +2122,10 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .conv-composer { display: flex; align-items: flex-end; gap: 10px; }
 .conv-composer textarea {
   flex: 1; min-height: 44px; max-height: 30vh; padding: 10px 12px; resize: vertical; border-radius: var(--r-lg);
-  border: 1px solid var(--rule-2); background: var(--plate); color: var(--ink); font: 400 14px/1.5 var(--sans);
+  border: 1px solid var(--field-edge); background: var(--plate); color: var(--ink); font: 400 14px/1.5 var(--sans);
 }
 .conv-composer textarea:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 1px; }
-.conv-composer textarea:disabled { opacity: .6; }
+.conv-composer textarea:disabled { color: var(--ink-3); cursor: default; }
 .conv-composer .btn { height: 44px; }
 
 .tab-live {
@@ -2104,7 +2144,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .ai-part .settings-form { margin-top: 14px; }
 .form-field.form-wide { grid-column: 1 / -1; }
 .settings-form select {
-  height: 34px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  height: 34px; padding: 0 10px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13.5px/1 var(--sans);
 }
 .ai-lane { margin: 14px 0 0; padding: 8px 12px; border-left: 3px solid var(--rule-2); border-radius: 0 var(--r) var(--r) 0; background: var(--panel-2); font: 400 13px/1.5 var(--sans); color: var(--ink); max-width: 76ch; overflow-wrap: anywhere; }
@@ -2214,7 +2254,7 @@ a.bar-name:hover { text-decoration: underline; text-underline-offset: 3px; }
 .source-entry-req { font: 400 12.5px/1.3 var(--sans); color: var(--ink-3); }
 .source-key { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .source-key input {
-  flex: 1 1 14em; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--rule-2);
+  flex: 1 1 14em; height: 30px; padding: 0 9px; border-radius: var(--r); border: 1px solid var(--field-edge);
   background: var(--plate); color: var(--ink); font: 400 13px/1 var(--sans);
 }
 .source-key[data-state="present"] input::placeholder { color: var(--ink-2); font-family: var(--mono); letter-spacing: .1em; }

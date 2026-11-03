@@ -86,6 +86,10 @@ function Summaries() {
 function Assistant() {
   const settings = useQuery({ queryKey: ASSISTANT_KEY, queryFn: readAssistant });
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: ask.status });
+  // What the sign-in check beside the routes answered, for the connection it checked.
+  const [signIn, setSignIn] = useState<string | null>(null);
+  const checked = settings.data?.assistant_runtime || 'claude_cli';
+  const signInFor = (kind: string) => (kind === checked ? signIn : null);
   return (
     <section className="ai-part" aria-labelledby="ai-assistant">
       <h3 id="ai-assistant" className="field-title">Ask</h3>
@@ -96,19 +100,19 @@ function Assistant() {
       {settings.isError && <p className="field-error" role="alert">The engine did not answer ({settings.error.message}).</p>}
       {settings.data && status.data && <AssistantForm stored={settings.data} status={status.data} />}
       {settings.data && (settings.data.assistant_runtime || 'claude_cli') === 'claude_cli' && (
-        <CliSignIn provider="claude_code" purpose="ask" checkOnOpen />
+        <CliSignIn provider="claude_code" purpose="ask" checkOnOpen onAnswer={setSignIn} />
       )}
-      {settings.data?.assistant_runtime === 'codex_cli' && <CliSignIn provider="codex" purpose="ask" checkOnOpen />}
+      {settings.data?.assistant_runtime === 'codex_cli' && <CliSignIn provider="codex" purpose="ask" checkOnOpen onAnswer={setSignIn} />}
       {status.data && (
         <ul className="ai-routes" aria-label="Ways the assistant can run" data-ai="routes">
           <li data-available={status.data.available} data-kind={status.data.runtime.kind}>
             <strong>{routeName(status.data.runtime.kind)}</strong>{' '}
-            {routeSentence(status.data.runtime.kind, status.data.available, status.data.reason, true)}
+            {routeSentence(status.data.runtime.kind, status.data.available, status.data.reason, true, signInFor(status.data.runtime.kind))}
           </li>
           {status.data.others.map((other) => (
             <li key={other.kind} data-available={other.available} data-kind={other.kind}>
               <strong>{routeName(other.kind)}</strong>{' '}
-              {routeSentence(other.kind, other.available, other.reason, false)}
+              {routeSentence(other.kind, other.available, other.reason, false, signInFor(other.kind))}
             </li>
           ))}
         </ul>

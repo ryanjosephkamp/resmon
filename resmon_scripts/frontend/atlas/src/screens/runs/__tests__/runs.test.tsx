@@ -137,16 +137,16 @@ describe('the live panel, folded from the run\'s events', () => {
 
 describe('times, in the reader\'s own time zone', () => {
   test('a progress event\'s UTC stamp is shown as local time, as the run\'s heading is', () => {
-    expect(eventTime('2026-10-29T20:34:12Z')).toBe('4:34:12 PM');
+    expect(eventTime('2026-10-29T20:34:12Z')).toBe('4:34:12\u00a0PM');
     // The engine stores UTC; a stamp written without its offset is still UTC.
-    expect(eventTime('2026-10-29T20:34:12')).toBe('4:34:12 PM');
+    expect(eventTime('2026-10-29T20:34:12')).toBe('4:34:12\u00a0PM');
     expect(eventTime(undefined)).toBe('');
   });
 
   test('a stored instant in the record reads as a local day and time; a plain date stays a date', () => {
-    expect(localStamp('2026-10-30T15:38:27Z')).toBe('October 30, 2026 at 11:38 AM');
-    expect(localStamp('2026-10-30 15:38:27')).toBe('October 30, 2026 at 11:38 AM');
-    expect(localStamp('2026-10-31T00:47:00+00:00')).toBe('October 30, 2026 at 8:47 PM');
+    expect(localStamp('2026-10-30T15:38:27Z')).toBe('October 30, 2026 at 11:38\u00a0AM');
+    expect(localStamp('2026-10-30 15:38:27')).toBe('October 30, 2026 at 11:38\u00a0AM');
+    expect(localStamp('2026-10-31T00:47:00+00:00')).toBe('October 30, 2026 at 8:47\u00a0PM');
     expect(localStamp('2026-10-23')).toBeNull();
     expect(localStamp('graph neural networks')).toBeNull();
     expect(localStamp('2026-10-30T25:99:00Z')).toBeNull();
@@ -155,16 +155,16 @@ describe('times, in the reader\'s own time zone', () => {
   test('the report’s Generated line is local on screen; the rest of the report is as written', () => {
     const report = '# resmon Literature Report\n**Generated:** 2026-10-30T15:38:27Z  \n**Date Range:** 2026-10-23 to 2026-10-30  \n'
       + '## Paper\n- **Published:** 2026-10-29T00:00:00Z';
-    expect(reportInLocalTime(report)).toBe('# resmon Literature Report\n**Generated:** October 30, 2026 at 11:38 AM  \n'
+    expect(reportInLocalTime(report)).toBe('# resmon Literature Report\n**Generated:** October 30, 2026 at 11:38\u00a0AM  \n'
       + '**Date Range:** 2026-10-23 to 2026-10-30  \n## Paper\n- **Published:** 2026-10-29T00:00:00Z');
     expect(reportInLocalTime('**Generated:** not a time')).toBe('**Generated:** not a time');
   });
 
   test('a SQLite stamp with no zone is UTC wherever a time is worded, never the local clock', () => {
     const now = new Date('2026-10-30T18:00:00Z');
-    expect(when('2026-10-30 15:38:27', now)).toBe('today at 11:38 AM');
-    expect(when('2026-10-30T15:38:27Z', now)).toBe('today at 11:38 AM');
-    expect(when('2026-10-30T08:00:00-04:00', now)).toBe('today at 8:00 AM');
+    expect(when('2026-10-30 15:38:27', now)).toBe('today at 11:38\u00a0AM');
+    expect(when('2026-10-30T15:38:27Z', now)).toBe('today at 11:38\u00a0AM');
+    expect(when('2026-10-30T08:00:00-04:00', now)).toBe('today at 8:00\u00a0AM');
     expect(duration('2026-10-30 15:38:27', '2026-10-30T15:39:08Z')).toBe('41 s');
   });
 });
@@ -200,10 +200,10 @@ describe('the run\'s log, as the Log tab shows it', () => {
   const lines = read.text.split('\n');
 
   test('every time is local, the date carried over midnight UTC from the log\'s own start', () => {
-    expect(lines[3]).toBe('Start Time: October 31, 2026 at 7:59:58 PM');
-    expect(lines[5]).toBe('[7:59:58 PM] Querying repository: CrossRef');
-    expect(lines[9]).toBe('[8:00:01 PM]   CrossRef: 2 results');
-    expect(lines[14]).toBe('End Time: October 31, 2026 at 8:00:02 PM');
+    expect(lines[3]).toBe('Start Time: October 31, 2026 at 7:59:58\u00a0PM');
+    expect(lines[5]).toBe('[7:59:58\u00a0PM] Querying repository: CrossRef');
+    expect(lines[9]).toBe('[8:00:01\u00a0PM]   CrossRef: 2 results');
+    expect(lines[14]).toBe('End Time: October 31, 2026 at 8:00:02\u00a0PM');
     expect(read.text).not.toMatch(/\d{4}-\d\d-\d\dT/);
     expect(read.note).toContain('The log file keeps its times in UTC');
   });
@@ -211,10 +211,10 @@ describe('the run\'s log, as the Log tab shows it', () => {
   test('sources by name, and a source that did not answer never with a count', () => {
     expect(lines[1]).toBe('Operation Type: Deep Sweep');
     expect(lines[4]).toContain("repositories=['CrossRef', 'DBLP', 'HAL']");
-    expect(lines[7]).toBe('[7:59:59 PM]   DBLP: could not answer this window');
-    expect(lines[8]).toBe('[7:59:59 PM]     DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered.');
-    expect(lines[10]).toBe("[8:00:01 PM]   CORE: WARNING — no API key configured (credential 'core_api_key'); it is recorded as not asked");
-    expect(lines[11]).toBe('[8:00:01 PM]   IEEE Xplore: ERROR - ieee is no longer available.');
+    expect(lines[7]).toBe('[7:59:59\u00a0PM]   DBLP: could not answer this window');
+    expect(lines[8]).toBe('[7:59:59\u00a0PM]     DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered.');
+    expect(lines[10]).toBe("[8:00:01\u00a0PM]   CORE: WARNING — no API key configured (credential 'core_api_key'); it is recorded as not asked");
+    expect(lines[11]).toBe('[8:00:01\u00a0PM]   IEEE Xplore: ERROR - ieee is no longer available.');
     expect(read.text).not.toContain('0 results');
   });
 
@@ -241,7 +241,7 @@ describe('words for a run', () => {
 
   test('an interrupted run says why in words, never the stored token, and when in local time', () => {
     const sentence = interruptedSentence({ interrupted_reason: 'owner_dead', last_seen_at_utc: '2026-10-28T09:14:03Z' });
-    expect(sentence).toBe('Interrupted: the process running it stopped; last seen working October 28, 2026 at 5:14 AM.');
+    expect(sentence).toBe('Interrupted: the process running it stopped; last seen working October 28, 2026 at 5:14\u00a0AM.');
     expect(interruptedSentence({ interrupted_reason: null, last_seen_at_utc: null }))
       .toBe('Interrupted: the reason was not recorded.');
   });
@@ -423,4 +423,12 @@ describe('the Metadata tab labels the stage by whether the run has ended', () =>
     expect(container.textContent).toContain('Current stagefinalizing');
     expect(container.textContent).not.toContain('Last stage');
   });
+});
+
+test('the Metadata tab says a run\'s dates in words, as the rest of the run page does', () => {
+  const run = { id: 7, status: 'completed', parameters: JSON.stringify({ date_from: '2026-10-01', date_to: '2026-10-31', keywords: ['agents'] }) };
+  const { container } = render(<Metadata run={run as unknown as Parameters<typeof Metadata>[0]['run']} names={new Map()} />);
+  expect(container.textContent).toContain('Date fromOctober 1, 2026');
+  expect(container.textContent).toContain('Date toOctober 31, 2026');
+  expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
 });
