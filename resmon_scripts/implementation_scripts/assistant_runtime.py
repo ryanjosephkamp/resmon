@@ -92,6 +92,7 @@ from typing import Any, Callable, Iterator, Optional
 
 from . import ai_cli
 from .ai_errors import is_cli_sign_in_failure, sanitize
+from .child_process import hidden_window_kwargs
 from .assistant_constitution import load_assistant_constitution
 
 logger = logging.getLogger(__name__)
@@ -631,7 +632,7 @@ class ClaudeCliRuntime(AssistantRuntime):
         process = subprocess.Popen(
             argv, cwd=workdir, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=1,
+            text=True, bufsize=1, **hidden_window_kwargs(),
             # A fresh, minimal environment. The CLI needs HOME to find the
             # user's login; it does not need resmon's, and it must not inherit
             # RESMON_PORT from this process -- the MCP config sets that per
@@ -751,7 +752,8 @@ class ClaudeCliRuntime(AssistantRuntime):
                     if session_id in _PROCESSES:
                         raise ValueError('Selected job is already owned')
                     process = subprocess.Popen(argv, cwd=workdir, stdin=subprocess.DEVNULL,
-                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env)
+                                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env,
+                                               **hidden_window_kwargs())
                     _PROCESSES[session_id] = process
                 for stream, label in ((process.stdout,'stdout'), (process.stderr,'stderr')):
                     thread = threading.Thread(target=consume, args=(stream,label), daemon=True)
@@ -1418,7 +1420,7 @@ class CodexCliRuntime(AssistantRuntime):
         process = subprocess.Popen(
             argv, cwd=workdir, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=1, env=_child_env(),
+            text=True, bufsize=1, env=_child_env(), **hidden_window_kwargs(),
         )
         with _PROCESS_LOCK:
             _PROCESSES[session_id] = process

@@ -246,6 +246,8 @@ def list_available_models(
 import json as _json  # noqa: E402  (module already imports what it needs above)
 import subprocess  # noqa: E402
 
+from .child_process import hidden_window_kwargs  # noqa: E402
+
 # How long ``codex debug models`` may take before resmon gives up on it. The
 # Settings page waits on this, so it is short: an unavailable catalog costs the
 # dropdown, not the lane.
@@ -331,7 +333,7 @@ def _codex_catalog(binary_path: str | None) -> SubscriptionCatalog:
         completed = subprocess.run(
             [discovery.path or "", "debug", "models"],
             capture_output=True, text=True, timeout=_CLI_CATALOG_TIMEOUT,
-            stdin=subprocess.DEVNULL, check=False,
+            stdin=subprocess.DEVNULL, check=False, **hidden_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.info("codex debug models did not answer: %s", exc)

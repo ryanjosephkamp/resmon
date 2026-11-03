@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
+from .child_process import hidden_window_kwargs
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -315,6 +317,7 @@ def _run(cmd: list[str], label: str) -> None:
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+            **hidden_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
@@ -333,6 +336,7 @@ def _run_first_successful(cmds: list[list[str]], label: str) -> None:
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+                **hidden_window_kwargs(),
             )
         except subprocess.TimeoutExpired:
             last_err = f"timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s"

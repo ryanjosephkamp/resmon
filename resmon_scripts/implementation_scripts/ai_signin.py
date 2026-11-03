@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .ai_errors import sanitize
+from .child_process import hidden_window_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -283,6 +284,7 @@ def check_sign_in(
         completed = run(
             status_argv(provider, binary), capture_output=True, text=True,
             stdin=subprocess.DEVNULL, timeout=STATUS_TIMEOUT_SECONDS, env=env, check=False,
+            **hidden_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
         logger.info("%s sign-in check timed out", provider)
@@ -374,7 +376,8 @@ def open_sign_in(
         script.write_text(sign_in_script(provider, binary), encoding="utf-8")
         os.chmod(script, 0o700)
         completed = opener(["open", str(script)], capture_output=True, text=True,
-                           stdin=subprocess.DEVNULL, timeout=15, check=False)
+                           stdin=subprocess.DEVNULL, timeout=15, check=False,
+                           **hidden_window_kwargs())
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.info("Could not open the %s sign-in: %s", provider, type(exc).__name__)
         return answer(False, "copy", cannot_open, command)

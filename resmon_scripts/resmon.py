@@ -5727,12 +5727,13 @@ def open_ai_cli_sign_in(body: AiCliSignInBody):
     import subprocess as _subprocess
 
     from implementation_scripts import ai_signin
+    from implementation_scripts.child_process import hidden_window_kwargs
 
     binary, not_found = _sign_in_binary(body.provider, body.purpose, body.binary_path)
     opener_name = os.environ.get("RESMON_SIGN_IN_OPENER", "").strip() or "open"
 
     def opener(argv, **kwargs):
-        return _subprocess.run([opener_name, *argv[1:]], **kwargs)
+        return _subprocess.run([opener_name, *argv[1:]], **kwargs, **hidden_window_kwargs())
 
     return ai_signin.open_sign_in(
         body.provider, binary, api_auth.state_dir(), not_found=not_found, opener=opener,

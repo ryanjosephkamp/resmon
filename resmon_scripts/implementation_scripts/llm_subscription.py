@@ -67,6 +67,7 @@ import threading
 from typing import Optional
 
 from .ai_errors import AIError, AIErrorKind, is_cli_sign_in_failure
+from .child_process import hidden_window_kwargs
 from .prompt_templates import (
     BATCH_SUMMARY_SCHEMA,
     SUMMARIZE_ABSTRACT,
@@ -733,6 +734,7 @@ class SubscriptionLLMClient:
                     # blocks forever on a pipe is indistinguishable from one
                     # that has crashed.
                     stdin=subprocess.DEVNULL,
+                    **hidden_window_kwargs(),
                 )
                 self._active.add(process)
             try:
