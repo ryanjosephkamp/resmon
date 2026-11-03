@@ -66,7 +66,7 @@ _DEFAULT_MAX_TOKENS = 3000  # conservative default leaving room for prompt overh
 _DEFAULT_OVERLAP_TOKENS = 200
 _CHARS_PER_TOKEN_HEURISTIC = 4  # rough estimate for non-tiktoken models
 
-# Batching budget (1.8.5).
+# Batching budget.
 #
 # A batched call sends N documents in one prompt, so the thing that has to stay
 # bounded is the *total*, and the thing that has to stay small is each part. A
@@ -214,7 +214,7 @@ class SummarizationPipeline:
             const_hash = constitution_sha256_prefix(8)
         except Exception:  # pragma: no cover - constitution is mandatory
             const_hash = "unknown"
-        # 1.8.5 — effort is additive and appears only when a lane actually set
+        # Effort is additive and appears only when a lane actually set
         # one. An empty `| effort:` on the eight API-key providers would imply
         # a control they do not have; a missing one says nothing, which is the
         # honest answer for a lane where the concept does not exist.

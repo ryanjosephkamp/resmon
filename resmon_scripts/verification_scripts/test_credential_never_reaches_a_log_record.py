@@ -387,7 +387,7 @@ def test_the_capture_sees_a_key_that_is_really_there(root_logs):
     """Without this, every case above would pass with the handler unattached.
 
     A plain ``httpx`` request with the key in the query string, which is the
-    exact shape both modules used to send: ``httpx`` logs the request line at
+    exact shape a query-string key produces: ``httpx`` logs the request line at
     INFO, the record propagates to root, and the capture has to find it.
     """
     with _FailingServer("status_404") as server:

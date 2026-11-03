@@ -2,8 +2,8 @@
 """IEEE Xplore API client — RETIRED, retained for reference only.
 
 **This module is not loaded.** It was removed from ``api_registry._CLIENT_MODULES``
-and from the repository catalog in v1.8.1, and importing it registers nothing
-that a sweep can reach.
+or the repository catalog, and importing it registers nothing that a sweep can
+reach.
 
 The reason is IEEE's terms rather than any defect here — the client worked. The
 `IEEE Xplore API Terms of Use <https://developer.ieee.org/API_Terms_of_Use2>`_

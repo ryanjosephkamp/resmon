@@ -24,7 +24,7 @@ def current_runtime_id() -> str:
 def process_is_alive(pid: object) -> bool:
     """Whether ``pid`` names a live process, erring towards alive.
 
-    The one implementation of a rule three call sites used to restate: startup
+    The one implementation of a rule three call sites share: startup
     reconciliation in ``resmon``, ``delivery.requeue_orphaned`` and
     ``selected_evidence_runtime``'s ``_startup``. ``os.kill(pid, 0)`` raises
     ``ProcessLookupError`` only when the kernel is certain there is no such

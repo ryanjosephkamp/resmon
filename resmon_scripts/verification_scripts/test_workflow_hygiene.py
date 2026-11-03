@@ -1,7 +1,7 @@
 """Every workflow job carries its repository guard and its timeout.
 
-``.github/workflows/README.md`` has said so since the guard was added, and that
-was the whole of the enforcement. Prose is a bad place for this particular rule
+``.github/workflows/README.md`` states the rule, and prose alone is not
+enforcement. Prose is a bad place for this particular rule
 for a reason that is easy to miss: **a missing guard has no observable effect in
 this repository.** Nothing goes red, nothing runs twice, nothing costs anything
 here — the cost lands in a private fork or mirror, which is exactly where nobody

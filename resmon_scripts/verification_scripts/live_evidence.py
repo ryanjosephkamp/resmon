@@ -58,9 +58,9 @@ _AGGREGATE_NODE = re.compile(
 # ---------------------------------------------------------------------------
 #
 # One provider's outage should not decide whether the rest of the live suite
-# counts. In September 2026, OAPEN's server answered HTTP 500 intermittently,
-# to GitHub runners and to a workstation alike. The weekly job failed 1 case
-# of 92 for three days on a fault no client change could fix. The answer is
+# counts. A provider's server can answer HTTP 500 intermittently, to GitHub
+# runners and to a workstation alike, and fail one case of the weekly job for
+# days on a fault no client change can fix. The answer is
 # not to skip that case, and not to retry it until it passes. It is a small,
 # dated list of cases whose failure is excused only when it has a named shape.
 #

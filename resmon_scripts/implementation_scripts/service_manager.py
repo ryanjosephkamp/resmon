@@ -24,6 +24,8 @@ from pathlib import Path
 from typing import Optional
 from xml.sax.saxutils import escape as xml_escape
 
+from .child_process import hidden_window_kwargs
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -47,6 +49,36 @@ def _log_dir() -> Path:
 def default_python() -> str:
     """Absolute path to the current Python interpreter."""
     return sys.executable or shutil.which("python3") or "python3"
+
+
+def default_app_executable() -> Optional[str]:
+    """The packaged app's executable, as the app's own main process told this engine.
+
+    Electron sets ``RESMON_APP_EXECUTABLE`` on the engine it starts, and only when
+    the app is packaged on macOS or Windows. A unit installed from such an engine
+    starts the app with ``--service``. Without it (a source checkout) the unit
+    starts the engine itself.
+
+    Linux always runs the engine: a ``systemd --user`` unit has no display, which
+    Electron needs to start, so the app cannot be the service there, while the
+    bare engine runs headless.
+    """
+    if sys.platform.startswith("linux"):
+        return None
+    return os.environ.get("RESMON_APP_EXECUTABLE") or None
+
+
+class TemporaryPlaceError(RuntimeError):
+    """The unit would point into a place that will not be there next time."""
+
+
+def runs_from_temporary_place(path: str) -> bool:
+    """True for a path under ``/AppTranslocation/`` or ``/Volumes/``.
+
+    An unsigned app opened from Downloads or from its disk image runs from a
+    random read-only copy, or from the image, and both are gone later.
+    """
+    return "/AppTranslocation/" in path or path.startswith("/Volumes/")
 
 
 def default_port() -> int:
@@ -97,9 +129,15 @@ def template_path() -> Path:
 # Rendering
 # ---------------------------------------------------------------------------
 
+# ``{{PYTHON}}`` is the program the unit starts: the interpreter running the
+# engine, or the app's executable when the unit runs the app (``app_executable``).
+# ``{{LAUNCH_ARGS}}`` is what follows it, up to the port.
 REQUIRED_PLACEHOLDERS = (
-    "{{PYTHON}}", "{{PORT}}", "{{WORKDIR}}", "{{LOG_DIR}}", "{{STATE_ARGS}}",
+    "{{PYTHON}}", "{{LAUNCH_ARGS}}", "{{PORT}}", "{{WORKDIR}}", "{{LOG_DIR}}", "{{STATE_ARGS}}",
 )
+
+ENGINE_LAUNCH_ARGS = ("-m", "implementation_scripts.daemon")
+APP_LAUNCH_ARGS = ("--service",)
 
 # The variables that say where a backend keeps its state, and the daemon flag
 # that carries each one into a service.
@@ -107,18 +145,18 @@ REQUIRED_PLACEHOLDERS = (
 # A packaged app's Electron main process sets both on the backend it spawns,
 # pointing them at the per-user state directory, because the bundle is replaced
 # on every update. A service unit is started by the OS, not by Electron, so it
-# inherits neither. Before this, a service installed from the packaged app ran
-# the bundled daemon with config.py's checkout-relative defaults: a database
+# inherits neither. Without them, a service installed from the packaged app would
+# run the bundled daemon with config.py's checkout-relative defaults: a database
 # and a reports folder *inside the app bundle*, empty, and wiped by the next
-# update. The app then attached to it, because it was the same version, and
-# showed that empty database in place of the user's own. Measured on 2.3.0:
-# the rendered plist named no database, and the bundled interpreter resolved
-# DEFAULT_DB_PATH to ``resmon.app/Contents/Resources/backend/resmon.db``.
+# update. The app would then attach to it, because it is the same version, and
+# show that empty database in place of the user's own. The rendered plist would
+# name no database, and the bundled interpreter resolves DEFAULT_DB_PATH to
+# ``resmon.app/Contents/Resources/backend/resmon.db``.
 #
 # Flags rather than environment entries because Task Scheduler's Exec action
 # has no environment, and one mechanism on all three platforms is one thing to
 # test. A dev checkout's backend sets neither variable, so its unit carries no
-# flags and its daemon keeps the checkout database, as before.
+# flags and its daemon keeps the checkout database.
 STATE_ARGUMENTS = (
     ("RESMON_DB_PATH", "--db-path"),
     ("RESMON_REPORTS_DIR", "--reports-dir"),
@@ -161,6 +199,21 @@ def _format_state_args(args: list[str], template: Path) -> str:
     return "".join(" " + xml_escape(f'"{a}"') for a in args)
 
 
+def _format_launch_args(args: tuple[str, ...], template: Path) -> str:
+    """The arguments after the program, in the syntax of *template*."""
+    if template.name.endswith(".plist"):
+        return "\n        ".join(f"<string>{xml_escape(a)}</string>" for a in args)
+    return " ".join(args)
+
+
+def _quote_program(program: str, template: Path) -> str:
+    """The program as the template's syntax needs it: systemd splits on spaces unless quoted."""
+    if not template.name.endswith(".service"):
+        return program
+    quoted = program.replace("\\", "\\\\").replace('"', '\\"').replace("%", "%%").replace("$", "$$")
+    return f'"{quoted}"'
+
+
 def render_template(
     *,
     python: Optional[str] = None,
@@ -169,8 +222,13 @@ def render_template(
     log_dir: Optional[Path] = None,
     template: Optional[Path] = None,
     state_args: Optional[list[str]] = None,
+    app_executable: Optional[str] = None,
 ) -> str:
     """Render the platform-appropriate unit template to a string.
+
+    With ``app_executable`` the unit starts that executable with ``--service``
+    (the app, which starts the engine as its child and posts its notifications);
+    without it the unit starts the engine itself with ``python``.
 
     Every ``{{NAME}}`` placeholder in the template is substituted. It is a
     programming error to leave any placeholder unresolved, so the function
@@ -181,15 +239,28 @@ def render_template(
     raw = src.read_text(encoding="utf-8")
     resolved_log_dir = str(log_dir or _log_dir())
     args = list(state_arguments() if state_args is None else state_args)
+    if app_executable:
+        program = _quote_program(app_executable, src)
+        launch = _format_launch_args(APP_LAUNCH_ARGS, src)
+        port_text = f"--port={port if port is not None else default_port()}"
+        # The app's folder is the one place a unit can name that outlives a run
+        # (an AppImage's mount does not), and nothing in it is read.
+        default_workdir = Path(app_executable).parent
+    else:
+        program = python or default_python()
+        launch = _format_launch_args(ENGINE_LAUNCH_ARGS, src)
+        port_text = str(port if port is not None else default_port())
+        default_workdir = _resmon_scripts_dir()
     if src.name.endswith(".xml"):
         # Task Scheduler's Exec action cannot redirect output, so the service
         # opens its own log files there; launchd and systemd open them from
         # the unit's {{LOG_DIR}} lines instead (see ``service_log``).
         args.append(f"--log-dir={resolved_log_dir}")
     mapping = {
-        "{{PYTHON}}": python or default_python(),
-        "{{PORT}}": str(port if port is not None else default_port()),
-        "{{WORKDIR}}": str(workdir or _resmon_scripts_dir()),
+        "{{PYTHON}}": program,
+        "{{LAUNCH_ARGS}}": launch,
+        "{{PORT}}": port_text,
+        "{{WORKDIR}}": str(workdir or default_workdir),
         "{{LOG_DIR}}": resolved_log_dir,
         "{{STATE_ARGS}}": _format_state_args(args, src),
     }
@@ -215,8 +286,12 @@ def install(
     workdir: Optional[Path] = None,
     log_dir: Optional[Path] = None,
     register: bool = False,
+    app_executable: Optional[str] = None,
 ) -> Path:
     """Render the unit and write it to ``unit_path()``.
+
+    A unit installed from the packaged app runs the app (see
+    ``default_app_executable``); naming ``python`` asks for the engine itself.
 
     If ``register`` is True, additionally try to register the unit with the
     OS service manager (``launchctl``, ``systemctl --user``, or
@@ -224,7 +299,17 @@ def install(
     """
     target = unit_path()
     target.parent.mkdir(parents=True, exist_ok=True)
-    rendered = render_template(python=python, port=port, workdir=workdir, log_dir=log_dir)
+    if app_executable is None and python is None:
+        app_executable = default_app_executable()
+    # Both forms name a path inside the running app: the app's executable, or the
+    # bundled interpreter.
+    started = app_executable or python or default_python()
+    if runs_from_temporary_place(started):
+        raise TemporaryPlaceError(
+            "resmon is running from a disk image or a download, which will not be there next time: "
+            "move resmon to Applications, open it from there, and install the background service again.")
+    rendered = render_template(python=python, port=port, workdir=workdir, log_dir=log_dir,
+                               app_executable=app_executable)
     target.write_text(rendered, encoding="utf-8")
     try:
         os.chmod(target, 0o644)
@@ -253,6 +338,19 @@ def uninstall(*, deregister: bool = False) -> bool:
         target.unlink()
         return True
     return False
+
+
+def unit_runs() -> Optional[str]:
+    """What the installed unit starts: ``"app"``, ``"engine"``, or ``None`` (no unit, or unreadable)."""
+    try:
+        text = unit_path().read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    if "implementation_scripts.daemon" in text:
+        return "engine"
+    if "--service" in text:
+        return "app"
+    return None
 
 
 def is_installed() -> bool:
@@ -315,6 +413,7 @@ def _run(cmd: list[str], label: str) -> None:
     try:
         result = subprocess.run(
             cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+            **hidden_window_kwargs(),
         )
     except subprocess.TimeoutExpired:
         raise RuntimeError(
@@ -333,6 +432,7 @@ def _run_first_successful(cmds: list[list[str]], label: str) -> None:
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=_SERVICE_CMD_TIMEOUT_SEC,
+                **hidden_window_kwargs(),
             )
         except subprocess.TimeoutExpired:
             last_err = f"timed out after {_SERVICE_CMD_TIMEOUT_SEC:.0f}s"

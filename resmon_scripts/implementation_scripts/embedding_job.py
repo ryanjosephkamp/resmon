@@ -21,7 +21,7 @@ those and would look right.
 The write is idempotent for the same reason: ``ON CONFLICT(document_id, model)``
 means embedding a document twice costs a wasted call and never a duplicate row.
 That is what makes "cancel and restart finishes with exactly M rows" true rather
-than hoped for (P3).
+than hoped for.
 
 Cancellation is between batches
 -------------------------------
@@ -276,9 +276,9 @@ class BackfillJob:
         """Begin a backfill on a daemon thread. Returns the initial status.
 
         *connection_factory* is called **on the worker thread**, not here. Each
-        thread holds its own connection (BUG-020), and handing a worker the
-        request thread's connection is the shape that segfaults CPython when the
-        two touch it at once.
+        thread holds its own connection, because sharing one sqlite3 connection
+        across threads can segfault CPython, and handing a worker the request
+        thread's connection is exactly that shape.
 
         Raises ``RuntimeError`` when one is already running: two backfills over
         one corpus embed everything twice.

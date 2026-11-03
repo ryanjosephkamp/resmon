@@ -1,7 +1,7 @@
 /**
  * What the journeys take without a screen: the engine's own record, the
  * test's fixtures, the processes, and the files on disk. Atlas's driver
- * (`atlas.ts`) drives every screen; the candidate (`candidate.ts`) takes from
+ * (`atlas.ts`) drives every screen; the Atlas driver (`candidate.ts`) takes from
  * here only the members `borrowed.ts` lists, each with its reason.
  *
  * **A fact about the backend is read from the backend.** Where a journey is
@@ -11,7 +11,7 @@
  * to run against an installed app.
  *
  * **Where the app has no user path, the driver says so by using the API and the
- * spec's ledger row records it.** The app spawns its backend with
+ * spec's header records it.** The app spawns its backend with
  * `RESMON_DISABLE_SCHEDULER=1`, so no fire in this suite comes from
  * APScheduler, and the corpus-wide near-duplicate scan has no control in any
  * interface (`API_SETUP` in `borrowed.ts`).
@@ -216,10 +216,9 @@ app.on('window-all-closed', () => app.quit());
       }
     },
     zeroReasonVocabulary: async () => {
-      // Read out of the build under test rather than out of this file. The
-      // register was written saying "one of the nine zero reasons" and the
-      // module at this base declares ten, which is exactly the drift a list
-      // typed into a spec would have hidden.
+      // Read out of the build under test rather than out of this file, so a
+      // count typed into a spec cannot drift from the module that declares the
+      // reasons.
       const source = fs.readFileSync(
         path.join(session.root.repo, 'resmon_scripts', 'implementation_scripts', 'zero_reason.py'),
         'utf8',
@@ -229,7 +228,7 @@ app.on('window-all-closed', () => app.quit());
       return [...tuple![1].matchAll(/["']([a-z_]+)["']/g)].map((m) => m[1]);
     },
 
-    // — slice 2a -------------------------------------------------------------
+    // — routes, services, and coverage ----------------------------------------
 
     routeInventory: async () => {
       // FastAPI's own document, from the process that is running. `paths` is
@@ -268,7 +267,7 @@ app.on('window-all-closed', () => app.quit());
       });
     },
 
-    // — the register refresh -------------------------------------------------
+    // — evidence and the source wall -------------------------------------------
 
     evidenceNotes: (project) => evidenceNotesOf(project),
     selectedAnswer: (project, answerId) => answerOf(project, answerId),
@@ -559,9 +558,9 @@ app.on('window-all-closed', () => app.quit());
       // not tidiness. `config.PORT_FILE` falls back to the *database's* parent,
       // so a harness given only `RESMON_STATE_DIR` reads a port file belonging
       // to some other resmon — which is precisely the wrong-instance failure
-      // this row exists to check, and it would be this harness causing it. B3
-      // says the live daemon is never attached to, and the surest way to keep
-      // that true is never to leave a path pointing anywhere but here.
+      // this row exists to check, and it would be this harness causing it. The
+      // live daemon is never attached to, and the surest way to keep that true is
+      // never to leave a path pointing anywhere but here.
       const env = {
         ...process.env,
         RESMON_STATE_DIR: session.stateDir,
@@ -574,8 +573,8 @@ app.on('window-all-closed', () => app.quit());
       };
       // Three JSON-RPC messages down stdin, then EOF. `serve()` reads until
       // stdin closes, so one write is a whole conversation and there is no
-      // half-open pipe to leave behind — which is the failure mode this suite
-      // already paid for once in `session.ts`.
+      // half-open pipe to leave behind — which is the failure mode `session.ts`
+      // guards against.
       const conversation = [
         { jsonrpc: '2.0', id: 1, method: 'initialize', params: {} },
         { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} },
@@ -615,10 +614,10 @@ app.on('window-all-closed', () => app.quit());
 
     scanForNearDuplicates: async () => {
       // No screen starts this: the scan is corpus-wide and the app has no
-      // button for it at this base, so it is asked for over the API. The row's
+      // button for it, so it is asked for over the API. The row's
       // journey is what a person *sees* afterwards, which is the Explorer, and
-      // that half is all on screen. The spec's ledger records that the scan
-      // itself had no screen to start it from.
+      // that half is all on screen. The spec's header records that the scan
+      // itself has no screen to start it from.
       await session.api('POST', '/api/links/scan', {});
       let status: any = {};
       await expect.poll(async () => {

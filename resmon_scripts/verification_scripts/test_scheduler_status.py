@@ -1,19 +1,18 @@
 """Whether a routine shown as Active will fire -- ``GET /api/scheduler/status``.
 
-The Routines page used to show **Active** for a routine that nothing would ever
-fire, and the two looked identical. The packaged app always starts its own
-backend with ``RESMON_DISABLE_SCHEDULER=1``: firing belongs to the background
-service, and the app attaches to that service only when its lock names one that
-is live, has a token file and runs the same version. Otherwise the app's own
-backend has ``scheduler = None``, so no routine fires, and
-``_record_missed_fires`` -- which only runs in a process that starts a
-scheduler -- never runs either. The missed-fire count stays at zero however
+A routine shown as **Active** may be one that nothing will ever fire. The
+packaged app always starts its own backend with
+``RESMON_DISABLE_SCHEDULER=1``: firing belongs to the background service, and
+the app attaches to that service only when its lock names one that is live,
+has a token file and runs the same version. Otherwise the app's own backend has
+``scheduler = None``, so no routine fires, and ``_record_missed_fires`` --
+which only runs in a process that starts a scheduler -- never runs either. The missed-fire count stays at zero however
 many fires were missed.
 
-That was measured on a copy of the owner's corpus: a routine on ``*/5`` Active
-for nearly six minutes with zero executions, and a daily routine Active for
-48 days with one execution and zero recorded misses, while the lock named a
-1.2.1 service the 2.3.0 app would not attach to.
+In that state a routine on ``*/5`` can sit Active for nearly six minutes with
+zero executions, and a daily routine Active for 48 days with one execution and
+zero recorded misses, while the lock names a service of another version that
+the app will not attach to.
 
 These tests hold the route that says which of those situations a window is in.
 The fake daemons below answer the health probe the way a real one does --
@@ -47,8 +46,8 @@ from implementation_scripts import scheduler as scheduler_mod  # noqa: E402
 from implementation_scripts.config import APP_VERSION  # noqa: E402
 from implementation_scripts.scheduler import ResmonScheduler  # noqa: E402
 
-#: A version this app is not. The owner's service is 1.2.1.
-OTHER_VERSION = "1.2.1"
+#: A version this app is not.
+OTHER_VERSION = "1.1.0"
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +207,7 @@ def _leave_a_job_in_this_database(routine_id: int) -> None:
     The situation is a scheduler that once ran over this database -- a daemon
     since stopped, or one of another version over the same file -- and left its
     job store behind. ``ResmonScheduler`` writes the row exactly as it would in
-    production, because every released resmon keeps the job store in the
+    production, because resmon keeps the job store in the
     corpus file (``scheduler._DEFAULT_DB_URL``).
     """
     path = _corpus_path()
@@ -231,22 +230,22 @@ def _leave_a_job_in_this_database(routine_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# The owner's case
+# An active routine nothing will fire
 # ---------------------------------------------------------------------------
 
-def test_the_owners_case_an_active_routine_nothing_will_fire_says_so(isolated, monkeypatch):
-    """The window the owner was looking at, and what it now says.
+def test_an_active_routine_nothing_will_fire_says_so(isolated, monkeypatch):
+    """The window of an active routine nothing will fire, and what it says.
 
-    A 2.3.0 backend with its scheduler off, a lock naming a running 1.2.1
-    service, and a routine on ``*/5`` activated in this window. Nothing has
-    that routine scheduled -- activating it here reached no scheduler, because
-    there is none in this process -- so it will not fire, whatever database the
-    old service serves.
+    A backend with its scheduler off, a lock naming a running service of
+    another version, and a routine on ``*/5`` activated in this window. Nothing
+    has that routine scheduled -- activating it here reached no scheduler,
+    because there is none in this process -- so it will not fire, whatever
+    database the other service serves.
     """
     with _backend(monkeypatch, scheduler_on=False) as client:
         rid = _create(client, "every five minutes", cron="*/5 * * * *")
 
-        # What the page had to go on before this route: Active, and no misses.
+        # What the routine list alone shows: Active, and no misses.
         listed = {r["id"]: r for r in client.get("/api/routines").json()}
         assert listed[rid]["is_active"]
         assert listed[rid]["missed_fires"]["count"] == 0
@@ -431,7 +430,7 @@ def test_a_job_in_this_database_with_a_service_resmon_cannot_see_into_is_unconfi
 
     The routine has a job in this database's store, and a service is running
     -- or may be -- whose database resmon cannot identify: ``/api/health``
-    carries ``identity.corpus_id``, and it is ``null`` on every version so far.
+    carries ``identity.corpus_id``, and it is ``null`` today.
     If that service serves this file it will fire the job; if not, nothing
     will. Saying either would be a guess.
     """

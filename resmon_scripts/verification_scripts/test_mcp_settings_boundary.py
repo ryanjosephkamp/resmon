@@ -1,4 +1,4 @@
-"""Trust P1: real MCP function -> real HTTP -> subprocess backend -> SQLite.
+"""Trust boundary: real MCP function -> real HTTP -> subprocess backend -> SQLite.
 
 No providers or credentials. GET response types and the backend group manifest
 supply the denominator; no fake HTTP handler normalizes away the defect.
@@ -21,7 +21,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.
@@ -152,7 +152,7 @@ def test_boolean_effects_cross_the_real_mcp_http_and_storage_boundary(isolated_b
               if isinstance(value, bool) and key in mcp.SETTINGS_KEYS_WRITABLE]
     assert fields, "no writable boolean-valued GET field was found"
     # String-valued GET fields that are boolean flags at their readers.
-    # ``ai_show_audit_prefix`` was the third of these until v2.3 withheld it:
+    # ``ai_show_audit_prefix`` is withheld, so it is not one of these:
     # it decides whether a reader is told a summary came from a model, which a
     # tool does not get to change. It is checked below as a refusal instead,
     # because a key that merely vanished from this list would leave no trace
@@ -221,7 +221,7 @@ def test_each_allowed_group_reports_actual_before_after(isolated_backend):
         before = _settings(base, group)
         # No-op writes still cross the real boundary; separate boolean tests
         # establish both directions, and embeddings must use a real stored key.
-        # Since v2.3 the key is picked from the writable allowlist rather than
+        # The key is picked from the writable allowlist rather than
         # by sorting the group: ``ai`` and ``embeddings`` both sort a withheld
         # key first, and a refusal there is the tool working, not failing.
         writable = sorted(k for k in before if k in mcp.SETTINGS_KEYS_WRITABLE)

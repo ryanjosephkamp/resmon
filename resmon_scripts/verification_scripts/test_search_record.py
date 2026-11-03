@@ -380,8 +380,8 @@ def test_the_markdown_cites_the_software_version(conn):
 
 
 def test_a_real_sweep_records_its_deduplication_figures(monkeypatch):
-    """They were computed on every run since the beginning and thrown away into
-    the progress-events blob. A report format cannot be built on that."""
+    """The deduplication figures are recorded, not left in the progress-events
+    blob. A report format cannot be built on that blob."""
     from implementation_scripts import sweep_engine as se
     from implementation_scripts import credential_manager as cm
     from implementation_scripts.api_base import BaseAPIClient, NormalizedResult
@@ -497,10 +497,8 @@ def test_an_unknown_execution_404s():
 def test_a_cancelled_run_explains_its_absences_by_the_cancellation(conn):
     """A run cancelled while querying has no deduplication figures and no zero
     reason for the source it was querying, and both absences have one cause.
-    The record used to call this fresh run older than the version that stored
-    the figure, and to say resmon "did not record why" the cancelled source
-    returned nothing, beside that source's own note saying it was cancelled.
-    Found in a walk of the app on October 26, 2026."""
+    The record must not say resmon "did not record why" the cancelled source
+    returned nothing, beside that source's own note saying it was cancelled."""
     exec_id = _run(conn, sources={"biorxiv": {"status": "cancelled"}})
     update_execution_status(conn, exec_id, "cancelled", end_time="2026-07-01T09:00:08Z")
     record = search_record.build(conn, exec_id)
@@ -511,7 +509,6 @@ def test_a_cancelled_run_explains_its_absences_by_the_cancellation(conn):
         "The run was cancelled before deduplication, so this figure was never "
         "computed. Not recorded is not zero.")
     assert not any("did not record why" in c for c in record["caveats"])
-    assert not any("before resmon 1.8.6" in c for c in record["caveats"])
     markdown = search_record.to_markdown(record)
     assert "cancelled while this source was being queried" in markdown
     assert "predates the version" not in markdown

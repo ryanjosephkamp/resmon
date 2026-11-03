@@ -1,21 +1,22 @@
 name: Release
 
-# Builds the installable artifacts — macOS DMG, Windows NSIS installer,
-# Linux AppImage — and attaches them to a GitHub Release.
+# Builds the installable artifacts (macOS DMG for Apple Silicon and Intel,
+# Windows NSIS installer, Linux AppImage), launches each packaged app once, and
+# publishes them together.
 #
-# Triggers on version tags (v1.6.0, v2.0.0, ...) and manually via
-# workflow_dispatch for a dry run that uploads the DMG as a workflow
-# artifact instead of creating a release.
+# Every leg builds, checks the bundled Python runtime and the update metadata,
+# runs the `resmon` command line that ships inside the app, and launches the
+# packaged app against an isolated instance (see "Launch check" below). The
+# publish job runs only when every leg passed, and only for a version tag: it
+# downloads each leg's files and creates the release with all of them at once.
+# A manual run (workflow_dispatch) is a dry run: the legs upload their files as
+# workflow artifacts that expire in three days, and nothing is published.
 #
 # Signing and notarization are environment-gated: when the four APPLE_*
 # / CSC_* secrets exist, electron-builder signs with the Developer ID
-# certificate and notarizes with Apple; when they are absent (as now,
-# before enrolment), the build completes unsigned — same behaviour as a
-# local `npm run dist`. Adding the secrets later upgrades the pipeline
-# to signed without a workflow change.
-#
-# The v1.5-classic tag predates this workflow and is deliberately not a
-# release: it is the Master Plan rule-R1 archive marker.
+# certificate and notarizes with Apple; when they are absent, the build
+# completes unsigned, the same as a local `npm run dist`. Adding the secrets
+# later upgrades the pipeline to signed without a workflow change.
 
 on:
   push:
@@ -23,15 +24,13 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: ${{ matrix.label }}
     runs-on: ${{ matrix.os }}
     # Per matrix leg, and the matrix is four legs across three platforms.
-    # Was unbounded at GitHub's 360-minute default; worst leg ever measured
-    # is 7m09s (macOS Intel, v2.3.0).
     timeout-minutes: 60
     # Runs only here — see README.md in this directory.
     if: github.repository == 'ryanjosephkamp/resmon'
@@ -47,27 +46,28 @@ jobs:
             # No update metadata on purpose: an unsigned macOS app cannot
             # self-update (Squirrel.Mac validates the signature), so shipping
             # latest-mac.yml would advertise updates the app cannot apply.
-            pattern: release/*.dmg
             upload: resmon_scripts/frontend/release/*.dmg
             verify: '! test -e release/latest-mac.yml'
+            backend: release/mac-arm64/resmon.app/Contents/Resources/backend
             runtime: release/mac-arm64/resmon.app/Contents/Resources/backend/python/bin/python3
+            app: resmon.app
           - os: macos-15-intel
             label: macOS DMG (Intel)
             artifact: resmon-dmg-x64
-            # A native Intel runner, not Rosetta: the bundled Python venv's
-            # compiled wheels must match the architecture pip runs on, so
-            # cross-building the backend from an arm64 runner would ship
-            # arm64 extensions inside an "Intel" DMG.
-            pattern: release/*.dmg
+            # A native Intel runner, not Rosetta: the bundled runtime's compiled
+            # wheels must match the architecture pip runs on, so cross-building
+            # the backend from an arm64 runner would ship arm64 extensions
+            # inside an "Intel" DMG.
             upload: resmon_scripts/frontend/release/*.dmg
             verify: '! test -e release/latest-mac.yml'
+            backend: release/mac/resmon.app/Contents/Resources/backend
             runtime: release/mac/resmon.app/Contents/Resources/backend/python/bin/python3
+            app: resmon.app
           - os: windows-latest
             label: Windows installer (x64)
             artifact: resmon-setup-x64
             # latest.yml is what installed apps poll; the blockmap enables
             # differential downloads.
-            pattern: release/*.exe release/*.exe.blockmap release/latest.yml
             upload: |-
               resmon_scripts/frontend/release/*.exe
               resmon_scripts/frontend/release/*.exe.blockmap
@@ -76,18 +76,21 @@ jobs:
               test -f release/latest.yml &&
               ls release/*.exe.blockmap &&
               test -f release/win-unpacked/resources/app-update.yml
+            backend: release/win-unpacked/resources/backend
             runtime: release/win-unpacked/resources/backend/python/python.exe
+            app: win-unpacked
           - os: ubuntu-latest
             label: Linux AppImage (x64)
             artifact: resmon-appimage-x64
-            pattern: release/*.AppImage release/latest-linux.yml
             upload: |-
               resmon_scripts/frontend/release/*.AppImage
               resmon_scripts/frontend/release/latest-linux.yml
             verify: >-
               test -f release/latest-linux.yml &&
               test -f release/linux-unpacked/resources/app-update.yml
+            backend: release/linux-unpacked/resources/backend
             runtime: release/linux-unpacked/resources/backend/python/bin/python3
+            app: linux-unpacked
 
     defaults:
       run:
@@ -98,8 +101,8 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          # prepare-backend.js bundles whichever Python it finds; pin the
-          # version the venv is developed against.
+          # The build bundles its own standalone runtime; this is the Python the
+          # build tooling itself runs under.
           python-version: '3.11'
 
       - uses: actions/setup-node@v4
@@ -115,10 +118,10 @@ jobs:
       - name: Configure macOS signing
         # A job-level CSC_LINK mapped from a secret DEFINES the variable even
         # when the secret does not exist, and electron-builder then attempts
-        # file-based signing against an empty path ("... not a file" — the
-        # first dry run failed exactly this way). So signing env is exported
-        # only when the certificate secret actually has a value; otherwise
-        # signing is disabled outright, matching a local unsigned build.
+        # file-based signing against an empty path ("... not a file"). So
+        # signing env is exported only when the certificate secret actually
+        # has a value; otherwise signing is disabled outright, matching a
+        # local unsigned build.
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -142,12 +145,12 @@ jobs:
         run: npm run dist
 
       - name: Verify the bundled runtime is genuinely portable
-        # The 1.6.0 lesson: a bundle that "works" on machines that happen to
-        # have the build Python proves nothing. This runs the SHIPPED
-        # interpreter and imports the heavy compiled dependencies — wrong
-        # architecture, missing stdlib, or a broken install all fail here —
-        # and on macOS additionally rejects any absolute framework linkage,
-        # which is exactly how the venv bug reached users.
+        # A bundle that works only on machines that happen to have the build
+        # Python proves nothing. This runs the SHIPPED interpreter and imports
+        # the heavy compiled dependencies — wrong architecture, missing stdlib,
+        # or a broken install all fail here — and on macOS additionally rejects
+        # any absolute framework linkage, which is how a bundle that depends on
+        # the build machine's Python gets through.
         shell: bash
         run: |
           PY="${{ matrix.runtime }}"
@@ -155,8 +158,9 @@ jobs:
           "$PY" -c "import sys; print('bundled runtime:', sys.version)"
           "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, nltk, keyring, sqlite3; print('imports OK')"
           if [ "${{ runner.os }}" = "macOS" ]; then
-            # Anchored: user-level /Library/Frameworks at path start is the
-            # 1.6.0 poison; /System/Library/Frameworks is normal OS linkage.
+            # Anchored: a user-level /Library/Frameworks at the start of the
+            # path is a dependency on the build machine; /System/Library/Frameworks
+            # is normal OS linkage.
             if otool -L "$PY" | grep -Eq '^[[:space:]]+/Library/Frameworks'; then
               echo 'FATAL: bundled interpreter links a user-level framework path'
               exit 1
@@ -171,8 +175,120 @@ jobs:
         shell: bash
         run: ${{ matrix.verify }}
 
-      - name: Upload to the release
-        if: github.event_name == 'push'
+      - name: Run the command line inside the app
+        # `resmon --version` through the bundled interpreter and the bundled
+        # resmon.pyz, isolated with -I as the installed launchers run it. It
+        # must name this build's version and the app it sits in, so a
+        # command line left over from an earlier build, or one that cannot
+        # find its own bundle, fails here.
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          # `pwd -W` is the Windows spelling of the folder under Git Bash, which
+          # a native python.exe needs; elsewhere it is plain `pwd`.
+          HERE="$(pwd -W 2>/dev/null || pwd)"
+          PY="$HERE/${{ matrix.runtime }}"
+          PYZ="$HERE/${{ matrix.backend }}/resmon.pyz"
+          test -f "$PYZ"
+          LINE="$("$PY" -I "$PYZ" --version)"
+          echo "$LINE"
+          case "$LINE" in
+            "resmon $VERSION (the command line inside the resmon app: "*"${{ matrix.app }})") ;;
+            *) echo "FATAL: expected resmon $VERSION inside ${{ matrix.app }}"; exit 1 ;;
+          esac
+
+      - name: Install Electron's system libraries and a virtual display
+        if: runner.os == 'Linux'
+        run: |
+          sudo npx playwright install-deps chromium
+          sudo apt-get install -y --no-install-recommends xvfb
+
+      # Launch check. Playwright launches the PACKAGED app (the files that
+      # ship, with the bundled interpreter) against an isolated instance:
+      # its own state folder, database, and port file, and a null keyring. When
+      # Atlas has drawn, the spec runs the bundled `resmon service status --json`,
+      # `today --json`, and `wall --json` and checks they answer from that
+      # instance; has the engine run a map fit and read a PDF in the worker;
+      # and checks the app's folder was not written to. On Windows it also
+      # watches every window that appears (a Win32 event hook and a 50 ms poll
+      # of the visible windows, `e2e/fixtures/watch-windows.ps1`) and fails if a
+      # console window shows at any point; the log names each window it saw.
+      # RESMON_REQUIRE_PACKAGED turns "no packaged app found" from a skip into
+      # a failure.
+      - name: Launch check (the packaged app and its command line)
+        shell: bash
+        env:
+          RESMON_REQUIRE_PACKAGED: '1'
+          PYTHON_KEYRING_BACKEND: keyring.backends.null.Keyring
+          RESMON_KEYRING_TIMEOUT: '2.0'
+        run: |
+          export RESMON_PYTHON="$(pwd -W 2>/dev/null || pwd)/${{ matrix.runtime }}"
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            xvfb-run --auto-servernum --server-args='-screen 0 1600x1000x24' \
+              npx playwright test --config e2e/playwright.config.ts e2e/packaged-command-line.spec.ts
+          else
+            npx playwright test --config e2e/playwright.config.ts e2e/packaged-command-line.spec.ts
+          fi
+
+      - name: Upload the launch check's failure context
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-check-${{ matrix.artifact }}
+          path: resmon_scripts/frontend/e2e/test-results/
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Upload this leg's files
+        # Kept three days: the publish job reads them minutes after the last
+        # leg ends, and a dry run is looked at the same day. `path` is
+        # newline-separated: a space-joined glob list reads as one
+        # (unmatchable) path.
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.upload }}
+          if-no-files-found: error
+          retention-days: 3
+
+  publish:
+    name: Publish the release
+    needs: build
+    # A version tag only, and only when every leg above passed: `needs` runs this
+    # job when the whole matrix succeeded and skips it when any leg failed or
+    # was cancelled, so a release is never made from some of the files.
+    if: github.repository == 'ryanjosephkamp/resmon' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download every leg's files
+        uses: actions/download-artifact@v4
+        with:
+          pattern: resmon-*
+          merge-multiple: true
+          path: release-files
+
+      - name: Check that every file is here
+        # The release is the seven files an installed app or its updater reads:
+        # four installers and disk images, the Windows and Linux update feeds,
+        # and the Windows blockmap. macOS has no update feed: an unsigned Mac
+        # app cannot update itself.
+        shell: bash
+        run: |
+          ls -l release-files
+          test "$(ls release-files/*.dmg | wc -l)" -eq 2
+          test "$(ls release-files/*.exe | wc -l)" -eq 1
+          test "$(ls release-files/*.exe.blockmap | wc -l)" -eq 1
+          test "$(ls release-files/*.AppImage | wc -l)" -eq 1
+          test -f release-files/latest.yml
+          test -f release-files/latest-linux.yml
+          test ! -e release-files/latest-mac.yml
+          test "$(ls release-files | wc -l)" -eq 7
+
+      - name: Create the release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -181,18 +297,6 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --title "resmon ${GITHUB_REF_NAME}" \
             --generate-notes \
-            ${{ matrix.pattern }} \
+            release-files/* \
           || gh release upload "${GITHUB_REF_NAME}" \
-               --repo "${GITHUB_REPOSITORY}" --clobber ${{ matrix.pattern }}
-
-      - name: Upload as workflow artifact (dry run)
-        # `path` is newline-separated: a space-joined glob list reads as one
-        # (unmatchable) path, which is exactly how the first dry run shipped
-        # only the macOS artifact.
-        if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.upload }}
-          if-no-files-found: error
-          retention-days: 7
+               --repo "${GITHUB_REPOSITORY}" --clobber release-files/*

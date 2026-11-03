@@ -6,14 +6,13 @@ own subscription window. Deliberately not collected by pytest — no ``test_``
 prefix, and it takes minutes.
 
     .venv/bin/python resmon_scripts/verification_scripts/measure_assistant_cost.py \\
-        --out workspace/handbacks/2.0/evidence/assistant-cost.md
+        --out assistant-cost.md
 
 Why it exists. The MCP contract makes token efficiency a *contract term* rather
 than an aspiration: "a harness asking what did my arXiv routine find this week
-must not cost a five-hour usage window." Phase 2.0's decision 4c says the same
-thing about the assistant and adds the only honest way to hold it — **measure,
-then set the ceiling from the measurement**, which is the method 1.8.5's flip
-gate used after its first version thresholded the wrong quantity.
+must not cost a five-hour usage window." The same holds for the assistant, and
+the only honest way to hold it is to **measure, then set the ceiling from the
+measurement**.
 
 So this script does not assert anything. It runs ten canonical requests against
 a real backend seeded with a small corpus, reports tokens, cost and tool calls

@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_sweep_engine_ephemeral.py
-"""Test that SweepEngine threads exec_id onto API clients (IMPL-23)."""
+"""Test that SweepEngine threads exec_id onto API clients."""
 
 import sqlite3
 import sys

@@ -1,6 +1,6 @@
 """Near-duplicate links: what they assert, and what they must never do.
 
-**P12 is the property with teeth.** A link is an assertion laid beside two
+**Nothing is deleted or hidden, and that is the property with teeth.** A link is an assertion laid beside two
 records; it must not delete one, hide one, or change a count. The corpus is
 valuable *because* it keeps what each source actually said, and a feature that
 quietly folded two rows into one would be trading that away for a tidier list.
@@ -13,8 +13,7 @@ are the reason the rule is *vector **and** lexical* rather than either alone,
 and a test suite that only showed the happy path would not establish it.
 
 Vectors here are hand-written, so distances are exact and a threshold is
-testable. The real corpus is where the threshold was chosen; see
-``workspace/handbacks/1.9/evidence/near-duplicate-calibration.md``.
+testable. The real corpus is where the threshold was chosen.
 """
 
 from __future__ import annotations
@@ -318,7 +317,7 @@ def test_every_pair_is_stored_once_with_a_below_b(conn, corpus):
 
 
 def test_a_link_to_a_document_that_no_longer_exists_is_skipped_not_asserted(conn, corpus):
-    """1.9a's residual risk, not made worse.
+    """A stale index entry is skipped rather than turned into a claim.
 
     The ``vec0`` index can outlive a ``documents`` row — nothing reconciles them
     — so the scan must not turn a stale index entry into a visible claim about a
@@ -337,12 +336,12 @@ def test_a_link_to_a_document_that_no_longer_exists_is_skipped_not_asserted(conn
 
 
 # ---------------------------------------------------------------------------
-# P12 — nothing is deleted or hidden
+# Nothing is deleted or hidden
 # ---------------------------------------------------------------------------
 
 
 def test_finding_and_writing_links_changes_no_count_and_removes_no_row(conn, corpus):
-    """P12. The whole property, asserted as arithmetic rather than as intent."""
+    """The whole property, asserted as arithmetic rather than as intent."""
     before_docs = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     before_ids = [r[0] for r in conn.execute("SELECT id FROM documents ORDER BY id")]
     before_vectors = conn.execute(
@@ -360,7 +359,7 @@ def test_finding_and_writing_links_changes_no_count_and_removes_no_row(conn, cor
 
 
 def test_collapse_returns_a_grouping_and_hides_nothing(conn, corpus):
-    """P12's mutation target: making collapse the default.
+    """The mutation target: making collapse the default.
 
     ``collapse_groups`` cannot remove a row — every id it returns came in through
     its argument, and ``keep`` plus the folded members always account for all of

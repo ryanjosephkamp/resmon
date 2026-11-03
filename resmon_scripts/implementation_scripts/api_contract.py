@@ -1,23 +1,22 @@
 # resmon_scripts/implementation_scripts/api_contract.py
 """The HTTP surface, described from the app itself rather than from memory.
 
-``docs/api-contract/`` already held the MCP contract and five per-feature
-contracts, each frozen for the duration of the work that needed both harnesses
-at once. Nothing described the *whole* HTTP surface, and nothing went red when
-one of its 185 routes changed shape. A renderer rebuild measured against a
-surface nobody had written down would have had to rediscover it a screen at a
-time, and would have had no way to tell a deliberate change from a slip.
+``docs/api-contract/`` holds the MCP contract and five per-feature contracts.
+Nothing else describes the *whole* HTTP surface, and nothing would go red when
+one of its 185 routes changed shape. A renderer written against a surface
+nobody had written down would have to rediscover it a screen at a time, and
+would have no way to tell a deliberate change from a slip.
 
 This module is the generator. It reads the running FastAPI application — the
 real one, imported in-process — and writes two committed files:
 
 ``docs/api-contract/openapi.json``
-    ``app.openapi()``, normalised. Keys sorted so a diff is readable, and
+    ``app.openapi()``, normalized. Keys sorted so a diff is readable, and
     ``info.version`` removed because the app version bumps at every release
     while the contract does not.
 
 ``docs/api-contract/http.md``
-    The index: one table per parity-register row, listing the routes that serve
+    The index: one table per register row, listing the routes that serve
     it, with the auth class, whether it streams, and a one-line purpose.
 
 ``verification_scripts/test_api_contract.py`` regenerates both in-process and
@@ -32,12 +31,11 @@ path, parameters and request body, and what it *answers* with is documented in
 prose in ``README.md`` and in the five feature contracts. A schema written here
 would be a guess dressed as a contract.
 
-The response half of the surface is being filled in a route at a time, starting
-with J07. ``modeled_route_count()`` below counts the routes that declare a
-model by asking the application, and ``http.md`` prints that count rather than
-the sentence it used to carry — "not one of the 184 routes declares a
-``response_model``" was true when it was written and is exactly the kind of
-sentence that outlives its truth.
+The response half of the surface is filled in a route at a time.
+``modeled_route_count()`` below counts the routes that declare a model by
+asking the application, and ``http.md`` prints that count rather than a fixed
+sentence — "not one of the 184 routes declares a ``response_model``" is exactly
+the kind of sentence that outlives its truth.
 """
 
 from __future__ import annotations
@@ -64,7 +62,7 @@ REGENERATE_COMMAND = "python -m implementation_scripts.api_contract --write"
 
 
 # ---------------------------------------------------------------------------
-# The parity register
+# The register
 # ---------------------------------------------------------------------------
 #
 # The register itself is a planning document and does not live in this
@@ -118,15 +116,15 @@ REGISTER: tuple[tuple[str, str], ...] = (
     ("J42", "Local API locked to this app"),
     ("J43", "Upgrade in place"),
     ("J44", "Driving resmon from an external harness (MCP)"),
-    # Added with the register refresh (#223): the Source wall (#175) shipped
-    # after the register was written and had no row; its route sat under J29.
+    # The Source wall has a row of its own, apart from the recorded-source
+    # coverage (J29).
     ("J45", "Source wall: what every source did on recent runs"),
-    # Added with the Atlas interface (rebuild phase 2): the theme and the accent
-    # color, which the engine keeps because the renderer's storage cannot.
+    # The theme and the accent color, which the engine keeps because the
+    # renderer's storage cannot.
     ("J46", "Appearance: theme and accent"),
-    # The Atlas plate: every paper placed by text similarity (rebuild phase 2).
+    # The Atlas plate: every paper placed by text similarity.
     ("J47", "Collection map: where every paper sits"),
-    # Atlas's first screen: the morning edition (rebuild phase 2, step 5).
+    # Atlas's first screen: the morning edition.
     ("J48", "Today: the papers since you last looked"),
     # Abstracts and Library files that share passages word for word, measured
     # and never judged (Search › Shared wording).
@@ -511,7 +509,7 @@ def normalised_openapi() -> dict:
 def contract_json() -> str:
     """The bytes that belong in ``openapi.json``.
 
-    ``sort_keys`` is the whole normalisation: pydantic and FastAPI emit keys in
+    ``sort_keys`` is the whole normalization: pydantic and FastAPI emit keys in
     definition order, which is stable for a given version of both but reorders
     the moment a model's fields are rearranged for readability. Sorted, a diff
     shows what changed rather than where it moved to.

@@ -177,11 +177,10 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
 # CORS answers the renderer's origin and nothing else, read live from
 # ``api_auth`` because an attached daemon learns that origin after it starts.
 #
-# This used to be ``allow_origins=["*"]`` plus a ``PrivateNetworkMiddleware``
-# that stamped ``Access-Control-Allow-Private-Network: true`` on every response —
-# a leftover from the renderer being loaded over file://. Together they let any
-# web page in any browser on the machine read and drive the API. Private
-# Network Access is now answered only on a preflight that asks for it, from the
+# A wildcard ``allow_origins`` plus an ``Access-Control-Allow-Private-Network:
+# true`` stamped on every response would let any web page in any browser on the
+# machine read and drive the API. So no origin is listed here, and Private
+# Network Access is answered only on a preflight that asks for it, from the
 # renderer. The authoritative checks (Host, Origin, token) are ``LocalApiGuard``,
 # registered below the Library guard so that it runs outermost; see
 # ``implementation_scripts/api_auth.py``.
@@ -194,13 +193,13 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# Database connections (BUG-020)
+# Database connections
 # ---------------------------------------------------------------------------
 #
-# There used to be exactly one module-level ``sqlite3.Connection``, opened with
-# ``check_same_thread=False`` and handed to everything: every FastAPI request
-# thread, and every execution worker thread spawned by ``_launch_execution``.
-# Nothing serialized them.
+# A single module-level ``sqlite3.Connection``, opened with
+# ``check_same_thread=False`` and handed to every FastAPI request thread and
+# every execution worker thread spawned by ``_launch_execution``, would have
+# nothing serializing them.
 #
 # sqlite3 connections are not safe to use concurrently from multiple threads.
 # Python 3.10 and 3.11 mostly got away with it because their sqlite3 module
@@ -210,11 +209,11 @@ app.add_middleware(
 # ``ProgrammingError: Cannot operate on a closed database``, and
 # ``OperationalError: cannot start a transaction within a transaction``.
 #
-# Each thread now gets its own connection. ``_get_db()`` is the single choke
-# point every one of the call sites in this module already goes through, so the
-# fix lands everywhere at once rather than only on the worker path.
+# So each thread gets its own connection. ``_get_db()`` is the single choke
+# point every one of the call sites in this module goes through, so the
+# isolation applies everywhere at once rather than only on the worker path.
 #
-# Two details make this work with the existing test suite:
+# Two details keep this working with the test suite:
 #
 #   * ``_shared_conn`` is kept as an *anchor*. An in-memory database lives only
 #     as long as a connection to it is open, so the anchor holds it open while
@@ -291,8 +290,8 @@ def _release_finished_threads_connections_locked() -> None:
     runs under launchd's default limit of 256 open files, so about twenty
     minutes of someone using the app was enough: the service then refused
     every connection, routine fires included, with ``[Errno 24] Too many open
-    files``. Measured on the wedged service on October 26, 2026: 124 handles
-    on ``resmon.db`` and 120 on ``resmon.db-wal``.
+    files``. Measured on a wedged service: 124 handles on ``resmon.db`` and 120
+    on ``resmon.db-wal``.
 
     Closing here is safe for the reason ``close_db`` gives: a thread that has
     finished cannot be inside a statement on its connection. The anchor is
@@ -351,11 +350,11 @@ class DiveRequest(BaseModel):
     ai_enabled: bool = False
     ai_settings: Optional[dict] = None
     ephemeral_credentials: Optional[dict[str, str]] = None
-    # Update 3 / 4_27_26: when the user launches the dive from a saved
-    # configuration via ConfigLoader, the frontend echoes that config's
-    # id so the new execution row can be linked back to it.
+    # When the user launches the dive from a saved configuration via
+    # ConfigLoader, the frontend echoes that config's id so the new execution
+    # row can be linked back to it.
     saved_configuration_id: Optional[int] = None
-    # 2.3 / duplicate protection. An optional client-generated id for *this
+    # Duplicate protection. An optional client-generated id for *this
     # submission*, so a double click, a retried request or a renderer that
     # remounted mid-flight yields one run rather than two. Generated at click
     # time, never at page load: an id fixed when the page rendered would make
@@ -372,7 +371,7 @@ class SweepRequest(BaseModel):
     ai_enabled: bool = False
     ai_settings: Optional[dict] = None
     ephemeral_credentials: Optional[dict[str, str]] = None
-    # Update 3 / 4_27_26: see DiveRequest.saved_configuration_id.
+    # See DiveRequest.saved_configuration_id.
     saved_configuration_id: Optional[int] = None
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
@@ -415,7 +414,7 @@ class RoutineCreate(BaseModel):
     name: str
     schedule_cron: str
     parameters: dict
-    # What the owner is really looking for, in their own words. Optional, and
+    # What the user is really looking for, in their own words. Optional, and
     # deliberately not defaulted from the keywords: the coverage audit reports
     # which of the two it compared against, and a silent fallback written into
     # the column would make every routine claim a stated intent it never had.
@@ -445,12 +444,11 @@ class ConfigCreate(BaseModel):
     name: str
     config_type: str
     parameters: dict
-    # Update 3 / 4_27_26: when the SaveConfigButton on Calendar /
-    # Dashboard / Results & Logs creates a config from an existing
-    # manual execution, the frontend includes the execution id so the
-    # backend can stamp ``executions.saved_configuration_id`` in the
-    # same request — "last save wins" if the user saves the same
-    # execution multiple times.
+    # When the SaveConfigButton on Calendar / Dashboard / Results & Logs
+    # creates a config from an existing manual execution, the frontend
+    # includes the execution id so the backend can stamp
+    # ``executions.saved_configuration_id`` in the same request — "last save
+    # wins" if the user saves the same execution multiple times.
     link_to_execution_id: Optional[int] = None
 
 class ConfigUpdate(BaseModel):
@@ -469,7 +467,7 @@ class CredentialValidate(BaseModel):
     # Absent: test the key already stored for an AI provider, which the
     # renderer never holds and so cannot send.
     key: Optional[str] = None
-    # IMPL-AI12: the Custom provider needs the user-supplied OpenAI-compatible
+    # The Custom provider needs the user-supplied OpenAI-compatible
     # base URL (e.g. ``https://api.together.xyz/v1``) to build the probe.
     base_url: Optional[str] = None
 
@@ -487,7 +485,7 @@ class AIModelsRequest(BaseModel):
     header_prefix: Optional[str] = None
     # Required for ``local`` — the ollama endpoint URL.
     endpoint: Optional[str] = None
-    # 1.8.5, subscription lanes only — the full path to the agent CLI, when the
+    # Subscription lanes only — the full path to the agent CLI, when the
     # user has set one. Never a credential: it is a path to a binary.
     binary_path: Optional[str] = None
     # ``ask`` finds the command the way Ask's connection does
@@ -530,7 +528,7 @@ def health(expected_runtime_id: Optional[str] = None):
     ``embeddings`` reports whether *this* backend can load the vector extension,
     and why not when it cannot. It is here rather than on a route of its own
     because the renderer already reads health on startup to decide what to show,
-    and phase 1.9's rule is that a feature whose dependency is missing is
+    and the rule is that a feature whose dependency is missing is
     **absent** rather than present-and-broken: the Explorer's similarity sort and
     the similar-papers panel are not rendered when this says ``null``. A user is
     told the reason in Settings, not by a control that does nothing.
@@ -586,8 +584,8 @@ def credentials_presence():
 
     Each entry carries ``present`` (kept for compatibility) and ``status``,
     which is ``present``, ``absent`` or ``unreadable``. The last one matters:
-    an unsigned macOS build is denied access to keychain items an earlier
-    build stored, and reporting that as "absent" tells the user their keys
+    an unsigned macOS build is denied access to keychain items stored under a
+    different code signature, and reporting that as "absent" tells the user their keys
     are gone when they are simply unreachable. ``keyring_responsive`` is
     False once a read has timed out, so the interface can say so once at the
     top rather than fifteen times over. Each webhook destination's signing
@@ -619,7 +617,7 @@ def credentials_presence():
 
 
 # ---------------------------------------------------------------------------
-# AI summarization wiring (IMPL-AI8)
+# AI summarization wiring
 # ---------------------------------------------------------------------------
 
 # Keys that participate in the LLM-factory settings payload. Persisted
@@ -638,23 +636,22 @@ _AI_SETTING_KEYS: tuple[str, ...] = (
     "ai_temperature",
     "ai_extraction_goals",
     "ai_show_audit_prefix",
-    # 1.8.5 — the three subscription-lane keys. They were reachable through
-    # ``PUT /api/settings/ai`` in the renderer's mind only: absent from this
-    # tuple, ``_load_ai_settings_from_db`` never read them, so
-    # ``resolve_chain`` built every subscription lane without the binary path
-    # or the cap the user had set. Absent from ``_SETTINGS_GROUPS["ai"]``
-    # below, the PUT dropped them before they were ever stored. A setting is
-    # only real when it appears in both.
+    # The three subscription-lane keys. Absent from this tuple,
+    # ``_load_ai_settings_from_db`` would never read them, so ``resolve_chain``
+    # would build every subscription lane without the binary path or the cap
+    # the user had set. Absent from ``_SETTINGS_GROUPS["ai"]`` below, the
+    # ``PUT /api/settings/ai`` would drop them before they were ever stored. A
+    # setting is only real when it appears in both.
     "ai_cli_path",
     "ai_subscription_doc_cap",
     "ai_effort",
 )
 
-# IMPL-AI13 / Update 2 — Feature 2: per-execution override dicts sent
-# through the request body use short keys. Translate them onto the
-# canonical ``ai_*`` names before merging so the override actually wins.
-# Update 2 — Feature 2 expands parity with Settings → AI by adding
-# ``provider``, ``temperature``, ``extraction_goals``, and ``local_model``.
+# Per-execution override dicts sent through the request body use short keys.
+# Translate them onto the canonical ``ai_*`` names before merging so the
+# override actually wins. The map matches Settings → AI: ``provider``,
+# ``temperature``, ``extraction_goals``, and ``local_model`` are overridable
+# alongside the model, length, and tone.
 _AI_OVERRIDE_KEY_MAP: dict[str, str] = {
     "provider": "ai_provider",
     "model": "ai_model",
@@ -663,7 +660,7 @@ _AI_OVERRIDE_KEY_MAP: dict[str, str] = {
     "tone": "ai_tone",
     "temperature": "ai_temperature",
     "extraction_goals": "ai_extraction_goals",
-    # 1.8b — a routine can override the whole chain, not just the provider.
+    # A routine can override the whole chain, not just the provider.
     "chain": "ai_chain",
 }
 
@@ -771,11 +768,11 @@ def _load_ai_settings_from_db(conn) -> dict:
 
 
 def _build_prompt_params(merged: dict) -> dict:
-    """Distill prompt knobs from merged AI settings (IMPL-AI8 §F1 / F6).
+    """Distill prompt knobs from merged AI settings.
 
-    IMPL-AI13 additions: carries ``_show_audit_prefix`` + ``_audit_provider``
-    + ``_audit_model`` so :class:`SummarizationPipeline` can prepend the
-    audit-trail prefix without a direct DB lookup.
+    Also carries ``_show_audit_prefix`` + ``_audit_provider`` + ``_audit_model``
+    so :class:`SummarizationPipeline` can prepend the audit-trail prefix
+    without a direct DB lookup.
     """
     length = str(merged.get("ai_summary_length") or "").strip() or "standard"
     tone = str(merged.get("ai_tone") or "").strip() or "technical"
@@ -783,7 +780,7 @@ def _build_prompt_params(merged: dict) -> dict:
     params: dict = {"length": length, "tone": tone}
     if goals:
         params["extraction_goals"] = str(goals)
-    # Update 2 — Feature 2: surface ``ai_temperature`` so it reaches
+    # Surface ``ai_temperature`` so it reaches
     # ``RemoteLLMClient.generate`` (which reads ``params['temperature']``).
     # Empty / unparseable values fall back to the client default.
     raw_temp = str(merged.get("ai_temperature") or "").strip()
@@ -857,18 +854,17 @@ def _apply_ai_settings_to_engine(
       settings so :class:`SummarizationPipeline` can honor Summary-Length
       / Tone selectors.
 
-    Until 1.8.5 this function also called
-    :func:`build_llm_client_from_settings` and handed the result to the
-    engine as ``llm_client``. That function has no subscription branch: for a
-    subscription-primary configuration it returned ``None`` and this code
-    then announced *"AI skipped: API key missing"* on every run — while the
-    chain went on to drive the CLI perfectly well. A message that is wrong
-    about work the app is doing correctly is the overclaim in reverse, and it
-    was reaching users on the exact route 1.8.5 makes primary.
+    This function does not call :func:`build_llm_client_from_settings` and hand
+    the result to the engine as ``llm_client``. That function has no
+    subscription branch: for a subscription-primary configuration it returns
+    ``None``, and announcing *"AI skipped: API key missing"* on every run would
+    be wrong while the chain goes on to drive the CLI perfectly well. A message
+    that is wrong about work the app is doing correctly is the overclaim in
+    reverse, and a subscription lane is the primary route.
 
-    Building lane 0 here also mislabelled a routine override that carried
-    ``provider`` without ``chain``: the override provider did the work while
-    lane 0's ``execution_ai`` row named the persisted chain's lane.
+    Building lane 0 here would also mislabel a routine override that carried
+    ``provider`` without ``chain``: the override provider would do the work
+    while lane 0's ``execution_ai`` row named the persisted chain's lane.
     """
     persisted = _load_ai_settings_from_db(conn)
     override = _normalize_ai_override(engine.config.get("ai_settings"))
@@ -883,11 +879,10 @@ def _apply_ai_settings_to_engine(
         progress_store.emit(exec_id, _ai_choice_event(False, [], override, engine.config["ai_prompt_params"]))
         return
 
-    # Resolve the configuration into lanes (1.8a). Today the chain is always
-    # one lane long -- resolve_chain reads the legacy ai_* keys as a one-lane
-    # chain -- so behavior here is unchanged. What is new is that the engine
-    # now knows *which* lane it is running, which is what lets it record the
-    # attempt in execution_ai. Executing more than one lane is 1.8b.
+    # Resolve the configuration into lanes. When no ``ai_chain`` is stored,
+    # resolve_chain reads the single-provider ai_* keys as a one-lane chain.
+    # The engine knows *which* lane it is running, which is what lets it
+    # record the attempt in execution_ai.
     chain = resolve_chain(merged)
     engine.ai_lanes = chain
     engine.ai_lane = chain[0] if chain else None
@@ -1153,7 +1148,7 @@ _HEARTBEAT_SECONDS = 30.0
 def _start_execution_heartbeat(exec_id: int) -> tuple[threading.Thread, threading.Event]:
     """Stamp ``last_seen_at_utc`` every 30 s until the row stops being ``running``.
 
-    Its own thread with its own connection (BUG-020), and a daemon thread so a
+    Its own thread with its own connection, and a daemon thread so a
     shutdown never waits on it. The stop event is set by the execution thread's
     ``finally``; the ``status='running'`` scope in the UPDATE means that even if
     that never happened, the heartbeat stops as soon as the row is terminal
@@ -1241,9 +1236,9 @@ def _launch_execution(
         admission.note_admitted(exec_id)
         heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
-        # thread's (BUG-020). The two run concurrently -- the endpoint returns
+        # thread's. The two run concurrently -- the endpoint returns
         # as soon as the thread is started -- and sharing one sqlite3.Connection
-        # between them is the race this whole change exists to remove. The
+        # between them is the race per-thread connections exist to remove. The
         # engine is rebound too, since it captured the request's connection when
         # it was constructed.
         conn = _get_db()
@@ -1253,7 +1248,7 @@ def _launch_execution(
             # so that client ``get_credential_for`` lookups see them.  Raw
             # values are never logged.
             push_ephemeral(exec_id, ephemeral_credentials or {})
-            # IMPL-AI8: attach an LLM client + prompt-parameter bundle to the
+            # Attach an LLM client + prompt-parameter bundle to the
             # engine immediately before run_prepared so AI summarization can
             # actually execute. Settings precedence: per-execution override
             # (``engine.config["ai_settings"]``) wins over persisted
@@ -1263,7 +1258,7 @@ def _launch_execution(
             _apply_ai_settings_to_engine(
                 engine, exec_id, conn, ephemeral_credentials,
             )
-            # 1.9 — the embedding lane, resolved the same way and at the same
+            # The embedding lane, resolved the same way and at the same
             # point. It is independent of ``ai_enabled``: semantic search and AI
             # summaries are separate features and a user may want either alone.
             _apply_embedding_settings_to_engine(engine, exec_id, conn)
@@ -1301,7 +1296,7 @@ def _launch_execution(
                 logging.getLogger(__name__).exception(
                     "Routine delivery hook raised for exec_id=%s", exec_id,
                 )
-            # Bug-B (Update 2 / Batch 2): desktop notification dispatch.
+            # Desktop notification dispatch.
             # Fires from the backend so notifications work even under the
             # headless-daemon path where the renderer is not running.
             # Reads the same settings keys consumed by the in-renderer
@@ -1414,7 +1409,7 @@ def _reserve_request_id(conn, exec_id: int, request_id: Optional[str]) -> Option
 
 
 def _reject_if_at_manual_cap() -> None:
-    """Raise 429 when the admission controller is at the manual cap (IMPL-R2)."""
+    """Raise 429 when the admission controller is at the manual cap."""
     if not admission.try_admit(kind="manual"):
         raise HTTPException(
             status_code=429,
@@ -1454,7 +1449,7 @@ def search_dive(body: DiveRequest):
     winner = _reserve_request_id(conn, exec_id, body.request_id)
     if winner is not None:
         return {"execution_id": winner["id"], "duplicate": True}
-    # Update 3 / 4_27_26: link the new execution back to the saved
+    # Link the new execution back to the saved
     # configuration the user picked in ConfigLoader (if any).
     if body.saved_configuration_id is not None:
         set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
@@ -1490,7 +1485,7 @@ def search_sweep(body: SweepRequest):
     winner = _reserve_request_id(conn, exec_id, body.request_id)
     if winner is not None:
         return {"execution_id": winner["id"], "duplicate": True}
-    # Update 3 / 4_27_26: link the new execution back to the saved
+    # Link the new execution back to the saved
     # configuration the user picked in ConfigLoader (if any).
     if body.saved_configuration_id is not None:
         set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
@@ -1573,7 +1568,7 @@ def _delete_routine_config(conn, routine_id: int) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Scheduler CRUD sync helpers (IMPL-R5)
+# Scheduler CRUD sync helpers
 #
 # Every routine endpoint that mutates the local row mirrors the change to
 # the APScheduler jobstore so schedule state matches the DB. Scheduler
@@ -1764,8 +1759,8 @@ def _upcoming_date_window(conn, routine_id: int, raw_parameters: object) -> Opti
 def _validated_entity(conn, parameters: dict) -> Optional[dict]:
     """`parameters.entity`, normalised, or None when the routine is a keyword one.
 
-    Validated at the seam rather than at fire time (2.1). A routine's
-    ``parameters`` has always been an untyped JSON blob, so an entity naming a
+    Validated at the seam rather than at fire time. A routine's
+    ``parameters`` is an untyped JSON blob, so an entity naming a
     profile that does not exist would be stored, scheduled, and then fire every
     morning into a run that could not do anything — the plausible-and-wrong
     shape this app refuses. ``watch_profiles`` owns the sentences.
@@ -1861,7 +1856,7 @@ def _readable_schedule(schedule_cron: str, parameters: object) -> None:
     The scheduler builds a routine's trigger after the row is stored, and a
     failure there is logged (``_sched_add_routine``) while the request still
     succeeds; the calendar skips the routine the same way. So ``0 25 * * *``
-    used to make a routine that said it was active, showed no next fire, and
+    would make a routine that said it was active, showed no next fire, and
     never ran. This asks ``_build_trigger`` itself, from the schedule and the
     parameters as they will be stored, so a valid structured ``_schedule``
     (which the scheduler prefers) is what is checked when it is present.
@@ -2242,10 +2237,9 @@ def retry_delivery(delivery_id: int):
 def run_routine_now(routine_id: int, response: Response):
     """Run a routine immediately, outside its schedule.
 
-    Writing the MCP contract found that resmon had no way to do this at all:
-    routines could be activated or deactivated, and running one now meant
-    rebuilding its configuration by hand as a sweep. That is a gap in the
-    application rather than only in the tool surface -- "run my arXiv routine
+    Routines can be activated or deactivated, and without this route running
+    one now would mean rebuilding its configuration by hand as a sweep. That
+    would be a gap in the application rather than only in the tool surface -- "run my arXiv routine
     now" is something a person should be able to do from the interface too.
 
     Deliberately a thin wrapper over ``_dispatch_routine_fire``, the same
@@ -2916,7 +2910,7 @@ def cancel_execution(exec_id: int):
     """Request cooperative cancellation of a running execution.
 
     A row that is not in the in-memory ``ProgressStore`` is not cancellable,
-    and this used to say only "Execution not running" -- which read, on an
+    and saying only "Execution not running" would read, on an
     interrupted row, as if resmon had lost track of something. The row's own
     state belongs in the sentence.
 
@@ -3153,7 +3147,7 @@ def get_execution_papers(
     whole file. Neither gives a user something to click, and an execution id is
     not a paper id -- so the Papers tab needed a route that hands back the
     corpus-local document ids the rest of the app is keyed on (the same ids
-    ``include_ids`` carries into a JSON export, phase 2.1a).
+    ``include_ids`` carries into a JSON export).
 
     Paged rather than whole: a sweep can return thousands, and a renderer that
     holds all of them is a renderer that stops responding on the run that
@@ -3220,12 +3214,10 @@ def create_configuration(body: ConfigCreate):
             "config_type": body.config_type,
             "parameters": json.dumps(body.parameters),
         })
-        # Update 3 / 4_27_26: when the SaveConfigButton creates a config
-        # from an existing manual execution, stamp the new config's id
-        # back onto that execution row so the UI can surface a "Saved as"
-        # indicator. "Last save wins" — a second save from the same
-        # execution simply overwrites the column, exactly as the
-        # recommendation document specified.
+        # When the SaveConfigButton creates a config from an existing manual
+        # execution, stamp the new config's id back onto that execution row so
+        # the UI can surface a "Saved as" indicator. "Last save wins" — a
+        # second save from the same execution simply overwrites the column.
         if body.link_to_execution_id is not None:
             try:
                 set_execution_saved_configuration(conn, body.link_to_execution_id, cid)
@@ -3351,8 +3343,8 @@ def download_configurations(body: ConfigExport):
 async def import_configurations(files: list[UploadFile] = File(...)):
     conn = _get_db()
     try:
-        # The temporary file's suffix is deliberately neutral. It used to be
-        # ``.json``, which was a claim about content the upload had not made:
+        # The temporary file's suffix is deliberately neutral. ``.json`` would
+        # be a claim about content the upload has not made:
         # the Configurations page's Export Selected writes a ZIP, and an
         # import that decided what it had from this suffix read the archive as
         # text and raised. ``import_configs`` sniffs the content instead, and
@@ -3368,7 +3360,7 @@ async def import_configurations(files: list[UploadFile] = File(...)):
             upload_names.append(Path(f.filename or tmp.name).name)
         ids, import_errors = import_configs(conn, tmp_paths, upload_names)
 
-        # Update 2 — Configurations/Routines lockstep:
+        # Configurations/Routines lockstep:
         # Every imported routine-config must be mirrored as a real routine
         # row so the Routines page lists it. The freshly-created routine
         # is *deactivated by default* per the user requirement: bulk
@@ -3437,7 +3429,7 @@ async def import_configurations(files: list[UploadFile] = File(...)):
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
-# Reference exports (Phase 2a)
+# Reference exports
 # ---------------------------------------------------------------------------
 #
 # resmon's existing outputs -- Markdown, PDF, LaTeX -- are for reading. None of
@@ -3516,7 +3508,7 @@ def export_selected_references(body: ReferenceExportBody):
 
 
 # ---------------------------------------------------------------------------
-# The reading queue (2.2)
+# The reading queue
 # ---------------------------------------------------------------------------
 #
 # Saving a paper is membership and nothing else: no copy of the metadata, no
@@ -3663,10 +3655,10 @@ class LibraryOriginGuard:
             headers = scope.get("headers", [])
             origins = [v.decode("latin1") for k, v in headers if k.lower() == b"origin"]
             custom = [v for k, v in headers if k.lower() == b"x-resmon-library"]
-            # Exactly this instance's renderer origin. This used to accept any
-            # canonical http://127.0.0.1:<port>, which every other local web
-            # server also has; ``LocalApiGuard`` now refuses a foreign origin
-            # before this runs, and this stays as the Library's own second layer.
+            # Exactly this instance's renderer origin, not any canonical
+            # http://127.0.0.1:<port>, which every other local web server also
+            # has. ``LocalApiGuard`` refuses a foreign origin before this runs,
+            # and this stays as the Library's own second layer.
             valid = len(origins) == 1 and custom == [b"1"] and api_auth.origin_allowed(origins[0])
             if not valid:
                 from starlette.responses import JSONResponse
@@ -3694,8 +3686,8 @@ def register_renderer_origin(body: RendererOriginBody, request: Request):
 
     Exists for the daemon. launchd starts it long before any window exists, so
     unlike an Electron-spawned backend it cannot be told its renderer's origin
-    at spawn — and "any loopback origin" is what the old Library guard trusted
-    and what this lock-down removes. Electron's main process, which read the
+    at spawn — and "any loopback origin" is not trusted, because every other local web
+    server has one. Electron's main process, which read the
     token from the daemon's token file, registers its renderer's origin here
     once it has bound the renderer server.
 
@@ -4267,7 +4259,7 @@ async def evidence_bundle(request: Request, project_id: str) -> StreamingRespons
 
 
 # ---------------------------------------------------------------------------
-# Explorer (Phase 2b)
+# Explorer
 # ---------------------------------------------------------------------------
 
 
@@ -4283,7 +4275,7 @@ class ExplorerFilters(BaseModel):
 class ExplorerSearchBody(ExplorerFilters):
     cursor: Optional[str] = None
     limit: int = explorer.DEFAULT_PAGE_SIZE
-    # 1.9 — "newest" or "similarity". Not an enum, because an unknown value is
+    # "newest" or "similarity". Not an enum, because an unknown value is
     # answered with the default rather than a 422: a renderer from a newer build
     # talking to an older backend should get papers, not a validation error.
     sort: str = "newest"
@@ -4701,7 +4693,7 @@ def explorer_export(body: ExplorerExportBody):
 
 
 # ---------------------------------------------------------------------------
-# Analytics (Phase 2a)
+# Analytics
 # ---------------------------------------------------------------------------
 #
 # Every endpoint here reads data already in the database -- the corpus, the
@@ -4713,7 +4705,7 @@ def explorer_export(body: ExplorerExportBody):
 # something. The interface uses those flags to say "not enough data yet" rather
 # than drawing a chart from three points.
 #
-# Cached since 1.6: recomputing five GROUP-BY passes on every page load was
+# Cached: recomputing five GROUP-BY passes on every page load was
 # fine at a few hundred papers and is not fine at a hundred thousand. Results
 # are cached against a cheap fingerprint of the tables analytics reads:
 # MAX(id) and COUNT(*) catch inserts and deletions, MAX(end_time) catches an
@@ -4841,7 +4833,7 @@ def analytics_publication_volume(group_by: str = "source", months: int = 12):
 
 
 # ---------------------------------------------------------------------------
-# The reproducible search record (1.7 — PRISMA-shaped export)
+# The reproducible search record (PRISMA-shaped export)
 #
 # Every systematic review's methods section needs the same account, and it is
 # assembled by hand in spreadsheets essentially everywhere. resmon already
@@ -4881,9 +4873,9 @@ def execution_search_record(exec_id: int, format: str = "json"):
 
 
 # ---------------------------------------------------------------------------
-# Corpus lifecycle (1.7 — papers change after you find them)
+# Corpus lifecycle (papers change after you find them)
 #
-# The only feature in 1.7 that talks to the network, which is why the check is
+# The only feature here that talks to the network, which is why the check is
 # explicit rather than automatic: quietly asking a third party about every paper
 # a user has ever collected is not something to do on their behalf unasked.
 #
@@ -5099,7 +5091,7 @@ def document_lifecycle(doc_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Why am I seeing this? (1.7 — match transparency)
+# Why am I seeing this? (match transparency)
 #
 # Two directions on the same question. Per paper: which keywords are locally
 # verifiable in it, and — stated every time — what resmon cannot see. Per
@@ -5172,7 +5164,7 @@ def analytics_keyword_contribution(execution_id: Optional[int] = None):
 
 
 # ---------------------------------------------------------------------------
-# Watchdog (1.7 — "it tells you the truth")
+# Watchdog ("it tells you the truth")
 #
 # Silence from a literature monitor is ambiguous: it means either "nothing was
 # published" or "this stopped working", and the user cannot tell which. These
@@ -5444,7 +5436,7 @@ def calendar_events(
 # once.
 _ASSISTANT_SETTING_KEYS: tuple[str, ...] = (
     "assistant_runtime",
-    # 2.0b. Which BYOK provider the API-key runtime drives. Empty means "the one
+    # Which BYOK provider the API-key runtime drives. Empty means "the one
     # the summary lane already uses" -- ``assistant_runtime.assistant_provider``
     # falls back to ``ai_provider``, and ``/api/assistant/status`` reports which
     # of the two it read, so the fallback is visible rather than magic.
@@ -5467,35 +5459,35 @@ _SETTINGS_GROUPS = {
         "ai_show_audit_prefix",
         "ai_custom_base_url",
         "ai_custom_header_prefix",
-        # Update 2 — Feature 1 extension: per-provider default-model map,
-        # stored as a JSON-encoded ``{provider: model_id}`` dict so the
-        # AI tab can restore the user's previously chosen model when they
-        # switch providers without re-loading the model list.
+        # Per-provider default-model map, stored as a JSON-encoded
+        # ``{provider: model_id}`` dict so the AI tab can restore the user's
+        # previously chosen model when they switch providers without
+        # re-loading the model list.
         "ai_default_models",
-        # 1.8b — the fallback chain, a JSON list of lane objects. When present
+        # The fallback chain, a JSON list of lane objects. When present
         # it is the whole chain; ai_provider / ai_model are kept in step with
-        # lane 0 by the Settings tab so an older build (and the report's audit
-        # label) still find what they expect.
+        # lane 0 by the Settings tab so the single-provider reads (and the
+        # report's audit label) still find what they expect.
         "ai_chain",
         "ai_local_endpoint",
-        # 1.8.5 — see the note on ``_AI_SETTING_KEYS``. Without these three the
+        # See the note on ``_AI_SETTING_KEYS``. Without these three the
         # PUT silently discarded them and ``get_ai_cli_status``'s read of
         # ``ai_cli_path`` could never return anything but "".
         "ai_cli_path",
         "ai_subscription_doc_cap",
         "ai_effort",
     ],
-    # 1.9 — the embedding lane. Its key list is owned by
+    # The embedding lane. Its key list is owned by
     # ``embeddings.EMBEDDING_SETTING_KEYS`` rather than written out here, and the
-    # same tuple is spliced into the engine loader's read list below. Ledger 33
-    # was a setting that appeared in one of those two places and not the other:
-    # the PUT stored it and no run ever read it, for a whole release. One tuple,
-    # two uses, and ``test_embeddings_settings.py`` asserts both against it.
+    # same tuple is spliced into the engine loader's read list below. A setting
+    # that appeared in one of those two places and not the other would be
+    # stored by the PUT and never read by any run. One tuple, two uses, and
+    # ``test_embeddings_settings.py`` asserts both against it.
     "embeddings": list(embeddings.EMBEDDING_SETTING_KEYS),
-    # 2.0 — the assistant. These three ride ``_ASSISTANT_SETTING_KEYS`` as well,
-    # which is the pair Ledger 33 was about: ``ai_cli_path`` appeared in one of
-    # the two lists and not the other, so the PUT stored nothing and the read
-    # could never return anything. One tuple, spliced into both.
+    # The assistant. These three ride ``_ASSISTANT_SETTING_KEYS`` as well:
+    # if ``ai_cli_path`` appeared in one of the two lists and not the other,
+    # the PUT would store nothing and the read could never return anything.
+    # One tuple, spliced into both.
     "assistant": list(_ASSISTANT_SETTING_KEYS),
     "storage": ["pdf_policy", "txt_policy", "archive_after_days", "export_directory"],
     "notifications": ["notify_manual", "notify_automatic_mode"],
@@ -5727,12 +5719,13 @@ def open_ai_cli_sign_in(body: AiCliSignInBody):
     import subprocess as _subprocess
 
     from implementation_scripts import ai_signin
+    from implementation_scripts.child_process import hidden_window_kwargs
 
     binary, not_found = _sign_in_binary(body.provider, body.purpose, body.binary_path)
     opener_name = os.environ.get("RESMON_SIGN_IN_OPENER", "").strip() or "open"
 
     def opener(argv, **kwargs):
-        return _subprocess.run([opener_name, *argv[1:]], **kwargs)
+        return _subprocess.run([opener_name, *argv[1:]], **kwargs, **hidden_window_kwargs())
 
     return ai_signin.open_sign_in(
         body.provider, binary, api_auth.state_dir(), not_found=not_found, opener=opener,
@@ -5758,7 +5751,7 @@ def get_ai_last_answered():
 
 
 # ---------------------------------------------------------------------------
-# Embeddings (1.9)
+# Embeddings
 # ---------------------------------------------------------------------------
 
 
@@ -5766,10 +5759,9 @@ def _load_embedding_settings(conn) -> dict:
     """Read the persisted ``embedding_*`` settings.
 
     Reads the **same tuple** ``_SETTINGS_GROUPS["embeddings"]`` is built from, so
-    a key cannot be storable and unreadable. Ledger 33 was that gap on the
-    subscription lane, and it survived a release because the test for it
-    monkeypatched the read path. ``test_embeddings_settings.py`` goes through
-    the real endpoints instead.
+    a key cannot be storable and unreadable. A test that monkeypatches the read
+    path would not catch that gap, so ``test_embeddings_settings.py`` goes
+    through the real endpoints instead.
     """
     out: dict = {}
     for key in embeddings.EMBEDDING_SETTING_KEYS:
@@ -5943,7 +5935,7 @@ def get_embedding_settings():
 def update_embedding_settings(body: SettingsBody):
     """Store the settings, refusing a provider that cannot embed.
 
-    The refusal is **here**, at configuration, and not at backfill: P8. A user
+    The refusal is **here**, at configuration, and not at backfill. A user
     who picks Anthropic learns it when they pick it, with the reason, rather than
     after waiting for a run that was never going to produce anything.
     """
@@ -5982,7 +5974,7 @@ def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
     ``PROVIDER_EMBEDDING`` says what a vendor serves; only a probe says whether
     this endpoint, this key and this model answer — and for a local server that
     lists models and still refuses to embed, the probe is the entire difference
-    between a usable lane and a corpus with nothing to rank (P9).
+    between a usable lane and a corpus with nothing to rank.
     """
     conn = _get_db()
     try:
@@ -6246,7 +6238,7 @@ def update_appearance(body: AppearanceBody):
 
 
 # ---------------------------------------------------------------------------
-# Execution admission settings (IMPL-R1)
+# Execution admission settings
 # ---------------------------------------------------------------------------
 
 _EXEC_SETTINGS_DEFAULTS = {
@@ -6296,7 +6288,7 @@ def _init_admission_on_startup() -> None:
 
 
 def _migrate_legacy_ai_key_on_startup() -> None:
-    """Update 2 — Feature 1: one-shot transparent migration of any
+    """One-shot transparent migration of any
     legacy global ``ai_api_key`` keyring slot into the per-provider
     ``{provider}_api_key`` slot. Idempotent — calling it on every
     startup is safe and a no-op when no legacy slot exists.
@@ -6313,14 +6305,11 @@ def _migrate_legacy_ai_key_on_startup() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Scheduler lifecycle (IMPL-R4)
+# Scheduler lifecycle
 #
 # A single module-level ``ResmonScheduler`` is instantiated at FastAPI
 # startup. The dispatcher is installed via ``set_dispatcher`` so the
-# scheduler module stays decoupled from FastAPI and the SweepEngine. The
-# real dispatcher body lands in IMPL-R6; the placeholder below only logs
-# the fire so APScheduler can run end-to-end and tests can exercise the
-# wiring path.
+# scheduler module stays decoupled from FastAPI and the SweepEngine.
 # ---------------------------------------------------------------------------
 
 scheduler: ResmonScheduler | None = None
@@ -6424,7 +6413,7 @@ def _dispatch_routine_fire(
                 params = {}
             repositories = list(params.get("repositories") or [])
 
-            # 2.1 — a watch routine's profile is resolved **here**, once, and travels
+            # A watch routine's profile is resolved **here**, once, and travels
             # inside the execution's stored parameters. Two reasons it is not looked
             # up later: ``run_prepared`` recovers its parameters from the execution
             # row when the preparing instance is gone, so anything the run needs has
@@ -6582,7 +6571,7 @@ def _record_missed_fires(sched: ResmonScheduler) -> int:
     was overdue. ``disposition`` is where a later policy would reconcile them.
 
     Nothing is run to catch up. Whether resmon should quietly perform a
-    weekend's worth of sweeps the moment a laptop is opened is the owner's
+    weekend's worth of sweeps the moment a laptop is opened is the user's
     decision, not a default a migration chose; see ``docs/routines.md``.
 
     Returns the number of rows written, which is the number of *new* misses:
@@ -6694,7 +6683,7 @@ def _install_scheduler_hooks() -> None:
 
 def _init_scheduler_on_startup() -> None:
     global scheduler
-    # Update 4 / Fix D — When the Electron main process spawns this
+    # When the Electron main process spawns this
     # backend as a fallback (because no live daemon was found), it sets
     # RESMON_DISABLE_SCHEDULER=1 to keep the scheduler off. The launchd
     # daemon is the sole owner of the APScheduler instance so two
@@ -6730,12 +6719,11 @@ def _init_scheduler_on_startup() -> None:
         routines = get_routines(conn)
     finally:
         _close_db(conn)
-    # Update 4 / Fix A: drop any orphan apscheduler_jobs rows whose id
-    # is not in the current set of active routines. This catches ghost
-    # jobs that survived a delete in a process that did not own the
-    # scheduler (e.g., a renderer-spawned backend serving the DELETE
-    # while the launchd daemon owned the scheduler), and any pre-patch
-    # ghosts that existed before the cascade in delete_routine.
+    # Drop any orphan apscheduler_jobs rows whose id is not in the current
+    # set of active routines. This catches ghost jobs that survived a delete
+    # in a process that did not own the scheduler (e.g., a renderer-spawned
+    # backend serving the DELETE while the launchd daemon owned the
+    # scheduler).
     active_ids = {str(r["id"]) for r in routines if r.get("is_active")}
     try:
         scheduler.reconcile_jobstore(active_ids)
@@ -6878,7 +6866,7 @@ def scheduler_status():
 
     The Routines page showed **Active** for a routine nothing would ever fire,
     and it looked exactly like one that would. The packaged app starts its own
-    backend with ``RESMON_DISABLE_SCHEDULER=1`` (Update 4 / Fix D) and attaches
+    backend with ``RESMON_DISABLE_SCHEDULER=1`` and attaches
     to the background service only when that service is live, has a token file
     and runs the same version. When it does not attach, nothing fires -- and
     ``_record_missed_fires`` never runs, because it runs only where a scheduler
@@ -7111,7 +7099,7 @@ def delete_credential_endpoint(key_name: str):
 
 
 # ---------------------------------------------------------------------------
-# Service unit install / uninstall (IMPL-26)
+# Service unit install / uninstall
 # ---------------------------------------------------------------------------
 
 from implementation_scripts import service_manager as _service_manager
@@ -7139,6 +7127,8 @@ def service_status():
         "installed": _service_manager.is_installed(),
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
+        "runs": _service_manager.unit_runs(),
+        "app_available": _service_manager.default_app_executable() is not None,
     }
 
 
@@ -7249,7 +7239,7 @@ def _probe_daemon() -> tuple[dict, str]:
 def service_daemon_status():
     """Return ground-truth daemon status read from ``daemon.lock``.
 
-    Update 4 / Fix E. Unlike ``/api/health`` (which always describes the
+    Unlike ``/api/health`` (which always describes the
     *current* backend), this endpoint reads the on-disk daemon lock file
     and probes the daemon's actual port. The Advanced tab uses it so that
     a renderer-spawned fallback backend cannot masquerade as the daemon.
@@ -7282,6 +7272,8 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     """
     try:
         path = _service_manager.install(port=body.port, register=body.register_service)
+    except _service_manager.TemporaryPlaceError as exc:
+        raise HTTPException(409, str(exc))
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
     return {"installed": True, "unit_path": str(path)}
@@ -7332,9 +7324,9 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
     ``interrupted`` with ``interrupted_reason='daemon_restart'`` is the whole of
     what resmon knows, and it is what the Restart button acts on.
 
-    ``cancel_reason`` keeps carrying the same word it always did. Rows written
-    before schema 19 have it and nothing else, and the renderer and the search
-    record both read it; dropping it here would make old and new rows read
+    ``cancel_reason`` keeps carrying the same word. Rows written before
+    schema 19 have it and nothing else, and the renderer and the search record
+    both read it; dropping it here would make old and new rows read
     differently for no gain.
     """
     try:
@@ -7504,7 +7496,7 @@ def _reconcile_executions_on_startup() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Settings → Advanced → Danger Zone (Update 3 / 4_27_26)
+# Settings → Advanced → Danger Zone
 # ---------------------------------------------------------------------------
 #
 # Bulk irreversible erase / reset endpoints exposed in the Advanced tab.
@@ -7531,7 +7523,7 @@ def _require_confirm(body: AdminConfirmBody) -> None:
 
 
 def _erase_ai_keys() -> int:
-    # The legacy single global slot from pre-update_2 builds is an AI key too.
+    # The legacy single global slot is an AI key too.
     names = sorted(AI_CREDENTIAL_NAMES) + ["ai_api_key"]
     return sum(delete_credential(name) for name in names)
 
@@ -7580,12 +7572,11 @@ def _erase_executions(conn) -> int:
 def _erase_corpus(conn) -> int:
     """Delete every collected paper and its Library associations, retaining Library files/catalog.
 
-    Until 1.7.0 nothing in the Danger Zone did this. "Erase all app data" and
-    even "Factory reset" removed executions, configurations and keys while
-    leaving the entire corpus in place -- on a real install that meant tens of
-    thousands of papers surviving a reset that said it erased everything. The
-    labels were not merely incomplete; "Factory reset" promised a clean slate it
-    did not deliver, which is precisely the kind of thing 1.7 exists to stop.
+    "Erase all app data" and "Factory reset" must remove the corpus as well as
+    executions, configurations and keys: leaving it in place would mean tens of
+    thousands of papers surviving a reset that said it erased everything.
+    "Factory reset" promises a clean slate, and a promise it did not deliver is
+    the kind of overclaim resmon refuses.
 
     ``documents`` is the root: authors, categories, the execution join table and
     both lifecycle tables all cascade from it, and an AFTER DELETE trigger keeps
@@ -7679,8 +7670,8 @@ def admin_erase_execution_data(body: AdminConfirmBody):
 def admin_erase_app_data(body: AdminConfirmBody):
     """Erase the corpus + configs + executions + every API key.
 
-    The corpus is included as of 1.7.0. "All app data" that left every collected
-    paper behind was not a description of what this did.
+    The corpus is included: "All app data" that left every collected paper
+    behind would not describe what this does.
     """
     _require_confirm(body)
     conn = _get_db()
@@ -7747,8 +7738,8 @@ def admin_reset_settings(body: AdminConfirmBody):
 def admin_factory_reset(body: AdminConfirmBody):
     """Erase every secret, config, execution, setting, and collected paper.
 
-    The corpus is included as of 1.7.0 — a "factory reset" that left tens of
-    thousands of papers on disk was the single most misleading label in the app.
+    The corpus is included: a "factory reset" that left tens of thousands of
+    papers on disk would be the most misleading label in the app.
     """
     _require_confirm(body)
     conn = _get_db()
@@ -7907,15 +7898,13 @@ def _how_a_staged_restore_runs() -> tuple[str, str]:
     """``(runs_on, sentence)``: what will apply a staged restore, and what to do to make it happen now.
 
     A restore runs in ``_lifespan``, when a backend starts, so which backend
-    that is decides what the user has to do. The page used to say "Restart to
-    restore" on a button that restarted nothing, then "Restart resmon". A window
-    that started its own backend does apply the restore when it is reopened. A
-    window attached to the background service does not: the service keeps
-    running when the window closes, so for anyone with the service the restore
-    stayed staged however often they reopened resmon. And where some *other*
-    service holds the lock, a window's own backend refuses the restore at start
-    (``database_in_use``), which the user learned only afterwards. Found in a
-    walk of the app on October 26, 2026.
+    that is decides what the user has to do. A window that started its own
+    backend does apply the restore when it is reopened. A window attached to the
+    background service does not: the service keeps running when the window
+    closes, so for anyone with the service the restore stays staged however
+    often they reopen resmon. And where some *other* service holds the lock, a
+    window's own backend refuses the restore at start (``database_in_use``),
+    which the user would otherwise learn only afterwards.
 
     ``runs_on`` is the same answer as a code, so an interface can offer the one
     control that does what the sentence says without reading the sentence:
@@ -8159,7 +8148,7 @@ def _apply_pending_restore_on_startup() -> dict | None:
 def close_db() -> None:
     """Close every sqlite connection this process opened, except the unsafe ones.
 
-    Since BUG-020 each thread holds its own connection, so closing only the
+    Each thread holds its own connection, so closing only the
     anchor would leave the rest open -- and an in-memory database stays alive
     while any connection to it remains, which would leak state between tests.
 
@@ -8167,10 +8156,9 @@ def close_db() -> None:
     Connections are opened with ``check_same_thread=False``, so sqlite3 does
     nothing to serialize a close against a query running on another thread; the
     C library is handed a connection mid-statement and the process dies with
-    SIGSEGV rather than raising anything Python can catch. This was found on
-    2026-08-31 in the v1.8.1 release CI: an end-to-end test passed, then the
-    suite segfaulted here during fixture teardown while an execution worker was
-    still running. It reproduced once in twenty-five runs.
+    SIGSEGV rather than raising anything Python can catch. In an end-to-end
+    suite that showed up as a segfault here during fixture teardown while an
+    execution worker was still running, about once in twenty-five runs.
 
     It is not only a test problem. ``daemon.py`` calls this on shutdown after
     flushing running executions and stopping the scheduler -- neither of which
@@ -8180,7 +8168,7 @@ def close_db() -> None:
     Deferred connections go back on the list, so the next call collects them
     once their owner has finished. Leaking a connection until then is strictly
     better than the alternative: it costs a file handle, and the generation bump
-    below means the owner rebuilds rather than reusing it either way.
+    below means the owning thread rebuilds rather than reusing it either way.
     """
     global _shared_conn, _db_initialized, _db_generation
     with _db_lock:
@@ -8218,7 +8206,7 @@ def close_db() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The embedded assistant (2.0)
+# The embedded assistant
 # ---------------------------------------------------------------------------
 #
 # The panel talks to these nine routes and nothing else. Three things about the
@@ -8231,9 +8219,9 @@ def close_db() -> None:
 # for up to five minutes; a sync endpoint would hold a thread-pool thread instead,
 # and a handful of open panels would starve the rest of the API.
 #
-# **The turn endpoint streams, so nothing may escape from it.** 1.9a shipped two
-# bugs that both read as ``net::ERR_FAILED``, because an exception escaping before
-# the CORS middleware has no status code. In a *streaming* response it is worse:
+# **The turn endpoint streams, so nothing may escape from it.** An exception
+# escaping before the CORS middleware has no status code and reads in the
+# renderer as ``net::ERR_FAILED``. In a *streaming* response it is worse:
 # the response has already begun, so the failure arrives as a conversation that
 # stopped mid-sentence with nothing in any log the panel can see. Every layer here
 # turns a failure into an ``error`` event instead.
@@ -8273,8 +8261,8 @@ def _assistant_settings(conn) -> dict:
 
     Read here rather than duplicated into the assistant group, so a user who has
     told resmon where ``claude`` lives, or what their custom endpoint is, has
-    told it once. Ledger 33 was the opposite mistake -- a key in one of two
-    lists and not the other, stored by the PUT and never read by anything.
+    told it once. A key in one of two lists and not the other would be stored
+    by the PUT and never read by anything.
     """
     settings = _get_settings_group(conn, "assistant")
     for key in ("ai_cli_path", "ai_provider", "ai_custom_base_url"):
@@ -8493,7 +8481,7 @@ def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
     """The worker thread: drive the CLI, publish events, store the turn.
 
     Runs on its own thread with its own database connection (``_get_db`` is
-    per-thread since BUG-020). Everything is inside one ``try``: a thread that
+    per-thread). Everything is inside one ``try``: a thread that
     raises here would leave the SSE generator waiting for a ``done`` that never
     comes, and the panel would show a spinner for ever.
     """
@@ -8735,7 +8723,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
 
 
 # ---------------------------------------------------------------------------
-# Watch profiles (2.1)
+# Watch profiles
 # ---------------------------------------------------------------------------
 #
 # **The basis warning is returned by the API, not left to the interface.** A
@@ -9024,7 +9012,7 @@ def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0)
 
 
 # ---------------------------------------------------------------------------
-# The first run (2.0b)
+# The first run
 # ---------------------------------------------------------------------------
 #
 # One card on the Dashboard, on a fresh install, and then never again.
@@ -9032,8 +9020,8 @@ def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0)
 # **It is a checklist of facts, not a wizard.** Each item reports something
 # resmon can actually see — a CLI on the PATH, a key slot with something in it —
 # and nothing here claims a lane *works*: resmon cannot tell whether a CLI is
-# signed in or a key is valid without spending one, and 1.8.5 already settled
-# that proposing is not promising. An item resmon cannot decide says so rather
+# signed in or a key is valid without spending one, and proposing is not
+# promising. An item resmon cannot decide says so rather
 # than guessing, which is why ``done`` is nullable.
 #
 # **What makes a run "first" is history, not configuration.** Someone who has
@@ -9050,7 +9038,7 @@ def _credential_present(names) -> Optional[bool]:
     """Whether any of *names* holds a value. ``None`` when the keyring will not say.
 
     An unreadable keyring is the case this exists for: an unsigned macOS build
-    is denied the items an earlier build stored, and reporting that as "no key"
+    is denied items stored under a different code signature, and reporting that as "no key"
     would tell someone to add a key they already have.
     """
     if not names:
@@ -9201,8 +9189,8 @@ def write_port_file(port: int) -> None:
     the backend starting. The MCP server's other way of being told a port is
     RESMON_PORT, and it confirms whatever it finds with GET /api/health before
     using it, so a stale file costs a probe rather than a wrong answer. An
-    *absent* file costs more than it used to: the server no longer reaches for
-    a default when nothing names a port, so with this file missing and
+    *absent* file costs more: the server does not reach for a default when
+    nothing names a port, so with this file missing and
     RESMON_PORT unset a harness is refused rather than answered. That is the
     intended trade -- the only thing a default could reach is whichever resmon
     happens to hold it.

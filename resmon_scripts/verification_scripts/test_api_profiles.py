@@ -1,8 +1,9 @@
-"""The profiles API — P8's real-API half, and the route order that nearly bit.
+"""The profiles API: the warning in the response, and the route order.
 
 Real FastAPI over a real (temp-file-backed in-memory) database. The renderer's
-half of P8 is jsdom and the real-browser spec; this is the half that says the
-*API* carries the warning, which is what a harness and the assistant get.
+half of the warning is jsdom and the real-browser spec; this is the half that
+says the *API* carries the warning, which is what a harness and the assistant
+get.
 """
 
 from __future__ import annotations

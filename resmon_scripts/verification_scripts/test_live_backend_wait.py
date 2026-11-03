@@ -36,7 +36,7 @@ from implementation_scripts import api_auth  # noqa: E402
 
 
 class _GuardedStub(BaseHTTPRequestHandler):
-    """``/api/health`` behind the 2.2 rule: no matching bearer, no answer.
+    """``/api/health`` behind the token rule: no matching bearer, no answer.
 
     The refusal body is the guard's own shape (``detail.reason``), because the
     wait reads that reason into its message and a stub that answered a bare 401
@@ -105,10 +105,10 @@ def test_the_wait_reaches_a_guarded_backend_using_the_token_it_published(stub, t
 
 
 def test_an_anonymous_poll_of_the_same_stub_never_becomes_ready(stub):
-    """The regression itself, at this boundary.
+    """The failure itself, at this boundary.
 
-    This is the poll the two live modules had before this change. It runs
-    against the same server the case above succeeds against, and it never sees a
+    This is an anonymous poll, as a naive wait would send. It runs against
+    the same server the case above succeeds against, and it never sees a
     200 -- which is what makes that server a fair stand-in for the real guard
     rather than one that cannot fail the way the real thing fails.
     """

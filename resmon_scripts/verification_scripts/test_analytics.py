@@ -1,4 +1,4 @@
-"""Analytics queries and reference exports (Phase 2a).
+"""Analytics queries and reference exports.
 
 The empty- and thin-corpus cases are first-class here, not an afterthought: a
 user with two executions is the common case for a new install, and the failure

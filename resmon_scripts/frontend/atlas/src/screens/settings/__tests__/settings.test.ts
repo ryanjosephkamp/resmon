@@ -25,12 +25,12 @@ describe('what is running in the background, from the lock file and its probe', 
   });
 
   test('a daemon that answered is this window\'s when the probe says so, or when the pids agree', () => {
-    const up: DaemonStatus = { ...NO_LOCK, lock_present: true, running: true, pid: 4242, port: 8742, version: '2.4.0' };
+    const up: DaemonStatus = { ...NO_LOCK, lock_present: true, running: true, pid: 4242, port: 8742, version: '1.1.0' };
     expect(daemonState({ ...up, is_self: true }, 1)).toBe('attached');
     expect(daemonState(up, 4242)).toBe('attached');
     expect(daemonState(up, 4567)).toBe('beside');
     expect(daemonSentence(up, 'beside', '8:02 PM'))
-      .toBe('A daemon is running (pid 4242, version 2.4.0, since 8:02 PM), but this window is not using it: it started an engine of its own.');
+      .toBe('A daemon is running (pid 4242, version 1.1.0, since 8:02 PM), but this window is not using it: it started an engine of its own.');
   });
 });
 

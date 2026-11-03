@@ -21,7 +21,7 @@ requestHiddenWindows();
  * Separate from `e2e/playwright.config.ts` on purpose: `e2e/` verifies *this*
  * checkout and is where a spec goes when it is about a change to it. This
  * directory verifies a *build*, which may be another one, and its pass or fail
- * is a statement about the parity register rather than about a diff.
+ * is a statement about the register rather than about a diff.
  *
  * `fullyParallel: false` and one worker, as next door: each journey launches a
  * real Electron and a real backend, and two of them at once on a CI runner is

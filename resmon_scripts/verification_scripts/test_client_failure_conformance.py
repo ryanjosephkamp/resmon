@@ -3,13 +3,13 @@
 This is the invariant a removal depends on, which is why it is a test rather
 than a paragraph.
 
-`zero_reason.terminal_issue` does not fire on `failures` alone. A revision of
-PR #169 made it, to catch PubMed's `_efetch` skipping a 503 batch and
-finishing the rest, and the branch had to be taken out again: the only
-snapshots that reach it in this codebase come from the four client modules
-whose documented "retry once" ladder runs *outside* `safe_request` -- five
-slugs, since `api_biorxiv` serves two -- and a ladder that recovered has lost
-nothing. Reporting it as a partial answer told a user
+`zero_reason.terminal_issue` does not fire on `failures` alone, on purpose.
+Firing it would catch PubMed's `_efetch` skipping a 503 batch and finishing the
+rest, but the only snapshots that reach it in this codebase come from the four
+client modules whose documented "retry once" ladder runs *outside*
+`safe_request` -- five slugs, since `api_biorxiv` serves two -- and a ladder
+that recovered has lost nothing. Reporting it as a partial answer would tell a
+user
 *"ERIC returned 1 usable record before a later HTTP 503 request failed"* about
 a source that answered.
 
@@ -17,8 +17,8 @@ That reasoning holds only while the premise does: **a failed invocation
 followed by another one is always the same request being retried, never a
 different request after records were dropped.** A client that someday skips a
 failed page and keeps going would under-deliver silently, with no zero reason
-and nothing on the record -- the exact defect `_efetch` had, and the one the
-deleted branch would have caught. Nothing in the code enforces the premise, so
+and nothing on the record -- the defect `_efetch` once had, and the one such a
+branch would catch. Nothing in the code enforces the premise, so
 it is enforced here.
 
 The denominator is the registry's own, so a twenty-seventh source is covered on
@@ -39,8 +39,7 @@ shape of the request sequence, not the records: a client that re-issues the
 same request and then drops the reply on the floor passes this and is still
 broken.
 
-It is one row of the conformance harness the 2026-10-18 audit asked for, not
-the harness. Its siblings, built to the same shape:
+It is one row of a conformance harness, not the harness. Its siblings, built to the same shape:
 ``test_client_outcome_conformance.py`` (a 5xx, and an unreadable 200, each
 leave a zero reason that does not read as an answer) and
 ``test_client_pagination_conformance.py`` (``max_results`` fetches each record

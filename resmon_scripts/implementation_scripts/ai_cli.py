@@ -16,8 +16,8 @@ and ``codex`` lives *inside an application bundle* at
 anyone's PATH. Both are found instantly from a terminal and neither is found from
 a double-clicked app.
 
-That asymmetry is exactly the shape of the 1.6.0 bug — an environment assumption
-that held in development and broke on shipped machines — so the order is:
+That asymmetry is the shape of an environment assumption that holds in
+development and breaks on shipped machines, so the order is:
 
 1. **An explicit path** the user set in Settings. Always wins; it is the escape
    hatch for every layout this table does not know.

@@ -2,7 +2,7 @@
 
 **Not marked ``live_network``, on purpose.** ``conftest.py`` permits loopback and
 blocks everything else, and the property this file exists to establish — *a write
-does not execute until a person allows it* — is the one thing in phase 2.0 that
+does not execute until a person allows it* — is the one thing in the assistant that
 must run on every CI job rather than only when someone remembers to pass
 ``-m live_network``. It costs one backend start.
 
@@ -36,7 +36,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.
@@ -262,10 +262,10 @@ def test_status_says_why_when_there_is_no_runtime(backend, tmp_path):
 
 
 def test_the_assistant_settings_ride_both_key_lists(backend):
-    """Ledger 33, which was a setting stored by one list and read by neither.
+    """A setting stored by one list and read by neither would be silently dead.
 
-    The read path here is the real one — no monkeypatched group — because that
-    is exactly what hid it: ``ai_cli_path`` appeared in ``_AI_SETTING_KEYS`` and
+    The read path here is the real one — no monkeypatched group — because a
+    monkeypatched read would hide it: ``ai_cli_path`` appeared in ``_AI_SETTING_KEYS`` and
     not in ``_SETTINGS_GROUPS['ai']``, and the test that would have caught it
     patched the read.
     """
@@ -500,7 +500,7 @@ def test_a_card_cannot_be_answered_twice(backend):
 def test_a_read_tool_runs_without_asking_anyone(backend):
     """The complement of P3: a gate that stopped reads would be unusable.
 
-    **What this cannot see**, and the ledger says so: the rule "ask only about
+    **What this cannot see:** the rule "ask only about
     tools that are not pre-approved" is the *CLI's*, and here it is the double
     implementing it. What is real on this side is that ``--allowedTools`` is
     built from ``READ_TOOLS`` and contains no write tool
@@ -586,9 +586,9 @@ def test_a_conversation_the_cli_has_lost_says_so_and_carries_on(backend):
 def test_a_session_with_no_cli_id_starts_one_rather_than_resuming_it(backend):
     """The latent half of the same defect, made reachable by the recovery.
 
-    ``resume`` used to be computed from "has this conversation any messages?"
-    alone. A session with history but no ``cli_session_id`` therefore minted a
-    fresh uuid and asked the CLI to *resume* it — which cannot succeed, by
+    ``resume`` must not be computed from "has this conversation any messages?"
+    alone. A session with history but no ``cli_session_id`` would then mint a
+    fresh uuid and ask the CLI to *resume* it — which cannot succeed, by
     construction, because the id had just been invented.
     """
     session = _session(backend.base)
@@ -613,18 +613,17 @@ def test_a_session_with_no_cli_id_starts_one_rather_than_resuming_it(backend):
 
 
 # ---------------------------------------------------------------------------
-# P12 (2.1) — "watch <person> for retractions" is two cards, and both gate
+# P12 — "watch <person> for retractions" is two cards, and both gate
 # ---------------------------------------------------------------------------
 #
-# Contract v2.2 gave the assistant four new tools by inheritance: `WRITE_TOOLS`
+# The assistant gets the watch tools by inheritance: `WRITE_TOOLS`
 # and `READ_TOOLS` are derived from `mcp_server.TOOLS`, and the runtime builds
 # its pre-approved list from `READ_TOOLS`. So `create_watch_profile` is gated by
 # construction rather than by a decision made here — and that is exactly the
 # kind of claim worth checking against a real backend, because "it should be
-# covered by the derivation" is the sentence three shipped defects were hiding
-# behind.
+# covered by the derivation" is the sentence a defect hides behind.
 #
-# The flow the brief names is two writes in one turn. Both must produce a card,
+# The flow is two writes in one turn. Both must produce a card,
 # and neither may touch the database before its own card is answered.
 
 

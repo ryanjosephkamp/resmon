@@ -108,7 +108,7 @@ CREATE TABLE IF NOT EXISTS saved_configurations (
 );
 
 -- The removed Google Drive upload's table. Nothing reads or writes it. It is
--- kept so a fresh database matches one upgraded from a release that made it:
+-- kept so a fresh database matches one that already has it:
 -- dropping it would be a schema step for no gain.
 CREATE TABLE IF NOT EXISTS cloud_sync (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,7 +126,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 
 -- ---------------------------------------------------------------------------
--- Search and faceting support (Phase 2b)
+-- Search and faceting support
 -- ---------------------------------------------------------------------------
 --
 -- ``documents`` had no indexes at all beyond the implicit UNIQUE on
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 CREATE TABLE IF NOT EXISTS document_authors (
     document_id       INTEGER NOT NULL,
     author            TEXT NOT NULL,
-    -- Schema 13 (2.1). All three are nullable and are NULL far more often than
+    -- Schema 13. All three are nullable and are NULL far more often than
     -- not: measured on 2026-09-06, OpenAlex carried an ORCID on 9 of 17
     -- authorships and Crossref on 2 of 84. NULL means **the source did not
     -- say**, never "this person has no ORCID", and nothing downstream may read
@@ -162,7 +162,7 @@ CREATE INDEX IF NOT EXISTS idx_document_authors_orcid
 CREATE INDEX IF NOT EXISTS idx_document_authors_author
     ON document_authors(author);
 
--- Schema 13 (2.1) — watch profiles: the people and places a routine watches.
+-- Schema 13 — watch profiles: the people and places a routine watches.
 --
 -- **A profile is not a saved configuration**, and `saved_configurations` is
 -- deliberately not widened to hold one: a configuration is a search, a profile
@@ -172,8 +172,8 @@ CREATE INDEX IF NOT EXISTS idx_document_authors_author
 -- Names, identifiers, affiliations and hints are JSON because they are lists a
 -- person edits, not things SQL joins on — with **one exception**. `orcid` is
 -- lifted into its own column and indexed, because that is the join the matcher
--- makes against `document_authors.orcid`, and it is the only comparison in this
--- phase that can produce an `identifier` basis.
+-- makes against `document_authors.orcid`, and it is the only comparison here
+-- that can produce an `identifier` basis.
 CREATE TABLE IF NOT EXISTS watch_profiles (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     kind          TEXT NOT NULL CHECK (kind IN ('person', 'institution', 'group')),
@@ -198,8 +198,8 @@ CREATE INDEX IF NOT EXISTS idx_watch_profiles_orcid
     ON watch_profiles(orcid) WHERE orcid IS NOT NULL;
 
 -- A lab is a *group*: a profile holding other profiles. A composition rather
--- than a third matching algorithm — 2.1b's work, with the table here so the
--- schema does not move again for it.
+-- than a third matching algorithm, with the table here so the schema does not
+-- move again for it.
 CREATE TABLE IF NOT EXISTS watch_profile_members (
     profile_id        INTEGER NOT NULL,
     member_profile_id INTEGER NOT NULL,
@@ -209,7 +209,7 @@ CREATE TABLE IF NOT EXISTS watch_profile_members (
 );
 
 -- Every match records **how** it was made. `basis` is the whole honesty rule of
--- phase 2.1 in one column: `identifier` when the source returned an ORCID equal
+-- profile matching in one column: `identifier` when the source returned an ORCID equal
 -- to the profile's, `name+affiliation` when a name matched and an affiliation on
 -- the record matched one of the profile's, `name_only` otherwise. The interface
 -- labels every paper with it and never presents `name_only` as the person.
@@ -273,7 +273,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_first_seen
     ON documents(first_seen_at);
 
 -- ---------------------------------------------------------------------------
--- Per-source execution record (1.7 — the watchdog)
+-- Per-source execution record (the watchdog)
 -- ---------------------------------------------------------------------------
 --
 -- What each source did on each run has always been observable -- the sweep
@@ -330,15 +330,15 @@ CREATE TABLE IF NOT EXISTS execution_sources (
 CREATE INDEX IF NOT EXISTS idx_execution_sources_source
     ON execution_sources(source);
 
--- What each AI lane did on each run (1.8a). The sibling of
+-- What each AI lane did on each run. The sibling of
 -- ``execution_sources``, and it exists for the same reason: before it, an AI
 -- failure was a line in the task log, which is enough for a person reading one
 -- run and not enough for anything else. A run whose every summary failed
 -- completed and looked healthy -- the watchdog's largest recorded blind spot.
 --
 -- One row per lane per execution. ``lane_index`` is the position in the chain,
--- so lane 0 is what was tried first; a single-provider setup (every user
--- before 1.8) records exactly one row with index 0.
+-- so lane 0 is what was tried first; a single-provider setup records
+-- exactly one row with index 0.
 --
 -- ``credential_alias`` holds a keyring slot NAME, never a key value. Nothing
 -- in this table is a secret, which is what lets the report and the eventual
@@ -383,7 +383,7 @@ CREATE TABLE IF NOT EXISTS watchdog_mutes (
 );
 
 -- ---------------------------------------------------------------------------
--- Corpus lifecycle (1.7 — papers change after you find them)
+-- Corpus lifecycle (papers change after you find them)
 -- ---------------------------------------------------------------------------
 --
 -- A corpus is frozen at discovery time and silently goes stale. A paper you
@@ -445,7 +445,7 @@ CREATE TABLE IF NOT EXISTS document_lifecycle_checks (
 );
 
 -- ---------------------------------------------------------------------------
--- Embeddings (schema 11, phase 1.9)
+-- Embeddings (schema 11)
 -- ---------------------------------------------------------------------------
 --
 -- This is the canonical store, and it is a plain table on purpose. sqlite-vec's
@@ -486,13 +486,13 @@ CREATE INDEX IF NOT EXISTS idx_document_embeddings_model
     ON document_embeddings(model);
 
 -- ---------------------------------------------------------------------------
--- Document links (schema 11, phase 1.9)
+-- Document links (schema 11)
 -- ---------------------------------------------------------------------------
 --
 -- A near-duplicate is a *link*, never a merge. The same paper reaching resmon
 -- from arXiv and from Crossref is two records with two provenances, two sets of
 -- terms and two external ids, and collapsing them would throw away the thing the
--- corpus is for: what each source actually said. Nothing in 1.9 deletes or hides
+-- corpus is for: what each source actually said. Nothing here deletes or hides
 -- a row. A link is an assertion laid beside two records, and the interface offers
 -- a per-view collapse the user turns on.
 --
@@ -535,7 +535,7 @@ CREATE INDEX IF NOT EXISTS idx_document_links_b
 --
 -- ``tool_calls`` and ``tool_results`` are stored as returned. That is safe by
 -- construction rather than by care: no tool on the surface returns a credential
--- value (contract v2 safety, asserted against a real backend), so there is no
+-- value (asserted against a real backend), so there is no
 -- class of secret for a transcript to accumulate.
 CREATE TABLE IF NOT EXISTS assistant_sessions (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -594,7 +594,7 @@ CREATE INDEX IF NOT EXISTS idx_assistant_messages_session
 -- that is not read, which is the kind of half-true rendering this app exists
 -- to avoid.
 --
--- ON DELETE CASCADE is what keeps the owner-operated corpus erase honest --
+-- ON DELETE CASCADE is what keeps the corpus erase honest --
 -- Settings -> Advanced deletes ``documents`` and this table has to go with it.
 -- It is the only route that removes a paper; removing an entry from the queue
 -- deletes this row and nothing else.
@@ -620,18 +620,17 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 
 """
 
-# Schema version constants. Bumped by IMPL-36 (→2), IMPL-37 (→3), and
-# Update 3 / 4_27_26 (→4) which adds ``executions.saved_configuration_id``
+# Schema version constants. 4 adds ``executions.saved_configuration_id``
 # linking each manual execution back to the saved configuration it was
 # launched from (or saved as). 5 dropped the cloud-mirror tables with the
 # cloud service; 6 adds ``execution_sources`` and ``watchdog_mutes`` for the
-# 1.7 watchdog, and backfills the former from stored progress events; 7 adds
+# watchdog, and backfills the former from stored progress events; 7 adds
 # ``document_lifecycle`` and ``document_lifecycle_checks`` for retraction,
 # preprint-to-published and version tracking; 8 promotes the per-run
 # deduplication figures out of the progress-events blob into columns, for the
 # reproducible search record. 9 adds ``execution_ai``; 10 adds the per-source
-# zero reason. 11 is the 1.9 embeddings platform: ``document_embeddings``,
-# ``document_links`` and ``routines.intent``, in one migration. 12 adds the 2.0
+# zero reason. 11 is the embeddings platform: ``document_embeddings``,
+# ``document_links`` and ``routines.intent``, in one migration. 12 adds the
 # assistant's ``assistant_sessions`` and ``assistant_messages``. 13 adds the
 # author-identity columns on ``document_authors``. 14 adds ``reading_queue``:
 # one membership row per saved paper, additive, with nothing backfilled --
@@ -652,12 +651,12 @@ _SCHEMA_VERSION_KEY = "schema_version"
 
 def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     """Return a sqlite3.Connection with WAL mode, foreign keys, and Row factory."""
-    # ``str(db_path)`` used to be applied to whatever was passed. Handing this
+    # ``str(db_path)`` is not applied to whatever was passed. Handing this
     # function a Connection - easy to do, because ``init_db`` takes both a
-    # ``db_path`` and a ``conn`` - stringified it to
-    # "<sqlite3.Connection object at 0x...>" and created a real database file
-    # under that name instead of raising. The caller then operated on an empty
-    # database and never found out.
+    # ``db_path`` and a ``conn`` - would stringify it to
+    # "<sqlite3.Connection object at 0x...>" and create a real database file
+    # under that name instead of raising. The caller would then operate on an
+    # empty database and never find out.
     if db_path is not None and not isinstance(db_path, (str, Path)):
         raise TypeError(
             "get_connection() expects a str, Path, or None for db_path, got "
@@ -694,10 +693,10 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # same reason ``pub_sort`` must: the script creates an index **over
     # `document_authors(orcid)`**, and on an existing corpus that table is
     # already there without the column, so `CREATE INDEX` fails and the whole
-    # upgrade aborts. Found by
-    # ``test_an_upgraded_database_gains_the_columns_and_backfills_nothing``,
-    # which builds a pre-13 database rather than a fresh one — a fresh database
-    # gets the column from the script and never meets this.
+    # upgrade aborts. A fresh database gets the column from the script and
+    # never meets this, so
+    # ``test_an_upgraded_database_gains_the_columns_and_backfills_nothing``
+    # builds a pre-13 database instead.
     if conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type='table' AND name='document_authors'"
     ).fetchone():
@@ -733,11 +732,11 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_assistant_codex(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
-    # Commit before returning. Since BUG-020 each thread holds its own
-    # connection, so schema left inside an open transaction on this one is
-    # invisible to every other -- an in-memory database shared through
-    # cache=shared then answers "no such table: executions" on the next
-    # connection to touch it.
+    # Commit before returning. Each thread holds its own connection (sharing
+    # one sqlite3 connection across threads can segfault CPython), so schema
+    # left inside an open transaction on this one is invisible to every other
+    # -- an in-memory database shared through cache=shared then answers "no
+    # such table: executions" on the next connection to touch it.
     conn.commit()
 
     if own_conn:
@@ -761,15 +760,14 @@ def _add_executions_additive_columns(conn: sqlite3.Connection, table: str) -> No
         conn.execute(f'ALTER TABLE "{table}" ADD COLUMN current_stage TEXT')
     if "cancel_reason" not in existing:
         conn.execute(f'ALTER TABLE "{table}" ADD COLUMN cancel_reason TEXT')
-    # Update 3 / 4_27_26: link each manual execution back to the saved
-    # configuration it was launched from (ConfigLoader-initiated runs)
-    # or saved as later (Save Config button on Calendar/Dashboard/
-    # Results & Logs). Nullable; ON DELETE SET NULL is enforced by the
-    # CREATE TABLE statement for new databases. ALTER TABLE in SQLite
-    # cannot add a FOREIGN KEY clause to an existing column, but the
-    # behavior we need (graceful nulling on config delete) is enforced
-    # at the application layer in delete_configuration_endpoint and is
-    # also a no-op when the column is NULL.
+    # Link each manual execution back to the saved configuration it was
+    # launched from (ConfigLoader-initiated runs) or saved as later (Save
+    # Config button on Calendar/Dashboard/Results & Logs). Nullable; ON DELETE
+    # SET NULL is enforced by the CREATE TABLE statement for new databases.
+    # ALTER TABLE in SQLite cannot add a FOREIGN KEY clause to an existing
+    # column, but the behavior we need (graceful nulling on config delete) is
+    # enforced at the application layer in delete_configuration_endpoint and
+    # is also a no-op when the column is NULL.
     if "saved_configuration_id" not in existing:
         conn.execute(
             f'ALTER TABLE "{table}" ADD COLUMN saved_configuration_id INTEGER'
@@ -818,11 +816,11 @@ def _migrate_execution_sources_columns(conn: sqlite3.Connection) -> None:
 def _migrate_routines_columns(conn: sqlite3.Connection) -> None:
     """Add columns to ``routines`` introduced after the original schema.
 
-    * ``notify_on_complete`` (IMPL-10 ergonomics).
-    * ``execution_location`` (IMPL-37, §14.1) — where a routine is
-      scheduled. Only ``'local'`` is meaningful now that the cloud service
-      is gone; the column is kept because dropping it would mean rebuilding
-      the table on every existing install for no functional gain.
+    * ``notify_on_complete``.
+    * ``execution_location`` — where a routine is scheduled. Only ``'local'``
+      is meaningful now that the cloud service is gone; the column is kept
+      because dropping it would mean rebuilding the table on every existing
+      install for no functional gain.
 
     Any routine still marked ``'cloud'`` is flipped back to ``'local'``.
     Its scheduler was deleted, so it would otherwise sit in the UI looking
@@ -842,7 +840,7 @@ def _migrate_routines_columns(conn: sqlite3.Connection) -> None:
         )
     else:
         # Pre-existing rows only. The CHECK constraint still permits 'cloud'
-        # on databases created before this release; rewriting it would need a
+        # on databases created while it was allowed; rewriting it would need a
         # full table rebuild, and nothing writes that value any more.
         conn.execute(
             "UPDATE routines SET execution_location = 'local' "
@@ -912,8 +910,8 @@ def _migrate_pub_sort(conn: sqlite3.Connection) -> None:
     ``_SCHEMA_SQL``: on a database created before this column existed,
     ``CREATE TABLE IF NOT EXISTS`` is a no-op, so the column is absent when the
     schema script runs and ``CREATE INDEX ... (pub_sort ...)`` fails the entire
-    script with ``no such column: pub_sort``. That took the backend down on
-    startup for every user upgrading from an earlier version.
+    script with ``no such column: pub_sort``. That takes the backend down on
+    startup for every database created before the column existed.
     """
     # table_xinfo, not table_info: the latter omits generated columns entirely,
     # so the check would never see pub_sort and would try to add it on every
@@ -1000,8 +998,8 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
         """
     )
 
-    # Backfill, once each. Neither half self-repairs, and the comment that said
-    # both did was wrong in opposite directions for two releases.
+    # Backfill, once each. Neither half self-repairs; assuming either one does
+    # goes wrong in opposite directions.
     #
     # The FTS rebuild is gated on the index having been absent before this
     # call, because ``COUNT(*)`` on an external-content FTS table reads the
@@ -1019,7 +1017,7 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
     # ``COUNT(DISTINCT document_id) FROM document_authors`` against
     # ``COUNT(*) FROM documents``, which looks self-repairing and is not: a
     # document whose source returned no authors -- OSTI, GovInfo, a dataset
-    # record, and one of the twelve papers in the shipped v2.1.0 fixture --
+    # record, and one of the twelve papers in the schema-13 test corpus --
     # contributes no author rows, so the two counts could never converge. One
     # such paper made the condition permanently true and re-indexed the entire
     # corpus on *every* launch, inside a write transaction, repairing nothing
@@ -1027,7 +1025,7 @@ def _migrate_search_index(conn: sqlite3.Connection) -> None:
     # synthetic corpora differing only in whether one document has an empty
     # author string: ``init_db`` 13 ms -> 658 ms at 200,000 documents, on every
     # start, with the whole ``(id, authors, categories)`` projection
-    # materialised in Python by ``.fetchall()``.
+    # materialized in Python by ``.fetchall()``.
     #
     # The gap query now asks the real question instead of inferring it from a
     # count, and is iterated as a cursor so the corpus is never in memory at
@@ -1264,8 +1262,8 @@ def _migrate_embeddings_and_links(conn: sqlite3.Connection) -> None:
     There is deliberately **no backfill of ``intent``** from the keyword string.
     The coverage audit falls back to the keywords when the column is NULL and
     says in its output that it did so; writing the keywords into the column
-    instead would make every pre-1.9 routine claim the user had stated an intent
-    they never typed. Same rule as schema 10's zero reasons: "not recorded" and
+    instead would make every routine from before the column claim the user had
+    stated an intent they never typed. Same rule as schema 10's zero reasons: "not recorded" and
     "recorded as this" are different facts.
 
     The ``vec0`` index is **not** created here. It is an index over the table
@@ -1290,7 +1288,7 @@ def _migrate_author_identity(conn: sqlite3.Connection) -> None:
     "the source did not tell us", which is true, where any inferred value would
     be resmon asserting an identity it did not receive. Same rule as schema 11's
     refusal to backfill ``routines.intent`` from the keywords, and the reason
-    every match this phase records carries the *basis* it was made on.
+    every match records carries the *basis* it was made on.
 
     Papers already in the corpus therefore match by name only until they are
     seen again by a source that carries an identifier.
@@ -1570,8 +1568,8 @@ def _migrate_selected_evidence(conn: sqlite3.Connection) -> None:
 # This is the case where it is worth it. ``executions.status`` had four values
 # and none of them is true of a run whose backend was SIGKILLed, force-quit, or
 # killed by Electron on the way out. It is not ``running`` -- nothing is running
-# -- and it is not ``failed``, because resmon never observed a failure; the
-# graceful shutdown path wrote ``failed`` for years and that was an overclaim.
+# -- and it is not ``failed``, because resmon never observed a failure, so
+# recording ``failed`` there would be an overclaim.
 # ``evidence_answers.state`` has carried the honest word since schema 18 and it
 # is the same word here: **interrupted**.
 #
@@ -1782,7 +1780,7 @@ def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
 #
 # No catch-up run is started for a missed fire. Whether resmon should silently
 # run a week of missed sweeps on the morning a laptop is opened is a decision
-# for the owner, not a default chosen by a migration.
+# for the user, not a default chosen by a migration.
 
 _JOBS_V20_DDL = {
     "idx_executions_request_id": (
@@ -1880,8 +1878,8 @@ def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
 #     (email) or the directory (folder) lives in ``target``. ``mode`` carries
 #     the product's "automatic or waits for review" distinction as data rather
 #     than as a second boolean somewhere else. ``channel`` enumerates four
-#     values although only two ship: ``webhook`` and ``feed`` are the PR-two
-#     destinations, and a value invented later would need a migration on a
+#     values although only two ship: ``webhook`` and ``feed`` are the
+#     destinations that do not ship yet, and a value invented later would need a migration on a
 #     table users already have rows in.
 #   * ``deliveries`` -- one row per (execution, target), which is what makes
 #     "never delivered twice" a fact the database enforces rather than a check
@@ -1894,13 +1892,13 @@ def _migrate_jobs_duplicate_protection(conn: sqlite3.Connection) -> None:
 # The seed is what keeps functionality from decreasing: every routine with
 # ``email_enabled=1`` gets one automatic email target **on the launch that
 # performs the 20 -> 21 upgrade**, so a user who had completion emails before
-# the upgrade still has them after it with nothing to edit. It ran on every start until the gate was added, and
-# a target the user deleted therefore came back on the next one.
+# the upgrade still has them after it with nothing to edit. The seed is gated
+# on that upgrade because running it on every start would bring back a target
+# the user deleted.
 # ``email_enabled`` stays the routine-level switch the Routines page toggles --
 # an email target whose routine has it off is not enqueued -- and the empty
 # ``target`` those seeded rows carry means "the recipient configured in
-# Settings -> Email", which is exactly where the address used to come from and
-# still does.
+# Settings -> Email", which is exactly where the address comes from.
 
 _DELIVERY_V21_DDL = {
     "routine_delivery_targets": (
@@ -1990,20 +1988,20 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
                     or " ".join((row[1] or "").split()) != " ".join(ddl.split())):
                 raise sqlite3.DatabaseError("Conflicting schema-21 shape: " + name)
 
-        # The email that used to be sent straight from the completion hook
-        # keeps being sent, to the same address, with no edit by the user. One
-        # automatic target per routine that has the switch on, and only where
-        # that routine has no email target already.
+        # The email sent straight from the completion hook keeps being sent,
+        # to the same address, with no edit by the user. One automatic target
+        # per routine that has the switch on, and only where that routine has
+        # no email target already.
         #
-        # **Only on the launch that performs the 20 -> 21 upgrade.** This used
-        # to run on every ``init_db`` -- its only guard was "does this routine
-        # already have an email target" -- so ``delivery.delete_target``
-        # removed the row, the next start put a new one back, and a user could
-        # not remove an email destination at all. The only thing that stuck was
-        # the separate ``email_enabled`` toggle, which is a different control
-        # in a different place. Seeding is a migration, and a migration runs on
-        # the upgrade that introduces it; re-running it is how a user's
-        # deletion became a round trip.
+        # **Only on the launch that performs the 20 -> 21 upgrade.** Running on
+        # every ``init_db`` with only the guard "does this routine already
+        # have an email target" would mean ``delivery.delete_target`` removed
+        # the row, the next start put a new one back, and a user could not
+        # remove an email destination at all. The only thing that stuck would
+        # be the separate ``email_enabled`` toggle, which is a different
+        # control in a different place. Seeding is a migration, and a
+        # migration runs on the upgrade that introduces it; re-running it is
+        # how a user's deletion becomes a round trip.
         if current < 21:
             stamp = utc_now_iso()
             # Guarded by a SELECT rather than left to insert nothing: an
@@ -2044,10 +2042,10 @@ def _migrate_delivery(conn: sqlite3.Connection) -> None:
 
 # Schema 22. ``normalizer.deduplicate_batch`` asks ``find_duplicates_by_hash``
 # about every result a sweep stores, and without this index each of those
-# questions read the whole ``documents`` table: the performance baseline of
-# 628d1b5 measured 6.9 s of a 28.2 s ten-source sweep in that stage at 10,000
-# papers, growing with the corpus. Not in ``_SCHEMA_SQL`` because a new
-# object is a new schema: the cumulative-upgrade test holds a released
+# questions read the whole ``documents`` table: a ten-source sweep at
+# 10,000 papers spent 6.9 s of its 28.2 s in that stage, growing with the
+# corpus. Not in ``_SCHEMA_SQL`` because a new
+# object is a new schema: the cumulative-upgrade test holds a
 # fixture at today's ``SCHEMA_VERSION`` to a launch that changes nothing.
 _METADATA_HASH_INDEX_DDL = (
     "CREATE INDEX idx_documents_metadata_hash ON documents(metadata_hash)"
@@ -2247,13 +2245,13 @@ _DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
 def _repair_doaj_month_names(conn: sqlite3.Connection) -> int:
     """Rewrite DOAJ dates stored with the month as a name in the ISO form.
 
-    Until #259 the DOAJ client zero-padded ``bibjson.month`` as it came, so a
-    month given as a name was stored as ``2025-January-01``. Nothing else in
-    resmon reads that: Analytics bucketed the paper into a month called
-    ``2025-Ja``, the discovery-lag view's ``julianday`` returned NULL and
-    skipped it, and sorting by date compared it as later than December of
-    its year. #259 fixed new records; this fixes the ones already
-    stored, with the same month table the client now reads.
+    A DOAJ client that zero-padded ``bibjson.month`` as it came would store a
+    month given as a name as ``2025-January-01``. Nothing else in resmon reads
+    that: Analytics would bucket the paper into a month called ``2025-Ja``, the
+    discovery-lag view's ``julianday`` would return NULL and skip it, and
+    sorting by date would compare it as later than December of its year. The
+    client now reads the month table; this fixes the rows already stored that
+    way, with the same table.
 
     Narrow on purpose. Only DOAJ rows, only a month the table knows, and only
     ``publication_date`` and the ``metadata_hash`` computed from it. A month it
@@ -2312,7 +2310,7 @@ BIORXIV_PUBLISHED_DETAIL = (
     "bioRxiv records that this preprint has since appeared as a journal article."
 )
 
-# The sentence earlier builds recorded on those findings. It added advice
+# The sentence stored on findings before the wording above. It added advice
 # bioRxiv never gave, and a claim about review it does not record.
 _BIORXIV_PUBLISHED_DETAIL_BEFORE = (
     "This preprint has since appeared as a journal article. Cite the published "
@@ -2412,7 +2410,7 @@ def missed_fire_summary(conn: sqlite3.Connection, routine_id: int) -> dict:
     ``count`` and ``last_due_at_utc`` are every row, unchanged, so a caller
     that wants the total still gets it. Everything else comes in pairs,
     because a count and the time beside it are one sentence and splitting one
-    without the other is how this function told its last lie: the overlap
+    without the other is how a summary like this one misleads: the overlap
     subset is ``overlap_skipped`` / ``last_overlap_skipped_due_at_utc``, and
     the fires that came due while resmon was not running are the remainder --
     ``count`` less ``overlap_skipped``, and ``last_closed_miss_due_at_utc``.
@@ -2525,11 +2523,10 @@ def find_duplicates_by_hash(conn: sqlite3.Connection, metadata_hash: str) -> lis
 def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
     """Create a new execution record. Returns its ID.
 
-    ``saved_configuration_id`` (Update 3 / 4_27_26) is optional and links
-    the new execution back to the ``saved_configurations`` row it was
-    launched from when the user picked a config in the ConfigLoader on
-    the Deep Dive / Deep Sweep pages. ``None`` is the default for
-    ad-hoc runs and routine fires.
+    ``saved_configuration_id`` is optional and links the new execution back
+    to the ``saved_configurations`` row it was launched from when the user
+    picked a config in the ConfigLoader on the Deep Dive / Deep Sweep pages.
+    ``None`` is the default for ad-hoc runs and routine fires.
     """
     sql = """\
         INSERT INTO executions
@@ -2757,7 +2754,7 @@ def get_execution_by_id(conn: sqlite3.Connection, exec_id: int) -> dict | None:
 def set_execution_saved_configuration(
     conn: sqlite3.Connection, exec_id: int, saved_configuration_id: int | None
 ) -> None:
-    """Stamp / clear the saved_configuration_id link on an execution row (Update 3)."""
+    """Stamp / clear the saved_configuration_id link on an execution row."""
     conn.execute(
         "UPDATE executions SET saved_configuration_id = ? WHERE id = ?",
         (saved_configuration_id, exec_id),
@@ -2921,9 +2918,9 @@ def update_configuration(conn: sqlite3.Connection, config_id: int, updates: dict
 def delete_configuration(conn: sqlite3.Connection, config_id: int) -> None:
     """Delete a saved configuration by ID.
 
-    Update 3 / 4_27_26: also null out ``executions.saved_configuration_id``
-    for any execution that linked back to this config so the "Saved as"
-    badge stops referencing a now-orphaned row. The ``CREATE TABLE``
+    Also null out ``executions.saved_configuration_id`` for any execution
+    that linked back to this config so the "Saved as" badge stops
+    referencing a now-orphaned row. The ``CREATE TABLE``
     FK clause already does this for fresh databases, but databases
     migrated from older schemas have the column without a FK declaration
     (SQLite ``ALTER TABLE`` cannot add FK constraints), so we do it
@@ -3129,7 +3126,7 @@ def get_execution_sources(conn: sqlite3.Connection, exec_id: int) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# AI lane records (1.8a)
+# AI lane records
 # ---------------------------------------------------------------------------
 
 

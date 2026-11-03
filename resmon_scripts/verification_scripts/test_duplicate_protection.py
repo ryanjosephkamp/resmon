@@ -307,11 +307,10 @@ def test_a_worker_that_dies_before_its_try_still_releases_the_routine(client):
     ``_launch_execution``'s worker does three things before the ``try`` that
     releases the claim: it records the admission slot, starts the heartbeat, and
     opens its own database connection. An exception in any of them -- a database
-    that will not open is the realistic one -- used to leave the routine claimed
-    for the life of the backend, and every later fire of it answered 409 naming
-    a run that had never started. Found by the reviewer of this change as a
-    mutation; kept as a test, because the release it checks is a second, outer
-    ``finally`` that nothing else exercises.
+    that will not open is the realistic one -- would leave the routine claimed
+    for the life of the backend, and every later fire of it would answer 409
+    naming a run that had never started. The release it checks is a second,
+    outer ``finally`` that nothing else exercises.
     """
     rid = _make_routine("dies-early")
     boom = RuntimeError("no database today")
@@ -368,7 +367,7 @@ def test_the_same_request_id_twice_yields_one_execution(client):
     assert conn.execute("SELECT count(*) FROM executions").fetchone()[0] == 2
 
     # The third route: restart, whose body is optional and whose success code
-    # is 202 rather than 200 -- it was 202 before this change and it stays 202.
+    # is 202 rather than 200.
     target = conn.execute("SELECT id FROM executions ORDER BY id LIMIT 1").fetchone()[0]
     database.update_execution_status(conn, target, "failed")
     body = {"request_id": "33333333-3333-3333-3333-333333333333"}
@@ -582,7 +581,7 @@ def test_the_startup_path_records_the_miss_and_leaves_the_next_fire_in_the_futur
 def test_the_api_and_the_analytics_report_the_missed_fires(tmp_path, client):
     """What a screen and an assistant read, from the same rows.
 
-    Denominator: 3 of 3 surfaces named in the brief -- the routine, the routine
+    Denominator: 3 of 3 surfaces -- the routine, the routine
     list, and routine-health analytics.
     """
     conn = resmon_mod._get_db()
@@ -630,8 +629,8 @@ def test_an_overlap_skip_is_counted_apart_from_a_fire_missed_while_closed(client
     **The two due times are deliberately different, and the overlap skip is
     deliberately the later one.** A fixture where they coincide cannot tell a
     field that filters by disposition from one that does not -- which is how
-    the first version of this split shipped with the count filtered and the
-    timestamp beside it unfiltered. Ordered the other way round the bug also
+    a split with the count filtered and the timestamp beside it unfiltered would
+    pass. Ordered the other way round the bug also
     hides, because the all-rows maximum would happen to be the closed miss.
     """
     conn = resmon_mod._get_db()
@@ -704,9 +703,9 @@ def _schema_19_database(path: Path) -> sqlite3.Connection:
     """A database at 19, built by running the real migrations and undoing 20.
 
     Dropping schema 20's objects from a current database is not the same thing
-    as a database a released resmon wrote, and this test says only what it can:
-    the step is additive and loses nothing. The journey a user takes is
-    ``test_cumulative_upgrade.py``'s, from a fixture the old code produced.
+    as a database a real install wrote at schema 19, and this test says only what
+    it can: the step is additive and loses nothing. The journey a user takes is
+    ``test_cumulative_upgrade.py``'s, from a fixture an older schema produced.
     """
     database.init_db(str(path))
     conn = database.get_connection(str(path))

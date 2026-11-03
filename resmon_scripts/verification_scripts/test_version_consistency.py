@@ -1,17 +1,15 @@
-"""The backend and the renderer must report the same version.
+"""The backend, the renderer, and the command line must report the same version.
 
-This test exists because they did not. v1.8.0 was tagged on the 1.8b feature
-commit, which bumped ``package.json`` to 1.8.0 and left
-``config.py``'s ``APP_VERSION`` at 1.7.0 — so every v1.8.0 install answered
-``GET /api/health`` with ``"version": "1.7.0"``, and About → About App, which
-renders exactly that field, told users they were running the previous release.
-
-Nothing caught it because nothing was looking. A release is the one moment
-these two files must agree, and it is also the moment when the person cutting
-it is thinking about everything else.
+``GET /api/health`` serves ``APP_VERSION``, About -> About App renders exactly
+that field, and the command line prints and sends its own ``__version__``. When
+they differ, a user is told they are running a version they are not, and the
+check that decides whether a running service is this app's own compares them.
+The release is the one moment these files must agree, so a test holds them
+together instead of leaving it to whoever cuts the release.
 """
 
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -21,6 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 from implementation_scripts.config import APP_VERSION
 
 _PACKAGE_JSON = PROJECT_ROOT / "resmon_scripts" / "frontend" / "package.json"
+_CLI_INIT = PROJECT_ROOT / "resmon_scripts" / "cli" / "resmon_cli" / "__init__.py"
 
 
 def _package_version() -> str:
@@ -31,9 +30,30 @@ def _package_version() -> str:
 def test_backend_and_renderer_versions_match():
     assert APP_VERSION == _package_version(), (
         f"config.py APP_VERSION is {APP_VERSION} but package.json is "
-        f"{_package_version()}. Both must be bumped in the release commit — "
+        f"{_package_version()}. Both must be bumped together — "
         f"/api/health serves APP_VERSION and About → About App displays it."
     )
+
+
+def _cli_version() -> str:
+    """Read ``__version__`` from the source, so the check needs no install."""
+    match = re.search(r'^__version__ = "([^"]+)"$', _CLI_INIT.read_text(encoding="utf-8"), re.M)
+    assert match, f"no __version__ in {_CLI_INIT}"
+    return match.group(1)
+
+
+def test_command_line_carries_the_app_version():
+    assert _cli_version() == APP_VERSION, (
+        f"resmon_cli.__version__ is {_cli_version()} but config.py APP_VERSION is "
+        f"{APP_VERSION}. The command line carries the app's version; bump all "
+        f"three together."
+    )
+
+
+def test_package_lock_root_entries_match():
+    lock = json.loads((_PACKAGE_JSON.parent / "package-lock.json").read_text(encoding="utf-8"))
+    assert lock["version"] == _package_version(), lock["version"]
+    assert lock["packages"][""]["version"] == _package_version(), lock["packages"][""]["version"]
 
 
 def test_version_is_a_three_part_release_number():

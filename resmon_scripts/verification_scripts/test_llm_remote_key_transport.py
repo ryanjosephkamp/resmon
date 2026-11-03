@@ -1,11 +1,12 @@
 # resmon_scripts/verification_scripts/test_llm_remote_key_transport.py
 """Where ``llm_remote`` puts a BYOK credential on the wire.
 
-``assistant_api_runtime`` was fixed for this: Google's v1beta endpoint accepts
-``?key=<secret>`` and the runtime used to send it that way. ``llm_remote`` is
-its sibling and had the same line, in ``_google_request``.
+Google's v1beta endpoint accepts ``?key=<secret>``, and ``assistant_api_runtime``
+keeps the key out of the URL for that reason. ``llm_remote`` is its sibling and
+must do the same in ``_google_request``.
 
-**There is no log leak in this module**, which is why nobody caught it. Every
+**There is no log leak in this module**, which is what makes a query-string key
+easy to miss. Every
 raise path goes through ``_as_ai_error`` or ``_sanitize_error``, both of which
 strip the key by exact value before anything is logged. What a sanitizer cannot
 reach is the request itself: a query string is written down by every proxy

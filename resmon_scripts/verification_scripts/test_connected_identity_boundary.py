@@ -16,7 +16,7 @@ import httpx
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.

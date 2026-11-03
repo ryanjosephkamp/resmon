@@ -50,13 +50,11 @@ class FrozenClock:
 
     ``test_later_page_cannot_reset_budget`` is a statement about the budget's
     bookkeeping — a page that arrives later does not get a fresh budget — and
-    not about how fast the machine is. It used to make that statement by
-    tightening the budget to 0.15 s and then racing thread start,
-    ``asyncio.run``, ``AsyncClient`` construction and a 25-record parse to fit
-    inside it. That race is tens of milliseconds on a developer machine and
-    was lost three times on loaded CI runners, each time reading as "this
-    branch broke the budget logic" on a branch that had touched nothing
-    nearby. Freezing the clock means the budget expires when the test says so.
+    not about how fast the machine is. Tightening the budget to 0.15 s and then
+    racing thread start, ``asyncio.run``, ``AsyncClient`` construction and a
+    25-record parse to fit inside it would be a race of tens of milliseconds on
+    a developer machine, lost on loaded CI runners and reading as a broken
+    budget. Freezing the clock means the budget expires when the test says so.
 
     Only ``monotonic`` is faked, and the fake is installed on the two modules
     that compute the budget rather than on the ``time`` module itself, so the

@@ -20,22 +20,21 @@
  *
  * **Two things this row does not establish, both printed below.**
  *
- * *A successful send — unbuilt, not unbuildable.* An earlier reading of this
- * said a loopback stub could not work because `starttls()` is called with no
- * SSL context. That was wrong: `smtplib.SMTP.starttls(context=None)` builds
- * `ssl._create_stdlib_context()`, which has `check_hostname=False` and
- * `verify_mode=CERT_NONE`, so a self-signed certificate on loopback would be
- * accepted. The work is generating a certificate and answering `AUTH` — real
- * work, and not done here. The success path's evidence is for now the backend
- * suite, which patches `smtplib`; this row owes the arm rather than being
- * unable to hold it.
+ * *A successful send — unbuilt, not unbuildable.* A loopback stub can work even
+ * though `starttls()` is called with no SSL context:
+ * `smtplib.SMTP.starttls(context=None)` builds `ssl._create_stdlib_context()`,
+ * which has `check_hostname=False` and `verify_mode=CERT_NONE`, so a
+ * self-signed certificate on loopback would be accepted. The work is
+ * generating a certificate and answering `AUTH` — real work, and not done here.
+ * The success path's evidence is for now the backend suite, which patches
+ * `smtplib`; this row owes the arm rather than being unable to hold it.
  *
- * *The notification itself.* Since #237 the engine hands each notification to
- * the app, which posts it with Electron's `Notification`; under the suites it
- * is written to the app's log instead (`[main] notice …`), and
- * `e2e/service-host.spec.ts` reads that line for a finished run. This row runs
- * no search, so there is no notice for it to read. What it asserts is that the
- * preference a person sets is the preference the app keeps.
+ * *The notification itself.* The engine hands each notification to the app,
+ * which posts it with Electron's `Notification`; under the suites it is written
+ * to the app's log instead (`[main] notice …`), and `e2e/service-host.spec.ts`
+ * reads that line for a finished run. This row runs no search, so there is no
+ * notice for it to read. What it asserts is that the preference a person sets
+ * is the preference the app keeps.
  */
 import { expect, journey } from './driver';
 
@@ -99,10 +98,10 @@ journey.describe('J23 Notifications and email', () => {
     console.log('[J23] NOT VERIFIED: a successful test send. This arm is UNBUILT, not unbuildable '
       + '— `starttls(context=None)` uses a stdlib context with CERT_NONE and no hostname check, so '
       + 'a loopback STARTTLS stub with a self-signed certificate would be accepted. What it needs '
-      + 'is a certificate and an AUTH responder, and this slice did not write them. For now the '
+      + 'is a certificate and an AUTH responder, and they are not written yet. For now the '
       + 'success path is the backend suite, which patches `smtplib`.');
     console.log('[J23] NOT VERIFIED: the notification itself. This row runs no search, so no '
-      + 'notice is posted for it to read. Since #237 the app posts what the engine hands it, and '
+      + 'notice is posted for it to read. The app posts what the engine hands it, and '
       + 'under the suites writes it to its log, which `e2e/service-host.spec.ts` reads for a '
       + 'finished run. The preference is asserted above; the dispatch decision is '
       + '`test_desktop_notifications.py`.');

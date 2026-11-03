@@ -1,10 +1,10 @@
 # resmon_scripts/verification_scripts/test_ai_lanes.py
-"""Lane resolution, error classification, and the execution_ai record (1.8a).
+"""Lane resolution, error classification, and the execution_ai record.
 
 The tests that matter most here are the ones pinning behavior that is
 expensive to get wrong rather than merely wrong:
 
-* a pre-1.8 configuration must resolve to exactly the lane it always used,
+* a single-provider configuration (no chain) must resolve to exactly one lane,
 * lane-fatal and document-local must not drift into each other,
 * and nothing in this path may ever carry a credential value.
 """
@@ -43,11 +43,11 @@ from implementation_scripts.database import (  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
-# Backward compatibility — the standing rule this PR is most able to break
+# Backward compatibility — single-provider configurations keep working
 # ---------------------------------------------------------------------------
 
 def test_legacy_api_key_settings_resolve_to_one_lane():
-    """A pre-1.8 provider configuration is a one-lane chain, unchanged."""
+    """A single-provider configuration is a one-lane chain, unchanged."""
     lanes = resolve_chain({"ai_provider": "anthropic", "ai_model": "claude-3-5-sonnet"})
     assert len(lanes) == 1
     lane = lanes[0]
@@ -220,7 +220,7 @@ def test_every_kind_is_classified_as_exactly_one_of_the_two():
 
 
 def test_ai_error_is_a_runtime_error():
-    """The remote client raised RuntimeError before 1.8; callers keep working."""
+    """The remote client's errors are RuntimeErrors; callers that catch RuntimeError keep working."""
     assert issubclass(AIError, RuntimeError)
 
 
@@ -418,8 +418,8 @@ def _run_dive_with_llm(conn, tmp_path, llm_client, lane):
 def test_a_failing_lane_is_recorded_on_a_real_run(conn, tmp_path):
     """Every summary failed — the row must say so, and say why.
 
-    This is the watchdog blind spot 1.8a exists to close: before it, a run
-    where the AI failed on every document completed and looked healthy.
+    This closes a watchdog blind spot: without the record, a run where the AI
+    failed on every document would complete and look healthy.
     """
     from unittest.mock import MagicMock
 
@@ -437,9 +437,9 @@ def test_a_failing_lane_is_recorded_on_a_real_run(conn, tmp_path):
     assert row["outcome"] == "failed"
     assert row["error_kind"] == "auth"
     assert row["http_status"] == 401
-    # One attempt, not two. `auth` is lane-fatal, so 1.8b demotes the lane
+    # One attempt, not two. `auth` is lane-fatal, so the chain demotes the lane
     # after the first rejection instead of re-presenting a dead key once per
-    # paper. Before chains this read 2; the change is the point.
+    # paper.
     assert row["docs_attempted"] == 1
     assert row["docs_succeeded"] == 0
     assert row["credential_alias"] == "anthropic_api_key"

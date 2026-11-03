@@ -16,7 +16,7 @@ What is under test is what the feature promises a user:
 * removing an entry removes membership and nothing else, while the one route
   that does delete papers takes the queue rows with it;
 * the export is the existing shared serializer over the selected ids, with the
-  union, ordering and output-wide key allocation phase 2.1a established.
+  union, ordering and output-wide key allocation that serializer defines.
 
 The ``seed`` / ``snapshot`` / ``seed-queue`` CLI modes at the bottom are what
 the Electron spec uses to build and read the same database without adding a
@@ -46,7 +46,7 @@ import httpx  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # safe when run as a script
 from implementation_scripts import api_auth as _api_auth  # noqa: E402
 
-# 2.2: every request to a resmon backend carries its local API token. The
+# Every request to a resmon backend carries its local API token. The
 # backends this file starts are handed the suite's token in RESMON_API_TOKEN,
 # exactly as Electron hands its own over, and test-side calls go through this
 # shim. The code under test builds its own headers; nothing here adds any.
@@ -246,7 +246,7 @@ def entries_of(payload: dict) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
-# P1 — the id a user clicks is the paper that is saved
+# The id a user clicks is the paper that is saved
 # ---------------------------------------------------------------------------
 
 
@@ -323,7 +323,7 @@ def test_two_records_that_look_alike_stay_two_entries(clean_queue):
 
 
 # ---------------------------------------------------------------------------
-# P3 — every control's effect is the effect it claims
+# Every control's effect is the effect it claims
 # ---------------------------------------------------------------------------
 
 
@@ -350,10 +350,10 @@ def test_a_state_request_that_changes_nothing_writes_nothing(clean_queue):
     The timestamps are **pinned to a date in the past** before the repeated
     requests, and that is the whole point of the test. `datetime('now')` has
     one-second resolution, so a rewrite with fresh values inside the same
-    second is indistinguishable from no write at all — the first version of
-    this check compared the row against itself and `sqlite3.Connection.
-    total_changes` on a connection that had made no changes, and a mutation
-    that deleted the no-op branch entirely left it green. Pinning the values
+    second is indistinguishable from no write at all — a check that compared
+    the row against itself and `sqlite3.Connection.total_changes` on a
+    connection that had made no changes would stay green under a mutation that
+    deleted the no-op branch entirely. Pinning the values
     makes any write visible, because a write replaces 2020 with today.
 
     `PRAGMA data_version` is the second half: it moves when *another*
@@ -549,7 +549,7 @@ def test_the_owner_operated_corpus_erase_takes_the_queue_with_it(clean_queue, tm
 
 
 # ---------------------------------------------------------------------------
-# P5 — the export is the existing one, over the selected ids
+# The export is the existing one, over the selected ids
 # ---------------------------------------------------------------------------
 
 
@@ -603,7 +603,7 @@ def test_an_export_failure_is_reported_rather_than_saved(clean_queue):
 
 
 # ---------------------------------------------------------------------------
-# P2 — the state survives a restart, with the same values
+# The state survives a restart, with the same values
 # ---------------------------------------------------------------------------
 
 

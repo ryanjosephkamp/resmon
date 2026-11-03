@@ -1,10 +1,10 @@
-"""Delegation 08: fixture contracts and scheduled public endpoint checks.
+"""Fixture contracts and scheduled public endpoint checks.
 
-Fixtures below are minimal, synthetic projections of the live 2026-09-06
+Fixtures below are minimal, synthetic projections of the live
 responses. Tests patch below safe_request so zero reasons and limiter use are
 exercised, rather than replaced by a client-level request double.
 
-OAPEN was withdrawn in October 2026: its search API answers HTTP 403
+OAPEN is retired: its search API answers HTTP 403
 (``api_registry.RETIRED_REPOSITORIES``). Its scheduled live case went with it.
 Its fixture contracts stay, driving ``OapenClient`` directly through
 ``client_for``, because the client is kept on disk for a revival and these
@@ -113,7 +113,7 @@ def test_oapen_query_year_precision_pagination_and_metadata(wire, monkeypatch):
                     (200, [oapen_record("20.500.12657/85023")])])
     rows = api_oapen.OapenClient().search("water AND fire", "2023-06-01", "2024-12-31", 3)
     assert [r.external_id for r in rows] == ["20.500.12657/100210", "20.500.12657/85023"]
-    # 2.1: `authors` is `list[Author]`; the names are `author_names`.
+    # `authors` is `list[Author]`; the names are `author_names`.
     assert rows[0].author_names == ["A. Author", "B. Author"]
     assert rows[0].abstract == "CC0 metadata abstract"
     assert rows[0].categories == ["Water"]
@@ -163,7 +163,7 @@ def test_govinfo_query_scoped_key_cursor_and_granule_identity(wire, monkeypatch)
     assert len({r.external_id for r in rows}) == 3
     assert rows[0].external_id == "CFR-2024-title33-vol3/CFR-2024-title33-vol3-sec203-61"
     assert rows[2].external_id == "CFR-2024-title33-vol3"
-    # 2.1: `authors` is `list[Author]`; the names are `author_names`.
+    # `authors` is `list[Author]`; the names are `author_names`.
     assert rows[0].author_names == ["Office of the Federal Register"]
     assert rows[0].publication_date == "2024-07-01"
     assert rows[0].categories == ["CFR"]
@@ -299,11 +299,10 @@ def test_govinfo_live_search(monkeypatch):
     assert reason() == "answered_empty"
 
 
-# Baseline policies and older live cases are outside this batch's re-audit.
 # Freeze the baseline rather than exempting every future catalog entry. Adding
-# a source now requires a callable scheduled live case, explicit granularity,
-# and a cited terms verdict. The old catalog had no terms-verdict field and
-# no such completeness guard, contrary to the brief.
+# a source requires a callable scheduled live case, explicit granularity, and a
+# cited terms verdict; the baseline sources below are exempt from that
+# completeness guard.
 _BASELINE_SLUGS = frozenset({
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads", "ndl_search",

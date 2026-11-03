@@ -5,7 +5,7 @@ import { historyScale, watchWarnings } from '../model';
 import type { CatalogEntry } from '../../runs/model';
 
 function status(state: SchedulerStatus['state'], routines: SchedulerStatus['routines'], extra: Partial<SchedulerStatus> = {}): SchedulerStatus {
-  return { state, app_version: '2.3.0', service_installed: false, service_version: null, routines, ...extra };
+  return { state, app_version: '1.0.0', service_installed: false, service_version: null, routines, ...extra };
 }
 
 const nothing = (id: number) => ({ id, will_fire: false, reason: 'no_scheduler_running' as const });
@@ -50,9 +50,9 @@ describe('the one sentence on why watches will not run', () => {
   });
 
   test('one unconfirmed watch among them makes the sentence the weaker one', () => {
-    const notice = firingNotice(status('service_other_version', [nothing(1), unsure(2)], { service_version: '2.1.0' }));
+    const notice = firingNotice(status('service_other_version', [nothing(1), unsure(2)], { service_version: '1.1.0' }));
     expect(notice?.text).toMatch(/^resmon cannot confirm that anything will run your watches on schedule\./);
-    expect(notice?.text).toContain('resmon 2.1.0, and this app is 2.3.0');
+    expect(notice?.text).toContain('resmon 1.1.0, and this app is 1.0.0');
   });
 
   test('some of them, by count; and one watch on its own page', () => {

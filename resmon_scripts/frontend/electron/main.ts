@@ -1,7 +1,11 @@
 import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
 import {
-  isServiceLaunch, routeForNotice, servicePort, startNoticeListener, type Notice, type NoticeListener,
+  installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
+} from './commandLineInstall';
+import {
+  appExecutable, engineFlags, isServiceLaunch, routeForNotice, servicePort, startNoticeListener,
+  type Notice, type NoticeListener,
 } from './host';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
@@ -86,8 +90,8 @@ function isHiddenWindow(): boolean {
 //   both (what ships)       foreground kept    not focused      no Dock icon
 //
 // So `accessory` on its own changes nothing about focus. It earns its place for
-// the second half of the complaint rather than the first: a suite run no longer
-// puts an icon in the Dock or takes over the menu bar, which is what made a run
+// the second half of the problem rather than the first: a suite run does not
+// put an icon in the Dock or take over the menu bar, which is what made a run
 // feel like another app had opened even when it had not stolen the keyboard.
 //
 // Applied at module scope rather than inside `app.whenReady()`, and that is a
@@ -149,7 +153,7 @@ let rendererPort: number | null = null;
 /** True when we attached to an already-running daemon and must not kill it on quit. */
 let attachedToDaemon: boolean = false;
 /**
- * The backend's local API token (2.2 lock-down). Minted here for a backend this
+ * The backend's local API token. Minted here for a backend this
  * process spawns; read from the daemon's owner-only token file when attaching.
  * It reaches the backend through the child's environment and the renderer
  * through the preload's synchronous IPC — never argv (world-readable in `ps`),
@@ -266,9 +270,9 @@ function fetchHealth(port: number, token: string, timeoutMs: number = 3000): Pro
  *
  * The daemon starts under launchd before any window exists, so unlike a backend
  * this process spawns it cannot be told the origin in its environment — and
- * "any loopback origin", which the old Library guard trusted, is what the
- * lock-down removed. Sent from here, with the token and without an Origin
- * header, which is the only way the backend accepts it.
+ * "any loopback origin" is not trusted by the Library guard. Sent from here,
+ * with the token and without an Origin header, which is the only way the
+ * backend accepts it.
  */
 function registerRendererOrigin(port: number, token: string, origin: string, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -288,7 +292,7 @@ function registerRendererOrigin(port: number, token: string, origin: string, tim
 
 
 /**
- * Update 4 / Fix C — Attempt to attach to a running resmon-daemon by
+ * Attempt to attach to a running resmon-daemon by
  * reading the lock file and probing its health endpoint, retrying a
  * bounded number of times before giving up. Returns the daemon's port
  * on success or ``null`` if no live daemon was found.
@@ -296,17 +300,17 @@ function registerRendererOrigin(port: number, token: string, origin: string, tim
  * Why this exists: when launchd is mid-bootstrap (e.g., right after a
  * Danger-Zone reset followed by re-enabling background execution), the
  * lock file is rewritten before the FastAPI app finishes binding its
- * port, so a single 500 ms probe times out and the previous code
- * silently spawned a competing backend. That second backend would
+ * port, so a single 500 ms probe would time out and the app would
+ * silently spawn a competing backend. That second backend would
  * register its own APScheduler against the same SQLite jobstore,
  * causing every fire to be logged as "missed" by the daemon's grace
  * window. Retrying with a longer per-attempt timeout closes that race.
  *
  * The daemon must also be the SAME VERSION as this app. Attaching across
- * versions is how the first installed 1.5.0 app ended up talking to a
- * 1.2.1 daemon: health answered 200, the attach succeeded, and every
- * page the old backend had never heard of (Analytics, Explorer) rendered
- * a 404 while the status bar said "Online". A version-mismatched daemon
+ * versions would leave an app talking to a daemon that does not know its
+ * routes: health answers 200, the attach succeeds, and every page the
+ * older backend has never heard of renders a 404 while the status bar
+ * says "Online". A version-mismatched daemon
  * is treated exactly like no daemon at all — the app spawns its own
  * bundled backend on a free port and leaves the daemon alone.
  */
@@ -319,9 +323,9 @@ async function tryAttachToDaemon(
   for (let i = 0; i < attempts; i++) {
     const lock = readLockFile();
     if (lock) {
-      // 2.2: a daemon with no token file is treated exactly like a
+      // A daemon with no token file is treated exactly like a
       // version-mismatched one — never probed, never attached to. It is either
-      // a daemon from before the lock-down or one whose file this user cannot
+      // a daemon that publishes no token or one whose file this user cannot
       // read, and in both cases the app spawns its own backend and leaves the
       // daemon alone. It is retried like an unanswered probe, because a daemon
       // mid-start writes its lock a moment before its token file.
@@ -415,11 +419,18 @@ function stopOwnBackend(): Promise<void> {
   });
 }
 
+/** Tell an engine this app starts which executable runs this app, or that none does. */
+function setAppExecutable(env: NodeJS.ProcessEnv): void {
+  const executable = appExecutable(process.platform, process.execPath, app.isPackaged);
+  if (executable) env.RESMON_APP_EXECUTABLE = executable;
+  else delete env.RESMON_APP_EXECUTABLE;
+}
+
 /** Spawn the Python backend and return the child process. */
 function startBackend(port: number, token: string, rendererOrigin: string): ChildProcess {
   const { scriptDir, pythonPath } = backendLocation();
   const resmonScript = path.join(scriptDir, 'resmon.py');
-  // Update 4 / Fix D — A renderer-spawned fallback backend must NOT own
+  // A renderer-spawned fallback backend must NOT own
   // a ResmonScheduler. The launchd daemon is the sole scheduler owner;
   // letting both processes register jobs against the same SQLite
   // jobstore causes the dual-scheduler race that drops fires when the
@@ -443,7 +454,14 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
       || path.join(state, 'resmon.db');
     backendEnv.RESMON_REPORTS_DIR = backendEnv.RESMON_REPORTS_DIR
       || path.join(state, 'resmon_reports');
+    // The bundle's bytecode was compiled when it was built. Writing more into
+    // it would edit the app, which breaks its signature once it is signed.
+    backendEnv.PYTHONDONTWRITEBYTECODE = '1';
   }
+  // A service unit that this engine installs runs the app, so the engine is
+  // told which executable that is. Never inherited from the shell that started
+  // this app: only this app knows its own path.
+  setAppExecutable(backendEnv);
 
   // The app posts this backend's notifications as resmon, as it does the
   // service's (`postNotice`), rather than the backend posting them through a
@@ -457,6 +475,9 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
     cwd: scriptDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: spec.env,
+    // The engine is a console program; without this Windows opens a console
+    // window for it.
+    windowsHide: true,
   });
 
   child.stdout?.on('data', (data: Buffer) => {
@@ -504,11 +525,11 @@ function backendLocation(): { scriptDir: string; pythonPath: string } {
 /**
  * Start the engine as the background service's own.
  *
- * The same `implementation_scripts.daemon` the unit used to start by itself,
- * so everything that makes it the service stays as it was: it owns the
+ * The service's own entry point, `implementation_scripts.daemon`,
+ * so everything that makes it the service holds: it owns the
  * scheduler, takes the daemon lock, writes the token file the MCP server and
- * the CLI read, and shuts down cooperatively on SIGTERM. What changes is that
- * it is this app's child, given this app's token and the address of its notice
+ * the CLI read, and shuts down cooperatively on SIGTERM. It is
+ * this app's child, given this app's token and the address of its notice
  * listener, so its notifications are posted by the app.
  *
  * Its output is this process's output: under a unit that is the unit's log
@@ -533,15 +554,20 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
     fs.mkdirSync(state, { recursive: true });
     env.RESMON_DB_PATH = env.RESMON_DB_PATH || path.join(state, 'resmon.db');
     env.RESMON_REPORTS_DIR = env.RESMON_REPORTS_DIR || path.join(state, 'resmon_reports');
+    // See `startBackend`: the packaged bundle is never written to.
+    env.PYTHONDONTWRITEBYTECODE = '1';
   }
+  setAppExecutable(env);
   if (noticeListener) {
     env.RESMON_HOST_NOTIFY_URL = noticeListener.url;
     env.RESMON_HOST_NOTIFY_TOKEN = noticeListener.token;
   }
-  const child = spawn(pythonPath, ['-m', 'implementation_scripts.daemon', String(port)], {
+  const daemonArgs = ['-m', 'implementation_scripts.daemon', String(port), ...engineFlags(process.argv)];
+  const child = spawn(pythonPath, daemonArgs, {
     cwd: scriptDir,
     stdio: ['ignore', 'inherit', 'inherit'],
     env,
+    windowsHide: true,
   });
   child.on('exit', (code, signal) => {
     backendProcess = null;
@@ -715,9 +741,9 @@ function startRendererServer(rendererRoot: string): Promise<number> {
  *
  * Everything this flag gates is *test determinism only* — never behaviour a
  * user could want, and never anything that changes what the app shows. With the
- * variable unset every branch below takes the path it took before the flag
- * existed; `e2e/default-behaviour.spec.ts` is the check that says so by
- * launching the app without it and asserting the old behaviour.
+ * variable unset every branch below takes the path a person's launch takes;
+ * `e2e/default-behaviour.spec.ts` is the check that says so by
+ * launching the app without it and asserting the default behaviour.
  */
 function isE2E(): boolean {
   return process.env.RESMON_E2E === '1';
@@ -761,7 +787,7 @@ function createWindow(ground: string, route: string | null = null): void {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
-  // E2E hunk 1 of 3 — a fixed window size. A maximized window is a different
+  // A fixed window size under the e2e suite. A maximized window is a different
   // size on every machine and on CI it is whatever xvfb was told to be, so a
   // screenshot is only evidence if the viewport it was taken at is known. The
   // suite supplies the numbers rather than this file guessing them.
@@ -798,13 +824,11 @@ function createWindow(ground: string, route: string | null = null): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // webSecurity stays ON. It used to be disabled, from a time when the
-      // renderer was loaded over file:// and could not make cross-origin
-      // requests to the backend. The renderer is now served by a local HTTP
+      // webSecurity stays ON. The renderer is served by a local HTTP
       // server (startRendererServer below), so it has an ordinary
-      // http://127.0.0.1:<port> origin, and since 2.2 the backend answers CORS
+      // http://127.0.0.1:<port> origin, and the backend answers CORS
       // for exactly that origin and no other. Disabling the same-origin policy
-      // for the whole window bought nothing and cost real protection.
+      // for the whole window would buy nothing and cost real protection.
       // No <webview>: Atlas embeds nothing from another origin.
       webviewTag: false,
       // No additionalArguments: they land in the renderer process's argv, which
@@ -832,7 +856,7 @@ function createWindow(ground: string, route: string | null = null): void {
 
   // The main window only ever shows the renderer. A navigation anywhere else —
   // a plain link without a target, a script setting `location` — opens in a
-  // link window instead, the way `window.open` already does. Since 2.2 this is
+  // link window instead, the way `window.open` does. This is
   // also what keeps the backend's token in resmon's own document: the preload
   // hands it to the main window's top frame, so that frame must never hold
   // somebody else's page.
@@ -853,7 +877,7 @@ function createWindow(ground: string, route: string | null = null): void {
   // Open maximized by default (not full-screen) for a more spacious default
   // layout. Users can still un-maximize, resize, or close normally.
   //
-  // E2E hunk 2 of 3 — the other half of the fixed-size change above. Maximizing
+  // Under the e2e suite the window keeps the fixed size above: maximizing
   // would immediately discard the size the constructor was given.
   mainWindow.once('ready-to-show', () => {
     // Under `RESMON_HIDDEN_WINDOW` this handler does nothing at all, and the
@@ -864,7 +888,7 @@ function createWindow(ground: string, route: string | null = null): void {
     // working only because `launchEnv` happens to set `RESMON_E2E` for every
     // journey, which is a different variable in a different file with nothing
     // tying the two together. `launchEnv(stateDir, false)` already exists one
-    // opt-in away. Found in review, not by me.
+    // opt-in away.
     if (isHiddenWindow()) return;
     if (!isE2E()) mainWindow?.maximize();
     // `showInactive()` puts the window up without making it the key window, so
@@ -1039,6 +1063,38 @@ function sendCommand(command: string): void {
 }
 
 /**
+ * Install or remove the `resmon` command (a terminal command that reaches the
+ * running resmon; `commandLine.ts` says what each platform writes) and tell the
+ * person what happened. Under the e2e suites the answer goes to the log, as a
+ * line a spec can read, rather than into a dialog that waits for a click.
+ */
+async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void> {
+  let outcome: Outcome;
+  if (!app.isPackaged && !process.env.RESMON_COMMAND_LINE_ROOT) {
+    outcome = {
+      ok: false,
+      message: 'This copy of resmon runs from its source folder, which has no command line to install.',
+      detail: 'The installed app does. From a checkout, run: pipx install ./resmon_scripts/cli',
+    };
+  } else {
+    const context = systemContext(process.env, process.resourcesPath);
+    outcome = await (action === 'install' ? installCommandLine(context) : uninstallCommandLine(context));
+  }
+  if (isE2E()) {
+    console.log(`[main] command line ${JSON.stringify({ action, ...outcome })}`);
+    return;
+  }
+  const options: Electron.MessageBoxOptions = {
+    type: outcome.ok ? 'info' : 'warning',
+    message: outcome.message,
+    detail: outcome.detail,
+    buttons: ['OK'],
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options);
+  else await dialog.showMessageBox(options);
+}
+
+/**
  * Install the application menu.
  *
  * resmon shipped with Electron's default menu, which has no history items at
@@ -1072,12 +1128,19 @@ function installApplicationMenu(): void {
       ...(isMac ? [{ role: 'close' as const }] : [settings, { type: 'separator' as const }, { role: 'quit' as const }]),
     ],
   };
+  // As VS Code offers `code`: on macOS in the app menu, elsewhere in Help.
+  const commandItems: Electron.MenuItemConstructorOptions[] = [
+    { id: 'install-command', label: 'Install "resmon" Command in PATH', click: () => { void runCommandLineItem('install'); } },
+    { id: 'uninstall-command', label: 'Uninstall "resmon" Command', click: () => { void runCommandLineItem('uninstall'); } },
+  ];
   const atlasApp: Electron.MenuItemConstructorOptions = {
     role: 'appMenu',
     submenu: [
       { role: 'about' },
       { type: 'separator' },
       settings,
+      { type: 'separator' },
+      ...commandItems,
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -1136,14 +1199,17 @@ function installApplicationMenu(): void {
     { role: 'windowMenu' },
     {
       role: 'help' as const,
-      submenu: [{ id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') }],
+      submenu: [
+        { id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') },
+        ...(isMac ? [] : [{ type: 'separator' as const }, ...commandItems]),
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // ---------------------------------------------------------------------------
-// Auto-update (Windows and Linux only, Master Plan 1.6).
+// Auto-update (Windows and Linux only).
 //
 // macOS is deliberately excluded: Squirrel.Mac validates the code signature
 // before applying an update, and signing is deferred — an unsigned macOS app
@@ -1159,7 +1225,7 @@ function installApplicationMenu(): void {
 
 function initAutoUpdater(): void {
   if (!app.isPackaged) return;
-  // E2E hunk 3 of 3 — the packaged-app run must not reach out to the GitHub
+  // The packaged-app run under the e2e suite must not reach out to the GitHub
   // releases feed, and must not be able to pop the "Update ready" dialog over
   // a screenshot. Unreachable in a checkout (the line above returns first);
   // it exists for the packaged leg of the suite.
@@ -1207,7 +1273,7 @@ app.whenReady().then(async () => {
   // A second instance has handed over and is exiting (`SOLE_INSTANCE`).
   if (!SOLE_INSTANCE) return;
   try {
-    // The renderer server comes first (2.2): the backend has to be told the
+    // The renderer server comes first: the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.
     const rendererRoot = path.join(__dirname, '..', 'atlas');
     const rendererOrigin = `http://127.0.0.1:${await startRendererServer(rendererRoot)}`;
@@ -1217,7 +1283,7 @@ app.whenReady().then(async () => {
     noticeListener = await startNoticeListener(postNotice);
 
     if (SERVICE) {
-      backendPort = servicePort(process.env);
+      backendPort = servicePort(process.env, process.argv);
       backendToken = mintToken();
       console.log(`[main] Starting the service's engine on port ${backendPort}`);
       backendProcess = startServiceEngine(backendPort, backendToken, rendererOrigin);
@@ -1229,7 +1295,7 @@ app.whenReady().then(async () => {
     }
 
     // Attach-or-spawn: if the lock file points to a live daemon, attach.
-    // Update 4 / Fix C — retry with a longer per-attempt timeout so a
+    // Retry with a longer per-attempt timeout so a
     // launchd-respawn-in-progress (lock file rewritten but FastAPI not
     // yet bound) does not cause a single-shot 500 ms probe to time out
     // and trigger a competing-backend spawn.
@@ -1365,6 +1431,9 @@ app.whenReady().then(async () => {
     });
 
     installApplicationMenu();
+    // An AppImage mounts at a new path on every run; the `resmon` command the
+    // menu installed runs a copy of the command line, which is kept current.
+    if (app.isPackaged) refreshInstalledArchive(systemContext(process.env, process.resourcesPath));
     // The service opens no window of its own; `showWindow` makes one on request.
     // It does not check for updates either: an update replaces the bundle, and
     // offering it is a window's job, with a person looking at it.

@@ -125,13 +125,13 @@ def test_a_short_parameter_is_left_to_pytest():
 def test_the_cap_is_a_safety_limit_and_not_a_formatting_rule():
     """How tight the cap is, held as a decision rather than left to taste.
 
-    It was 64 first, and a reviewer measured the cost: 20 of 3,562 ids changed
-    with no collisions, but five lost readable content while sitting nowhere
-    near any limit -- ``[raw-bytes74]`` among them, and this module's own gate
-    rendered as ``[test_evidence_reader.py-case-str66]``. Re-measured at 512,
-    14 ids change and those five are legible again.
+    A cap of 64 changes 20 of 3,562 ids with no collisions, but five lose
+    readable content while sitting nowhere near any limit -- ``[raw-bytes74]``
+    among them, and this module's own gate rendered as
+    ``[test_evidence_reader.py-case-str66]``. At 512, 14 ids change and those
+    five stay legible.
 
-    The floor below is what stops that happening again by accident. The
+    The floor below is what stops the cap drifting down by accident. The
     ceiling is the point: a cap that is a meaningful fraction of the scanner
     limit is not a safety limit, it is a house style, and this hook should
     only ever be the former.
@@ -154,11 +154,10 @@ def test_the_cap_is_a_safety_limit_and_not_a_formatting_rule():
 def _suite_step() -> str:
     """The ``Run the hermetic test suite`` step, as text.
 
-    Ends at the next step *or* the next job, whichever comes first. It used to
-    look only for the next ``- name:``, and because this is the backend job's
-    last step that ran on into ``lint:`` -- so an assertion about this step
-    could have been satisfied by another job's text. Nothing was wrong because
-    of it; it was wrong anyway.
+    Ends at the next step *or* the next job, whichever comes first. This is the
+    backend job's last step, so looking only for the next ``- name:`` would run
+    on into ``lint:`` and an assertion about this step could be satisfied by
+    another job's text.
     """
     text = CI_WORKFLOW.read_text(encoding="utf-8")
     start = text.index("- name: Run the hermetic test suite")
@@ -176,10 +175,9 @@ def _suite_step() -> str:
 def test_the_suite_step_captures_and_re_raises_pytests_own_status():
     """A crashed run must not be able to report success.
 
-    1.8.7 shipped a step whose pipeline put pytest's exit code behind ``tee``'s
-    and a crashed Electron run exited 0. The shape here is the opposite: no
-    pipe at all, the status captured into a variable, and that variable
-    re-raised as the step's own.
+    A step whose pipeline put pytest's exit code behind ``tee``'s would exit 0
+    on a crash. The shape here is the opposite: no pipe at all, the status
+    captured into a variable, and that variable re-raised as the step's own.
     """
     step = _suite_step()
     assert "status=$?" in step
@@ -188,7 +186,7 @@ def test_the_suite_step_captures_and_re_raises_pytests_own_status():
     assert "|| true" not in step
     assert "| tee" not in step, (
         "a pipeline here would put pytest's status behind the last command's, "
-        "which is the 1.8.7 defect"
+        "which would let a crashed run exit 0"
     )
 
 
@@ -212,10 +210,9 @@ def test_the_suite_step_reports_the_status_and_the_peak_memory():
 def _suite_run_block() -> str:
     """The suite step's shipped `run:` script, dedented, ready to execute.
 
-    Taken out of ci.yml rather than retyped. The first version of this test
-    ran a hand-written approximation -- `( script )` in place of the real
-    if/else -- which a reviewer pointed out is not the shape that ships: it
-    would have stayed green through an edit to either branch.
+    Taken out of ci.yml rather than retyped. A hand-written approximation --
+    `( script )` in place of the real if/else -- is not the shape that ships: it
+    would stay green through an edit to either branch.
     """
     step = _suite_step()
     body = step.split("run: |", 1)[1]
@@ -257,14 +254,11 @@ def test_the_shipped_run_block_preserves_a_status(tmp_path, script, expected):
     ``else`` and a Linux runner runs the ``if``. The ``if`` branch is the one
     that runs on CI -- the Backend job log carries a
     ``Maximum resident set size`` line, which only GNU time prints -- and
-    **nobody has measured whether it preserves 128+N**. Reading GNU time's
+    **it has not been measured whether it preserves 128+N**. Reading GNU time's
     ``main()`` suggests it exits with ``WTERMSIG(status)``, the bare 9 or 11,
-    which would make the notice wrong in exactly the case it exists for. An
-    earlier draft of this docstring said a reviewer had confirmed otherwise;
-    they had not -- their script used bash alone, with ``/usr/bin/true`` as
-    the stand-in, so what it established was that bash's ``$?`` is 128+N.
-    That sentence was a reading credited as a measurement, inside the module
-    that exists because the two are not the same thing.
+    which would make the notice wrong in exactly the case it exists for. A
+    script using bash alone, with ``/usr/bin/true`` as the stand-in, would only
+    establish that bash's ``$?`` is 128+N.
 
     This case is the instrument. On CI it takes the ``if`` branch and asserts
     137 and 139; if GNU time collapses them it goes red and the log settles
@@ -319,20 +313,18 @@ NEAR_THE_LIMIT = {
 def timeout_marks_on(source: str, case: str) -> list[int]:
     """The ``@pytest.mark.timeout(N)`` values on *case*'s own decorator list.
 
-    Read with ``ast``, deliberately. The first version of this scanned
-    ``source[:index]`` -- the whole file above the ``def`` -- with a regex and
-    took the last match, so **any** timeout mark anywhere earlier in the file
-    satisfied it. A reviewer moved the mark off the 112-second case and onto an
-    unrelated one 43 lines above; the measured case silently went back to the
-    120-second default and this gate reported two passes.
+    Read with ``ast``, deliberately. Scanning ``source[:index]`` -- the whole
+    file above the ``def`` -- with a regex and taking the last match would let
+    **any** timeout mark anywhere earlier in the file satisfy the check: move
+    the mark off the 112-second case and onto an unrelated one 43 lines above,
+    and the measured case silently goes back to the 120-second default while
+    the gate reports two passes.
 
-    That is the boundary-defect class this repository has now shipped three
-    times: a check that is green under the exact failure it is named after.
-    The technique that fixes it was already in the same diff --
-    ``route_census.py`` reads decorator lists properly -- which is the part
-    worth remembering. Attaching a check to a *region of text* rather than to
-    the *object* it is about is the mistake; proximity in a file is not
-    ownership.
+    That is the boundary-defect class of a check that is green under the exact
+    failure it is named after. ``route_census.py`` reads decorator lists
+    properly, which is the technique to follow. Attaching a check to a *region
+    of text* rather than to the *object* it is about is the mistake; proximity
+    in a file is not ownership.
 
     Raises rather than returning empty when the function is absent, because a
     renamed case must be a red here and not a silent pass.
@@ -402,7 +394,7 @@ def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, cas
 
 
 def test_a_timeout_mark_on_a_neighbouring_case_does_not_count(tmp_path):
-    """The reviewer's mutation, kept as a case.
+    """The mutation that moves the mark to a neighbouring case, kept as a case.
 
     Moves the real mark off the measured case and onto a different one earlier
     in the same real file. The gate must see the measured case as unmarked.
@@ -444,10 +436,9 @@ def test_the_last_stacked_mark_is_the_one_that_counts():
     ======================================  ==================
 
     So ``decorator_list[-1]`` is the effective one, and reducing with
-    ``max()`` -- which this gate did first -- accepts ``[300, 60]`` while the
-    real limit is 60: half the default the gate exists to improve on. A
-    reviewer found that by stacking the marks rather than by reading the
-    code, which is the same lesson this module keeps paying for.
+    ``max()`` would accept ``[300, 60]`` while the real limit is 60: half the
+    default the gate exists to improve on. Stacking
+    the marks shows that; reading the code does not.
     """
     source = (VERIFICATION / "test_library_text.py").read_text(encoding="utf-8")
     case = NEAR_THE_LIMIT["test_library_text.py"]
@@ -482,8 +473,8 @@ def test_the_suite_step_reports_the_slowest_cases():
     that finally crosses the line reports nothing at all -- there is no red to
     read, which is why a standing watch and not an alert.
 
-    This assertion exists because the flag was added with nothing holding it,
-    which is the one place this change did not follow its own thesis.
+    This assertion exists so that the flag is held by a test rather than by
+    memory.
     """
     step = _suite_step()
     assert "--durations=" in step, (

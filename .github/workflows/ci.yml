@@ -23,13 +23,13 @@ jobs:
       fail-fast: false
       matrix:
         # 3.10 is the floor the README advertises. 3.12 is here as the
-        # acceptance test for BUG-020: the backend used to share one
+        # acceptance test for per-thread database connections: sharing one
         # sqlite3.Connection between request threads and execution worker
-        # threads, and 3.12 releases the GIL around sqlite3 far more
-        # aggressively than 3.11, so that race failed reliably there and
-        # intermittently everywhere else. Each thread now opens its own
-        # connection. If this column ever goes red again, suspect connection
-        # sharing first.
+        # threads is a race, and 3.12 releases the GIL around sqlite3 far more
+        # aggressively than 3.11, so it fails reliably there and
+        # intermittently everywhere else. Each thread opens its own
+        # connection. If this column goes red, suspect connection sharing
+        # first.
         python-version: ['3.10', '3.11', '3.12']
 
     env:
@@ -64,19 +64,6 @@ jobs:
             echo "Tracked files carry a maintainer-machine path:"; echo "$paths"; exit 1
           fi
 
-      # The cumulative upgrade test regenerates each released fixture from that
-      # release's own code and diffs it against the committed file. The
-      # checkout above is depth 1 and carries no tags, so fetch those tags
-      # (depth 1 is enough for a worktree of each) and tell the test that a
-      # missing tag is a failure here, not a skip. One tag per released
-      # fixture: the list here and `RELEASED` in
-      # verification_scripts/test_cumulative_upgrade.py grow together.
-      - name: Fetch the released tags for the fixture-provenance checks
-        run: |
-          for tag in v2.1.0 v2.2.0 v2.3.0; do
-            git fetch --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
-          done
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -108,41 +95,28 @@ jobs:
         # count. With -v the last line printed is the last test that finished,
         # which names the culprit immediately.
         #
-        # That sentence was false for as long as it had been written. -v prints
-        # every parametrised id, one case carried a 256 KiB bytes parameter, and
-        # `gh run view --log` reads with Go's bufio.Scanner at its default 64 KiB
-        # and stops at the first longer line — so half of every Backend log, pass
-        # or fail, was unreachable and the last visible line named an innocent
-        # test. conftest.py's pytest_make_parametrize_id now caps ids (longest in
-        # the whole suite: 188 bytes), which is what finally makes the comment
-        # above true. For a log written before that, the whole thing is still
-        # available through
+        # -v prints every parametrized id, so conftest.py's
+        # pytest_make_parametrize_id caps ids (longest in the whole suite: 188
+        # bytes). `gh run view --log` reads with Go's bufio.Scanner at its
+        # default 64 KiB and stops at the first longer line, which would hide
+        # the rest of the log and leave a last visible line that names an
+        # innocent test. The whole log is also available through
         #   gh api --allow-escape-sequences /repos/<owner>/<repo>/actions/jobs/<id>/logs
         #
-        # --durations=25 because nothing was watching the headroom. Two cases sit
-        # at 90% and 93% of pytest.ini's 120 s, and the only reason anybody knew
-        # that was a one-off measurement; timeout_method = thread expires by
-        # calling os._exit(1), so the run that finally crosses the line reports
-        # nothing at all. Twenty-five lines at the end of a log that is now
-        # readable is the cheapest standing watch there is, and it makes the
-        # next case to approach the limit visible before it arrives.
+        # --durations=25 because nothing else watches the headroom. Two cases
+        # sit at 90% and 93% of pytest.ini's 120 s, and timeout_method = thread
+        # expires by calling os._exit(1), so the run that crosses the line
+        # reports nothing at all. Twenty-five lines at the end of a readable
+        # log is the cheapest standing watch there is, and it makes the next
+        # case to approach the limit visible before it arrives.
         #
         # The status is captured and re-raised rather than left to the shell, and
         # it is echoed as a notice because a job killed by a signal exits 128+N
         # and that single number settles what happened: 137 is an OOM kill, 139 a
         # segfault. /usr/bin/time -v alongside it records peak RSS, which is what
         # turns "137" into a diagnosis rather than a guess. There is deliberately
-        # no pipe here: a pipeline would put pytest's exit code behind tee's, the
-        # defect that let a crashed run report success in 1.8.7.
-        env:
-          # One switch per released fixture, each turning "the tag is not here"
-          # from a skip into a failure. A new release adds its own rather than
-          # widening an existing one: a single flag would have to mean "every
-          # tag", and the first tag that failed to fetch would take the others
-          # down with it without saying which one was missing.
-          RESMON_REQUIRE_V210_TAG: '1'
-          RESMON_REQUIRE_V220_TAG: '1'
-          RESMON_REQUIRE_V230_TAG: '1'
+        # no pipe here: a pipeline would put pytest's exit code behind tee's,
+        # and a crashed run would report success.
         run: |
           set +e
           # Probe the flag, not the file. `-x /usr/bin/time` is true for BSD
@@ -166,7 +140,7 @@ jobs:
     runs-on: ubuntu-latest
     # Both of these are house rules rather than this job's own needs: CI is
     # free because the repository is public, and a private mirror running the
-    # same workflows once cost $115 in billed minutes.
+    # same workflows is billed per minute.
     if: github.repository == 'ryanjosephkamp/resmon'
     timeout-minutes: 10
 
@@ -190,13 +164,11 @@ jobs:
         run: npm install --no-audit --no-fund
 
       - name: ESLint
-        # Warnings do not fail this job, and that is the point of it. The
-        # renderer had never been linted, so every rule it does not satisfy
-        # yet is a `warn` listed by name and count in eslint.config.mjs —
-        # 416 of them across 116 files when the job was added. The rules it
-        # does satisfy are errors and this step is what holds them, along
-        # with any `eslint-disable` left behind for a rule that reports
-        # nothing.
+        # Warnings do not fail this job, and that is the point of it. Every
+        # rule the renderer does not satisfy yet is a `warn` listed by name
+        # and count in eslint.config.mjs. The rules it does satisfy are errors
+        # and this step is what holds them, along with any `eslint-disable`
+        # left behind for a rule that reports nothing.
         run: npm run lint
 
   frontend:
@@ -216,9 +188,9 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          # 22, matching package.json's engines and .nvmrc. It was '20' until
-          # the trim PR: 20 is @playwright/test@1.62.1's declared floor, and
-          # sitting exactly on a dependency's floor is not a place to stay.
+          # 22, matching package.json's engines and .nvmrc. 20 is
+          # @playwright/test@1.62.1's declared floor, and sitting exactly on a
+          # dependency's floor is not a place to stay.
           node-version: '22'
           cache: npm
           cache-dependency-path: resmon_scripts/frontend/package-lock.json
@@ -229,14 +201,11 @@ jobs:
         # lockfile generated on macOS makes `npm ci` fail on the Linux runner
         # with "Missing: @emnapi/core from lock file".
         #
-        # This comment used to blame tailwindcss for those fallbacks. It was
-        # wrong, and the trim PR that removed tailwindcss proved it: the chain
-        # is jest-resolve -> unrs-resolver -> @unrs/resolver-binding-wasm32-wasi
-        # -> @napi-rs/wasm-runtime -> @emnapi/*, every link a devDependency of
-        # jest. That family (@emnapi/*, @unrs/*, @napi-rs/*) is 27 lockfile
-        # entries; removing tailwindcss left 26 of them in place - the one that
-        # went was a hoisted duplicate of a nested @emnapi/* that is still
-        # there - so `npm install` stays.
+        # The chain is jest-resolve -> unrs-resolver ->
+        # @unrs/resolver-binding-wasm32-wasi -> @napi-rs/wasm-runtime ->
+        # @emnapi/*, every link a devDependency of jest. That family
+        # (@emnapi/*, @unrs/*, @napi-rs/*) is 27 lockfile entries, so
+        # `npm install` stays.
         #
         # The lockfile is still committed and still honoured for everything it
         # does pin; this only relaxes the strict-equality check that npm itself
@@ -297,8 +266,8 @@ jobs:
 
       - name: The published output verifies
         # Bare, with no `--dir`: the documented command has to be the command
-        # that passes. It defaulted to Astro's `dist/` until recently, which is
-        # not what GitHub Pages serves, and was red.
+        # that passes, and it verifies `docs/`, the directory GitHub Pages
+        # serves, not Astro's `dist/`.
         run: npm run verify
 
       - name: docs/ is what these sources build
@@ -308,21 +277,18 @@ jobs:
         # build step on a runner: GitHub Pages serves the files as they are.
         # So a pull request that edits a Markdown file under `docs/` and does
         # not rebuild leaves the published page showing the old text, with
-        # nothing to notice it. That is not hypothetical — on 2026-10-18 the
-        # published API contract index and MCP page carried 79% of their
-        # source text for a day, because #172, #173 and #176 edited the
-        # Markdown after the site's last build.
+        # nothing to notice it.
         #
         # `git status --porcelain` rather than `git diff`, so a page that
         # should newly exist counts too, and rather than `git add -A`, which
-        # is a house rule: it has twice swept a symlinked node_modules into a
-        # public branch.
+        # is a house rule: it can sweep a symlinked node_modules into a public
+        # branch.
         #
         # `--ignored=matching` because plain `git status` does not report an
         # ignored file, and `docs/` is not exempt from the root `.gitignore`.
-        # A reviewer put a file at `docs/dist/page.html` and this gate stayed
-        # green: `.gitignore:35` is `dist/`. The rule that bites is not the
-        # planted case but the ordinary one — a document's slug becomes its
+        # A file at `docs/dist/page.html` would stay green: `.gitignore:35` is
+        # `dist/`. The rule that bites is not a planted file but the ordinary
+        # case — a document's slug becomes its
         # directory, so `docs/build.md` publishes to `docs/build/index.html`,
         # which `build/` ignores. The source commits, the page never does, and
         # the gate reports byte-identical. `build/`, `dist/`, `out/`,

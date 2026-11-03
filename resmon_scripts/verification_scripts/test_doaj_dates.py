@@ -1,14 +1,14 @@
 """A DOAJ record's publication date is an ISO date, whatever form the month came in.
 
 DOAJ gives ``bibjson.month`` as a number, a number in a string, or a name, and
-the client used to zero-pad whatever came, storing ``2025-January-01``. resmon
+a client that zero-pads whatever comes would store ``2025-January-01``. resmon
 reads dates as ISO everywhere else: ``analytics.publication_volume`` buckets by
-the first seven characters, so that paper landed in a month called ``2025-Ja``,
-and ``analytics.discovery_lag``'s ``julianday`` returned NULL for it, so it was
-skipped. Found on a demo corpus while building the Atlas Analytics view.
+the first seven characters, so that paper would land in a month called
+``2025-Ja``, and ``analytics.discovery_lag``'s ``julianday`` would return NULL
+for it, so it would be skipped.
 
-This covers new records only. Rows already stored with a month's name are left
-as they are.
+This covers new records only; repairing rows already stored is tested
+elsewhere.
 """
 
 from __future__ import annotations

@@ -4,8 +4,8 @@
 **What it is honestly not.** It is not the CLI. It does not host a model, does
 not speak MCP, and cannot fail the way the real binary fails — a flag the real
 CLI stopped accepting, a tool list it did not actually receive, an auth prompt.
-Every ledger row that uses this says *hermetic double*, and the properties it
-cannot establish are checked against the real CLI under ``live_network``.
+A test that uses this is a *hermetic double*, and the properties it cannot
+establish are checked against the real CLI under ``live_network``.
 
 **What it is faithful about, deliberately.** The two things the relay and the
 gate are built on:
@@ -24,8 +24,8 @@ Driven by directives in the prompt, so a test says what the turn should do:
     CALL:<tool> <json>  ask permission for <tool>, and on allow really call it
                         against the real backend with <json> as its arguments
     SLEEP:<seconds>     stall, for the cancel and timeout tests
-    SILENT:<seconds>    say nothing at all for <seconds> — the v2.0.1 field
-                        defect's shape: a CLI that starts and never emits init
+    SILENT:<seconds>    say nothing at all for <seconds> — the shape of a
+                        CLI that starts and never emits init
 
     RAW:<json>          emit a line verbatim, for the unknown-event test
     FAIL:<message>      write to stderr and exit non-zero
@@ -110,8 +110,8 @@ def _state_file() -> Optional[Path]:
     resume the way the real CLI fails one: for an id it has never seen.
 
     That faithfulness is the point. A double that cheerfully resumed anything
-    could not fail the way the real dependency fails, which is the recorded root
-    cause of two shipped defects (Ledger 23, 32) and of P10's unproven clause.
+    could not fail the way the real dependency fails, which is how a defect
+    passes a suite unseen.
     """
     root = os.environ.get("FAKE_CLAUDE_STATE")
     return Path(root) / "sessions.txt" if root else None

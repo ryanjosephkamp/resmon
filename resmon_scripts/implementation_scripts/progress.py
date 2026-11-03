@@ -26,10 +26,10 @@ class ProgressStore:
     def register(self, exec_id: int) -> None:
         """Register a new execution for progress tracking.
 
-        Establishes a clean slate. This previously only touched the
-        ``defaultdict`` entry, so an id that still had events in the store
-        inherited them: the new execution's progress log began with a previous
-        run's events, and the Monitor page replayed them as if they were live.
+        Establishes a clean slate. Touching only the ``defaultdict`` entry would
+        let an id that still had events in the store inherit them: the new
+        execution's progress log would begin with a previous run's events, and
+        the Monitor page would replay them as if they were live.
 
         That is reachable. ``cleanup`` is skipped whenever the persist step at
         the end of an execution raises, and ``POST /api/admin/erase-executions``

@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_summarizer_citation.py
-"""Step 9 verification: the summarization pipeline."""
+"""Verification tests for the summarization pipeline."""
 
 import sys
 from pathlib import Path
@@ -44,7 +44,7 @@ def test_empty_input_handled():
 
 
 # ---------------------------------------------------------------------------
-# NLTK punkt fallback (BUG-023)
+# NLTK punkt fallback
 # ---------------------------------------------------------------------------
 
 def test_sentence_split_falls_back_without_punkt_data(monkeypatch):

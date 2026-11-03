@@ -167,9 +167,9 @@ def test_owned_cancellation_publication_order(workspace: Workspace, tmp_path: Pa
             cancellation.start()
             assert finish_entered.wait(5)
             release_worker.set()
-            # Both versions reach a real lock acquisition: the old implementation
-            # gets here in _publish *after* its lost UPDATE; the repair gets here
-            # before the UPDATE. Do not wait for a commit a correct lock prevents.
+            # The lock is acquired before the UPDATE; an implementation that took
+            # it in _publish only *after* its UPDATE would get here with a lost
+            # update. Do not wait for a commit a correct lock prevents.
             assert publication_attempt.wait(5)
             trace.record('overlap_observed', rowcounts=list(rowcounts), completed=job.completed.is_set())
             assert not job.completed.is_set()

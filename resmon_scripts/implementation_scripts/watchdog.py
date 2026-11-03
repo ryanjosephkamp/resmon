@@ -145,10 +145,9 @@ CONSECUTIVE_IN_PART = 3
 def _did_not_answer(run: dict) -> bool:
     """Did this run fail to get an answer out of the source?
 
-    A NULL ``zero_reason`` keeps the pre-1.8.6 reading, which is what every
-    historical row has: an ``ok`` row is treated as an answer because nothing
-    observed otherwise. That is the honest default and it is why this rule
-    changes nothing about existing recorded history.
+    A NULL ``zero_reason`` is read as an answer: an ``ok`` row is treated as
+    one because nothing observed otherwise. That is the honest default and it
+    is why this rule changes nothing about rows recorded without a reason.
     """
     if run["status"] == "error":
         return True
@@ -390,8 +389,7 @@ def _failure_detail(run: dict) -> str:
     An ``error`` row has an exception string. An ``ok / 0`` row recorded as an
     upstream failure or a parse failure has no exception -- nothing raised --
     and its detail is the JSON the engine wrote. Reading the exception field
-    for all of them was how the old wording ended up saying "raised an error"
-    about a run that did not.
+    for all of them would say "raised an error" about a run that did not.
 
     The two no-answer reasons need different clauses. An upstream failure is
     the source not replying; a parse failure is the source replying with
@@ -604,12 +602,11 @@ def _check_sources(
                     f"{source} has failed on its last "
                     f"{consecutive_errors} runs"
                 ),
-                # The old wording said every one of those runs "raised an
-                # error". That is no longer true of every counted run and
-                # never was of all of them: an upstream that answers 503 is
-                # recorded as ``ok / 0`` and raises nothing at all. The
-                # sentence says what actually happened, and the most recent
-                # run's own recorded reason is what it quotes.
+                # The sentence does not say every one of those runs "raised an
+                # error": an upstream that answers 503 is recorded as
+                # ``ok / 0`` and raises nothing at all. It says what actually
+                # happened, and the most recent run's own recorded reason is
+                # what it quotes.
                 detail=(
                     f"resmon got no answer from {source} on each of its last "
                     f"{consecutive_errors} runs. The most recent one: "

@@ -23,6 +23,8 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
+from .child_process import hidden_window_kwargs
+
 logger = logging.getLogger(__name__)
 
 
@@ -662,6 +664,7 @@ def _compile_pdf(tex_path: Path, work_dir: Path) -> Optional[Path]:
                 cwd=str(work_dir),
                 capture_output=True,
                 timeout=180,
+                **hidden_window_kwargs(),
             )
             if result.returncode != 0:
                 logger.warning(

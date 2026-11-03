@@ -72,11 +72,9 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
     all_routes=route_census.declared_in((Path(__file__).parents[1]/'resmon.py').read_text())
     routes=[(method,path) for method,path in all_routes if '/answer' in path]
     # Seven additive routes is this feature's claim and stays a literal here.
-    # The *total* never was: it was typed as 166, then 167, then 176, 177, 184
-    # and 185, moving every time an unrelated feature shipped, and it was one
-    # of four counters in the tree holding that number by hand. Each of the
-    # four was found separately, by a different person, as a red that looked
-    # like a real regression. The denominator now comes from
+    # The *total* is not: typed by hand it would move every time an unrelated
+    # feature shipped, as a red that looks like a real regression. The
+    # denominator comes from
     # ``route_census.py``, compared against the *committed contract*, so the
     # two stay a real cross-check: this reads resmon.py's decorators, the
     # contract is generated from the running app, and a route added without
@@ -84,8 +82,8 @@ def test_exact_seven_additive_routes_and_prebody_origin_guards(http_selected):
     # test_api_contract.py.
     #
     # The walk itself is route_census's rather than a second one written here.
-    # The copy this replaced collected every `@app.<anything>("...")`, while
-    # route_census admits only the five HTTP verbs, so the first
+    # A copy that collected every `@app.<anything>("...")` would disagree with
+    # route_census, which admits only the five HTTP verbs, so the first
     # `@app.on_event("startup")` anybody added would have failed the
     # comparison below and blamed a stale contract for it. Two walks with two
     # filters is the same defect as two hand-written totals, one layer down.
@@ -270,8 +268,8 @@ uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
             (root/'cleanup.json').write_text(json.dumps({'pid':process.pid,'exit':code,'reaped':True}))
 
 
-# Reuse the pre-existing HTTP regression verbatim, including its WRONG/CONFIRM
-# calls and all old assertions. Add only a saved-answer preservation sentinel;
+# Reuse the library HTTP regression verbatim, including its WRONG/CONFIRM
+# calls and all of its assertions. Add only a saved-answer preservation sentinel;
 # this wrapper introduces no new admin request or erase/activation journey.
 from test_library_boundary import http_library
 

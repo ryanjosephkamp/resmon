@@ -83,8 +83,8 @@ journey.describe('J42 Local API locked to this app', () => {
     );
     console.log(
       '[J42] NOT VERIFIED: the Origin arm and the per-route sweep. A foreign Origin and all '
-      + '184 routes are test_local_api_auth.py’s; L-105 still stands — the owner’s own '
-      + 'processes can read the token file, and Windows ACLs are unmeasured.',
+      + '184 routes are test_local_api_auth.py’s; the user’s own processes '
+      + 'can read the token file, and Windows ACLs are unmeasured.',
     );
 
     await resmon.takePicture('J42-local-api-lockdown');

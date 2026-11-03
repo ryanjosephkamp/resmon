@@ -20,7 +20,7 @@ Everything runs from `resmon_scripts/`:
 .venv/bin/python -m perf run --replies ~/resmon-perf-replies --out /tmp/perf-now \
   --executable "frontend/release/mac-arm64/resmon perf.app/Contents/MacOS/resmon perf" \
   --app-bundle "frontend/release/mac-arm64/resmon perf.app" \
-  --installer frontend/release/resmon-perf-2.3.0-arm64.dmg
+  --installer frontend/release/resmon-perf-1.0.0-arm64.dmg
 
 # Hold a candidate to a baseline: exit status 1 if any measurement fails the gate.
 .venv/bin/python -m perf compare /path/to/baseline/results.json /tmp/perf-now/results.json
@@ -97,9 +97,8 @@ of the build, so "the last seven days" shows the same thing on any day.
 
 *Settled* means every request the page started has finished and the DOM has
 not changed for 600 ms; the time reported is the last DOM change, so the wait
-is not counted. The definition knows nothing about either interface's markup,
-which is what lets the same yardstick measure the old interface and the new
-one. Every request to the internet is refused, as if the machine were
+is not counted. The definition knows nothing about the interface's markup,
+so it keeps measuring the same thing when the markup changes. Every request to the internet is refused, as if the machine were
 offline.
 
 **Size (`size.py`):** the renderer bundle, the installed app and its parts

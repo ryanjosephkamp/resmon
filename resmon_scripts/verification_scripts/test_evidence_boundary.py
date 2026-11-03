@@ -590,7 +590,7 @@ def test_named_mcp_unavailable_port_never_tries_default(tmp_path, monkeypatch):
         port = reserved.getsockname()[1]; assert port != 8742
         monkeypatch.setenv('RESMON_PORT', str(port))
         monkeypatch.setattr(config, 'PORT_FILE', tmp_path / 'absent-mcp.port')
-        # 2.2: discovery probes a port only once it has that port's token file.
+        # Discovery probes a port only once it has that port's token file.
         monkeypatch.setenv('RESMON_STATE_DIR', str(tmp_path / 'mcp-state'))
         api_auth.write_token_file(port, api_auth.mint_token())
         assert mcp._candidate_ports() == [port]

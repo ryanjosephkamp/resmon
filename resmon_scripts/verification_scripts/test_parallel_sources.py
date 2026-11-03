@@ -1,8 +1,8 @@
 # resmon_scripts/verification_scripts/test_parallel_sources.py
 """A sweep asks its sources together, and says what it said asking one at a time.
 
-Sources used to be asked one after another, so a ten-source sweep took the sum
-of ten sources' times. ``SweepEngine._query_sources`` now asks up to
+Asking sources one after another would make a ten-source sweep take the sum of
+ten sources' times. ``SweepEngine._query_sources`` asks up to
 ``_SOURCE_CONCURRENCY`` at once. The speed is the harness's to measure
 (``perf/``, against recorded replies); what these cases hold is everything the
 change must *not* move:

@@ -1,8 +1,8 @@
-"""Batching the subscription lane: one call for N papers (1.8.5 D2).
+"""Batching the subscription lane: one call for N papers.
 
-One agent-CLI call per paper was the dominant cost of this lane, and the
-reason the 25-document cap and the not-default-for-bulk guard were correct.
-Batching is what makes making it primary safe, so what these tests pin is not
+One agent-CLI call per paper would be the dominant cost of this lane, and the
+reason for the document cap and the not-default-for-bulk guard. Batching is
+what makes the lane safe as the primary route, so what these tests pin is not
 "batching works" but the four things that make a batch *safe*:
 
 * **One process for N documents**, or the whole exercise is pointless.
@@ -603,10 +603,10 @@ def test_an_empty_summary_string_counts_as_missing(monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_the_canary_leak_detector_can_actually_detect_a_leak():
-    """D3 reports "0 leaks". A detector that always says zero would too.
+    """The measurement reports "0 leaks". A detector that always says zero would too.
 
-    This is the check that makes P9's zero mean something. It is not testing
-    resmon; it is testing the instrument, which is the thing the phase's whole
+    This is the check that makes that zero mean something. It is not testing
+    resmon; it is testing the instrument, which is the thing the whole
     accuracy claim about batching rests on.
     """
     import importlib.util
@@ -645,8 +645,8 @@ def test_the_canary_leak_detector_can_actually_detect_a_leak():
 # for the same reason.
 #
 # It does NOT guard batching's accuracy. Leakage between documents in one batch
-# is probabilistic, so one live call is not a detector for it; D3's script
-# measures it as a rate over canary tokens, and even that measures leakage of
+# is probabilistic, so one live call is not a detector for it; the batching
+# measurement script measures it as a rate over canary tokens, and even that measures leakage of
 # *unrelated* content, which is the easy case.
 #
 # What it DOES catch, deterministically, is **structured-output contract
@@ -655,7 +655,7 @@ def test_the_canary_leak_detector_can_actually_detect_a_leak():
 # non-zero on an unknown option. If a future release renames or drops either,
 # or moves the validated object out of `structured_output`, this fails where
 # the hermetic tests cannot — and the hermetic tests would go on passing
-# against a double that still speaks the old contract.
+# against a double that speaks a contract the CLI no longer does.
 #
 # Skipped unless the CLI is discoverable and signed in, because neither is true
 # in CI. It spends the plan's usage window like any other lane call.
@@ -697,7 +697,8 @@ def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
         f"summaries — the structured-output contract may have drifted"
     )
     # Each summary must be about its own document. A cheap sanity check, not
-    # the leakage detector: D3's script measures that as a rate.
+    # the leakage detector: the batching measurement script measures that as a
+    # rate.
     assert "beetle" not in (summaries[0] or "").lower()
 
 
@@ -708,9 +709,8 @@ def test_the_real_cli_answers_a_batch_with_one_summary_per_document(provider):
 # `supports_batching` refuses a batch when any one document is over
 # `_BATCH_MAX_TOKENS_PER_DOCUMENT` or the batch total is over
 # `_BATCH_MAX_TOKENS_TOTAL`, and those documents take the per-document
-# chunk-and-aggregate path instead. Nothing guarded either check: the
-# reconciliation disabled the per-document budget and all 949 tests still
-# passed.
+# chunk-and-aggregate path instead. Nothing else guards either check:
+# disabling the per-document budget leaves the rest of the suite green.
 #
 # The assertion is a **spawn count**, because that is the observable difference.
 # One process means the batch happened; N means it did not. Asserting on
@@ -730,12 +730,11 @@ def _doc_of_tokens(n: int) -> str:
     token, exactly, is what lets a test sit deliberately either side of a
     threshold.
 
-    An earlier version emitted five characters per token. Every document it
-    built was 1.25× the intended size, so the "over the total budget" test was
-    actually tripping the *per-document* budget and would have passed with the
-    total check deleted. Mutation testing found that; the arithmetic here is
-    the fix, and `test_the_token_helper_sizes_documents_as_the_estimator_does`
-    below pins it.
+    Five characters per token would make every document 1.25× the intended
+    size, so the "over the total budget" test would actually trip the
+    *per-document* budget and pass with the total check deleted. The arithmetic
+    here avoids that, and
+    `test_the_token_helper_sizes_documents_as_the_estimator_does` below pins it.
     """
     return "abc " * n
 
@@ -821,11 +820,11 @@ def test_a_slice_inside_both_budgets_is_batched(monkeypatch):
 # P14 (the capture half) — what the call cost, as the CLI reported it
 # ---------------------------------------------------------------------------
 #
-# The D3 gate measured wall-clock while the guard it informed existed to
-# protect the plan's usage window, which is spent in tokens. claude reports
-# both in every envelope and the lane discarded them. These pin the capture;
-# the ratio itself is measured live and lives in the handback, because a
-# hermetic test cannot establish a cost ratio.
+# Wall-clock is not what the guard protects: the plan's usage window is spent
+# in tokens. claude reports both in every envelope and the lane keeps them.
+# These pin the capture; the ratio itself is measured live by
+# ``measure_subscription_batching.py``, because a hermetic test cannot
+# establish a cost ratio.
 
 def test_a_claude_call_records_what_the_envelope_said_it_cost(monkeypatch):
     spawns = _Spawns().install(monkeypatch)

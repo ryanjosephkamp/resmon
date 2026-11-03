@@ -61,7 +61,7 @@ def test_the_committed_truth_table_is_what_the_live_rule_produces():
         The committed zero-reason truth table is not what the live rule
         produces ({counts} rows).
 
-        If the rule changed on purpose, regenerate it and say in the PR which
+        If the rule changed on purpose, regenerate it and record which
         inputs changed meaning:
 
             python -m resmon_scripts.verification_scripts.zero_reason_truth_table --write
@@ -156,11 +156,11 @@ def test_the_status_axis_is_read_from_the_categorizer_not_copied():
          valid = valid_count and gate
          return {"category": "unknown"}
      """, "mentions `status`"),
-    # **The reviewer's break, and the reason this function was rewritten.** A
-    # fifth status added with an `or` arm instead of an entry in the set. The
-    # first reader filtered on `ast.In`, so this arm was skipped rather than
-    # counted, the "exactly one" check never fired, and both guards stayed
-    # green while `outcome` genuinely reclassified an `interrupted` row.
+    # **A break the reader must catch.** A fifth status added with an `or`
+    # arm instead of an entry in the set. A reader that filtered on `ast.In`
+    # would skip this arm rather than count it, the "exactly one" check would
+    # never fire, and both guards would stay green while `outcome` genuinely
+    # reclassified an `interrupted` row.
     ("""
      def outcome(row):
          valid = (valid_count

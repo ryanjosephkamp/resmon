@@ -8,13 +8,35 @@ database and never starts resmon itself.
 
 ## Install
 
-From a clone of the repository, with [pipx](https://pipx.pypa.io/):
+**With the app.** resmon carries its command line inside it. Choose **Install "resmon" Command in PATH**
+(in the resmon menu on macOS, in the Help menu on Windows and Linux), then open a new terminal:
+
+```bash
+resmon --version
+```
+
+It runs the app's own Python in isolated mode, so your Python settings and packages never apply.
+
+| | What the menu item writes |
+|---|---|
+| macOS | A small shell launcher at `/usr/local/bin/resmon`. It asks for your administrator password, through the system's own prompt, only when that folder is not writable. |
+| Windows | `resmon.cmd` in `%LOCALAPPDATA%\resmon\bin`, and that folder on your user `PATH`. |
+| Linux | `~/.local/bin/resmon`, and a copy of the command line at `~/.local/share/resmon/resmon.pyz`, refreshed each time the app starts. It runs with your system's `python3` (the command line uses only the standard library). If `~/.local/bin` is not on your `PATH`, the confirmation says so. |
+
+**Uninstall "resmon" Command** removes only a launcher resmon wrote, which it recognizes by a marker line.
+A `resmon` installed any other way, such as with pipx, is never touched. If the app has moved or been
+deleted, the launcher says where it looked and how to reinstall the command.
+
+**From source,** with [pipx](https://pipx.pypa.io/):
 
 ```bash
 pipx install ./resmon_scripts/cli
 ```
 
 It needs Python 3.10 or later and nothing else: it uses only the standard library.
+
+Both can be installed at once, and whichever is first on your `PATH` answers. `resmon --version` says
+which one it is: the app's, with the app's version and where it sits, or one installed from source.
 
 ## Commands
 

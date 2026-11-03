@@ -36,7 +36,7 @@ Together they are complementary: the vector proposes a short list of plausible
 pairs, and the lexical check decides. A shared DOI is decisive on its own, because
 a DOI names a work; two records carrying one are the same work whatever the
 distance says. Title similarity is the fallback, and it is a token-set ratio over
-normalised titles rather than a character distance, so a trailing subtitle or a
+normalized titles rather than a character distance, so a trailing subtitle or a
 reordered "A vs. B" costs less than it would under edit distance.
 
 **And both signals must be independent, which took a measurement to notice.**
@@ -54,13 +54,12 @@ no abstract on one side.
 
 The threshold is a claim
 ------------------------
-Every threshold here was calibrated on Ryan's real 15,707-paper corpus, and
+Every threshold here was calibrated on a real 15,707-paper corpus, and
 **three** independent 30-pair samples were graded by hand: the first to find the
 rule, and two more to measure it, because a precision figure read off the sample
 that chose the thresholds is fitted to its own training set. The first rule scored
-**10%**; the shipped rule scores **83%** and **87%** on the two samples that did
-not choose it. All three are in
-``workspace/handbacks/1.9/evidence/link-calibration.md``.
+**10%**; the rule that ships scores **83%** and **87%** on the two samples that
+did not choose it.
 
 The 102 pairs that share a DOI are the labelled positives: same work by
 definition, and their distances (median 0.037, p95 0.493, max 0.542) are what the
@@ -105,13 +104,13 @@ __all__ = [
 # primary key so a later kind — a citation, a correction — can coexist.
 LINK_KIND = "near_duplicate"
 
-# Calibrated on Ryan's real 15,707-paper corpus, not chosen. The 102 pairs that
+# Calibrated on a real 15,707-paper corpus, not chosen. The 102 pairs that
 # share a DOI are ground truth -- a DOI names a work -- and their distances run
 # min 0.000, median 0.037, p95 0.493, **max 0.542**. So the candidate gate is
 # 0.60: wide enough to contain every known-true pair with room to spare, and a
 # tighter 0.30 would have discarded 25 of the 102.
 #
-# The distance is L2 over unit-normalised 768-dimension vectors from
+# The distance is L2 over unit-normalized 768-dimension vectors from
 # nomic-embed-text, running 0 (identical) to 2 (opposite).
 DEFAULT_MAX_DISTANCE = 0.60
 
@@ -170,10 +169,9 @@ def normalise_title(title: Optional[str]) -> list[str]:
 
     Accents are folded — the same paper arrives "Modele" from one source and
     "Modèle" from another — by decomposing and dropping combining marks. Case and
-    punctuation go with it. **Non-Latin scripts are kept, not discarded**: an
-    earlier draft encoded to ASCII and ignored what would not fit, which turned
-    every Japanese title into zero words and made a whole source's papers
-    unlinkable without saying so.
+    punctuation go with it. **Non-Latin scripts are kept, not discarded**: encoding to
+    ASCII and ignoring what would not fit would turn every Japanese title into
+    zero words and make a whole source's papers unlinkable without saying so.
 
     Digits stay. "GPT-4" and "GPT-3" are not the same paper, and losing the
     numeral would claim they were.
@@ -327,8 +325,8 @@ def find_links(
                 # Embedded under this model but its document row is gone, or it
                 # belongs to a model this scan is not reading. Skipped rather
                 # than linked against a paper that no longer exists -- the index
-                # can outlive a row (1.9a residual risk) and this must not turn
-                # that into a visible, wrong assertion.
+                # can outlive a row, and this must not turn that into a
+                # visible, wrong assertion.
                 continue
             seen.add(pair)
 
@@ -598,7 +596,7 @@ class LinksJob:
         """Begin a scan on a daemon thread. Raises if one is already running.
 
         The factory is called **on the worker thread**: each thread holds its own
-        connection (BUG-020), and sharing one is what segfaults CPython.
+        connection, and sharing one is what segfaults CPython.
         """
         with self._lock:
             if self._state["running"]:
@@ -653,7 +651,7 @@ class LinksJob:
                 self._state.update(
                     found=written, cancelled=found["cancelled"], reason=found["reason"],
                 )
-        except Exception as exc:  # pragma: no cover - defence around a daemon thread
+        except Exception as exc:  # pragma: no cover - defense around a daemon thread
             logger.exception("near-duplicate scan failed")
             with self._lock:
                 self._state["reason"] = f"The scan stopped: {type(exc).__name__}: {exc}"

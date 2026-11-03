@@ -14,6 +14,7 @@ import time
 from typing import BinaryIO
 
 from . import evidence
+from .child_process import hidden_window_kwargs
 
 MAX_INPUT = 16 * 1024 * 1024
 MAX_OUTPUT = 1024 * 1024
@@ -102,7 +103,7 @@ def extract(raw: bytes, page: int, *, cancel: threading.Event | None = None) -> 
         try:
             proc = subprocess.Popen([sys.executable, '-I', str(_WORKER)], cwd=scratch.name, env=env,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    shell=False, close_fds=True)
+                                    shell=False, close_fds=True, **hidden_window_kwargs())
             record.update(pid=proc.pid, launched_at=datetime.now(timezone.utc).isoformat())
             for target, args in [(drain, (proc.stdout, stdout, MAX_OUTPUT)),
                                  (drain, (proc.stderr, stderr, MAX_STDERR)),

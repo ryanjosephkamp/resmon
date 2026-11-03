@@ -238,7 +238,7 @@ def test_note_finished_is_idempotent_and_drains_once():
 # (h) the slot survives a worker that dies before the pipeline's ``try``
 # ---------------------------------------------------------------------------
 #
-# The reviewer of PR #141 found this by mutation: delete the worker's outer
+# Mutation check: delete the worker's outer
 # release and a thread that dies between ``note_admitted`` and the pipeline's
 # ``try`` holds the global slot for the life of the backend. At the shipped cap
 # of 3 that is three dead threads away from every Deep Dive and Deep Sweep
@@ -338,8 +338,8 @@ def test_worker_dying_before_the_pipeline_try_releases_the_slot(
 # ``_launch_execution`` releases the routine claim *before*
 # ``admission.note_finished``, because ``note_finished`` can hand a queued fire
 # of this same routine to a fresh thread and that fire claims before it runs.
-# PR #143's reviewer inverted the two statements and 36 tests stayed green, so
-# the order was load-bearing and unguarded. This is the guard.
+# Inverting the two statements leaves the rest of the suite green, so the order
+# is load-bearing and needs a guard of its own. This is the guard.
 #
 # It does not race a real drain thread against the two statements: inverted,
 # the claim is released microseconds later and a spawned thread usually still

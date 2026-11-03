@@ -39,6 +39,8 @@ import urllib.parse
 import urllib.request
 from typing import List, Optional
 
+from .child_process import hidden_window_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Per-call timeout (seconds) for the subprocess invocation. Notifications
@@ -57,6 +59,7 @@ def _run(cmd: List[str], *, env: Optional[dict] = None) -> bool:
             timeout=_SUBPROCESS_TIMEOUT_SEC,
             env=env,
             check=False,
+            **hidden_window_kwargs(),
         )
         if result.returncode != 0:
             logger.debug(

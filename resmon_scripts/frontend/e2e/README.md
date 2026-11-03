@@ -1,15 +1,10 @@
 # `e2e/` — the app, launched
 
 Everything here drives the **real** resmon: the Electron main process, its own
-spawned Python backend, a real Chromium. Before this directory existed nothing
-in the repository had ever started the app — 154 renderer tests, all jsdom, and
-`electron/main.ts` with no test of any kind.
-
-It began as the deliverable of a **feasibility spike** (Delegation 06), which
-answered "can an agent see the app, and what does that cost" —
-[`docs/ui-verification-feasibility.md`](../../../docs/ui-verification-feasibility.md).
-Phase 1.8.7 turned it into the verification layer: the route list became a
-denominator rather than a copy, and screenshots stopped being committed.
+spawned Python backend, a real Chromium. The renderer tests run in jsdom and
+never start the app, and `electron/main.ts` has no unit test, so this directory
+is where the app is launched. The route list is a denominator rather than a
+copy, and screenshots are not committed.
 
 ## Running it
 
@@ -30,20 +25,20 @@ under `release/` it skips, and says so.
 
 | File | What it answers |
 |---|---|
-| `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that were found the hard way. |
+| `fixtures/resmon-app.ts` | The launch fixture. Read its header first — it carries the isolation story and two things that are not obvious. |
 | `fixtures/electron-fuses.ts` | Reads the fuse wire out of a built app. Two fuses are what make a packaged app driveable at all. |
 | `fixtures/ipc-guards.ts` | Counting replacements for every native call `main.ts` can make, so "nothing reached the OS" is a measurement. |
 | `screens.ts` | Atlas's screens, **imported** from `atlas/src/screenPaths.ts`, which its own test holds to the router: every screen at a fixed address, Settings' groups included. |
-| `main-window.spec.ts` | P3–P4 — `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
+| `main-window.spec.ts` | `electron/main.ts` itself, in Atlas: the in-app link window and the History menu. The window background is `atlas-appearance.spec.ts`'s. |
 | `ai-settings.spec.ts` | Settings › AI in Atlas: where resmon looks for an agent command and what it says it found, the provider list, and the file picker. Discovery searches only a pinned `PATH` (`RESMON_AI_CLI_DISCOVERY=path-only`), and a guard fails the run if it could find any command but the spec's own stubs, so no real `claude` or `codex` is run. |
 | `smoke.spec.ts` | One test per Atlas screen: it loads and stays at its own address, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
-| `observability.spec.ts` | Q3 — that the console-error and failed-request collectors actually catch something, in Atlas. |
-| `ipc-stubs.spec.ts` | Q5 — replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
-| `default-behaviour.spec.ts` | P6 — the app behaves as it always did with `RESMON_E2E` unset. |
-| `atlas-zero-reasons.spec.ts` | P13 — `upstream_failure` (a source that closes the connection, or answers 503), `answered_empty` (an authored empty feed), `parse_failure` (an unreadable reply), `window_unanswerable` (a window ERIC cannot express) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the reasons a real browser has seen. |
+| `observability.spec.ts` | That the console-error and failed-request collectors actually catch something, in Atlas. |
+| `ipc-stubs.spec.ts` | Replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
+| `default-behaviour.spec.ts` | The app behaves as it always did with `RESMON_E2E` unset. |
+| `atlas-zero-reasons.spec.ts` | `upstream_failure` (a source that closes the connection, or answers 503), `answered_empty` (an authored empty feed), `parse_failure` (an unreadable reply), `window_unanswerable` (a window ERIC cannot express) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the reasons a real browser has seen. |
 | `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
-| `zz-isolation.spec.ts` | P12 and P14 — the launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
-| `packaged.spec.ts` | Q6 — the built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
+| `zz-isolation.spec.ts` | The launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
+| `packaged.spec.ts` | The built `.app` launches under Playwright too, and serves every Atlas screen. Skips when there is no build. |
 
 ## Five things to know before adding a spec
 
@@ -88,9 +83,9 @@ asserts the unset path still maximizes.
 
 ## `RESMON_BACKGROUND_WINDOW`
 
-The suite launches the real app over and over, and every launch used to come to
-the front and take the keyboard from whoever was at the machine. With this set
-the windows go up with `showInactive()` and, on macOS, the process runs under
+The suite launches the real app over and over, and without this every launch
+comes to the front and takes the keyboard from whoever is at the machine. With
+this set the windows go up with `showInactive()` and, on macOS, the process runs under
 the `accessory` activation policy.
 
 **The two halves do different things, and it is not the division you would
@@ -138,7 +133,7 @@ Two known costs: under `accessory` the app has no system menu bar and no Dock
 icon, so a developer watching a run cannot reach resmon with Cmd+Tab or use its
 menus by hand; and the skip above. `Menu.getApplicationMenu()` still returns the
 menu, `getMenuItemById()` still finds the item and the item is still enabled —
-measured under the policy — so `main-window.spec.ts` P4 is unaffected.
+measured under the policy — so the History-menu case in `main-window.spec.ts` is unaffected.
 
 ## Environment variables the suite itself reads
 

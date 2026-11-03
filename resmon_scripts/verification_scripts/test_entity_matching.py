@@ -2,9 +2,9 @@
 
 Hermetic and deliberately so: the matcher is a pure function over a record and a
 profile, and every interesting case is a *pair of strings*. What it cannot see
-is whether real corpora look like these strings, which is what the field test on
-the real corpus is for — and why precision is a measured number in the handback
-rather than an assertion here.
+is whether real corpora look like these strings, which is what a field test on
+a real corpus is for — and why precision is a measured number rather than an
+assertion here.
 """
 
 from __future__ import annotations
@@ -143,7 +143,7 @@ def test_initials_match_and_say_that_they_are_initials():
     `J. Smith` is compatible with every John, Jane, Jamal and Jia Smith who ever
     published. The rule is on because refusing it misses most real matches in a
     corpus where most sources abbreviate; the evidence is where that cost is
-    recorded, and the field test grades this basis separately because of it.
+    recorded, and a field test should grade this basis separately because of it.
     """
     matched, note = name_matches("J. Doe", "Jane Doe")
     assert matched
@@ -173,8 +173,8 @@ def test_a_name_of_only_stop_words_still_folds_to_something():
 
 
 def test_a_non_latin_name_is_not_folded_away():
-    """The title matcher's rule, and the reason it exists: an earlier draft of
-    that one encoded to ASCII and turned every Japanese title into zero words."""
+    """The title matcher's rule, and the reason it exists: encoding to ASCII
+    would turn every Japanese title into zero words."""
     assert fold_name("村上春樹")
 
 

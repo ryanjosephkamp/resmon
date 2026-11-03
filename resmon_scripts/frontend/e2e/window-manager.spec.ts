@@ -1,12 +1,11 @@
 /**
  * The window itself — the part of `main.ts` a bare-X runner cannot see.
  *
- * The spike's sharpest finding was not about a test: `xvfb-run` starts an X
- * server with **no window manager**, and `BrowserWindow.maximize()` is a
- * request a window manager honours. With none present the call is a silent
+ * `xvfb-run` starts an X server with **no window manager**, and
+ * `BrowserWindow.maximize()` is a request a window manager honours. With none present the call is a silent
  * no-op. So a green CI run under xvfb verifies the *renderer* thoroughly and
  * the *window* barely — and `electron/main.ts`'s window handling is the part
- * that had no test at all, which is why this phase exists.
+ * only a real window manager can test, which is why this file exists.
  *
  * Every test here **says which arm held**, so a run states what it did not
  * verify rather than passing quietly. `ui-smoke.yml` runs this file on both

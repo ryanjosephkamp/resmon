@@ -1,13 +1,13 @@
-"""BUG-020 — database connections must not be shared across threads.
+"""Database connections must not be shared across threads.
 
-resmon kept one process-wide ``sqlite3.Connection`` and used it from FastAPI
-request threads and from every execution worker thread with no serialisation.
-sqlite3 connections are not safe for concurrent use, so this was a race. Python
+One process-wide ``sqlite3.Connection`` used from FastAPI request threads and
+from every execution worker thread with no serialisation is a race, because
+sqlite3 connections are not safe for concurrent use. Python
 3.10 and 3.11 mostly hid it because their sqlite3 module holds the GIL across
 most operations; 3.12 releases it far more aggressively, so the race is lost
 reliably there and only occasionally on 3.10/3.11.
 
-It surfaced in CI as, variously:
+It shows up as, variously:
 
     sqlite3.InterfaceError: bad parameter or other API misuse
     sqlite3.ProgrammingError: Cannot operate on a closed database
@@ -117,7 +117,7 @@ def test_threads_see_each_others_committed_rows():
 def test_concurrent_writes_do_not_corrupt_the_connection(tmp_path):
     """The regression proper: hammer the database from many threads at once.
 
-    Against the old single shared connection this raised
+    A single shared connection raises
     ``cannot start a transaction within a transaction`` and friends. Each thread
     holding its own connection makes the pattern legal, with SQLite's own
     locking arbitrating between them.
@@ -201,8 +201,8 @@ def test_worker_thread_does_not_reuse_the_request_connection():
 
     The endpoint returns as soon as the worker thread starts, so the request
     thread and the worker overlap by construction. If the worker kept the
-    connection it was handed, the fix would not apply on the path that
-    originally exposed the bug.
+    connection it was handed, per-thread connections would not apply on the path where the
+    race is most exposed.
     """
     from implementation_scripts.progress import progress_store
 
@@ -246,12 +246,11 @@ def test_worker_thread_does_not_reuse_the_request_connection():
 # close_db must not close a connection out from under a live thread
 # ---------------------------------------------------------------------------
 #
-# Found 2026-08-31 in the v1.8.1 release CI. test_e2e_ai_summarization passed,
-# then the suite died with SIGSEGV inside close_db during fixture teardown
-# while an execution worker was still running. It reproduced once in
-# twenty-five runs, which is precisely why the guarantee belongs in close_db
-# rather than in the harness that joins the workers -- a join that times out
-# used to fail silently, and daemon.py calls close_db on shutdown without
+# Closing a connection while an execution worker is still using it kills the
+# process with SIGSEGV inside close_db (seen during fixture teardown, about
+# once in twenty-five runs), which is precisely why the guarantee belongs in
+# close_db rather than in the harness that joins the workers -- a join that
+# times out fails silently, and daemon.py calls close_db on shutdown without
 # joining anything at all.
 #
 # The race cannot be reproduced by waiting for it, so these tests force the
@@ -284,7 +283,7 @@ def test_close_db_leaves_a_live_threads_connection_open():
     thread.start()
     assert ready.wait(10), "worker never opened its connection"
 
-    # The worker is parked and alive; this is the window that used to segfault.
+    # The worker is parked and alive; this is the window in which closing segfaults.
     resmon_mod.close_db()
 
     release.set()

@@ -1,97 +1,80 @@
 /**
  * The denominator.
  *
- * Forty-nine rows, one per user journey the 3.0 renderer has to carry forward.
- * J01–J44 are copied from the workspace parity register — the same list the
- * capability register's J-rows come from — and `register.spec.ts` refuses to
- * let this file and the spec files in this directory disagree. A row with no
- * test cannot exist, and a test with no row cannot exist either; that mutual
- * guard is the only thing that makes "N of 49" a measurement rather than a
- * hand count.
+ * Forty-nine rows, one per user journey the app carries. `register.spec.ts`
+ * refuses to let this file and the spec files in this directory disagree. A row
+ * with no test cannot exist, and a test with no row cannot exist either; that
+ * mutual guard is the only thing that makes "N of 49" a measurement rather than
+ * a hand count.
  *
- * **J45 was added here, not copied.** The Source wall (#175) became a page on
- * October 18, 2026, 26 days after this register was written, and for the nine
- * days after that it was a journey nothing measured: the guard compared the register with
- * the spec files and nothing compared it with the app. The check that found it
- * is now `ROUTE_ROWS` below. The workspace register has to take the same row,
- * with the same title, for the two to agree again.
+ * **Screens are held to the register too.** `ROUTE_ROWS` below names, for every
+ * screen the app has, the rows that carry it, so a screen added without a
+ * journey is a red guard.
  *
- * **J46 is the first row the rebuilt interface added.** Atlas keeps the theme
- * and the accent color in the engine, at `/api/appearance`, because the
- * renderer's storage does not survive a launch; the route needed a row to
- * serve. Its test is owed by the `atlas` slice, whose candidate driver is the
- * first that can reach a screen where the accent is chosen. J47, the
- * collection map behind Today's plate (`/api/map`), and J48, Today itself
- * (`/api/today`), arrived the same way, and so did J49, shared wording across
- * papers (`/api/shared-wording` and Search › Shared wording).
+ * **Atlas keeps the theme and the accent color in the engine**, at
+ * `/api/appearance`, because the renderer's storage does not survive a launch;
+ * J46 is the journey for that route. J47, the collection map behind Today's
+ * plate (`/api/map`), J48, Today itself (`/api/today`), and J49, shared wording
+ * across papers (`/api/shared-wording` and Search › Shared wording), are the
+ * journeys for the routes and screens that sit beside it.
  *
- * **J24 kept its title and changed its journey.** It was resmon's own Google
- * sign-in, uploading the reports folder to Drive. That was retired (RK,
- * 2026-10-30): resmon no longer signs in to Google, and a backup is written
- * into a folder the person chooses, Google Drive for desktop's among them. The
- * row is now that: Drive's folder chosen on the Backup screen, a backup
- * written into it, and nothing leaving the machine. "Google Drive backup"
- * still names what a person does, so the title, the spec's file name and the
- * workspace register's row stay as they were.
+ * **J24 is Google Drive backup.** resmon does not sign in to Google: a backup
+ * is written into a folder the person chooses, Google Drive for desktop's among
+ * them. The row is Drive's folder chosen on the Backup screen, a backup written
+ * into it, and nothing leaving the machine.
  *
- * **`status`.** A row that stops being carried takes `status: 'not_carried_forward'`
- * and must then carry a `reason` naming the N-row it was decided under and the
- * initials of whoever decided it — B4 in prose, enforced by the guard. J27, the
- * citation graph, is the one such row: it was planned and never built, and N1
- * dropped it on October 30, 2026.
+ * **`status`.** A row that is not carried takes `status: 'not_carried_forward'`
+ * and must then carry a `reason` naming the decision it was made under and the
+ * initials of whoever made it, enforced by the guard. J27, the citation graph,
+ * is the one such row: it is not built.
  *
- * **`slice` and `built`.** `slice` is which delivery owes the row's test; every
- * slice-1 row is built by definition, and a later slice's row is built once it
- * carries `built: true`. A row that is neither is *pending*, and the guard
- * accepts its missing spec only because the slice is named here. The printed
- * count moves when a spec and its flag arrive together, without anyone editing
- * a number.
+ * **`slice` and `built`.** `slice` groups the rows by the part of the suite that
+ * owns the row's test; every slice-1 row is built by definition, and a later
+ * slice's row is built once it carries `built: true`. A row that is neither is
+ * *pending*, and the guard accepts its missing spec only because the slice is
+ * named here. The printed count moves when a spec and its flag arrive together,
+ * without anyone editing a number.
  *
  * **Two rows whose journey is a gate, not a screen.** J16 (the weekly
  * live-network job) and J43 (upgrade in place) are user journeys whose evidence
- * is a CI job and a migration, not a route. The pattern, settled by J43 in
- * slice 2b, is a journey test that runs the *existing* gate as a subprocess and
- * asserts its exit status and the denominators it prints — `runGate` in
- * `fixtures/gates.ts`, re-exported from `driver.ts` so a spec can reach it
- * without importing `child_process`. The row's evidence stays the real gate;
- * re-implementing it here would be a second thing to keep in step. J16 is slice 2a's
- * and takes the same shape: `test_live_suite.py` under the build's own
- * interpreter for the gate, plus `live_suite.py --summary` for the denominator,
- * because a `-q` pytest run does not print one.
+ * is a CI job and a migration, not a route. The pattern is a journey test that
+ * runs the *existing* gate as a subprocess and asserts its exit status and the
+ * denominators it prints — `runGate` in `fixtures/gates.ts`, re-exported from
+ * `driver.ts` so a spec can reach it without importing `child_process`. The
+ * row's evidence stays the real gate; re-implementing it here would be a second
+ * thing to keep in step. J16 takes the same shape: `test_live_suite.py` under
+ * the build's own interpreter for the gate, plus `live_suite.py --summary` for
+ * the denominator, because a `-q` pytest run does not print one.
  */
 
 /**
- * `refresh` is the October 27, 2026 check of the register against the app's
- * routes — the delivery that owes J45, the one row it added. `atlas` is the
- * rebuilt interface, which owes J46, J47, J48 and J49.
+ * The part of the suite that owns a row's test. `refresh` holds the Source
+ * wall row, and `atlas` the rows for Atlas's own routes and screens: J46, J47,
+ * J48 and J49.
  */
 export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J49`, as the workspace register numbers them. */
+  /** `J01`…`J49`. */
   id: string;
-  /** The row's title, byte-identical to the workspace register's. */
+  /** The row's title. */
   title: string;
-  /** Which slice of the journey suite builds this row's test. */
+  /** Which slice of the journey suite owns this row's test. */
   slice: JourneySlice;
   status: JourneyStatus;
   /**
    * This row's spec exists in this checkout.
    *
-   * Slice 1's rows do not carry it — `BUILT_SLICE` already says they are built,
-   * and that is the shape `register.spec.ts` was written against. A later slice
-   * marks its own rows one at a time as it lands them, which is deliberate:
-   * slices 2a and 2b are two workers on two branches, and a flag on each row is
-   * a diff in disjoint lines rather than a shared list both of them rewrite.
-   * A row of a later slice with no flag is *pending*, which is the honest
-   * reading — the slice was dispatched, this row was not reached.
+   * Slice 1's rows do not carry it — `BUILT_SLICE` already says they are built.
+   * A later slice marks its own rows one at a time. A row of a later slice with
+   * no flag is *pending*: its test has not been written.
    */
   built?: true;
   /**
-   * Only for `not_carried_forward`: the N-row of the workspace register that
-   * decided it and the initials of whoever initialled it, e.g.
-   * `'N1; dropped by RK 2026-09-22'`. The guard fails on a dropped row without one.
+   * Only for `not_carried_forward`: the decision that dropped the row and the
+   * initials of whoever made it, e.g. `'N1; dropped by RK 2026-09-22'`. The guard
+   * fails on a dropped row without one.
    */
   reason?: string;
 }
@@ -148,10 +131,10 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J49', title: 'Shared wording across papers', slice: 'atlas', status: 'carried', built: true },
 ];
 
-/** The slice whose rows were built when this directory was born. */
+/** The slice whose rows are built by definition. */
 export const BUILT_SLICE: JourneySlice = '1';
 
-/** The later slices, any of which may still owe a row its test. */
+/** The other slices, any of which may still owe a row its test. */
 export const LATER_SLICES: readonly JourneySlice[] = ['2a', '2b', 'refresh', 'atlas'];
 
 /** Rows the guard requires a spec for: slice 1, plus every later row marked built. */
@@ -172,14 +155,14 @@ export function pendingRows(): JourneyRow[] {
  * Every screen a person can reach, and the rows that carry what they do there.
  *
  * **Why this exists.** The guard below this file's rows compares the register
- * with the spec files, and until October 27, 2026 nothing compared it with the
- * app: the Source wall shipped as a page and had no row, and the suite stayed
- * green over a journey it did not measure. So every path in `SCREEN_PATHS`
+ * with the spec files, and without this nothing would compare it with the app:
+ * a screen could ship as a page with no row, and the suite would stay green
+ * over a journey it did not measure. So every path in `SCREEN_PATHS`
  * (`atlas/src/screenPaths.ts`), the list the smoke suite and the performance
  * harness sweep, Settings' groups included, has an entry here, and
  * `register.spec.ts` fails on a path with none, on an entry that is not a
  * path, and on an entry that names no carried row. A screen added without a
- * row is now a red run rather than a nine-day silence.
+ * row is a red run.
  *
  * **What an entry claims.** That the row's journey is what a person does on
  * that screen, not that the row's spec exercises every control on it. Where a
@@ -264,11 +247,11 @@ export function specStem(row: JourneyRow): string {
 }
 
 /**
- * The tokens a journey spec may not contain — what makes "runnable against the
- * candidate" a property rather than a hope.
+ * The tokens a journey spec may not contain — what makes "runnable against
+ * any build" a property rather than a hope.
  *
  * A spec that reaches the renderer directly is a spec that has to be rewritten
- * when the renderer is rebuilt, which is the exact cost this suite exists to
+ * when the renderer changes, which is the exact cost this suite exists to
  * avoid. Everything a spec does goes through the driver, so the seam is checked
  * by a grep rather than by good intentions.
  *

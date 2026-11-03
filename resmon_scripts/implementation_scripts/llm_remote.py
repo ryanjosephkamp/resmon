@@ -1,7 +1,7 @@
 # resmon_scripts/implementation_scripts/llm_remote.py
 """Remote LLM clients for BYOK providers.
 
-Supported providers (IMPL-AI5):
+Supported providers:
     openai, anthropic, google, xai, meta, deepseek, alibaba, custom
 
 All OpenAI-compatible providers (openai, xai, meta, deepseek, alibaba, custom)

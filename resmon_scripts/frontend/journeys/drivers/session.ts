@@ -226,16 +226,15 @@ export interface Session {
    * `/api/backup` and the configuration export write where the app's own
    * `export_directory` setting points, which in a fresh state is the system
    * temp directory — outside the state directory and outside this session's
-   * cleanup. Each J41 run was leaving a corpus snapshot on the machine.
+   * cleanup, so each J41 run would leave a corpus snapshot on the machine.
    */
   alsoRemoveOnClose(target: string): void;
   /**
    * Close this when the session ends.
    *
-   * Slice 2a. Three rows start a second loopback server of their own — a
-   * deterministic embedding model — and a server nobody closed keeps the
-   * worker's event loop alive after the last case, which this suite has already
-   * paid for once.
+   * Three rows start a second loopback server of their own — a deterministic
+   * embedding model — and a server nobody closed keeps the worker's event loop
+   * alive after the last case.
    */
   alsoCloseOnClose(close: () => Promise<void>): void;
   /** Close the app, stop the authored source, and remove everything this session made. */
@@ -282,9 +281,6 @@ const LANDMARK = 'nav[aria-label="Sections"]';
 
 function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
   const env = launchEnv(stateDir, true);
-  // This build serves Atlas with nothing set; a build from before the
-  // switch-over, which RESMON_JOURNEY_APP can name, serves it only when asked.
-  env.RESMON_UI = 'atlas';
   env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
@@ -303,9 +299,9 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   // the *machine's* own LaunchAgents or systemd directory. Without this, a
   // journey in a brand-new state directory on a developer's Mac reads
   // `Status: Installed` — a true statement about the machine and a useless one
-  // about the app under test. It is also a B3 hardening: with the override in
-  // place the install control no journey is allowed to use could not, even by
-  // accident, write beside the live daemon's own unit.
+  // about the app under test. It also keeps the install control, which no journey
+  // is allowed to use, from writing beside the live daemon's own unit even by
+  // accident.
   env.RESMON_SERVICE_UNIT_DIR = path.join(stateDir, 'service-units');
   fs.mkdirSync(env.RESMON_SERVICE_UNIT_DIR, { recursive: true });
   // An AI command only where a journey names it. Left to search the installers'
@@ -371,9 +367,9 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     port = await win.evaluate(
       () => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort(),
     );
-    // B3, asserted on every launch rather than trusted: 8742 is a live daemon
+    // Asserted on every launch rather than trusted: 8742 is a live daemon
     // over somebody's real corpus, and a suite that only *usually* avoids it is
-    // a suite that will one day write to it.
+    // a suite that will eventually write to it.
     expect(port, 'a journey must never attach to the live daemon').not.toBe('8742');
     expect(port).toMatch(/^\d+$/);
     // And no window reached the screen, asserted on every launch for the same
@@ -382,18 +378,18 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
     // `RESMON_HIDDEN_WINDOW` is the whole of what makes a journey run
     // invisible, and **nothing else in this suite would notice if it stopped
     // working**: every spec reads the app over IPC and the backend over HTTP,
-    // so all 41 of them pass with the window up. That was measured in review
-    // by deleting the one line in `electron/main.ts` that implements the flag
-    // — 622 renderer tests and three typecheck projects stayed green.
+    // so all of them pass with the window up. Deleting the one line in
+    // `electron/main.ts` that implements the flag leaves every renderer test and
+    // every typecheck project green.
     //
     // It belongs here rather than in a spec because it is a property of the
     // harness and not of a register row: a spec here has to claim a row, and
     // `register.spec.ts` keeps specs from reaching past the driver to the
     // Electron application this reads.
     //
-    // Only for the build this checkout produced. Another build may predate the
-    // flag and show its window, which is a true statement about that build and
-    // not a failure of this one. The comparison is on the resolved path rather
+    // Only for the build this checkout produced. A build named by
+    // `RESMON_JOURNEY_APP` may not implement the flag and show its window, which
+    // is a true statement about that build and not a failure of this one. The comparison is on the resolved path rather
     // than on `RESMON_JOURNEY_APP` being unset, so pointing that variable at
     // this checkout still asserts — but
     // `appRootAt` normalizes with `path.resolve`, not `realpathSync`, so a path
@@ -465,8 +461,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
    * A harness force-quitting an app it launched itself is legitimate, so this
    * does not fail the row: the row is about the journey, not about Electron's
    * shutdown. It is *recorded* instead. `forcedCloses()` reports it, the line
-   * below prints it, and the handback carries the count. Silence would be the
-   * only wrong answer.
+   * below prints it. Silence would be the only wrong answer.
    */
   const put = async (): Promise<void> => {
     const owned = app?.process();

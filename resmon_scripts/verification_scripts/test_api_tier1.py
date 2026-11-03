@@ -1128,7 +1128,7 @@ def test_ndl_search_partitions_large_bounded_result_sets_without_overlap_and_ded
 
 @pytest.mark.parametrize("date_to", [None, "2024-12-31"])
 def test_ndl_search_refuses_a_large_request_with_no_start_date_and_says_why(monkeypatch, date_to):
-    """Refused before any request, and recorded: it used to read as a quiet zero.
+    """Refused before any request, and recorded, so it never reads as a quiet zero.
 
     NDL answers only the first 500 records of a query, so more than that needs
     the date range split, and an open start cannot be split. With nothing on
@@ -3202,7 +3202,7 @@ def test_openaire_search_respects_date_window():
 
 
 # ---------------------------------------------------------------------------
-# INSPIRE abstract licensing (v1.8.1)
+# INSPIRE abstract licensing
 # ---------------------------------------------------------------------------
 #
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
@@ -3280,12 +3280,12 @@ def test_inspire_ignores_malformed_abstract_entries(monkeypatch):
 # NDL: a zero-match query is not a malformed response
 # ---------------------------------------------------------------------------
 #
-# Found 2026-09-02 chasing Ryan's report that NDL "returned nothing". NDL
-# answers a query matching no records with an SRU *diagnostic* -- no
-# numberOfRecords element and "Record does not exist" -- which the client
-# treated as malformed XML. The user-visible count was right either way, but
-# the app reported an upstream fault that had not happened, and the watchdog
-# reads a source error differently from a legitimate zero.
+# NDL answers a query matching no records with an SRU *diagnostic* -- no
+# numberOfRecords element and "Record does not exist" -- which must not be
+# treated as malformed XML. The user-visible count is right either way, but
+# treating it as malformed would report an upstream fault that had not
+# happened, and the watchdog reads a source error differently from a
+# legitimate zero.
 
 _NDL_NO_RECORDS = (
     '<searchRetrieveResponse xmlns="http://www.loc.gov/zing/srw/">'
@@ -3431,9 +3431,8 @@ def test_ndl_says_nothing_when_it_keeps_what_it_matched(monkeypatch):
 def test_ndl_zero_match_diagnostic_is_not_a_parse_failure(monkeypatch):
     """NDL's own "no records" answer is a legitimate zero, not a fault.
 
-    This is the v1.8.3 finding (Ledger 24) and it must stay true now that the
-    malformed-XML path writes to the outcome channel: the diagnostic returns
-    before that path is reached.
+    This must stay true now that the malformed-XML path writes to the outcome
+    channel: the diagnostic returns before that path is reached.
     """
     diagnostic = f'''<searchRetrieveResponse xmlns="{_SRU}">
       <diagnostics xmlns:diag="http://www.loc.gov/zing/srw/diagnostic/">

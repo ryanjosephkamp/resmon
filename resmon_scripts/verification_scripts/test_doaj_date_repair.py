@@ -30,7 +30,7 @@ from implementation_scripts.api_doaj import DoajClient  # noqa: E402
 from implementation_scripts.normalizer import deduplicate_batch, normalize_result  # noqa: E402
 from implementation_scripts.utils import compute_metadata_hash  # noqa: E402
 
-RELEASED_CORPUS = Path(__file__).parent / "fixtures/v2.3.0/corpus_schema_21.sql"
+SCHEMA_21_CORPUS = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
 
 
 def _record(external_id: str, month: object, authors: list[str], title: str = "Owls of the northern coast"):
@@ -192,13 +192,13 @@ def _rows(conn: sqlite3.Connection) -> dict[str, list[tuple]]:
     return {t: sorted(map(tuple, conn.execute(f'SELECT * FROM "{t}"')), key=repr) for t in tables}
 
 
-def test_over_a_released_corpus_only_the_named_months_move(tmp_path: Path):
-    """The launch a 2.3.0 user's corpus takes: that release's database, plus two rows its
-    DOAJ client stored with a month's name, through one ``init_db``."""
+def test_over_a_schema_21_corpus_only_the_named_months_move(tmp_path: Path):
+    """The launch a schema-21 corpus takes: the committed schema-21 database, plus two rows
+    the DOAJ client stored with a month's name, through one ``init_db``."""
     path = tmp_path / "corpus.db"
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
-    conn.executescript(RELEASED_CORPUS.read_text(encoding="utf-8"))
+    conn.executescript(SCHEMA_21_CORPUS.read_text(encoding="utf-8"))
     titles = {"named-1": "Comets over the delta", "named-2": "Tidal owls"}
     for external_id, month in (("named-1", "January"), ("named-2", "Oct")):
         _store_as_before_259(conn, external_id, month, ["Ada Okafor"], title=titles[external_id])

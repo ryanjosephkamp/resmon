@@ -38,7 +38,7 @@ describe('the version and the build, as the engine reports them', () => {
   const identity = { contract_version: 1, runtime_id: 'r', schema_version: 21, corpus_id: null, build_id: null };
 
   test('the engine\'s version, or why there is none', () => {
-    expect(versionWords({ version: '2.3.0' }, null)).toBe('resmon 2.3.0');
+    expect(versionWords({ version: '1.0.0' }, null)).toBe('resmon 1.0.0');
     expect(versionWords(undefined, new Error('Failed to fetch'))).toBe('Not known: the engine did not answer (Failed to fetch).');
     expect(versionWords(undefined, null)).toBe('Asking the engine.');
   });

@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_service_units.py
-"""Verification tests for IMPL-26 — OS service units + Advanced toggle.
+"""Verification tests for the OS service units + Advanced toggle.
 
 Covers:
 * Template rendering resolves every ``{{PLACEHOLDER}}`` for the current OS.
@@ -170,8 +170,8 @@ def test_install_endpoint_default_body(unit_dir):
 # ---------------------------------------------------------------------------
 #
 # A packaged app's backend runs with RESMON_DB_PATH and RESMON_REPORTS_DIR set
-# by Electron. A unit it installs used to carry neither, so the daemon opened a
-# database inside the app bundle and the app attached to it.
+# by Electron. A unit it installs must carry both, or the daemon opens a
+# database inside the app bundle and the app attaches to it.
 
 _MAC_STATE = {
     "RESMON_DB_PATH": "/Users/someone/Library/Application Support/resmon/resmon.db",
@@ -295,3 +295,198 @@ def test_daemon_flags_set_the_database_config_opens(tmp_path):
         timeout=60, check=True,
     ).stdout.splitlines()
     assert out == [str(db), str(reports)]
+
+
+# ---------------------------------------------------------------------------
+# A unit installed from the packaged app runs the app
+# ---------------------------------------------------------------------------
+#
+# The app is the background service: it starts the engine as its child and posts
+# the engine's notifications as resmon. Electron tells the engine it starts the
+# executable to run (RESMON_APP_EXECUTABLE), and a unit installed from that
+# engine starts it with --service. Every unit here is rendered or written under a
+# temporary folder; none is registered with the system.
+
+_MAC_APP = "/Applications/resmon.app/Contents/MacOS/resmon"
+_APPIMAGE = "/home/a b/Apps/resmon-1.0.0-x86_64.AppImage"
+_WIN_APP = r"C:\Users\a\AppData\Local\Programs\resmon\resmon.exe"
+_WIN_STATE = r"--db-path=C:\Users\a\AppData\Local\resmon\resmon.db"
+
+
+def test_plist_runs_the_app_with_the_state_flags_and_keeps_the_service_alive():
+    import plistlib
+
+    rendered = service_manager.render_template(
+        port=8742, log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / "com.resmon.daemon.plist",
+        state_args=service_manager.state_arguments(_MAC_STATE), app_executable=_MAC_APP,
+    )
+    unit = plistlib.loads(rendered.encode("utf-8"))
+    assert unit["ProgramArguments"] == [
+        _MAC_APP, "--service", "--port=8742",
+        "--db-path=/Users/someone/Library/Application Support/resmon/resmon.db",
+        "--reports-dir=/Users/someone/Library/Application Support/resmon/resmon_reports",
+    ]
+    assert unit["WorkingDirectory"] == "/Applications/resmon.app/Contents/MacOS"
+    # The app exits 1 when its engine dies, and KeepAlive starts it again.
+    assert unit["KeepAlive"] is True
+    assert unit["RunAtLoad"] is True
+
+
+def test_systemd_unit_runs_the_appimage_file_and_restarts_it_on_failure():
+    import shlex
+
+    rendered = service_manager.render_template(
+        port=9000, log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / "resmon-daemon.service",
+        state_args=["--db-path=/home/a b/resmon.db"], app_executable=_APPIMAGE,
+    )
+    [line] = [l for l in rendered.splitlines() if l.startswith("ExecStart=")]
+    assert shlex.split(line[len("ExecStart="):]) == [_APPIMAGE, "--service", "--port=9000", "--db-path=/home/a b/resmon.db"]
+    assert "implementation_scripts" not in line
+    assert "WorkingDirectory=/home/a b/Apps" in rendered
+    assert "Restart=on-failure" in rendered
+
+
+def test_task_xml_runs_the_app_with_service_in_its_arguments():
+    import xml.etree.ElementTree as ET
+
+    rendered = service_manager.render_template(
+        port=8742, log_dir=Path(r"C:\logs"),
+        template=service_manager.TEMPLATES_DIR / "resmon-daemon.task.xml",
+        state_args=[_WIN_STATE], app_executable=_WIN_APP,
+    )
+    root = ET.fromstring(rendered)
+    [command] = [e.text for e in root.iter() if e.tag.endswith("Command")]
+    [arguments] = [e.text for e in root.iter() if e.tag.endswith("Arguments")]
+    assert command == _WIN_APP
+    # --log-dir is how the engine, a child of an app with no console, opens its own log.
+    assert arguments == rf'--service --port=8742 "{_WIN_STATE}" "--log-dir=C:\logs"'
+
+
+@pytest.mark.parametrize("template", ["com.resmon.daemon.plist", "resmon-daemon.service", "resmon-daemon.task.xml"])
+def test_each_template_still_runs_the_engine_when_there_is_no_app(template):
+    rendered = service_manager.render_template(
+        python="/usr/bin/python3", port=8742, workdir=Path("/tmp/resmon"), log_dir=Path("/tmp/logs"),
+        template=service_manager.TEMPLATES_DIR / template, state_args=[],
+    )
+    assert "implementation_scripts.daemon" in rendered
+    assert "--service" not in rendered
+    assert "{{" not in rendered
+
+
+def test_a_unit_installed_by_the_packaged_apps_engine_runs_the_app(unit_dir, monkeypatch):
+    monkeypatch.setattr(service_manager.sys, "platform", "darwin")
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", _MAC_APP)
+    path = service_manager.install(port=8742, register=False)
+    text = path.read_text(encoding="utf-8")
+    assert "--service" in text and _MAC_APP in text
+    assert "implementation_scripts" not in text
+    assert service_manager.unit_runs() == "app"
+
+
+def test_a_unit_installed_from_a_checkout_runs_the_engine(unit_dir, monkeypatch):
+    monkeypatch.delenv("RESMON_APP_EXECUTABLE", raising=False)
+    path = service_manager.install(port=8742, register=False)
+    assert "implementation_scripts.daemon" in path.read_text(encoding="utf-8")
+    assert service_manager.unit_runs() == "engine"
+
+
+def test_naming_the_interpreter_asks_for_the_engine_even_in_the_packaged_app(unit_dir, monkeypatch):
+    monkeypatch.setattr(service_manager.sys, "platform", "darwin")
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", _MAC_APP)
+    path = service_manager.install(python="/usr/bin/python3", port=8742, register=False)
+    assert "implementation_scripts.daemon" in path.read_text(encoding="utf-8")
+    assert service_manager.unit_runs() == "engine"
+
+
+def test_unit_runs_says_nothing_without_a_unit(unit_dir):
+    assert service_manager.unit_runs() is None
+
+
+def test_the_app_forwards_the_flags_the_engine_reads():
+    """The flags a unit gives the app are the flags the daemon reads."""
+    from implementation_scripts import daemon
+
+    assert {flag for _, flag in service_manager.STATE_ARGUMENTS} == set(daemon._STATE_FLAGS)
+    host = (PROJECT_ROOT / "resmon_scripts" / "frontend" / "electron" / "host.ts").read_text(encoding="utf-8")
+    for flag in (*daemon._STATE_FLAGS, "--log-dir"):
+        assert f"'{flag}='" in host
+
+
+def test_status_says_what_the_installed_unit_runs_and_whether_the_app_could(unit_dir, monkeypatch):
+    _reset_app_db()
+    client = TestClient(resmon_mod.create_app())
+    monkeypatch.setattr(service_manager.sys, "platform", "darwin")
+    monkeypatch.delenv("RESMON_APP_EXECUTABLE", raising=False)
+    none = client.get("/api/service/status").json()
+    assert (none["runs"], none["app_available"]) == (None, False)
+
+    service_manager.install(port=8742, register=False)
+    engine = client.get("/api/service/status").json()
+    assert (engine["runs"], engine["app_available"]) == ("engine", False)
+
+    # The same unit, seen by an engine the packaged app started: the app could run it.
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", _MAC_APP)
+    assert client.get("/api/service/status").json()["app_available"] is True
+    service_manager.install(port=8742, register=False)
+    assert client.get("/api/service/status").json()["runs"] == "app"
+
+
+@pytest.mark.parametrize("platform", ["darwin", "win32"])
+def test_the_app_is_the_service_on_macos_and_windows(platform, monkeypatch):
+    monkeypatch.setattr(service_manager.sys, "platform", platform)
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", _MAC_APP)
+    assert service_manager.default_app_executable() == _MAC_APP
+
+
+def test_linux_runs_the_engine_even_when_told_an_app(unit_dir, monkeypatch):
+    """A systemd --user unit has no display, which Electron needs; the engine runs headless."""
+    monkeypatch.setattr(service_manager.sys, "platform", "linux")
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", _APPIMAGE)
+    assert service_manager.default_app_executable() is None
+    text = service_manager.install(port=8742, register=False).read_text(encoding="utf-8")
+    assert "implementation_scripts.daemon" in text and "--service" not in text
+    assert service_manager.unit_runs() == "engine"
+    # So Settings has no app to offer, and never says the engine runs "on its own".
+    _reset_app_db()
+    status = TestClient(resmon_mod.create_app()).get("/api/service/status").json()
+    assert (status["runs"], status["app_available"]) == ("engine", False)
+
+
+# ---------------------------------------------------------------------------
+# A unit must not point into a place that disappears
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("path, temporary", [
+    ("/private/var/folders/ab/T/AppTranslocation/6F1D/d/resmon.app/Contents/MacOS/resmon", True),
+    ("/Volumes/resmon 1.0.0/resmon.app/Contents/MacOS/resmon", True),
+    ("/Applications/resmon.app/Contents/MacOS/resmon", False),
+    ("/Users/ada/Applications/resmon.app/Contents/MacOS/resmon", False),
+    ("/opt/AppTranslocationTools/python3", False),
+])
+def test_which_paths_will_not_be_there_next_time(path, temporary):
+    assert service_manager.runs_from_temporary_place(path) is temporary
+
+
+@pytest.mark.parametrize("app, python", [
+    ("/private/var/folders/ab/T/AppTranslocation/6F1D/d/resmon.app/Contents/MacOS/resmon", None),
+    ("/Volumes/resmon/resmon.app/Contents/MacOS/resmon", None),
+    (None, "/Volumes/resmon/resmon.app/Contents/Resources/backend/python/bin/python3"),
+])
+def test_installing_from_a_temporary_place_is_refused_in_either_form(unit_dir, app, python):
+    with pytest.raises(service_manager.TemporaryPlaceError, match="move resmon to Applications"):
+        service_manager.install(port=8742, register=False, app_executable=app, python=python)
+    assert not service_manager.is_installed()
+
+
+def test_the_install_route_says_so_in_one_sentence_and_writes_nothing(unit_dir, monkeypatch):
+    _reset_app_db()
+    monkeypatch.setattr(service_manager.sys, "platform", "darwin")
+    monkeypatch.setenv("RESMON_APP_EXECUTABLE", "/Volumes/resmon/resmon.app/Contents/MacOS/resmon")
+    client = TestClient(resmon_mod.create_app())
+    response = client.post("/api/service/install", json={"register": False})
+    assert response.status_code == 409
+    detail = response.json()["detail"]
+    assert "move resmon to Applications" in detail and detail.count(". ") == 0
+    assert not service_manager.is_installed()

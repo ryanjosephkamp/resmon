@@ -1,18 +1,16 @@
 """Every lane must actually transmit the summarization constitution.
 
 ``SUMMARIZE_ABSTRACT`` opens with "Write the summary in strict adherence to the
-attached constitution." Only the API-key lane attached one. The
-subscription and local lanes sent that sentence with nothing behind it, and the
-subscription lane's observed behaviour was the worst possible shape of the bug:
-told to follow a document it could not find, and with tools disabled so it could
-not go looking, the agent **fabricated** a file search and its results and
-returned them as the paper's summary. Valid JSON, populated ``result``, so the
-defensive extraction accepted it. The lane did not fail; it succeeded and was
-wrong.
+attached constitution." A lane that sends that sentence with nothing behind it
+fails in the worst possible shape: told to follow a document it cannot find, and
+with tools disabled so it cannot go looking, an agent **fabricates** a file
+search and its results and returns them as the paper's summary. Valid JSON,
+populated ``result``, so the defensive extraction accepts it. The lane does not
+fail; it succeeds and is wrong.
 
-The suite could not see it because every existing test asked whether the
-constitution *exists* — it loads, it memoises, it stays under 16 KB — and what
-was broken is whether it *arrives*. So these tests assert transmission at the
+A test that asks whether the constitution *exists* — it loads, it memoises, it
+stays under 16 KB — cannot see that, because what can break is whether it
+*arrives*. So these tests assert transmission at the
 boundary each lane actually crosses: argv for ``claude``, the working directory
 for ``codex``, the request body for ollama, the messages array for API keys.
 
@@ -62,9 +60,9 @@ def _spawns(monkeypatch, handler):
 
     *handler* receives the argv and returns a ``_FakeCompleted``; it is where a
     test writes codex's ``-o`` file or reads the working directory. The client
-    spawns through ``Popen`` rather than ``subprocess.run`` since 1.8.5,
-    because a batched call is one process holding N documents and cancellation
-    has to be able to terminate it from another thread.
+    spawns through ``Popen`` rather than ``subprocess.run``, because a batched
+    call is one process holding N documents and cancellation has to be able to
+    terminate it from another thread.
     """
     class _Process:
         def __init__(self, argv):
@@ -244,11 +242,11 @@ def test_api_key_lane_sends_the_constitution():
 
 
 # ---------------------------------------------------------------------------
-# Subscription lane — the batched call shape (1.8.5)
+# Subscription lane — the batched call shape
 # ---------------------------------------------------------------------------
 #
-# A second way to call a lane is a second way to forget the constitution, and
-# the first time this file was written there was only one. The batched call is
+# A second way to call a lane is a second way to forget the constitution. The
+# batched call is
 # built from the same argv helpers as the single one precisely so a flag
 # cannot be present on one path and absent on the other — but "built from the
 # same helper" is an implementation claim, and what has to be asserted is that
@@ -388,9 +386,9 @@ def test_both_subscription_providers_have_a_batched_case():
 #
 # BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT CATCH.
 #
-# It does NOT guard the constitution regression. That was measured, not assumed:
-# with the `--append-system-prompt` fix reverted, this test still passed against
-# the real CLI. The fabricated-transcript failure is probabilistic — an agent
+# It does NOT guard the constitution: with the `--append-system-prompt` flag
+# removed, this test would still pass against the real CLI. The
+# fabricated-transcript failure is probabilistic — an agent
 # told to follow a document it cannot find sometimes hunts for it and sometimes
 # just writes the summary — so a single live call is not a detector for it. The
 # deterministic guard for that is the hermetic set above, which asserts what

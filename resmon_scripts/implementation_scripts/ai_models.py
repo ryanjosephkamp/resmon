@@ -217,14 +217,13 @@ def list_available_models(
 
 
 # ---------------------------------------------------------------------------
-# Subscription lanes (1.8.5)
+# Subscription lanes
 # ---------------------------------------------------------------------------
 #
 # ``list_available_models`` above raises ``Unsupported provider`` for
-# ``claude_code`` and ``codex``, which was correct while nothing could answer
-# for them and is not correct now. But the two CLIs answer in genuinely
-# different ways, and flattening that into one list would be the overclaim this
-# project rejects:
+# ``claude_code`` and ``codex``, because those two are not API providers. The
+# two CLIs answer a models question in genuinely different ways, and
+# flattening that into one list would be the overclaim this project rejects:
 #
 # ``claude``  has **no** models-listing command. What it documents is aliases —
 #             ``--help`` names 'fable', 'opus' and 'sonnet', and 'haiku' was
@@ -245,6 +244,8 @@ def list_available_models(
 
 import json as _json  # noqa: E402  (module already imports what it needs above)
 import subprocess  # noqa: E402
+
+from .child_process import hidden_window_kwargs  # noqa: E402
 
 # How long ``codex debug models`` may take before resmon gives up on it. The
 # Settings page waits on this, so it is short: an unavailable catalog costs the
@@ -331,7 +332,7 @@ def _codex_catalog(binary_path: str | None) -> SubscriptionCatalog:
         completed = subprocess.run(
             [discovery.path or "", "debug", "models"],
             capture_output=True, text=True, timeout=_CLI_CATALOG_TIMEOUT,
-            stdin=subprocess.DEVNULL, check=False,
+            stdin=subprocess.DEVNULL, check=False, **hidden_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.info("codex debug models did not answer: %s", exc)

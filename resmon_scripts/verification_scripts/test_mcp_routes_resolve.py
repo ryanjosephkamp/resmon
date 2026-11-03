@@ -1,13 +1,10 @@
 """Every path the MCP server calls resolves against a route the app really has.
 
-**This was a manual act three times and is a test once.** Contract amendments
-v1.1, v1.2 and v1.3 each say "every route the server calls was re-checked
-against the running app while this amendment was written" — and the reason they
-say it is v1.1, where three of the contract's rows named endpoints or arguments
-that did not exist as written and the tools built against them failed for every
-input. A check a person performs at freeze time is a check that has to be
-re-performed at the next freeze and can be quietly skipped; this file performs
-it on every run.
+**Checking the routes by hand does not last; this test does.** A contract row
+can name an endpoint or an argument that does not exist as written, and a tool
+built against it fails for every input. A check a person performs at freeze
+time has to be re-performed at the next freeze and can be quietly skipped; this
+file performs it on every run.
 
 It is the same lesson as ``routes.ts`` on the renderer side: the denominator has
 to be a list in the code, not a list in someone's head. Here the denominator is
@@ -63,7 +60,7 @@ TOOL_ARGS: dict[str, list[dict]] = {
     "get_watchdog_findings": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1], "format": "bibtex"}],
-    # v2.2. `get_watch_profile` sends two requests, and both are listed by
+    # `get_watch_profile` sends two requests, and both are listed by
     # giving it one entry -- the recorder collects every call the tool makes,
     # which is why the double answers 200 rather than 404.
     "list_watch_profiles": [{}, {"kind": "person"}],
@@ -144,7 +141,7 @@ def test_every_tool_has_arguments_that_reach_its_endpoints():
 
 
 def test_every_path_the_mcp_server_calls_is_a_route_the_app_has():
-    """The v1.1 defect, as a test rather than as a promise in a document."""
+    """Every route the server calls exists, as a test rather than as a promise in a document."""
     matchers = _route_matchers()
     unresolved = []
     for method, path in _calls():
@@ -152,8 +149,8 @@ def test_every_path_the_mcp_server_calls_is_a_route_the_app_has():
                    for methods, regex in matchers):
             unresolved.append(f"{method} {path}")
     assert unresolved == [], (
-        "the MCP server calls addresses the app does not serve — the failure "
-        f"contract v1.1 shipped, found again: {sorted(set(unresolved))}"
+        "the MCP server calls addresses the app does not serve: "
+        f"{sorted(set(unresolved))}"
     )
 
 

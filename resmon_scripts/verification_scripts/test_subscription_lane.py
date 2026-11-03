@@ -1,4 +1,4 @@
-"""The subscription lane end to end: resolution, the cap, and the chain (1.8c).
+"""The subscription lane end to end: resolution, the cap, and the chain.
 
 The document cap is a product guard, not a technical one. An agent CLI spends
 the same Claude Max or ChatGPT window the user does their own work in, so a
@@ -33,12 +33,12 @@ def test_a_subscription_lane_is_capped_by_default():
 def test_the_default_cap_is_fifty():
     """The agreed number. Changing it is a product decision, not a refactor.
 
-    Twenty-five until 1.8.5, when batching changed what a paper costs: at the
-    default batch size of five a paper measured 0.33× the cost and 0.23× the
-    input-side tokens of a per-document call, so fifty papers spend less of the
-    plan's window than twenty-five did before. Fifty rather than a hundred
-    because every real batched run came back one summary short of its batch and
-    each miss costs a re-send.
+    Batching changes what a paper costs: at the default batch size of five a
+    paper measured 0.33× the cost and 0.23× the input-side tokens of a
+    per-document call, so fifty batched papers spend less of the plan's window
+    than twenty-five per-document ones. Fifty rather than a hundred because a
+    real batched run comes back one summary short of its batch, and each miss
+    costs a re-send.
     """
     assert DEFAULT_SUBSCRIPTION_DOC_CAP == 50
 

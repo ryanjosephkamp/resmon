@@ -1,12 +1,12 @@
 # resmon_scripts/implementation_scripts/response_models.py
 """What the HTTP routes answer with, declared so a client can be generated.
 
-``docs/api-contract/`` describes what each of the 185 routes *accepts* in full,
-and described what they *answer* with not at all: no route declared a
-``response_model``, so ``openapi.json`` gave every 200 body the empty schema
-``{}``. A typed client generated from that contract would have had types for
-every request and none for any reply, which is the half that matters to a
-renderer.
+``docs/api-contract/`` describes what each of the 185 routes *accepts* in full.
+What they *answer* with is declared here: a route that declares no
+``response_model`` has its 200 body described in ``openapi.json`` as the empty
+schema ``{}``, and a typed client generated from that contract would have
+types for every request and none for any reply, which is the half that matters
+to a renderer.
 
 This module holds the response models, and the base class that makes adding one
 safe.
@@ -18,7 +18,7 @@ The hazard, and why the base class exists
 returned that the model does not declare is dropped from the body, silently and
 with a 200. On routes whose bodies are dicts assembled across several modules,
 that is a functionality decrease waiting for somebody to forget a field — and
-functionality here does not decrease without the owner's sign-off.
+functionality here does not decrease unless somebody decides it should.
 
 There are three ways a ``response_model`` changes a body, and only the first is
 the one people think of:
@@ -103,15 +103,14 @@ declared optional so the schema says so.
 Scope today
 -----------
 
-Seven slices. The first shipped the mechanism; the other six are the rollout,
-and the authoritative list of which routes are modeled is
-``verification_scripts/test_response_models.py``'s ``THE_MODELED_SURFACE`` —
-declared there rather than here, because the thing worth guarding is that the
+Seven groups of routes are modeled, and the authoritative list of which routes
+are modeled is ``verification_scripts/test_response_models.py``'s
+``THE_MODELED_SURFACE`` — declared there rather than here, because the thing worth guarding is that the
 *application* and the declaration agree, and a declaration living in the module
 the application imports could not say anything the application did not already
 say.
 
-* **Watch profiles**, the eleven routes under ``/api/profiles``. The pilot.
+* **Watch profiles**, the eleven routes under ``/api/profiles``.
 * **Settings**, seventeen routes: a GET and a PUT for each of the eight stored
   groups, plus the agent-CLI probe. Each group has its own model because each
   group really is a different shape — six of them are maps of stored strings,
@@ -128,8 +127,7 @@ say.
   from whichever fields the caller sent, which is what
   ``response_model_exclude_unset=True`` exists for.
 * **The scheduler**, one route: whether this database's active routines will
-  fire. It was born with its model rather than given one later, and its two
-  closed vocabularies are ``Literal`` types, so a state the handler invents is
+  fire. Its two closed vocabularies are ``Literal`` types, so a state the handler invents is
   a 500 in the equality sweep rather than a word the renderer has no sentence
   for.
 
@@ -142,12 +140,11 @@ set for each of the eight finding kinds, so there is no field list to write
 down and ``dict`` — "an object whose keys this contract does not enumerate" —
 is the honest description.
 
-**A field whose *type* varies is not that case, and an earlier draft of this
-docstring said it was.** A finding's ``scope`` holds a string id for a source
-and an integer id for a routine, and this file claimed that declaring
-``id: str`` would "quietly coerce ``1`` into ``"1"``". It would not, and the
-reason is worth knowing because hazard 3 above is real: **pydantic's coercion
-is directional.** Measured on the pinned pydantic 2.12.4::
+**A field whose *type* varies is not that case.** A finding's ``scope`` holds
+a string id for a source and an integer id for a routine, and declaring
+``id: str`` does not "quietly coerce ``1`` into ``"1"``". The reason is worth
+knowing because hazard 3 above is real: **pydantic's coercion is
+directional.** Measured on the pinned pydantic 2.12.4::
 
     int  <- "5"     ->  5        quiet, and this is hazard 3
     int  <- True    ->  1        quiet
@@ -168,11 +165,10 @@ value's runtime type — ``1`` stays an ``int``, ``"arxiv"`` stays a ``str``.
 Reaching for ``dict`` because a type varies gives up a shape the client could
 have had, for a hazard that does not exist in that direction.
 
-``scope`` is still ``dict`` here, and that is a scheduling decision rather than
-a technical one: it was typed that way on a wrong premise, the mistake was
-found in review after the slice was accepted, and widening it to a real
-``WatchdogFindingScope`` adds a model nobody has reviewed. The next author to
-touch the watchdog should type it. Nothing is lost in the meantime —
+``scope`` is still ``dict`` here, and that is a matter of scope rather than a
+technical one: widening it to a real ``WatchdogFindingScope`` adds a model of
+its own, and it should be typed when the watchdog's models are next touched.
+Nothing is lost in the meantime —
 ``extra="allow"`` carries every key and ``jsonable_encoder`` carries every
 value — but the client gets ``object`` where it could have had a shape.
 
@@ -1260,15 +1256,13 @@ class WatchdogFinding(LosslessModel):
     that fits.
 
     ``scope`` is ``dict`` because a source's scope carries a **string** id and
-    a routine's carries an **integer** one, and this docstring used to claim
-    that a model declaring either would silently coerce the other. It would
-    not: on the pinned pydantic 2.12.4, ``id: str`` fed ``1`` raises rather
-    than stringifying it, so the mistake would be a 500 the equality sweep
-    catches and not a wrong body nobody notices. ``Union[str, int]`` is the
-    right annotation, keeps both runtime types, and would give a client a real
-    shape instead of ``object``. It is not here because the premise was found
-    to be wrong after this slice was reviewed, and adding an unreviewed model
-    to an accepted change is the worse trade. See the module docstring.
+    a routine's carries an **integer** one. A model declaring either does not
+    silently coerce the other: on the pinned pydantic 2.12.4, ``id: str`` fed
+    ``1`` raises rather than stringifying it, so the mistake would be a 500
+    the equality sweep catches and not a wrong body nobody notices.
+    ``Union[str, int]`` is the right annotation, keeps both runtime types, and
+    would give a client a real shape instead of ``object``. It is not here yet
+    because typing it adds a model of its own. See the module docstring.
 
     ``what_to_do`` is a field, not prose the renderer composes, because the
     sentence depends on the finding and a generic one would be advice resmon
@@ -1375,9 +1369,9 @@ class OnboardingStep(LosslessModel):
     """One first-run step, as a fact rather than as prose.
 
     ``done`` is **three-valued**, and declaring it ``bool`` is a real mistake
-    that this file made and ``test_onboarding.py`` caught: the two credential
+    that ``test_onboarding.py`` catches: the two credential
     steps call ``_credential_present``, which answers ``None`` when the keyring
-    will not say. An unsigned macOS build is denied the items an earlier build
+    will not say. An unsigned macOS build is denied the items a signed build
     stored, and "no key" there would tell somebody to add a key they already
     have — so the backend declines to answer, and the model has to be able to
     carry that. ``done: bool`` did not merely mis-describe it; it turned a 200
@@ -1487,8 +1481,8 @@ class RepositoryConstraints(LosslessModel):
     Deliberately not here: whether the source requires a credential. That is
     on ``api_key_requirement`` and ``credential_name`` of the entry carrying
     this object, and a second copy is the exact drift this record exists to
-    prevent — the sweep engine's own list of keyed sources disagreed with the
-    catalog's for three releases and a source fell through the gap.
+    prevent — a separate list of keyed sources in the sweep engine can disagree
+    with the catalog's, and a source falls through the gap.
 
     Also deliberately not here: whether the source is up. An outage is not
     something a user can act on while composing a query, it belongs to
@@ -1555,9 +1549,9 @@ class CredentialPresence(LosslessModel):
 
     ``status`` is ``present``, ``absent`` or ``unreadable``, and the third is
     the one that matters: an unsigned macOS build is denied access to keychain
-    items an earlier build stored, and reporting that as absent tells a user
+    items a signed build stored, and reporting that as absent tells a user
     their keys are gone when they are merely unreachable. ``present`` is the
-    older boolean, kept beside it for compatibility.
+    plain boolean, kept beside it for callers that need only that.
     """
 
     present: bool
@@ -2231,12 +2225,12 @@ class RoutineRow(LosslessModel):
     """One row of ``GET /api/routines``: the ``routines`` row as stored, and
     what its latest run did.
 
-    The five switches are SQLite's ``0`` and ``1`` here, as this list has always
-    sent them; the single-routine read below coerces them to booleans. Typed as
+    The five switches are SQLite's ``0`` and ``1`` here, as this list sends
+    them; the single-routine read below coerces them to booleans. Typed as
     sent rather than as meant, so neither body changes. ``parameters``,
     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-    name the classic table reads.
+    name the renderer reads.
     """
 
     id: int
@@ -2560,11 +2554,18 @@ class ServiceStatus(LosslessModel):
     ``installed`` is the file's presence at ``unit_path`` and nothing more: an
     installed unit says nothing about whether a service is running, which is
     ``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.
+    ``runs`` is what the installed unit starts, read from the file: ``app`` (the
+    resmon app, which posts notifications as resmon), ``engine`` (the bare
+    engine), or ``null`` when there is no unit or it names neither.
+    ``app_available`` is true when this engine was started by the packaged app, so
+    a unit written now would run the app.
     """
 
     installed: bool
     unit_path: str
     platform: str
+    runs: Optional[Literal["app", "engine"]]
+    app_available: bool
 
 
 class DaemonStatus(LosslessModel):
@@ -2939,7 +2940,7 @@ class LibraryStatus(LosslessModel):
 
 
 class LibraryPaperLink(LosslessModel):
-    """A paper the owner associated a file with: an association, not an identification."""
+    """A paper the user associated a file with: an association, not an identification."""
 
     document_id: int
     title: Optional[str]
@@ -4041,8 +4042,8 @@ class AssistantPermissionAnswered(LosslessModel):
 # chose, because that folder need not hold a bundle this resmon wrote, and the
 # route's job is to say what is wrong with it rather than fail. Files resmon
 # keeps in its own state directory (the staged pointer and the restore record)
-# outlive the version that wrote them, so a field a release added after 2.3.0
-# is optional and absent from what 2.3.0 wrote.
+# outlive the version that wrote them, so a field added later is optional and
+# absent from a file written before it existed.
 
 
 class BackupFile(LosslessModel):
@@ -4190,7 +4191,7 @@ class BundleReport(LosslessModel):
     which need not hold a bundle this resmon wrote, and reports what is wrong
     with it rather than failing. For a bundle this version wrote it holds
     ``BackupManifest``'s fields except the three added after the file was
-    written, and one resmon 2.3.0 wrote has no ``fk_violations_rows``.
+    written, and one written without ``fk_violations_rows`` has none.
     Python's JSON parser accepts ``NaN`` and ``Infinity``, so one written
     into a manifest by hand, where the handler only copies it, is answered
     here as ``null`` where the route answered 500 before it was modeled.
@@ -4271,7 +4272,7 @@ class RestorePointer(LosslessModel):
     ``accept_fk_violations`` is whether the person accepted the bundle's
     orphan rows. ``vault_parent`` is the folder the vault is to go into on
     this machine, ``None`` for the path the bundle's database records; a
-    pointer resmon 2.3.0 staged has no such key.
+    pointer staged without one has no such key.
     """
 
     bundle: str
@@ -4316,7 +4317,7 @@ class RestoredVault(LosslessModel):
     ``restored`` is false, with ``reason`` ``no_vault_in_backup``, when the
     bundle carried no vault. Otherwise ``root_path`` is where the vault now is
     and ``replaced_kept_at`` where the vault that was there before was moved,
-    ``None`` when that folder held none. A record resmon 2.3.0 wrote has no
+    ``None`` when that folder held none. A record written without it has no
     ``replaced_kept_at``.
     """
 
@@ -4344,7 +4345,7 @@ class RestoreSucceeded(LosslessModel):
 
     Read from the state directory, where it outlives the version that wrote
     it: ``undo_includes_vault``, ``vault_parent`` and ``fk_violations_rows``
-    are absent from a record resmon 2.3.0 wrote. ``ok`` says the restore's own
+    are absent from a record written without them. ``ok`` says the restore's own
     checks passed: SQLite's ``integrity_check``, and its foreign-key check
     unless the orphan rows were accepted. It does not say the corpus is as the
     person remembers it.
@@ -4388,7 +4389,7 @@ class RestoreFailed(LosslessModel):
     code. ``undone`` is present, and true, when the restore had begun moving
     files and its undo ran; ``vault_copy_kept`` is then the path of a vault
     copy the undo could not put back by itself, normally ``None``, and is
-    absent from a record resmon 2.3.0 wrote. ``acknowledged`` is absent until
+    absent from a record written without it. ``acknowledged`` is absent until
     the person dismisses the card.
     """
 

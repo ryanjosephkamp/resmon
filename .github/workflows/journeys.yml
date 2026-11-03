@@ -1,6 +1,6 @@
 name: Journeys
 
-# One automated test per row of the parity register, run against this build.
+# One automated test per journey in `resmon_scripts/frontend/journeys/register.ts`, run against this build.
 #
 # `ui-smoke.yml` asks whether *this* checkout's app works. This asks something
 # else: whether the journeys a user has today are still there, in the words of
@@ -12,8 +12,8 @@ name: Journeys
 #              `smoke` job.
 #
 # It takes a `break_row` input that fails one named register row on purpose.
-# B2 says a new CI job is trusted once it has been made to go red, and a job
-# that cannot be made to go red on demand has to be trusted on somebody's word.
+# A new CI job is trusted once it has been made to go red, and a job that
+# cannot be made to go red on demand has to be trusted on somebody's word.
 #
 # Screenshots are uploaded, never committed: two branches that both run the
 # suite both rewrite every file.

@@ -38,7 +38,17 @@ PORT_FILE = Path(
 
 # Application metadata
 APP_NAME = "resmon"
-APP_VERSION = "2.3.0"
+APP_VERSION = "1.0.0"
+
+# The repository the project lives in, written once. The sources' User-Agent
+# strings are built from it, because several scholarly APIs ask for a contact
+# URL in a set shape. The places that must spell it out literally (package.json,
+# the workflows' repository guard, the issue-template config, Atlas's issues
+# link) are held to these values by test_repository_name.py, so renaming the
+# project means changing this and following the one failing test.
+REPOSITORY = "ryanjosephkamp/resmon"
+REPOSITORY_URL = f"https://github.com/{REPOSITORY}"
+REPOSITORY_ISSUES_URL = f"{REPOSITORY_URL}/issues"
 
 # API Client defaults
 DEFAULT_REQUEST_TIMEOUT = 30  # seconds

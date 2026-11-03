@@ -8,7 +8,7 @@
  * reports for itself, and the process answering is a child of this window's own
  * Electron process rather than some other resmon that happened to be listening.
  *
- * That second half is the one B3 cares about. Port 8742 carries a live launchd
+ * That second half is the one that keeps the suite away from the live daemon. Port 8742 carries a live launchd
  * daemon over a real corpus, and "the port is the app's own" is the difference
  * between a suite that is isolated and a suite that is isolated by luck.
  */

@@ -1,23 +1,22 @@
 """A transport failure is not an answer.
 
-Phase 1.8.6 gave every zero a reason, and the reason that matters most is the
+Every zero carries a reason, and the reason that matters most is the
 distinction between *the source answered and had nothing* and *the source did
 not answer*. ``zero_reason.DID_NOT_ANSWER`` is that line, the watchdog reads
 it, and the search record renders a different sentence on each side of it.
 
-``safe_request`` recorded a failure for exactly two exceptions --
-``TimeoutException`` and ``ConnectError`` -- because those are the two it
-retries. Every other transport failure ``httpx`` can raise fell through
-``note_failure`` entirely, so the outcome channel held one attempt and zero
-failures, and ``derive`` read that as an answer. The user was then told:
+``safe_request`` must record a failure for every transport failure ``httpx``
+can raise, not only the two it retries -- ``TimeoutException`` and
+``ConnectError``. A failure that falls through ``note_failure`` leaves the
+outcome channel holding one attempt and zero failures, and ``derive`` reads
+that as an answer. The user is then told:
 
     arXiv answered (HTTP 200) and resmon found no records in the reply.
 
-about a source that never answered. That is the overclaim the whole phase
-exists to prevent, and it survived 1.8.6 because every test of the channel
-went through a mock transport that raises only the two exceptions the code
-already handled -- **a test double cannot fail the way the real dependency
-fails**, which is Ledger 23 for the fourth time.
+about a source that never answered. That is the overclaim this channel exists
+to prevent, and a test of the channel that goes through a mock transport
+raising only the two exceptions the code already handles cannot catch it --
+**a test double cannot fail the way the real dependency fails**.
 
 So these tests use a **real socket**. The server is in-process and the
 upstream is not real, but the connection, the TLS attempt and the httpx stack
@@ -115,7 +114,7 @@ def test_a_refused_connection_is_recorded_as_a_failure(closed_port: int) -> None
 
 
 def test_a_server_that_hangs_up_is_not_an_answer() -> None:
-    """The regression. Before the fix this returned ``answered_empty``."""
+    """A hung-up connection is not ``answered_empty``."""
     server = _Server("close")
     try:
         reason, _ = _reason_for(f"http://127.0.0.1:{server.port}/search")

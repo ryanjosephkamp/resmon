@@ -101,12 +101,11 @@ _FILTER_CASES: dict[str, dict] = {
     "date_to": {"date_to": "2026-01-31"},
 }
 
-# ``query`` is deliberately **not** a P4 case, and this is the restatement
-# revision 1 asked for.
+# ``query`` is deliberately **not** a P4 case.
 #
 # In the similarity sort the free-text phrase is the *ranking query*, not a
 # filter. Requiring the two sorts to return the same set for the same ``query``
-# is exactly what made eleven of twenty real queries answer with an empty page:
+# is exactly what would make real queries answer with an empty page:
 # the text filter is an AND over every word typed, so a plain-English phrase
 # matched nothing and there was nothing left to rank.
 #
@@ -151,7 +150,7 @@ def mixed_corpus(conn):
 
 @pytest.mark.parametrize("field", sorted(_FILTER_CASES))
 def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mixed_corpus):
-    """P4 (restated). 5 of 5 **structured** filter fields; ``query`` is not one.
+    """P4. 5 of 5 **structured** filter fields; ``query`` is not one.
 
     The denominator is still ``ExplorerFilters.model_fields`` — the test above
     asserts that these five plus ``query`` account for all of it.
@@ -173,11 +172,11 @@ def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mix
 
 
 def test_the_phrase_ranks_rather_than_filters_in_similarity_mode(conn, mixed_corpus):
-    """R1, the positive claim that replaces ``query``'s P4 row.
+    """The positive claim for ``query``, in place of a P4 case.
 
     A phrase no paper contains returns the **whole** structured-filter scope,
     ranked — where the newest sort correctly returns nothing, because there it
-    *is* a filter. This is the case the field test measured eleven times over.
+    *is* a filter. This is the case a plain-English query hits.
     """
     phrase = "a phrase no paper in this corpus contains anywhere"
 
@@ -345,7 +344,7 @@ def test_a_corpus_with_one_embedded_paper_says_why_rather_than_returning_nothing
 
 
 def test_neighbours_are_never_drawn_from_another_model(conn):
-    """P7 again, through the neighbour path rather than through ``nearest``."""
+    """The same-model rule, through the neighbour path rather than through ``nearest``."""
     a = _paper(conn, "a", vector=[1.0, 0.0, 0.0])
     b = _paper(conn, "b", vector=[0.9, 0.1, 0.0])
     conn.execute(

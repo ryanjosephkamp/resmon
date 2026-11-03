@@ -6,6 +6,7 @@ import re
 import time
 from datetime import date
 
+from . import config
 from .api_base import (
     Author,
     BaseAPIClient,
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 _DBLP_API_URL = "https://dblp.org/search/publ/api"
 _DBLP_SPARQL_URL = "https://sparql.dblp.org/sparql"
-_DBLP_USER_AGENT = "resmon-scholar-monitor (+https://github.com/ryanjosephkamp/resmon)"
+_DBLP_USER_AGENT = f"resmon-scholar-monitor (+{config.REPOSITORY_URL})"
 _SEARCH_BUDGET_SECONDS = 45.0
 _REQUEST_TIMEOUT_SECONDS = 10.0
 _MAX_RESPONSE_ATTEMPTS = 2

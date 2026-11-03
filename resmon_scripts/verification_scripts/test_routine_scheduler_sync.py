@@ -1,4 +1,4 @@
-"""IMPL-R5 — Routine CRUD ↔ scheduler synchronization."""
+"""Routine CRUD ↔ scheduler synchronization."""
 
 from __future__ import annotations
 

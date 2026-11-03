@@ -1,11 +1,10 @@
-"""P2 — a sweep's documents get vectors inside the same execution.
+"""A sweep's documents get vectors inside the same execution.
 
 The engine is the real ``SweepEngine`` running its real pipeline into a real
 database; the source client is a stub returning fixed records, and the embedding
-model is :mod:`embedding_server` on a real socket. In the ledger these rows are
-**real dependency, in-process**: the socket, the HTTP stack and the whole
-query → dedup → link → embed → report sequence are real; the scholarly API and
-the model are not.
+model is :mod:`embedding_server` on a real socket. The socket, the HTTP stack
+and the whole query → dedup → link → embed → report sequence are real; the
+scholarly API and the model are not.
 
 The property is *arrives*, not *exists*: not "an embedding step is configured"
 but "a document this run inserted has a vector for the active model by the time
@@ -101,7 +100,7 @@ def _log_text(conn: sqlite3.Connection, exec_id: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# P2
+# Vectors arrive inside the execution
 # ---------------------------------------------------------------------------
 
 
@@ -239,7 +238,7 @@ def test_vectors_are_still_written_when_the_index_cannot_be_built(
 
 
 def test_embedding_runs_after_the_source_calls_and_never_between_them(engine, server):
-    """P2's boundary clause. An embedding endpoint must not hold a rate-limited
+    """The boundary clause. An embedding endpoint must not hold a rate-limited
     scholarly connection open.
 
     Established by ordering: the source client records when it was called, and

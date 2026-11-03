@@ -1,15 +1,15 @@
 /**
  * resmon's app as the background service, and as the poster of its notifications.
  *
- * The background service used to be a bare Python process that launchd (or
- * systemd, or Task Scheduler) started. Nothing about it was resmon as far as
- * the OS could tell, so its notifications went out through `osascript` and
- * macOS credited every one to Script Editor: its name, its icon, and a click
- * that opened Script Editor. A process cannot post under another app's name,
- * so the app has to be the one posting, which means the app has to be running.
+ * A background service that is a bare Python process, started by launchd (or
+ * systemd, or Task Scheduler), is nothing the OS can tell is resmon, so its
+ * notifications would go out through `osascript` and macOS would credit every
+ * one to Script Editor: its name, its icon, and a click that opened Script
+ * Editor. A process cannot post under another app's name, so the app has to be
+ * the one posting, which means the app has to be running.
  *
  * Launched with `--service`, the app is that process: it starts the engine
- * (the same `implementation_scripts.daemon` the unit used to start) as its
+ * (`implementation_scripts.daemon`, the service's entry point) as its
  * child, keeps no window and no Dock icon, and stays up when a window it
  * opened is closed. A notification the engine sends to the listener here is
  * posted by the app, and clicking it opens the run. Opening resmon while the
@@ -27,22 +27,50 @@ export function isServiceLaunch(argv: readonly string[], env: NodeJS.ProcessEnv)
 }
 
 /**
- * The port the service's engine listens on: `RESMON_DAEMON_PORT`, as the unit
- * sets it and as `service_manager.default_port` reads it, else 8742.
+ * The port the service's engine listens on: `--port=N` on the command line, as
+ * a unit installed from the packaged app passes it, else `RESMON_DAEMON_PORT`,
+ * as the unit sets it and as `service_manager.default_port` reads it, else 8742.
  *
  * A value that is set and is not a port is an error, not a reason to fall
  * back: a service that quietly took the default would be a second resmon on
  * someone else's port, which is the shape `backendPort.test.ts` exists to
  * keep out of the renderer.
  */
-export function servicePort(env: NodeJS.ProcessEnv): number {
-  const raw = env.RESMON_DAEMON_PORT;
+export function servicePort(env: NodeJS.ProcessEnv, argv: readonly string[] = []): number {
+  const flag = argv.find((a) => a.startsWith('--port='));
+  const raw = flag !== undefined ? flag.slice('--port='.length) : env.RESMON_DAEMON_PORT;
+  const where = flag !== undefined ? '--port' : 'RESMON_DAEMON_PORT';
   if (raw === undefined || raw === '') return 8742;
   const port = Number(raw);
   if (!/^\d+$/.test(raw) || port < 1 || port > 65535) {
-    throw new Error(`RESMON_DAEMON_PORT is set to ${JSON.stringify(raw)}, which is not a port.`);
+    throw new Error(`${where} is set to ${JSON.stringify(raw)}, which is not a port.`);
   }
   return port;
+}
+
+/** The flags a service unit passes the app that the engine reads (`daemon._apply_state_args`, `_log_dir_arg`). */
+const ENGINE_FLAGS = ['--db-path=', '--reports-dir=', '--log-dir='];
+
+/**
+ * The state flags of the app's own command line, handed on to the engine it
+ * starts as the service. A unit installed from the packaged app passes the
+ * database, the reports folder, and (on Windows, where the unit cannot redirect
+ * output) the log folder to the app, and the engine is the one that reads them.
+ */
+export function engineFlags(argv: readonly string[]): string[] {
+  return argv.filter((a) => ENGINE_FLAGS.some((flag) => a.startsWith(flag) && a.length > flag.length));
+}
+
+/**
+ * The executable a service unit should start to run this app, which the app
+ * tells the engines it starts (`RESMON_APP_EXECUTABLE`), or null when no unit
+ * could run it: a source checkout, or Linux. On Linux the unit runs the engine
+ * itself: a `systemd --user` unit has no display, which Electron needs to start,
+ * while the bare engine runs headless.
+ */
+export function appExecutable(platform: NodeJS.Platform, execPath: string, packaged: boolean): string | null {
+  if (!packaged || platform === 'linux') return null;
+  return execPath;
 }
 
 /** One notification as the engine sends it. */
@@ -90,7 +118,8 @@ export interface NoticeListener {
  *
  * `onNotice` says whether the app posted it. When it could not (no
  * notification support here), the answer is 503 and the engine posts the
- * notification itself, the old way, rather than the notification being lost.
+ * notification itself, through the operating system's own tool, rather than
+ * the notification being lost.
  */
 export function startNoticeListener(onNotice: (notice: Notice) => boolean): Promise<NoticeListener> {
   const token = crypto.randomBytes(32).toString('base64url');

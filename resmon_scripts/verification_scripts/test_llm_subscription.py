@@ -1,4 +1,4 @@
-"""Driving an agent CLI as a summarization lane (1.8c).
+"""Driving an agent CLI as a summarization lane.
 
 Two things are being pinned here.
 
@@ -45,11 +45,11 @@ class _FakeCompleted:
 class _FakeProcess:
     """Stands in for a ``Popen``, not for ``subprocess.run``.
 
-    The client moved to ``Popen`` in 1.8.5 for one reason: a batched call is a
-    single process holding ten documents and cancellation has to be able to
-    reach into it, which ``run`` gives no handle for. So the double has to be a
-    process object — it records ``terminate()`` because that is now a property
-    worth asserting on.
+    The client uses ``Popen`` for one reason: a batched call is a single
+    process holding ten documents and cancellation has to be able to reach into
+    it, which ``run`` gives no handle for. So the double has to be a process
+    object — it records ``terminate()`` because that is a property worth
+    asserting on.
     """
 
     def __init__(self, argv, record, scripted):

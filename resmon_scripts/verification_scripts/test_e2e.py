@@ -42,12 +42,10 @@ from fastapi.testclient import TestClient
 def _reset_db():
     """Point the app at a fresh in-memory database.
 
-    This used to pre-create a plain ``:memory:`` connection and assign it to
-    ``resmon._shared_conn``, so that one object could be used from both the test
-    thread and the TestClient's request thread. Since BUG-020 each thread opens
-    its own connection and an in-memory database is addressed through a
-    shared-cache URI, so a privately-created ``:memory:`` connection would be a
-    *different, empty* database from the one the app builds. Let the app own its
+    Each thread opens its own connection and an in-memory database is addressed
+    through a shared-cache URI, so a privately-created ``:memory:`` connection
+    assigned to ``resmon._shared_conn`` would be a *different, empty* database
+    from the one the app builds. Let the app own its
     connections; this just resets and asks for one.
     """
     resmon_mod._db_path = ":memory:"
@@ -317,18 +315,16 @@ def test_e2e_ai_summarization(client, tmp_reports):
     """
     # 1. Verify API accepts ai_enabled / ai_settings
     #
-    # The poll loop belongs *inside* the patch block, and this test used to end
-    # it at the POST. ``/api/search/dive`` returns as soon as the worker thread
-    # starts, so unpatching straight away left the background execution running
+    # The poll loop belongs *inside* the patch block, not just the POST.
+    # ``/api/search/dive`` returns as soon as the worker thread starts, so
+    # unpatching straight away would leave the background execution running
     # against the real arXiv client -- whose requests the hermeticity guard
     # blocks, and whose rate limiter and retries then take far longer than the
     # ten seconds conftest waits for a worker to finish.
     #
-    # That straggler is what made this test the one that segfaulted in the
-    # v1.8.1 release CI: teardown reached close_db while exec-1 was still using
-    # its connection. close_db now refuses that close, but the worker should
-    # never have outlived the test in the first place. Same shape as BUG-022,
-    # which fixed the sibling test above and missed this one.
+    # A straggler worker can make teardown reach close_db while exec-1 is still
+    # using its connection and segfault the suite. close_db refuses that close,
+    # but the worker should never outlive the test in the first place.
     import time as _time
 
     mock_arxiv = _make_mock_client("arxiv")
@@ -786,9 +782,9 @@ def test_requirement_crosscheck(client):
     assert client.get("/api/settings/email").status_code == 200
 
     # ------------------------------------------------------------------ CLOUD
-    # CLOUD-1  Link cloud account        → retired October 30, 2026: resmon
-    #                                      does not sign in to Google
-    # CLOUD-2  Auto backup               → retired with it
+    # CLOUD-1  Link cloud account        → not applicable: resmon does not sign
+    #                                      in to Google
+    # CLOUD-2  Auto backup               → not applicable either
     # CLOUD-3  Manual backup             → E2E-7 (/api/backup into a folder)
     # CLOUD-4  Supplement or replace     → E2E-7 (a synced folder as the destination)
     assert client.get("/api/backup/last").status_code == 200
@@ -837,11 +833,10 @@ def test_dive_with_ai_enabled_constructs_client(client, tmp_reports):
     """AI8-V1: the lane factory is called; SummarizationPipeline receives
     prompt_params reflecting persisted settings.
 
-    1.8.5 moved lane 0's construction off ``build_llm_client_from_settings``
-    and onto ``build_client_for_lane``, so this patches the builder the engine
-    now actually reaches and asserts on the *lane* it was handed rather than
-    on a settings dict. That is the stronger assertion: a lane carries its
-    kind, and the kind is what the old builder had no branch for.
+    Lane 0 is built by ``build_client_for_lane``, so this patches the builder
+    the engine actually reaches and asserts on the *lane* it was handed rather
+    than on a settings dict. That is the stronger assertion: a lane carries its
+    kind.
     """
     mock_arxiv = _make_mock_client("arxiv")
 
@@ -911,15 +906,14 @@ def test_dive_with_ai_enabled_but_no_key_emits_log_entry(client, tmp_reports):
     """AI8-V2: a lane that cannot be built emits a warn log_entry naming the
     real reason, and the execution still completes.
 
-    Nothing is patched into the factory here any more. The keyring is the
+    Nothing is patched into the factory here. The keyring is the
     in-memory one ``conftest`` installs, no OpenAI key is in it, so
     ``build_client_for_lane`` genuinely returns ``None`` — the failure this
-    test names is now produced rather than simulated.
+    test names is produced rather than simulated.
 
-    The message changed in 1.8.5 and is asserted in its new form on purpose.
-    It used to be guessed from ``ai_provider`` *before* the run, which is why
-    a subscription-primary run — a lane with no key to be missing — was told
-    its API key was missing. The reason is now the lane's own.
+    The reason is the lane's own. Guessing it from ``ai_provider`` *before* the
+    run would tell a subscription-primary run — a lane with no key to be
+    missing — that its API key was missing.
     """
     mock_arxiv = _make_mock_client("arxiv")
 

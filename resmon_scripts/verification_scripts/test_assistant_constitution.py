@@ -1,9 +1,9 @@
 """The assistant constitution — that it loads, and what it must say.
 
 **Transmission is not tested here.** Every check in this file is an *exists*
-check, and the handback format bans those as the whole story for exactly the
-reason 1.8.4 shipped: the summary constitution's tests all asked whether the
-document existed, and what broke was whether it arrived. The arrival tests live
+check, and an *exists* check is not enough on its own, for exactly this reason:
+a constitution whose tests only ask whether the document exists passes while
+what can break is whether it arrives. The arrival tests live
 in ``test_assistant_runtime.py``, at each runtime's argv boundary, and
 ``test_every_runtime_kind_has_a_transmission_test`` fails when a runtime kind
 has no case.

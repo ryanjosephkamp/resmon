@@ -5,6 +5,7 @@ import html
 import logging
 import re
 
+from . import config
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 _OPENLIBRARY_API_URL = "https://openlibrary.org/search.json"
 _OPENLIBRARY_FIELDS = "key,title,author_name,first_publish_year,subject"
-_USER_AGENT = "resmon (+https://github.com/ryanjosephkamp/resmon/issues)"
+_USER_AGENT = f"resmon (+{config.REPOSITORY_ISSUES_URL})"
 
 # Open Library allows one request per second for unidentified clients. The
 # project issue URL identifies the application without sending a maintainer's

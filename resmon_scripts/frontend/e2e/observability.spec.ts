@@ -1,5 +1,5 @@
 /**
- * Q3 — can a per-page console error and a per-page failed request be captured?
+ * Can a per-page console error and a per-page failed request be captured?
  *
  * The two collectors live in the launch fixture and are attached before the
  * first navigation. This file provokes one of each and proves the collectors

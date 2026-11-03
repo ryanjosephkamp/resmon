@@ -32,9 +32,8 @@ costs nothing and closes the hole.
 constitution, so a lane that does not attach one is instructing the model to
 obey a document it was never given — and an agent CLI, told to follow something
 it cannot find, will go looking for it. With tools off it cannot look, so it
-*fabricates* the search and its results and returns them as the summary. That
-was shipped behaviour until this was fixed; see
-``workspace/audits/subscription-lane-constitution-2026-09-03.md``.
+*fabricates* the search and its results and returns them as the summary.
+Attaching the constitution is what prevents that.
 
 Each CLI therefore gets the constitution through its own system-level channel
 rather than inlined into the prompt beside the untrusted abstract: ``claude``
@@ -49,11 +48,11 @@ implementation detail: the lane carries a per-execution document cap (see
 ``ai_lanes.DEFAULT_SUBSCRIPTION_DOC_CAP``) and the interface says what a run
 will consume before it runs.
 
-Since 1.8.5 it is the **recommended** route rather than a fallback, because
-batching changed what it costs: five papers per call put a measured paper at
+It is the **recommended** route rather than a fallback, because batching
+keeps what it costs low: five papers per call put a measured paper at
 0.33x the cost and 0.23x the input-side tokens of a per-document call, since
 the constitution and the prompt scaffold are paid once per call instead of once
-per paper. The cap moved from 25 to 50 on that measurement, not on a hunch.
+per paper. The cap is 50 rather than 25 on that measurement, not on a hunch.
 """
 
 from __future__ import annotations
@@ -67,6 +66,7 @@ import threading
 from typing import Optional
 
 from .ai_errors import AIError, AIErrorKind, is_cli_sign_in_failure
+from .child_process import hidden_window_kwargs
 from .prompt_templates import (
     BATCH_SUMMARY_SCHEMA,
     SUMMARIZE_ABSTRACT,
@@ -733,6 +733,7 @@ class SubscriptionLLMClient:
                     # blocks forever on a pipe is indistinguishable from one
                     # that has crashed.
                     stdin=subprocess.DEVNULL,
+                    **hidden_window_kwargs(),
                 )
                 self._active.add(process)
             try:

@@ -1,29 +1,29 @@
-"""Three ways a run under-delivered and then reported itself whole.
+"""Ways a run could under-deliver and then report itself whole.
 
-From the 2026-10-18 engine audit. The defects are unrelated in the code and
-identical in shape: each one loses records the source was willing to give, and
-each one leaves every surface the user can read saying that nothing went
-wrong. That is the single thing this project exists to refuse, so what follows
-is written as properties rather than as regression cases.
+The defects are unrelated in the code and identical in shape: each one loses
+records the source was willing to give, and each one leaves every surface the
+user can read saying that nothing went wrong. That is the single thing this
+project exists to refuse, so what follows is written as properties rather than
+as regression cases.
 
-1. **PubMed skipped a failed batch.** ``_efetch`` fetched PMIDs 200 at a time
-   and hit ``continue`` on a failed batch where every sibling client breaks. A
-   later batch then cleared ``last_call_failed``, ``zero_reason.terminal_issue``
-   returned ``None``, and the sweep recorded ``ok`` over a result set short by
-   however many records the lost batches held.
-2. **``terminal_issue`` only looked at the last call.** The same erasure was
-   available to any client making more than one request invocation in one
-   search, because the rule read ``last_call_failed`` and nothing read
+1. **PubMed must not skip a failed batch.** ``_efetch`` fetches PMIDs 200 at a
+   time and must break on a failed batch, as every sibling client does, rather
+   than hit ``continue``: a later batch would clear ``last_call_failed``,
+   ``zero_reason.terminal_issue`` would return ``None``, and the sweep would
+   record ``ok`` over a result set short by however many records the lost
+   batches held.
+2. **``terminal_issue`` must look at more than the last call.** The same
+   erasure is available to any client making more than one request invocation
+   in one search if the rule reads ``last_call_failed`` and nothing reads
    ``failure_history``.
-3. **OpenAlex and DOAJ moved their own page window.** Both paginate by page
-   *number* while shrinking the page size on the last request, and a page
-   number is an offset over the page size: shrinking it slides the window back
-   over records already held and never asks for the tail. ``api_zenodo.py``
-   documents the hazard and pins its size; these two did not.
-4. **The completion email read a column the table does not have** --
-   ``new_count`` for ``new_result_count`` -- behind a ``.get(..., 0)`` that
-   turned the mismatch into a confident zero in every scheduled email resmon
-   has ever sent, with no test in any delivery file naming either key.
+3. **OpenAlex and DOAJ must not move their own page window.** Both paginate by
+   page *number*, and a page number is an offset over the page size: shrinking
+   the size on the last request slides the window back over records already
+   held and never asks for the tail. ``api_zenodo.py`` documents the hazard and
+   pins its size.
+4. **The completion email must read the column the table has** --
+   ``new_result_count``, not ``new_count`` -- because a ``.get(..., 0)`` on the
+   wrong key turns the mismatch into a confident zero in every scheduled email.
 
 Every HTTP case drives the real client through the real ``safe_request`` with
 only the transport replaced, so the retry ladder, the rate limiter and the
@@ -154,7 +154,7 @@ def _pubmed_holding(wire: Wire, *, total: int, failing_batch: int, status: int =
     fails again, the way a source that is down does. Keying on a call counter
     instead makes the retry succeed and quietly tests the wrong thing.
 
-    ``failing_batch`` 1 is the audit's reproduction; 2 is a failure after real
+    ``failing_batch`` 1 loses the first batch; 2 is a failure after real
     records are already in hand.
     """
     def respond(url, params, _call):
@@ -177,10 +177,10 @@ def _efetch_calls(wire: Wire) -> list[dict]:
 def test_pubmed_stops_at_the_batch_that_failed(wire):
     """A failed batch ends the fetch; it is not stepped over.
 
-    The audit's reproduction: 500 PMIDs, three efetch batches, the first
-    answering 503. Before the fix the client skipped it and returned 300 of
-    500 records with ``terminal_issue`` ``None`` -- 200 papers lost and
-    nothing on the record anywhere a user could see.
+    500 PMIDs, three efetch batches, the first answering 503. A client that
+    skipped it would return 300 of 500 records with ``terminal_issue``
+    ``None`` -- 200 papers lost and nothing on the record anywhere a user could
+    see.
     """
     _pubmed_holding(wire, total=500, failing_batch=1)
     results = api_pubmed.PubmedClient().search("cancer", max_results=500)
@@ -218,7 +218,7 @@ def test_pubmed_keeps_what_it_had_and_says_the_set_may_be_short(wire):
 
 
 def test_a_retry_that_succeeded_is_still_not_a_terminal_issue(wire):
-    """The boundary the fix must not cross.
+    """The boundary the rule must not cross.
 
     An internal retry that succeeds is one successful invocation, and the
     established contract says so: ``failures`` stays 0 and the 500 lives in
@@ -251,11 +251,11 @@ def test_a_recovered_retry_ladder_is_not_a_partial_answer(wire):
     rule reading ``failures`` alone would call partial.
 
     It is not partial. The ladder re-issues the same URL with the same params;
-    the request recovered and no record is missing. A revision of this branch
-    did report it, and told the user "ERIC returned 1 usable record before a
-    later HTTP 503 request failed" about a source that answered. This drives
-    the real ERIC client over the real ladder so the case cannot come back
-    through the gap the internal-retry guard above does not cover.
+    the request recovered and no record is missing. Reporting it
+    would tell the user "ERIC returned 1 usable record before a later HTTP 503
+    request failed" about a source that answered. This drives the real ERIC
+    client over the real ladder so the case cannot slip through the gap the
+    internal-retry guard above does not cover.
     """
     record = {"id": "EJ1", "title": "A paper", "author": ["Doe, Jane"],
               "description": "x", "publicationdateyear": 2024,
@@ -320,9 +320,9 @@ def _serve_doaj(wire: Wire, total: int) -> Wire:
 def test_openalex_holds_its_page_size_and_asks_for_the_tail(wire, maximum):
     """Each record is requested exactly once, and all of them are requested.
 
-    Asking OpenAlex for 250 used to request page 1 at 200 per page and then
+    Asking OpenAlex for 250 must not request page 1 at 200 per page and then
     page 2 at 50 per page -- records 51-100 again, and 201-250 never -- with
-    the duplicates collapsed later by dedup so the shortfall was invisible.
+    the duplicates collapsed later by dedup so the shortfall is invisible.
     Max Results is a 10-500 slider in the UI, so every value that is not a
     multiple of 200 reached this.
     """
@@ -423,7 +423,7 @@ def test_completion_email_reports_the_recorded_new_result_count(tmp_path, monkey
 
 
 def test_completion_email_still_accepts_the_old_key(monkeypatch):
-    """A caller that hands over ``new_count`` is not broken by the fix.
+    """A caller that hands over ``new_count`` is still served by the fallback.
 
     ``sweep_engine._run`` returns a dict under that name. It does not reach
     this function today, and keeping the fallback costs one ``or`` rather than

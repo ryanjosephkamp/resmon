@@ -62,10 +62,9 @@ __all__ = [
 # and answers with ``functionCall`` parts, and it is a provider a user can
 # already select for summaries.
 #
-# **The brief named two** — "Anthropic tool use; OpenAI-compatible function
-# calling" — and leaving Google out would have repeated 1.9's P8 miss exactly:
-# that denominator also named ``_PROVIDER_SPECS`` plus a few and dropped the one
-# provider with its own request shape.
+# **Two shapes would not be enough** — Anthropic tool use and OpenAI-compatible
+# function calling — and leaving Google out would drop the one provider in
+# ``_PROVIDER_SPECS`` with its own request shape.
 FAMILIES = ("anthropic", "openai", "google")
 
 _PROBED_ON = "2026-09-06"
@@ -227,16 +226,15 @@ PROVIDER_TOOL_CALLING: dict[str, ProviderToolCalling] = {
         ),
         assistant="no",
         assistant_reason=(
-            "An Ollama assistant runtime is a recorded open item rather than a gap "
-            "found here (Capability Ledger 70); it was deliberately left out of this "
-            "release. The probe above is what makes it cheap to add."
+            "There is no Ollama assistant runtime yet; it is deliberately left out. "
+            "The probe above is what makes it cheap to add."
         ),
     ),
     "claude_code": ProviderToolCalling(
         state="yes",
         reason="The Claude Code CLI is an agent; calling tools is what it does.",
         evidence=(
-            "2.0a: a real session's stream-json `init` message listed resmon's MCP "
+            "A real session's stream-json `init` message listed resmon's MCP "
             "tools, and a real model was watched calling one and blocking on the "
             "permission card."
         ),

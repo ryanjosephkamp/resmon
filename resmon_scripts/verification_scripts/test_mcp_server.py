@@ -1,4 +1,4 @@
-"""The MCP server — contract v1 conformance.
+"""The MCP server — conformance to the tool contract.
 
 Tests speak the real JSON-RPC protocol at ``handle_message`` and stub the HTTP
 layer, because what matters is the surface a harness sees: the tool list, the
@@ -157,16 +157,12 @@ def test_tools_list_matches_the_contract():
         "list_watch_profiles", "get_watch_profile", "get_profile_matches",
         "create_watch_profile",
     }
-    # 18 through contract v1.3. v2.0 (phase 2.0a) adds three and marks every
-    # write tool ``requires_confirmation`` — a major bump, because a caller that
-    # ignores that flag is running writes the contract says a person approves
-    # first. v2.1 adds none. v2.2 (phase 2.1a′) adds the four watch-profile
-    # tools, additively.
+    # Every write tool is marked ``requires_confirmation``, because a caller
+    # that ignores that flag is running writes the contract says a person
+    # approves first. The four watch-profile tools are among the 25.
     assert len(names) == 25
-    # 2.4 adds none and removes none. It is a narrowing of what
-    # ``update_settings`` will accept, and the string moves because a released
-    # v2.3.0 advertises "2.3" without that guard: a harness has to be able to
-    # tell an accepting server from a refusing one.
+    # The version string moves with ``update_settings`` admitting a key by name:
+    # a harness has to be able to tell an accepting server from a refusing one.
     assert mcp.CONTRACT_VERSION == "2.4"
 
 
@@ -221,7 +217,7 @@ def test_every_tool_declares_whether_it_needs_confirmation():
     assert flagged == {
         "run_sweep", "create_routine", "run_routine",
         "activate_routine", "deactivate_routine", "update_settings",
-        # v2.2. Creating a profile writes a row and is confirm-gated like every
+        # Creating a profile writes a row and is confirm-gated like every
         # other write; the three reads beside it are not.
         "create_watch_profile",
     }
@@ -282,7 +278,7 @@ _READ_TOOL_ARGS: dict[str, list[dict]] = {
     "get_watchdog_findings": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1, 2], "format": "bibtex"}],
-    # v2.2. ``get_watch_profile`` deliberately issues two GETs — the profile and
+    # ``get_watch_profile`` deliberately issues two GETs — the profile and
     # its match counts — and both are recorded; the assertion below is about the
     # *methods*, so a second GET is not an exception to it.
     "list_watch_profiles": [{}],
@@ -292,7 +288,7 @@ _READ_TOOL_ARGS: dict[str, list[dict]] = {
 
 
 # ---------------------------------------------------------------------------
-# The v2.0 tools
+# The settings, routine, and sweep tools
 # ---------------------------------------------------------------------------
 
 def test_activate_and_deactivate_hit_the_endpoints_that_exist():
@@ -584,14 +580,13 @@ def test_port_discovery_reads_the_port_file_when_the_environment_is_silent(
 def test_nothing_names_a_port_and_the_server_names_none_either(monkeypatch, tmp_path):
     """No third candidate. The empty list is the refusal's precondition.
 
-    This used to return the default port, on the reading that an older backend
-    writes no port file and the default is how such a backend is reached. It
-    cannot be: a backend old enough not to write a port file predates 2.2 and
-    writes no token file either, and ``base_url`` skips a port whose token file
-    is absent before it probes. The only backend the default could ever have
-    reached is a current one on that port, which on a machine with resmon's
-    background service installed is that service -- a different process over a
-    different database.
+    Falling back to the default port would reach only a backend that writes no
+    port file, and there is none: a backend that writes no port file writes no
+    token file either, and ``base_url`` skips a port whose token file is absent
+    before it probes. The only backend the default could ever reach is a
+    current one on that port, which on a machine with resmon's background
+    service installed is that service -- a different process over a different
+    database.
     """
     monkeypatch.delenv("RESMON_PORT", raising=False)
     monkeypatch.setattr("implementation_scripts.config.PORT_FILE",
@@ -705,7 +700,7 @@ def test_a_candidate_is_confirmed_with_health_before_use(monkeypatch):
         seen.append(url)
         ok = "9002" in url
         return httpx.Response(200 if ok else 500,
-                              json={"version": "1.8.2"},
+                              json={"version": "1.0.2"},
                               request=httpx.Request("GET", url))
 
     monkeypatch.setattr(mcp.httpx, "get", _get)
@@ -847,7 +842,7 @@ def test_create_routine_creates_it_inactive():
 
     assert captured["is_active"] is False
     assert "Activate it" in body["detail"]
-    # v2.0: the record is read back, because ``POST /api/routines`` answers with
+    # The record is read back, because ``POST /api/routines`` answers with
     # ``{id, name}`` and the contract promised "the created routine". The
     # caller can now see ``is_active`` rather than take the detail sentence's
     # word for it.
@@ -866,7 +861,7 @@ def test_create_routine_creates_it_inactive():
 
 
 def test_create_routine_passes_a_stated_intent_through():
-    """Contract v1.3's one addition, at the boundary it crosses.
+    """A routine's stated intent, at the boundary it crosses.
 
     ``routines.intent`` is what the coverage audit compares against; without this
     a harness could create a routine but never say what it was for, and every
@@ -968,7 +963,7 @@ def test_run_routine_calls_the_new_endpoint():
 # crash left behind, a RESMON_PORT exported in an earlier session, a port
 # another installation took over. On such a machine an older resmon answers --
 # and every tool then reports another installation's corpus as the user's own.
-# That happened with a v1.2.1 daemon. The port below is therefore injected
+# The port below is therefore injected
 # rather than discovered: which port it is does not matter to this guard, and
 # the suite addresses no real one.
 
@@ -979,14 +974,14 @@ def _health(version, status=200):
     return _get
 
 
-@pytest.mark.parametrize("version", ["1.8.0", "1.8.2", "1.10.0", "2.0.0"])
+@pytest.mark.parametrize("version", ["1.0.0", "1.0.2", "1.10.0", "2.0.0"])
 def test_a_supported_backend_is_accepted(monkeypatch, version):
     monkeypatch.setattr(mcp.httpx, "get", _health(version))
     with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
         assert mcp.backend.base_url() == STUB_BASE
 
 
-@pytest.mark.parametrize("version", ["1.2.1", "1.7.9", "0.1.0"])
+@pytest.mark.parametrize("version", ["0.9.9", "0.9.0", "0.1.0"])
 def test_an_older_backend_is_refused_rather_than_used(monkeypatch, version):
     """The whole point: answering about the wrong corpus is worse than failing."""
     monkeypatch.setattr(mcp.httpx, "get", _health(version))
@@ -1008,12 +1003,12 @@ def test_a_backend_that_cannot_say_its_version_is_refused(monkeypatch, version):
 
 
 def test_the_refusal_names_the_version_so_a_user_can_act(monkeypatch):
-    monkeypatch.setattr(mcp.httpx, "get", _health("1.2.1"))
+    monkeypatch.setattr(mcp.httpx, "get", _health("0.9.9"))
     with patch.object(mcp, "_candidate_ports", return_value=[STUB_PORT]):
         with pytest.raises(mcp.ToolError) as excinfo:
             mcp.backend.base_url()
     message = excinfo.value.message
-    assert "1.2.1" in message and mcp.MIN_BACKEND_VERSION in message
+    assert "0.9.9" in message and mcp.MIN_BACKEND_VERSION in message
     assert "background" in message
 
 
@@ -1038,7 +1033,7 @@ def test_execution_result_identity_crosses_the_real_json_projection():
 
 
 def test_execution_results_ask_for_a_format_the_backend_supports():
-    """The v1.8.2 defect, pinned. It asked for json when json did not exist."""
+    """The execution-results call asks for json, a format the references route supports."""
     docs = [{"id": 1, "title": "A"}]
     stub = _stub({"/api/executions/7/references": json.dumps(docs)})
     with stub:

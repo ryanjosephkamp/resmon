@@ -28,8 +28,8 @@ _MAX_RESPONSE_ATTEMPTS = 2
 _PAGE_SIZE = 30
 _TRANSIENT_CODES = {429, 500, 502, 503, 504}
 # What /details answers for a range with no records (measured November 1,
-# 2026: `{"messages":[{"status":"no posts found"}], "collection":[]}`). It was
-# recorded as a failure, so an empty window read as a source that did not answer.
+# 2026: `{"messages":[{"status":"no posts found"}], "collection":[]}`). Recording
+# it as a failure would make an empty window read as a source that did not answer.
 _NO_POSTS = "no posts found"
 
 # Conservative: 2 req/s

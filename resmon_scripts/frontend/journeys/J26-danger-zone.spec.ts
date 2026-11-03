@@ -2,8 +2,8 @@
  * J26 Danger Zone — the wrong word is refused by the backend, and the right one
  * erases exactly what it names.
  *
- * B4 says only the user's Danger Zone deletes from a corpus, which makes two
- * things load-bearing and neither of them is the screen. The first is that the
+ * Only the user's Danger Zone deletes from a corpus, which makes two things
+ * load-bearing and neither of them is the screen. The first is that the
  * refusal is the *backend's*: a disabled button is a courtesy, and a journey
  * that only checked the button would pass against an app whose endpoint erased
  * a corpus for anybody who asked. The second is the scope: "erase the paper

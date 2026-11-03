@@ -176,12 +176,11 @@ def to_csv(documents: Iterable[dict]) -> str:
 def to_json(documents: Iterable[dict], *, include_ids: bool = False) -> str:
     """Render documents as a JSON array, for a program rather than a person.
 
-    Added because its absence was a shipped defect rather than a missing
-    nicety. The MCP server asked this module for ``json`` from the day it was
-    written -- the contract it was built against named a structured export --
-    and the format did not exist, so ``get_execution_results`` returned HTTP
-    400 for *every* execution and the tool that answers "what did my last run
-    find" never worked once.
+    This is not a nicety. The MCP server asks this module for ``json`` -- the
+    contract it is built against names a structured export -- and without the
+    format ``get_execution_results`` would return HTTP 400 for *every*
+    execution, and the tool that answers "what did my last run find" would
+    never work once.
 
     By default the same field set as CSV. ``include_ids`` additionally carries
     the existing corpus document ID for reading-to-explanation continuity; it

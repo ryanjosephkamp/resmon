@@ -1,4 +1,4 @@
-"""Synthetic existing-schema matches and current matcher evidence for P2-P4.
+"""Synthetic existing-schema matches and current matcher evidence.
 
 The seed is also used by the Electron regression. This is synthetic stored
 metadata, not scholarly precision evidence or a live provider test.

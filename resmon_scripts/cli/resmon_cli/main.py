@@ -14,7 +14,7 @@ import re
 import sys
 from typing import Mapping, Optional, Sequence, TextIO
 
-from resmon_cli import __version__, commands
+from resmon_cli import commands, install
 from resmon_cli.engine import CliError, find
 from resmon_cli.text import Out, terminal_width
 
@@ -56,6 +56,14 @@ def _corpus_filters(parser: argparse.ArgumentParser) -> None:
                         help="published on or before DATE")
 
 
+class _Version(argparse.Action):
+    """``--version``, on one unwrapped line: the line names a path, and a wrap would split it."""
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        sys.stdout.write(install.describe(os.path.dirname(install.__file__), install.app_version()) + "\n")
+        parser.exit()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="resmon",
@@ -63,7 +71,8 @@ def build_parser() -> argparse.ArgumentParser:
                     "It talks to the background service, or to the app's own engine, and never "
                     "starts resmon itself.",
     )
-    parser.add_argument("--version", action="version", version=f"resmon command line {__version__}")
+    parser.add_argument("--version", action=_Version, nargs=0,
+                        help="say which resmon install this is, and its version")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
     p = sub.add_parser("today", help="the papers first collected since you last marked all read",

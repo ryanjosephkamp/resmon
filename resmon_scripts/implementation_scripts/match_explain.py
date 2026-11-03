@@ -30,7 +30,7 @@ upstream keyword search at all, so resmon does the filtering itself and knows
 precisely why a paper is in the set.
 
 Pretending to more than that would be a lie the user eventually catches, and the
-whole point of phase 1.7 is to stop resmon lying about itself.
+whole point of this module is to stop resmon lying about itself.
 
 Matching semantics
 ------------------

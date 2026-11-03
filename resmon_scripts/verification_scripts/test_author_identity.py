@@ -4,7 +4,7 @@ Every fixture in ``fixtures/author_identity/`` was **cut from a live response**
 captured by ``probe_entity_search.py`` on 2026-09-06, not written by hand. That
 matters more here than in most places: the thing under test is whether resmon
 reads the field the source actually uses, and a hand-written fixture is a test
-of resmon against resmon's idea of the payload. Ledger 23's shape.
+of resmon against resmon's idea of the payload.
 
 The fixtures are trimmed — three authors, the fields the client reads — and
 otherwise verbatim.
@@ -204,12 +204,13 @@ def test_an_orcid_is_stored_bare_and_upper_cased(value, expected):
 # From the client to the corpus, which is a different claim
 # ---------------------------------------------------------------------------
 #
-# **Everything above tests parsing, and parsing is not storing.** Written after
-# a mutation that disabled the structured write path in
-# ``database.index_document_facets`` left all nineteen checks above green: they
-# assert what a client *builds*, and nothing asserted the identity survived the
-# journey into ``document_authors``. That is the gap this section closes, and it
-# is the reason the mutation column in the handback matters more than the count.
+# **Everything above tests parsing, and parsing is not storing.** A mutation
+# that disabled the structured write path in
+# ``database.index_document_facets`` would leave all nineteen checks above
+# green: they assert what a client *builds*, and nothing above asserts the
+# identity survived the journey into ``document_authors``. That is the gap this
+# section closes, and it is why surviving mutations matter more than the count
+# of checks.
 
 import sqlite3  # noqa: E402
 

@@ -1,10 +1,10 @@
 """The Danger Zone must be able to erase the corpus, and must say so honestly.
 
-Until 1.7.1 nothing here did. "Erase all app data" and "Factory reset" both
-removed executions, configs and keys while leaving every collected paper in
-place — on a real install, tens of thousands of them surviving a reset that
-claimed to erase everything. These tests pin the fix in both directions: the
-things that should clear the corpus do, and the things that should not, do not.
+"Erase all app data" and "Factory reset" must remove executions, configs, keys,
+and every collected paper: a reset that left tens of thousands of papers in
+place while claiming to erase everything would be a lie. These tests pin both
+directions: the things that should clear the corpus do, and the things that
+should not, do not.
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ def test_erase_all_app_data_now_includes_the_corpus():
 
 
 def test_factory_reset_is_actually_a_factory_reset():
-    """The single most misleading label in the app before 1.7.1."""
+    """The most misleading label in the app, if the corpus survives it."""
     client, mod = _client()
     db = mod._get_db()
     _seed(db)

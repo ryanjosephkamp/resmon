@@ -76,10 +76,10 @@ class OpenAlexClient(BaseAPIClient):
         while len(results) < max_results:
             # A page number is an offset *over the page size*, so the size is
             # held for the whole search. Shrinking it on the last request
-            # moves the window: asking for 250 used to fetch page 1 at 200 per
+            # moves the window: asking for 250 would fetch page 1 at 200 per
             # page and then page 2 at 50, which is records 51-100 a second
             # time, while 201-250 were never requested at all. Dedup collapsed
-            # the duplicates, so the shortfall was invisible. ``api_zenodo.py``
+            # the duplicates, so the shortfall would be invisible. ``api_zenodo.py``
             # carries the same note; the overshoot is trimmed by the
             # ``results[:max_results]`` this loop already ends with.
             params: dict = {

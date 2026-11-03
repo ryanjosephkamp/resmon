@@ -74,12 +74,11 @@ class EntityUnsupported(RuntimeError):
 class Author:
     """One author on one record, with whatever the source actually gave.
 
-    **The identity fields are the whole of phase 2.1's honesty rule.** An author
-    match is a string match unless the source hands over an identifier, and
-    resmon cannot say which it was unless it kept the identifier. Until 2.1 the
-    corpus held author *strings* and nothing else, so "papers by Jane Doe" could
-    only ever have meant "papers with that name on them" — and nothing in the
-    product said so.
+    **The identity fields are the whole of the honesty rule for author
+    matching.** An author match is a string match unless the source hands over
+    an identifier, and resmon cannot say which it was unless it kept the
+    identifier. Without one, "papers by Jane Doe" can only mean "papers with
+    that name on them", and the product has to say so.
 
     Every field but ``name`` is optional and **stays empty far more often than
     it is filled**, which is a fact about the sources rather than about this
@@ -111,7 +110,7 @@ def bare_orcid(value) -> str | None:
     `http://orcid.org/…`, and inside a longer identifier string. Stored bare and
     upper-cased so two sources' ids for one person compare equal — an identifier
     match that failed because one source used https and the other did not would
-    silently downgrade to a name match, which is the exact failure phase 2.1's
+    silently downgrade to a name match, which is the exact failure the
     basis rule exists to make visible.
 
     Returns ``None`` for anything that is not an ORCID, including the empty
@@ -130,9 +129,8 @@ def as_authors(values) -> list[Author]:
     put in it; the rest keep passing strings and keep working.
     """
     out: list[Author] = []
-    # A bare string is one name, not a sequence of characters. Found by the
-    # sweep-hook tests, which pass a single author as a plain string — iterating
-    # it produced an Author per letter, which is the sort of quiet nonsense a
+    # A bare string is one name, not a sequence of characters. Iterating it
+    # would produce an Author per letter, which is the sort of quiet nonsense a
     # shim exists to prevent rather than create.
     if isinstance(values, (str, Author)):
         values = [values]
@@ -163,9 +161,9 @@ class NormalizedResult:
     doi: str | None
     title: str
     # **Accepts strings and stores Authors.** ``__post_init__`` converts, so a
-    # client written before 2.1 — which is most of them — passes a list of names
-    # and gets structured authors without knowing it. That is the shim, and it
-    # is here rather than in the normalizer because a client that reads back
+    # client that only has author names passes a list of them and gets
+    # structured authors without knowing it. That is the shim, and it is here
+    # rather than in the normalizer because a client that reads back
     # ``result.authors`` should see one type, not two.
     authors: list
     abstract: str | None
@@ -1142,7 +1140,7 @@ def safe_request(
     # httpx user agent.
     headers = dict(kwargs.pop("headers", {}) or {})
     if not any(k.lower() == "user-agent" for k in headers):
-        headers["User-Agent"] = "resmon/1.0 (+https://github.com/ryanjosephkamp/resmon)"
+        headers["User-Agent"] = f"resmon/1.0 (+{config.REPOSITORY_URL})"
 
     def pause(wait: float) -> None:
         # The next loop admission records expiry exactly once, without inventing

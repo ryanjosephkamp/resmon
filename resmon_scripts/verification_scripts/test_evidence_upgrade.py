@@ -81,8 +81,8 @@ APPROVED_DDL = {
 }
 
 HISTORICAL_FIXTURE_HASHES = {
-    "library/schema_15.sql": "cd5068cdcf8802f474fd46b40941c5888703777b519aeba1fbf4a704bcf76b33",
-    "reading_queue/schema_13.sql": "9c5bcd408bed3bcfa0f7d2bfbf79997064dfdeb5e25195a5d1571f61db1e10f8",
+    "library/schema_15.sql": "cb1ba6daa9fe5018f3d025f99edf3aa5aec54ef6b44051bc6efce916010da878",
+    "reading_queue/schema_13.sql": "f987f2b42447f618672e6160100c6792d76b45a60773e0b3b046069440650d8c",
 }
 
 

@@ -21,10 +21,10 @@ def _month_number(month: object) -> str:
     """``bibjson.month`` as two digits, or ``01`` when it cannot be read.
 
     DOAJ gives the month as a number, a number in a string, or a name
-    ("January", "Jul"). The name used to be zero-padded as it came, storing
+    ("January", "Jul"). Zero-padding the name as it came would store
     ``2025-January-01``: a date nothing else in resmon can read, so month
     buckets, the discovery-lag view's ``julianday`` and the explorer's date
-    order all misread it. A month that is missing or unreadable falls back to
+    order would all misread it. A month that is missing or unreadable falls back to
     the year alone, as a missing one always has; the catalog says DOAJ dates
     papers only to the year.
     """

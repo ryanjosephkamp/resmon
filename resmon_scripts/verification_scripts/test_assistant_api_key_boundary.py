@@ -3,16 +3,16 @@
 Two properties, both about a value the user never typed into a conversation and
 must never find written down anywhere.
 
-**The key does not reach a log handler.** ``run_turn``'s catch-all used to call
+**The key does not reach a log handler.** ``run_turn``'s catch-all must not call
 ``logger.exception`` before building its sanitized sentence. ``logger.exception``
 writes the raw traceback, an ``httpx.HTTPStatusError``'s message carries the
 request URL, and the backend installs no root handler at all — so the record
-fell through to ``logging.lastResort`` and onto stderr, which Electron pipes
-into the main process' console. The user-facing sentence was always clean; only
-the log was not.
+would fall through to ``logging.lastResort`` and onto stderr, which Electron
+pipes into the main process' console. The user-facing sentence is clean either
+way; the log is where a leak would show.
 
 **The key does not ride in a URL.** Google's v1beta endpoint accepts
-``?key=<secret>``, which is how this runtime sent it. A query string is the one
+``?key=<secret>``, which would put the key in the URL. A query string is the one
 part of a request that is written down by every proxy in between and echoed
 back in the error messages of anything that quotes the URL — including the
 exception above. The provider offers ``x-goog-api-key`` for exactly this reason.

@@ -163,12 +163,11 @@ def test_every_notice_says_what_happens_and_where_that_was_read():
 # The shapes an English sentence takes when it says a source needs a key.
 #
 # This list is the guard, so it is worth saying what it is guarding against.
-# The first version of this test checked ``kind == "credential"`` — a label —
-# and a review drove straight through it: the sentence "NASA ADS requires an
-# API key. Without one configured it returns nothing at all." was rejected
-# spelled ``kind="credential"`` and **accepted** spelled
-# ``kind="date_window"``, rendering on the form either way. A check that
-# matches prose *about* the thing rather than the thing is not a check.
+# Checking ``kind == "credential"`` — a label — is not enough: the sentence
+# "NASA ADS requires an API key. Without one configured it returns nothing at
+# all." would be rejected spelled ``kind="credential"`` and **accepted**
+# spelled ``kind="date_window"``, rendering on the form either way. A check
+# that matches prose *about* the thing rather than the thing is not a check.
 #
 # Matching text is cruder and catches the case the label missed. It can be
 # evaded by somebody determined to phrase around it, and that is fine: this
@@ -176,14 +175,11 @@ def test_every_notice_says_what_happens_and_where_that_was_read():
 # adversary.
 #
 # The last two entries are bare substrings, so **no notice may mention a key
-# or a credential at all** — not even to say something a key changes. An
-# earlier docstring here offered that as allowed ("a rate ceiling, a page
-# size"), which was a permission the pattern did not grant: every sentence
-# written to fit it was rejected, including "With an API key, Springer
-# raises the page size from 25 to 100." A rule that reads as permissive and
-# behaves as absolute sends the next author round a loop, so the permission
-# is gone rather than the substrings. If a key-conditional fact is ever
-# worth showing, it gets a typed field, the way ``records_per_request`` did.
+# or a credential at all** — not even to say something a key changes, such as
+# "With an API key, Springer raises the page size from 25 to 100." A rule that
+# reads as permissive and behaves as absolute sends the next author round a
+# loop, so it is stated as absolute. If a key-conditional fact is ever worth
+# showing, it gets a typed field, the way ``records_per_request`` did.
 _CREDENTIAL_PHRASES = (
     r"requires? (?:an? )?(?:api[- ])?key",
     r"needs? (?:an? )?(?:api[- ])?key",
@@ -235,11 +231,10 @@ def test_no_notice_tells_a_reader_that_a_source_needs_a_key():
 
 
 def test_the_credential_guard_catches_the_sentence_whatever_it_is_labeled():
-    """The guard's own red, kept because the first version did not have one.
+    """The guard's own red.
 
     A guard with no demonstration that it fires is a guard nobody has seen
-    work. Both spellings below are rejected here; only the first was rejected
-    before.
+    work. Both spellings below are rejected here.
     """
     import re  # noqa: PLC0415
 
@@ -258,9 +253,8 @@ def test_the_credential_guard_catches_the_sentence_whatever_it_is_labeled():
         "DBLP records only a year, so resmon searches the whole calendar "
         "years inside your window.")
 
-    # The class an earlier docstring here called allowed. Every one of these
-    # is rejected, which is why that permission was removed rather than the
-    # substrings narrowed — the rule is absolute and now says so.
+    # Key-conditional benefits. Every one of these is rejected — the rule is
+    # absolute, not a rule with exceptions.
     for described_benefit in (
         "With an API key, Springer raises the page size from 25 to 100.",
         "A stored credential raises CORE's ceiling to roughly 10,000 a day.",
@@ -390,12 +384,12 @@ def test_every_citation_names_a_file_and_a_construct_that_exist():
     ``search()``. The middle rule is the one with teeth; the last rule is why
     it has any.
 
-    Its first version extracted tokens by regex from free prose and counted
-    69 checks across 49 citations — of which **45 were the token `search`,
-    which every ``api_*.py`` contains by definition, and 29 citations had
-    nothing else at all.** A review renamed DOAJ's real clause from
-    ``bibjson.year`` to ``bibjson.published_year``, left the citation saying
-    ``bibjson.year`` untouched, and the suite stayed green. A guard that
+    Extracting tokens by regex from free prose is not enough: it counted 69
+    checks across 49 citations, of which **45 were the token `search`, which
+    every ``api_*.py`` contains by definition, and 29 citations had nothing
+    else at all.** Renaming DOAJ's real clause from ``bibjson.year`` to
+    ``bibjson.published_year`` while leaving the citation saying
+    ``bibjson.year`` untouched would keep the suite green. A guard that
     reports a large number while checking almost nothing is worse than no
     guard, because the number gets quoted.
     """
@@ -447,7 +441,7 @@ def test_every_citation_names_a_file_and_a_construct_that_exist():
 
 
 def test_the_citation_guard_catches_a_renamed_construct():
-    """The guard's own red, because the first version did not fire on this.
+    """The guard's own red.
 
     Renaming the thing a citation quotes, and leaving the citation alone, is
     the exact way these decay. The check has to notice.
@@ -478,7 +472,7 @@ def _only(entry, notice):
 
 
 def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
-    """The denominators the PR and the comments use, read from the catalog.
+    """The denominators the comments use, read from the catalog.
 
     Two different counts are easy to confuse and both get quoted: how many
     sources carry no constraint at all, and how many will put a line on a
@@ -537,9 +531,8 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
 
     # Which sources speak in which form state, evaluated the way the renderer
     # evaluates it. This is the audit of every notice against every state it
-    # can be shown in, written down rather than done once by eye: the first
-    # round of this change did it by eye and shipped DBLP contradicting
-    # itself.
+    # can be shown in, written down rather than done once by eye, which would
+    # miss a source contradicting itself.
     def speaks(entry, *, has_from, has_to, max_results, long_window=False):
         cap = entry.constraints.records_per_request
         for notice in entry.constraints.notices:
@@ -572,11 +565,11 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
         )
 
     # **Every combination of the two date fields, not a selection of them.**
-    # The first version of this table evaluated (none), (start), (start+end)
-    # and two caps, and skipped (end only) — which is exactly where NIST
-    # RMM's sentence had been hidden by a scope that was close enough. A
-    # table that samples the state space is the same enumeration failure the
-    # sweep was about, committed by the thing meant to prevent it.
+    # A table that evaluated (none), (start), (start+end) and two caps would
+    # skip (end only) — exactly where NIST RMM's sentence could hide behind a
+    # scope that was close enough. A table that samples the state space is the
+    # same enumeration failure the sweep is about, committed by the thing meant
+    # to prevent it.
     STATES = [(False, False), (True, False), (False, True), (True, True)]
 
     # Nothing filled in: three sources, and only the sentences a bare form

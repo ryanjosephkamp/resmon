@@ -1,10 +1,10 @@
 # resmon_scripts/mcp_server.py
-"""resmon as an MCP server — contract v1.
+"""resmon as an MCP server.
 
 Exposes resmon's capabilities as MCP tools over stdio, so a harness the user
 already works in (Claude Code, Codex, anything speaking MCP) can read and drive
-resmon without leaving it. The same surface is what phase 2.0's embedded
-assistant consumes: built once, consumed twice.
+resmon without leaving it. The same surface is what the embedded assistant
+consumes: built once, consumed twice.
 
 The tool surface is frozen at ``docs/api-contract/mcp.md``. This module is built
 against that document rather than the other way round, and every deviation
@@ -13,7 +13,8 @@ would be a contract change with its own pull request.
 **It never opens the database.** It is an HTTP client of the running backend on
 127.0.0.1. Two reasons, both concrete: the backend owns its connections, the
 scheduler and admission control, and a second process writing that SQLite file
-is the BUG-020 failure class over again; and going through the API means the
+is the shared-connection race (one sqlite3 connection used from two threads can
+segfault CPython) over again; and going through the API means the
 tool surface cannot drift from what the app itself does.
 
 The cost is accepted and stated: **the backend must be running.** When it is
@@ -41,31 +42,24 @@ from implementation_scripts.runtime_identity import valid_runtime_id, valid_iden
 
 # The contract this server implements: docs/api-contract/mcp.md.
 #
-# v2.0 is a **major** bump, and the reason is the confirmation model rather
-# than a broken return shape: three tools arrive that can reconfigure the app
-# or put a routine on a schedule, and every write tool now carries
-# ``requires_confirmation``. A caller that ignored that flag would be running
-# writes the contract says a person approves first, so callers are not
-# unaffected and the major version says so.
+# CONTRACT_VERSION is the version ``initialize`` advertises, and it is what lets
+# a harness tell one server from another by what each accepts. It moves
+# whenever the surface changes in a way a caller can observe, including a
+# narrowing: the settings allowlist below refuses calls a server without it
+# would accept, and two servers that behave differently must not advertise the
+# same string.
 #
-# **2.4 is a narrowing, and the version string has to move for it.** The
-# settings allowlist below refuses calls a 2.3 server accepted, and ``v2.3.0``
-# is already released and advertising ``"2.3"`` *without* it -- so until this
-# bump a harness could not tell an accepting server from a refusing one on the
-# same version string, which is the one thing a version string is for.
+# Every write tool carries ``requires_confirmation``. Three tools can
+# reconfigure the app or put a routine on a schedule, and a caller that ignored
+# that flag would be running writes the contract says a person approves first.
 #
-# Minor rather than major, and the reasoning is recorded here because the
-# versioning rule in the contract points both ways. Its enumeration --
-# "removing a tool, renaming an argument, or changing a return shape" -- is
-# untouched: 25 tools before and after, every argument and every return shape
-# identical. Its *test*, the one the v2.0 note above applies, is "are callers
-# unaffected", and a caller that was setting ``ai_cli_path`` is affected. What
-# the rule then prescribes for a breaking change is a new major version **and a
-# new contract document**, which is out of proportion to a guard that takes
-# nothing off the surface and that the document's own Safety section always
-# implied. The amendment states the narrowing in those terms and leaves the
-# question of a 3.0 renumbering to the owner, alongside the capability decision
-# it rides with.
+# The versioning rule in the contract points both ways for a narrowing. By its
+# enumeration -- removing a tool, renaming an argument, changing a return shape
+# -- nothing changes: 25 tools, every argument and every return shape the same.
+# By its test, "are callers unaffected", a caller that was setting
+# ``ai_cli_path`` is affected. The version moves as a minor, because a new major
+# and a new contract document would be out of proportion to a guard that takes
+# nothing off the surface and that the document's Safety section already implies.
 CONTRACT_VERSION = "2.4"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
@@ -77,11 +71,11 @@ _TIMEOUT = httpx.Timeout(30.0, connect=3.0)
 # Not defensive tidiness, and it still matters now that nothing is guessed. A
 # port this server was *given* can be held by the wrong resmon: a port file a
 # crash left behind, a ``RESMON_PORT`` exported in an earlier session, or a
-# port another installation took over. That happened -- a v1.2.1 launchd
-# daemon from April answered every tool truthfully about a completely
-# different corpus. Checking the version is what turns "something answered"
-# into "a resmon this server can speak for".
-MIN_BACKEND_VERSION = "1.8.0"
+# port another installation took over. A backend on a different version
+# answers every tool truthfully about a completely different corpus. Checking
+# the version is what turns "something answered" into "a resmon this server
+# can speak for".
+MIN_BACKEND_VERSION = "1.0.0"
 
 # Every list tool defaults small. Token efficiency is a contract term rather
 # than an aspiration: a harness asking "what did my arXiv routine find this
@@ -93,14 +87,11 @@ MAX_LIMIT = 100
 # denylist: a group added to the app later is *not* reachable through this tool
 # until someone puts it here and thinks about it.
 #
-# **``assistant`` is here because the app grew it and nobody noticed** —
-# contract v2.1. The group landed in ``resmon.py`` in 2.0a (PR #88) after this
-# list was frozen (PR #86), so v2.0 shipped with a settings group that was
-# neither reachable nor deliberately excluded. The test that exists to force
-# that decision, ``test_no_settings_group_the_app_has_is_silently_reachable``,
-# is ``live_network``, and nothing ran the live suite on a schedule — which is
-# the same gap the weekly job in ``.github/workflows/live-network.yml`` was
-# added to close, and this was its first finding.
+# **``assistant`` is here on purpose.** A settings group the app grows must be
+# either reachable or deliberately excluded, never neither. The test that
+# forces that decision, ``test_no_settings_group_the_app_has_is_silently_reachable``,
+# is ``live_network``, so it runs on the weekly job in
+# ``.github/workflows/live-network.yml``.
 #
 # Reachable rather than excluded, deliberately: "use opus for the assistant" is
 # among the likeliest things a person will ask the assistant itself, it is
@@ -138,9 +129,9 @@ _CREDENTIAL_SHAPED: tuple[str, ...] = (
 # Which settings a tool may change
 # ---------------------------------------------------------------------------
 #
-# **Default-deny, by key name.** Until 2.3 the only content guard on
-# ``update_settings`` was ``_CREDENTIAL_SHAPED`` above: a substring denylist
-# over seven words. ``ai_cli_path`` contains none of them, and it is the path
+# **Default-deny, by key name.** ``_CREDENTIAL_SHAPED`` above is a substring
+# denylist over seven words, and it cannot be the only content guard on
+# ``update_settings``. ``ai_cli_path`` contains none of them, and it is the path
 # ``ai_cli.discover_cli`` honors first and ``ClaudeCliRuntime._stream`` hands
 # to ``subprocess.Popen`` with the user's own environment -- and ``ai_lanes``
 # reads the same setting for the subscription summary lane, so that binary runs
@@ -337,45 +328,27 @@ def _candidate_ports() -> list[int]:
     returned here is how :meth:`Backend.base_url` knows to refuse and say so.
     There is no third candidate.
 
-    This is not defensive tidiness. Driving the real server during development
-    found that when a named port had stopped answering, falling through to the
-    default port connected the MCP server to the *launchd daemon* -- a
-    different process, running a different version, over a different database.
-    Every tool then answered truthfully about the wrong corpus, which is worse
-    than failing: a harness asking "what did my routine find this week" would
-    report another installation's papers as the user's own.
+    This is not defensive tidiness. When a named port has stopped answering,
+    falling through to the default port connects the MCP server to the
+    background service -- a different process, possibly on a different version,
+    over a different database. Every tool then answers truthfully about the
+    wrong corpus, which is worse than failing: a harness asking "what did my
+    routine find this week" would report another installation's papers as the
+    user's own. So a named port is never widened to the default.
 
-    That incident produced one rule -- a named port is never widened to the
-    default -- and left the other half of the hazard standing. The default
-    survived underneath it, justified as serving "an older backend that
-    predates the port file".
-
-    **That justification had become unreachable, which is the part worth
-    recording.** A backend old enough not to write a port file is older than
-    2.2, so it writes no token file either, and :meth:`Backend.base_url` skips
-    any port whose token file is absent before it probes anything. The default
-    could therefore not reach the old backend it was kept for. What it *could*
-    reach is a backend new enough to publish a token -- and on the default
-    port, on a machine where resmon's background service is installed, that is
-    the service.
-
-    It is worth being exact about this, because the lesson is not that someone
-    wrote a bad reason. The reason was true when it was written: the port file
-    arrived in 1.8d alongside this server, and a backend from before it really
-    was out there and really was reachable on the default port. It stopped
-    being true three weeks later, when the 2.2 local API lock-down made
-    ``base_url`` read a token file before probing -- a change about
-    authentication, in which nobody had cause to re-read discovery. A
-    justification can expire somewhere else in the codebase without anyone
-    touching the line it justifies.
-
-    So the default was never a bridge to an old installation; it was a second
-    route to the wrong corpus, and it opened whenever the two state locations
-    disagreed about which instance was meant. ``api_auth.state_dir`` follows
-    ``RESMON_STATE_DIR``; ``config.PORT_FILE`` follows ``RESMON_DB_PATH``. A
-    harness pointed at one instance's state directory, but not at its port
-    file, therefore named no port at all -- and the default then applied, with
-    a token sitting in that state directory to authenticate the mistake.
+    Nor is the default kept for a backend that writes no port file. Every
+    backend writes one, a backend that writes none writes no token file either,
+    and :meth:`Backend.base_url` skips any port whose token file is absent
+    before it probes anything. What the default *could* reach is a backend
+    that publishes a token -- and on the default port, on a machine where
+    resmon's background service is installed, that is the service. It would be
+    a second route to the wrong corpus, and it would open whenever the two
+    state locations disagreed about which instance was meant.
+    ``api_auth.state_dir`` follows ``RESMON_STATE_DIR``; ``config.PORT_FILE``
+    follows ``RESMON_DB_PATH``. A harness pointed at one instance's state
+    directory, but not at its port file, would name no port at all -- and the
+    default would then apply, with a token sitting in that state directory to
+    authenticate the mistake.
     """
     named: list[int] = []
 
@@ -421,7 +394,7 @@ def _port_file_location() -> Optional[str]:
 class Backend:
     """A thin HTTP client for the running resmon backend.
 
-    **Every request carries the backend's local API token** (2.2). The token is
+    **Every request carries the backend's local API token.** The token is
     read from ``<state dir>/api-token-<port>``, which the backend writes
     owner-only at start, for the port this server has already chosen — so a
     named port whose token cannot be found is an error naming that instance,
@@ -490,10 +463,7 @@ class Backend:
             token = api_auth.read_token_file(port)
             if token is None:
                 # Not probed. A current backend always publishes one, so no
-                # file means this is not the instance the caller named — or it
-                # predates 2.2, which this server no longer speaks to: it ships
-                # beside a backend that asks for the token, and the daemon is
-                # upgraded with the app.
+                # file means this is not the instance the caller named.
                 tokenless.append(base)
                 continue
             try:
@@ -784,7 +754,7 @@ def t_search_corpus(args: dict) -> Any:
     rather than silently ignored -- a harness that thinks it is paging and is
     not would report the first page repeatedly as though it were the corpus.
 
-    ``mode="semantic"`` (contract v1.2) ranks the corpus by distance from the
+    ``mode="semantic"`` ranks the corpus by distance from the
     query, **within the structured filters** — sources and dates still narrow it
     and are unchanged by the mode. The `query` itself is the difference: in
     keyword mode it is a text filter, in semantic mode it is what the ranking is
@@ -1131,8 +1101,7 @@ def t_export_references(args: dict) -> Any:
     neither should be widened for this client's convenience. An execution has
     its own route with the id in the path; ``POST /api/export/references``
     takes ``document_ids`` and *only* ``document_ids`` -- passing it an
-    ``execution_id`` was a guaranteed HTTP 422, which is exactly what shipped
-    in v1.8.2 and what a caller hit the first time they tried it.
+    ``execution_id`` is a guaranteed HTTP 422.
     """
     fmt = args.get("format") or "bibtex"
     if args.get("exec_id") is not None:
@@ -1175,7 +1144,7 @@ def t_create_routine(args: dict) -> Any:
         else _require(args, "keywords"),
         "repositories": list(_require(args, "sources")),
     }
-    # v2.2. A watch routine follows a person, and the backend validates the
+    # A watch routine follows a person, and the backend validates the
     # profile id and the mode at the seam -- an unknown profile comes back as a
     # 400 with a sentence, which this server surfaces as `invalid_argument`
     # rather than creating a routine that could never do anything. Passed
@@ -1253,12 +1222,11 @@ def t_run_routine(args: dict) -> Any:
 def t_activate_routine(args: dict) -> Any:
     """Put a saved routine on its schedule.
 
-    ``create_routine`` deliberately creates a routine inactive, and until v2.0
-    the only way to turn one on was to open the app. That was the right default
-    and the wrong dead end: the contract's own note said an explicit
-    ``activate_routine`` was what a later version should add. It is here now
-    because 2.0's assistant has a person in the conversation to confirm with --
-    which is what ``requires_confirmation`` on this tool records.
+    ``create_routine`` deliberately creates a routine inactive. Inactive is the
+    right default, and turning one on needs an explicit ``activate_routine``
+    rather than a trip to the app. The embedded assistant has a person in the
+    conversation to confirm with -- which is what ``requires_confirmation`` on
+    this tool records.
     """
     rid = _require_int(args, "routine_id")
     return backend.request("POST", f"/api/routines/{rid}/activate")
@@ -1273,12 +1241,10 @@ def t_deactivate_routine(args: dict) -> Any:
 def t_update_settings(args: dict) -> Any:
     """Change named settings in one group, and report exactly what moved.
 
-    ``PUT /api/settings/*`` was excluded from v1 with a reason the contract
-    wrote down: "reconfiguring the app underneath a user is a 2.0 assistant
-    concern, where there is a person in the conversation to confirm with."
-    That person now exists, so the exclusion lifts -- and everything that made
-    it dangerous is answered structurally rather than by asking the model
-    nicely.
+    ``PUT /api/settings/*`` is reconfiguring the app underneath a user, so
+    the tool is confirm-gated where there is a person in the conversation to
+    confirm with, and everything that makes it dangerous is answered
+    structurally rather than by asking the model nicely.
 
     Five guards, in order:
 
@@ -1433,7 +1399,7 @@ def t_update_settings(args: dict) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Watch profiles (contract v2.2)
+# Watch profiles
 # ---------------------------------------------------------------------------
 #
 # **The basis travels, and so does the warning.** A harness reading these tools
@@ -1660,9 +1626,8 @@ TOOLS: list[dict] = [
     {"name": "get_search_record", "fn": t_get_search_record,
      "description": ("The PRISMA-shaped reproducible record for an execution. Each "
                      "source that returned nothing carries the recorded reason why, "
-                     "or says the reason was not recorded — runs from before resmon "
-                     "1.8.6 have none, and an unexplained zero is not evidence that "
-                     "there was nothing to find."),
+                     "or says the reason was not recorded — an unexplained zero "
+                     "is not evidence that there was nothing to find."),
      "schema": {"type": "object", "required": ["exec_id"], "properties": {
          "exec_id": {"type": "integer"}}}},
 

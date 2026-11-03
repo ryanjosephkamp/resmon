@@ -129,7 +129,7 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     expect(await trouble.innerText()).not.toMatch(/\bieee\b/);
     await expect(trouble.locator('.trouble-notes')).toHaveCount(0);
     await trouble.getByRole('button', { name: 'Why' }).click();
-    await expect(trouble.locator('.trouble-notes li[data-source="ieee"]')).toContainText('IEEE Xplore was withdrawn in v1.8.1');
+    await expect(trouble.locator('.trouble-notes li[data-source="ieee"]')).toContainText('IEEE Xplore was withdrawn');
     await expect(trouble.locator('.trouble-notes li[data-source="dblp"]')).toContainText('DBLP');
     await expect(trouble.getByRole('link', { name: /^Open run \d+$/ })).toBeVisible();
     await trouble.getByRole('button', { name: 'Hide why' }).click();

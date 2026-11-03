@@ -8,6 +8,7 @@ import re
 from urllib.parse import urlsplit
 import xml.etree.ElementTree as ET
 
+from . import config
 from .api_base import (
     BaseAPIClient,
     NormalizedResult,
@@ -22,7 +23,7 @@ from .api_base import (
 logger = logging.getLogger(__name__)
 
 _NDL_SEARCH_API_URL = "https://ndlsearch.ndl.go.jp/api/sru"
-_USER_AGENT = "resmon (+https://github.com/ryanjosephkamp/resmon/issues)"
+_USER_AGENT = f"resmon (+{config.REPOSITORY_ISSUES_URL})"
 _MAX_RECORDS = 500
 
 # NDL publishes no numeric rate limit. It asks continuous users to identify

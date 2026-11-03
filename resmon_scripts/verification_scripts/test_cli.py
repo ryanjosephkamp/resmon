@@ -46,6 +46,7 @@ from implementation_scripts.api_base import NormalizedResult  # noqa: E402
 from perf import instance  # noqa: E402
 from resmon_cli import __version__  # noqa: E402
 from resmon_cli import engine as cli_engine  # noqa: E402
+from resmon_cli import install as cli_install  # noqa: E402
 from resmon_cli import main as cli_main  # noqa: E402
 from resmon_cli import text as cli_text  # noqa: E402
 
@@ -583,7 +584,53 @@ def test_python_m_resmon_cli_runs_in_a_process_of_its_own(service):
     assert json.loads(run.stdout)["window"] == "first_look"
     version = subprocess.run([sys.executable, "-m", "resmon_cli", "--version"], cwd=ROOT,
                              env=_subprocess_env(backend.state), capture_output=True, text=True, timeout=60)
-    assert version.stdout.strip() == f"resmon command line {__version__}"
+    assert version.stdout.strip() == cli_install.describe(str(CLI / "resmon_cli"))
+    assert version.stdout.startswith(f"resmon {__version__} (installed from source: ")
+
+
+@pytest.mark.parametrize("package_file, expected", [
+    ("/Applications/resmon.app/Contents/Resources/backend/resmon.pyz/resmon_cli",
+     "resmon 1.2.3 (the command line inside the resmon app: /Applications/resmon.app)"),
+    ("/Users/me/Apps/My Tools/resmon.app/Contents/Resources/backend/resmon.pyz/resmon_cli",
+     "resmon 1.2.3 (the command line inside the resmon app: /Users/me/Apps/My Tools/resmon.app)"),
+    ("C:\\Users\\me\\AppData\\Local\\Programs\\resmon\\resources\\backend\\resmon.pyz\\resmon_cli",
+     "resmon 1.2.3 (the command line inside the resmon app: C:\\Users\\me\\AppData\\Local\\Programs\\resmon)"),
+    ("/home/me/.local/share/resmon/resmon.pyz/resmon_cli",
+     "resmon 1.2.3 (the resmon app's command line: /home/me/.local/share/resmon/resmon.pyz)"),
+])
+def test_the_app_s_command_line_names_its_app_and_version(package_file, expected):
+    assert cli_install.describe(package_file, "1.2.3") == expected
+
+
+def test_an_install_from_source_says_so_and_names_no_app():
+    line = cli_install.describe("/venv/lib/python3.11/site-packages/resmon_cli", None)
+    assert line == f"resmon {__version__} (installed from source: /venv/lib/python3.11/site-packages/resmon_cli)"
+    assert "app" not in line
+
+
+def test_the_archive_the_app_ships_runs_isolated_and_names_the_app(tmp_path):
+    """``build_pyz.py`` is what the app's build runs; this runs its archive the way the launchers do."""
+    sys.path.insert(0, str(CLI))
+    try:
+        import build_pyz
+    finally:
+        sys.path.remove(str(CLI))
+    app = tmp_path / "resmon.app" / "Contents" / "Resources" / "backend"
+    pyz = app / "resmon.pyz"
+    build_pyz.build(pyz, "9.8.7")
+    # Nothing but the standard library: no resmon_cli of the source tree is on the path.
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("RESMON_", "PYTHON"))}
+    env["RESMON_STATE_DIR"] = str(tmp_path / "empty-state")
+    version = subprocess.run([sys.executable, "-I", str(pyz), "--version"], cwd=tmp_path, env=env,
+                             capture_output=True, text=True, timeout=60)
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.strip() == (
+        f"resmon 9.8.7 (the command line inside the resmon app: {tmp_path / 'resmon.app'})")
+    # It starts nothing and writes no bytecode into the folder it sits in.
+    nothing = subprocess.run([sys.executable, "-I", str(pyz), "service", "status", "--json"], cwd=tmp_path,
+                             env={**env, "RESMON_PORT": "1"}, capture_output=True, text=True, timeout=60)
+    assert nothing.returncode == 3
+    assert not list(app.rglob("__pycache__"))
 
 
 def test_the_package_declares_the_resmon_command_and_no_dependencies():
@@ -631,11 +678,11 @@ def test_a_route_this_resmon_lacks_is_named_as_missing(monkeypatch):
 
     monkeypatch.setattr(cli_engine, "_send", fake_send)
     engine = cli_engine.Engine(port=1, token="t" * 43, how="service", state=Path("."),
-                               health={"version": "2.2.0", "pid": 5}, lock_pid=6)
+                               health={"version": "0.9.0", "pid": 5}, lock_pid=6)
     with pytest.raises(cli_engine.CliError) as missing:
         engine.get("/api/today")
     assert missing.value.code == "missing_route"
-    assert "This resmon (2.2.0) has no GET /api/today" in missing.value.message
+    assert "This resmon (0.9.0) has no GET /api/today" in missing.value.message
     with pytest.raises(cli_engine.CliError) as absent:
         engine.get("/api/executions/9")
     assert absent.value.code == "not_found"

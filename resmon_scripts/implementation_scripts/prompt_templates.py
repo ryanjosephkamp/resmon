@@ -172,7 +172,7 @@ AGGREGATE_SUMMARIES = (
 
 
 # ---------------------------------------------------------------------------
-# Batched abstract summarization (1.8.5)
+# Batched abstract summarization
 # ---------------------------------------------------------------------------
 #
 # One agent-CLI call per paper is the dominant cost of the subscription lane:
@@ -186,7 +186,7 @@ AGGREGATE_SUMMARIES = (
 #    on one topic by construction, so a model given ten of them at once has
 #    every opportunity to carry a number from paper three into paper seven's
 #    summary. That is the accuracy failure this batching could introduce, and
-#    D3 measures it with canary tokens rather than assuming it away.
+#    a measurement with canary tokens checks it rather than assuming it away.
 # 2. **A missing entry is handled; an invented one is not.** See the note on
 #    the schema below.
 
@@ -239,12 +239,11 @@ SUMMARIZE_ABSTRACTS_BATCH = (
 #     -> three summaries, the third invented ("Cats and dogs are common pets"),
 #        exit 0.
 #
-# That is the v1.8.4 failure again in a new place: constrain a model to produce
-# something it does not have and it invents it, and the invention arrives as a
-# clean success. A short array is a fact resmon can act on -- it retries those
-# documents individually. A padded array is a fabricated summary attached to a
-# real paper. So the schema describes the *shape* and resmon checks the count
-# and the index set itself.
+# Constrain a model to produce something it does not have and it invents it,
+# and the invention arrives as a clean success. A short array is a fact resmon
+# can act on -- it retries those documents individually. A padded array is a
+# fabricated summary attached to a real paper. So the schema describes the
+# *shape* and resmon checks the count and the index set itself.
 BATCH_SUMMARY_SCHEMA: dict = {
     "type": "object",
     "properties": {

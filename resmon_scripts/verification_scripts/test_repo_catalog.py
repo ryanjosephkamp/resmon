@@ -1,5 +1,5 @@
 # resmon_scripts/verification_scripts/test_repo_catalog.py
-"""Tests for the static repository catalog (IMPL-23)."""
+"""Tests for the static repository catalog."""
 
 import sys
 from pathlib import Path
@@ -72,7 +72,7 @@ def test_credential_names_helper():
 def test_required_credential_for():
     """required_credential_for returns the credential name for required repos only."""
     assert required_credential_for("core") == "core_api_key"
-    assert required_credential_for("ieee") is None  # retired in v1.8.1
+    assert required_credential_for("ieee") is None  # retired
     # "recommended" / "optional" / "none" do not count as "required"
     assert required_credential_for("semantic_scholar") is None
     assert required_credential_for("pubmed") is None
@@ -211,7 +211,7 @@ def test_osti_catalog_does_not_invent_upstream_limits_and_measures_keyword_seman
 
 
 # ---------------------------------------------------------------------------
-# P1 — every entry answers what it can be asked about a person, with a citation
+# Every entry answers what it can be asked about a person, with a citation
 # ---------------------------------------------------------------------------
 #
 # The pattern ``date_granularity`` set, one field later: a capability nobody can
@@ -220,7 +220,7 @@ def test_osti_catalog_does_not_invent_upstream_limits_and_measures_keyword_seman
 # vendor's documentation is a claim wearing a citation.
 
 def test_every_entry_has_an_established_entity_capability():
-    """P1, with `_CLIENT_MODULES` as the denominator rather than a hand count.
+    """With `_CLIENT_MODULES` as the denominator rather than a hand count.
 
     A source added without an `entity_search` gets `unknown` **and an empty
     citation**, which fails here — so the omission is loud rather than a quiet
@@ -278,8 +278,8 @@ def test_returning_a_field_is_never_claimed_without_a_count():
                 "without a measured count in its citation")
 
 
-def test_the_two_sources_the_brief_named_that_the_record_refused():
-    """DataCite and Zenodo were fill candidates and are not fills.
+def test_datacite_and_zenodo_can_be_asked_about_an_author_but_fill_no_identifier():
+    """DataCite and Zenodo look like fill candidates and are not fills.
 
     Recorded as an assertion so that turning either on is a deliberate change
     to this test, with a new measurement behind it, rather than a quiet edit.
@@ -289,7 +289,7 @@ def test_the_two_sources_the_brief_named_that_the_record_refused():
         assert by_slug[slug].supported, f"{slug} can still be asked about an author"
         assert not by_slug[slug].returns_orcid, slug
         assert not by_slug[slug].returns_affiliation, slug
-        assert "says otherwise" in by_slug[slug].established, slug
+        assert "o ORCID and no affiliation" in by_slug[slug].established, slug
 
 
 def test_unknown_is_used_where_nothing_was_asked():

@@ -588,7 +588,7 @@ def test_a_pre_21_routine_with_email_enabled_still_emails_after_the_migration(
     conn.row_factory = sqlite3.Row
     database.init_db(conn=conn)
     # Put it back to schema 20 with the delivery objects removed: this is what
-    # a database written by the released 2.2 line looks like.
+    # a schema-20 database looks like.
     conn.execute("DROP TABLE deliveries")
     conn.execute("DROP TABLE routine_delivery_targets")
     conn.execute("UPDATE app_settings SET value='20' WHERE key='schema_version'")

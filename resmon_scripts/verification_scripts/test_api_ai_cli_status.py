@@ -1,4 +1,4 @@
-"""GET /api/settings/ai/cli-status — subscription-lane CLI detection (1.8c).
+"""GET /api/settings/ai/cli-status — subscription-lane CLI detection.
 
 The endpoint's job is to tell the user where resmon looked and what it found.
 The thing it must never do is imply more than it checked: it stats files, it
@@ -88,14 +88,12 @@ def test_a_configured_path_survives_the_settings_round_trip(monkeypatch, tmp_pat
     """P1: PUT ``ai_cli_path`` and cli-status honours it.
 
     This goes through ``PUT /api/settings/ai`` and the endpoint's own
-    ``_get_settings_group`` read, with no monkeypatch between them. The
-    previous version of this test replaced ``_get_settings_group`` wholesale
-    with a dict containing ``ai_cli_path`` — so it passed while the key was
-    in **neither** ``_SETTINGS_GROUPS["ai"]`` nor ``_AI_SETTING_KEYS``, the
-    PUT dropped it on the floor, and the endpoint could only ever read "".
-    A double that supplies the value under test cannot fail the way the real
-    read path failed. That is the fourth instance of that shape in this
-    project, and it is why the monkeypatch is gone.
+    ``_get_settings_group`` read, with no monkeypatch between them. Replacing
+    ``_get_settings_group`` wholesale with a dict containing ``ai_cli_path``
+    would pass while the key was in **neither** ``_SETTINGS_GROUPS["ai"]`` nor
+    ``_AI_SETTING_KEYS``, the PUT dropped it on the floor, and the endpoint
+    could only ever read "". A double that supplies the value under test cannot
+    fail the way the real read path fails.
     """
     binary = _install_fake_cli(tmp_path)
     _isolate_discovery(monkeypatch)
@@ -146,10 +144,10 @@ def test_a_configured_path_only_applies_to_its_own_provider(monkeypatch, tmp_pat
 
 
 def test_the_document_cap_survives_the_settings_round_trip():
-    """``ai_subscription_doc_cap`` was dropped by the same omission.
+    """``ai_subscription_doc_cap`` must survive the same round trip.
 
     It is the guard rail on how much of a user's plan one execution may
-    spend, and until 1.8.5 setting it did nothing at all.
+    spend, so a PUT that drops it would leave the cap silently unset.
     """
     client = _client()
     client.put("/api/settings/ai", json={"settings": {

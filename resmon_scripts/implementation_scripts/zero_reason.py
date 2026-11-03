@@ -342,10 +342,9 @@ def sentence(source: str, reason: str | None, detail: dict | None = None) -> str
         )
 
     if reason == "records_unusable":
-        # Not in the phase brief's taxonomy. It exists because the brief's
-        # ``rights_filtered`` sentence names rights as the cause, and NDL can
-        # drop a record for a second reason -- an incomplete or unlinked
-        # record -- in the same reply. Attributing those to rights would be a
+        # Separate from ``rights_filtered``, whose sentence names rights as
+        # the cause, because NDL can drop a record for a second reason -- an
+        # incomplete or unlinked record -- in the same reply. Attributing those to rights would be a
         # false statement about someone else's licensing, so a mixed drop gets
         # its own sentence with both counts rather than being folded in.
         matched = int(detail.get("matched") or 0)

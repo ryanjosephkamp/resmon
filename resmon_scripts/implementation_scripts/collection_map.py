@@ -69,6 +69,7 @@ from typing import Callable, Iterable, Optional
 
 import numpy as np
 
+from .child_process import hidden_window_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -1132,7 +1133,7 @@ def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
             [sys.executable, "-m", "implementation_scripts.collection_map",
              str(_database_of(path)), str(path), str(output), model or ""],
             cwd=str(_SCRIPTS), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE, text=True,
+            stderr=subprocess.PIPE, text=True, **hidden_window_kwargs(),
         )
         # Held where ``forget`` can reach it, to stop a fit of papers being erased.
         _children[key] = child
