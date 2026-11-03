@@ -5,7 +5,7 @@
 <h1 align="center">resmon</h1>
 
 <p align="center">
-  <strong>New papers, charted. Every source, accounted for.</strong>
+  <strong>Research moves fast. resmon does, too.</strong>
 </p>
 
 <p align="center">
