@@ -1,6 +1,9 @@
 import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
 import {
+  installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
+} from './commandLineInstall';
+import {
   isServiceLaunch, routeForNotice, servicePort, startNoticeListener, type Notice, type NoticeListener,
 } from './host';
 import { autoUpdater } from 'electron-updater';
@@ -443,6 +446,9 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
       || path.join(state, 'resmon.db');
     backendEnv.RESMON_REPORTS_DIR = backendEnv.RESMON_REPORTS_DIR
       || path.join(state, 'resmon_reports');
+    // The bundle's bytecode was compiled when it was built. Writing more into
+    // it would edit the app, which breaks its signature once it is signed.
+    backendEnv.PYTHONDONTWRITEBYTECODE = '1';
   }
 
   // The app posts this backend's notifications as resmon, as it does the
@@ -457,6 +463,9 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
     cwd: scriptDir,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: spec.env,
+    // The engine is a console program; without this Windows opens a console
+    // window for it.
+    windowsHide: true,
   });
 
   child.stdout?.on('data', (data: Buffer) => {
@@ -533,6 +542,8 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
     fs.mkdirSync(state, { recursive: true });
     env.RESMON_DB_PATH = env.RESMON_DB_PATH || path.join(state, 'resmon.db');
     env.RESMON_REPORTS_DIR = env.RESMON_REPORTS_DIR || path.join(state, 'resmon_reports');
+    // See `startBackend`: the packaged bundle is never written to.
+    env.PYTHONDONTWRITEBYTECODE = '1';
   }
   if (noticeListener) {
     env.RESMON_HOST_NOTIFY_URL = noticeListener.url;
@@ -542,6 +553,7 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
     cwd: scriptDir,
     stdio: ['ignore', 'inherit', 'inherit'],
     env,
+    windowsHide: true,
   });
   child.on('exit', (code, signal) => {
     backendProcess = null;
@@ -1039,6 +1051,38 @@ function sendCommand(command: string): void {
 }
 
 /**
+ * Install or remove the `resmon` command (a terminal command that reaches the
+ * running resmon; `commandLine.ts` says what each platform writes) and tell the
+ * person what happened. Under the e2e suites the answer goes to the log, as a
+ * line a spec can read, rather than into a dialog that waits for a click.
+ */
+async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void> {
+  let outcome: Outcome;
+  if (!app.isPackaged && !process.env.RESMON_COMMAND_LINE_ROOT) {
+    outcome = {
+      ok: false,
+      message: 'This copy of resmon runs from its source folder, which has no command line to install.',
+      detail: 'The installed app does. From a checkout, run: pipx install ./resmon_scripts/cli',
+    };
+  } else {
+    const context = systemContext(process.env, process.resourcesPath);
+    outcome = await (action === 'install' ? installCommandLine(context) : uninstallCommandLine(context));
+  }
+  if (isE2E()) {
+    console.log(`[main] command line ${JSON.stringify({ action, ...outcome })}`);
+    return;
+  }
+  const options: Electron.MessageBoxOptions = {
+    type: outcome.ok ? 'info' : 'warning',
+    message: outcome.message,
+    detail: outcome.detail,
+    buttons: ['OK'],
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options);
+  else await dialog.showMessageBox(options);
+}
+
+/**
  * Install the application menu.
  *
  * resmon shipped with Electron's default menu, which has no history items at
@@ -1072,12 +1116,19 @@ function installApplicationMenu(): void {
       ...(isMac ? [{ role: 'close' as const }] : [settings, { type: 'separator' as const }, { role: 'quit' as const }]),
     ],
   };
+  // As VS Code offers `code`: on macOS in the app menu, elsewhere in Help.
+  const commandItems: Electron.MenuItemConstructorOptions[] = [
+    { id: 'install-command', label: 'Install "resmon" Command in PATH', click: () => { void runCommandLineItem('install'); } },
+    { id: 'uninstall-command', label: 'Uninstall "resmon" Command', click: () => { void runCommandLineItem('uninstall'); } },
+  ];
   const atlasApp: Electron.MenuItemConstructorOptions = {
     role: 'appMenu',
     submenu: [
       { role: 'about' },
       { type: 'separator' },
       settings,
+      { type: 'separator' },
+      ...commandItems,
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -1136,7 +1187,10 @@ function installApplicationMenu(): void {
     { role: 'windowMenu' },
     {
       role: 'help' as const,
-      submenu: [{ id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') }],
+      submenu: [
+        { id: 'help-shortcuts', label: 'Keyboard Shortcuts', click: send('shortcuts') },
+        ...(isMac ? [] : [{ type: 'separator' as const }, ...commandItems]),
+      ],
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
@@ -1365,6 +1419,9 @@ app.whenReady().then(async () => {
     });
 
     installApplicationMenu();
+    // An AppImage mounts at a new path on every run; the `resmon` command the
+    // menu installed runs a copy of the command line, which is kept current.
+    if (app.isPackaged) refreshInstalledArchive(systemContext(process.env, process.resourcesPath));
     // The service opens no window of its own; `showWindow` makes one on request.
     // It does not check for updates either: an update replaces the bundle, and
     // offering it is a window's job, with a person looking at it.
