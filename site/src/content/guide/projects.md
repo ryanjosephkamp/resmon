@@ -10,7 +10,7 @@ readmeLines: []
 
 Type a name and press **Start** to make a project. You can have 100 of them. Choose a project in the list on the left to open it; **Rename** changes its name.
 
-**Add files** shows the files in your library that the project does not hold yet. Tick some and press **Add**. A project holds the **exact version** of each file you add, up to 1,000 files. **Remove from project** takes a file out and asks first; the records you made against it stay. From **Your files**, **Open in Evidence** brings one file across, and Evidence asks before adding it. No name ever stands in for a paper or a version.
+**Add files** shows the files in your library that the project does not hold yet. Tick some and press the button that names how many, such as **Add 2 files**. A project holds the **exact version** of each file you add, up to 1,000 files. **Remove from project** takes a file out and asks first; the records you made against it stay. From **Your files**, **Open in Evidence** brings one file across, and Evidence asks before adding it. No name ever stands in for a paper or a version.
 
 ## Files and passages
 
