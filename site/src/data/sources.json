@@ -4,7 +4,7 @@
     {
       "slug": "arxiv",
       "name": "arXiv",
-      "description": "Open-access preprints across physics math CS quant-bio stats EE and economics",
+      "description": "Open-access preprints in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics",
       "subject_coverage": "Physics / Math / CS / Quant-bio / Stats / EE / Econ",
       "website": "https://arxiv.org",
       "api_key_requirement": "none",
@@ -200,7 +200,7 @@
     {
       "slug": "nasa_ads",
       "name": "NASA ADS",
-      "description": "Digital library for astronomy astrophysics and planetary science",
+      "description": "Digital library for astronomy, astrophysics, and planetary science",
       "subject_coverage": "Astronomy / Astrophysics / Planetary science",
       "website": "https://ui.adsabs.harvard.edu",
       "api_key_requirement": "required",
@@ -284,7 +284,7 @@
     {
       "slug": "osti",
       "name": "OSTI.GOV",
-      "description": "U.S. Department of Energy research records including technical reports, datasets, and other grey literature",
+      "description": "U.S. Department of Energy research records including technical reports, datasets, and other gray literature",
       "subject_coverage": "Energy / Physical sciences / DOE-funded research / Technical reports",
       "website": "https://www.osti.gov",
       "api_key_requirement": "none",
@@ -340,7 +340,7 @@
     {
       "slug": "springer",
       "name": "Springer Nature",
-      "description": "Springer Nature Meta API across Springer Nature BMC Palgrave imprints",
+      "description": "Springer Nature's Meta API, across the Springer, Nature, BMC, and Palgrave imprints",
       "subject_coverage": "STM / Humanities / Social sciences",
       "website": "https://www.springernature.com",
       "api_key_requirement": "required",

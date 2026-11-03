@@ -536,7 +536,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="arxiv",
         name="arXiv",
-        description="Open-access preprints across physics math CS quant-bio stats EE and economics",
+        description="Open-access preprints in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics",
         subject_coverage="Physics / Math / CS / Quant-bio / Stats / EE / Econ",
         endpoint="https://export.arxiv.org/api/query",
         query_method="GET Atom XML: one all: term per word joined with AND, and a submittedDate filter",
@@ -1388,7 +1388,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="nasa_ads",
         name="NASA ADS",
-        description="Digital library for astronomy astrophysics and planetary science",
+        description="Digital library for astronomy, astrophysics, and planetary science",
         subject_coverage="Astronomy / Astrophysics / Planetary science",
         endpoint="https://api.adsabs.harvard.edu/v1/search/query",
         query_method="GET with Authorization: Bearer {key} Solr-style q",
@@ -1773,7 +1773,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="osti",
         name="OSTI.GOV",
-        description="U.S. Department of Energy research records including technical reports, datasets, and other grey literature",
+        description="U.S. Department of Energy research records including technical reports, datasets, and other gray literature",
         subject_coverage="Energy / Physical sciences / DOE-funded research / Technical reports",
         endpoint="https://www.osti.gov/api/v1/records",
         query_method="GET JSON with q, publication date filters, and page/rows pagination",
@@ -1968,7 +1968,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     _entry(
         slug="springer",
         name="Springer Nature",
-        description="Springer Nature Meta API across Springer Nature BMC Palgrave imprints",
+        description="Springer Nature's Meta API, across the Springer, Nature, BMC, and Palgrave imprints",
         subject_coverage="STM / Humanities / Social sciences",
         endpoint="https://api.springernature.com/meta/v2/json",
         query_method="GET with q={q} and api_key={key}",
