@@ -107,6 +107,29 @@ _KNOWN_LOCATIONS: dict[str, dict[str, tuple[str, ...]]] = {
 }
 
 
+def with_command_dir(env: "dict[str, str] | os._Environ[str]", binary: Optional[str]) -> dict[str, str]:
+    """``env`` with the folder the command was found in first on its PATH.
+
+    A CLI installed by npm is a script that starts ``#!/usr/bin/env node``, and
+    the node it means is the one installed beside it: Homebrew, nvm, Volta and
+    fnm all put a global package's launcher in the same folder as ``node``. A
+    packaged app opened from the Finder runs with launchd's short PATH
+    (``/usr/bin:/bin:/usr/sbin:/sbin``), so ``env`` found no ``node`` and the
+    command answered "env: node: No such file or directory", while the same
+    command ran from a terminal. The folder is the one the command was found in,
+    not its symlink's target, since that is where the installer put the rest.
+    Nothing else on PATH changes.
+    """
+    out = dict(env)
+    if not binary:
+        return out
+    folder = os.path.dirname(os.path.abspath(os.path.expanduser(binary)))
+    parts = [part for part in out.get("PATH", os.defpath).split(os.pathsep) if part]
+    if folder and folder not in parts:
+        out["PATH"] = os.pathsep.join([folder, *parts])
+    return out
+
+
 @dataclass(frozen=True)
 class CLIDiscovery:
     """Where a provider's CLI was found, and how — or that it was not.

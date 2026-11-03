@@ -192,6 +192,54 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
   }
 });
 
+test('the service starting while a window runs leaves the window where it is', async () => {
+  // A window opened before the service holds the profile. launchd's KeepAlive then starts the
+  // service every ten seconds; each start hands over and exits. Answered with a window, each one
+  // brought the running window to the front. Minimized, the window shows whether it was.
+  test.setTimeout(180_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-service-after-window-'));
+  const port = await freePort();
+  expect(port).not.toBe(8742);
+  const env = atlasEnv(launchEnv(stateDir, true));
+  const profile = `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`;
+  const app = await electron.launch({ args: ['.', profile], cwd: FRONTEND_ROOT, env, timeout: 180_000 });
+  const output: string[] = [];
+  app.process().stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
+  try {
+    const win = await app.firstWindow({ timeout: 120_000 });
+    await win.locator(ATLAS_LANDMARK).waitFor({ state: 'visible', timeout: 120_000 });
+    await app.evaluate(({ BrowserWindow }) => { for (const w of BrowserWindow.getAllWindows()) w.minimize(); });
+    // A bare X server (the xvfb job) has no window manager to minimize anything; there the window's
+    // staying put is not observed, and the log line below is what shows the hand-over opened nothing.
+    const minimized = await expect.poll(
+      () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every((w) => w.isMinimized())),
+      { timeout: 5_000 },
+    ).toBe(true).then(() => true, () => false);
+    if (!minimized) {
+      console.log('SERVICE AFTER WINDOW NOT VERIFIED — no window manager on this display (bare X, e.g. xvfb): '
+        + 'the window could not be minimized, so whether it was brought forward is not observed by this run.');
+    }
+
+    const serviceArgs = [...(process.platform === 'linux' ? ['--no-sandbox'] : []), '.', '--service', `--port=${port}`, profile];
+    const service = spawn(app.process().spawnfile, serviceArgs, { cwd: FRONTEND_ROOT, env, stdio: ['ignore', 'ignore', 'pipe'] });
+    const serviceErr: string[] = [];
+    service.stderr?.on('data', (chunk: Buffer) => serviceErr.push(chunk.toString()));
+    const serviceExit = await new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(
+      (resolve) => service.once('exit', (code, signal) => resolve({ code, signal })));
+    expect(serviceExit, `the service launch's stderr:\n${serviceErr.join('').slice(-2000)}`).toEqual({ code: 0, signal: null });
+
+    await expect.poll(() => output.join(''), { timeout: 10_000 }).toContain('The service started while this resmon runs');
+    // Still one window, and where a window manager minimized it, still minimized: nothing was brought forward.
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
+    if (minimized) {
+      expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().every((w) => w.isMinimized()))).toBe(true);
+    }
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
 test('a unit that starts the app passes the port and the state folders, and the engine uses them', async () => {
   test.setTimeout(180_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-service-flags-'));

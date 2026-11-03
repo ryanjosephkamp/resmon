@@ -65,7 +65,11 @@ export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen, onAnswer
   const fetching = asked && check.isFetching;
   const failed = asked && check.isError ? check.error : null;
   const state = data?.state;
-  useEffect(() => { onAnswer?.(fetching ? null : state ?? null); }, [onAnswer, fetching, state]);
+  // Checked again, the last answer stays on the screen until the new one comes: swapped for a
+  // one-line "Checking…" and back, the box and the description beside it changed height twice,
+  // and everything under them moved.
+  const first = fetching && !data;
+  useEffect(() => { onAnswer?.(first ? null : state ?? null); }, [onAnswer, first, state]);
   useEffect(() => () => onAnswer?.(null), [onAnswer]);
   // Not offered while the first answer is on its way, so a signed-in command
   // does not flash a Sign in it does not need.
@@ -75,11 +79,11 @@ export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen, onAnswer
     else setAsked(true);
   };
   return (
-    <div className="ai-signin" role="group" aria-label={`${name} sign-in`} data-ai="sign-in"
-      data-state={fetching ? 'checking' : state ?? (failed ? 'error' : 'unchecked')}>
+    <div className="ai-signin" role="group" aria-label={`${name} sign-in`} data-ai="sign-in" aria-busy={fetching}
+      data-state={first ? 'checking' : state ?? (failed ? 'error' : 'unchecked')}>
       <div className="ai-signin-row">
         <p className="ai-signin-state" role="status">
-          {fetching ? `Checking whether the ${name} command is signed in…`
+          {first ? `Checking whether the ${name} command is signed in…`
             : failed ? `The engine did not check the sign-in (${refusal(failed)}).`
               : data?.message ?? ''}
         </p>
@@ -91,7 +95,7 @@ export function CliSignIn({ provider, purpose, binaryPath, checkOnOpen, onAnswer
             </button>
           )}
           <button type="button" className="btn quiet sm" data-ai="sign-in-check" disabled={fetching} onClick={again}>
-            Check again
+            {fetching && data ? 'Checking…' : 'Check again'}
           </button>
         </span>
       </div>

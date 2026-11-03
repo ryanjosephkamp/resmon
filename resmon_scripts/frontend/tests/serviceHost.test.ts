@@ -11,7 +11,7 @@
 import * as http from 'http';
 
 import {
-  appExecutable, engineFlags, isServiceLaunch, parseNotice, routeForNotice, servicePort, startNoticeListener,
+  appExecutable, engineFlags, isServiceLaunch, opensWindowFor, parseNotice, routeForNotice, servicePort, startNoticeListener,
   type Notice, type NoticeListener,
 } from '../electron/host';
 
@@ -150,5 +150,12 @@ describe('the app run by a service unit', () => {
       expect(appExecutable('darwin', '/x/electron', false)).toBeNull();
       expect(appExecutable('win32', 'C:\\x\\electron.exe', false)).toBeNull();
     });
+  });
+});
+
+describe('a second launch handed to the resmon already running', () => {
+  test('a person opening resmon gets a window; the service starting does not', () => {
+    expect(opensWindowFor(['/Applications/resmon.app/Contents/MacOS/resmon'])).toBe(true);
+    expect(opensWindowFor(['/Applications/resmon.app/Contents/MacOS/resmon', '--service', '--port=8742'])).toBe(false);
   });
 });

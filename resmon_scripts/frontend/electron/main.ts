@@ -4,7 +4,7 @@ import {
   installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
 } from './commandLineInstall';
 import {
-  appExecutable, engineFlags, isServiceLaunch, routeForNotice, servicePort, startNoticeListener,
+  appExecutable, engineFlags, isServiceLaunch, opensWindowFor, routeForNotice, servicePort, startNoticeListener,
   type Notice, type NoticeListener,
 } from './host';
 import { autoUpdater } from 'electron-updater';
@@ -122,8 +122,11 @@ if (SERVICE && process.platform === 'darwin') {
 // One resmon per profile. A second launch while one runs hands over and quits:
 // to a service, it is a request for a window on the engine that is already
 // running (`second-instance` below), which is what makes the window and the
-// service one process; a second service has nothing to add and exits 0, which
-// a unit that restarts only on failure leaves alone.
+// service one process. A service that starts while a window launched on its own
+// holds the profile has nothing to add and exits 0. launchd's KeepAlive starts
+// it again every ten seconds, so once that window quits the service takes over
+// within ten seconds; systemd and Task Scheduler restart it only on failure, so
+// there it starts at the next login.
 //
 // An instance under test names its own state directory; its Chromium profile
 // goes inside it unless the launch names one, so a test instance can never
@@ -1447,8 +1450,13 @@ app.whenReady().then(async () => {
   }
 });
 
-// A second launch of resmon, while this one runs: a window, here.
-app.on('second-instance', () => {
+// A second launch of resmon, while this one runs: a window, here, when a
+// person opened resmon; nothing when it was the service starting (`opensWindowFor`).
+app.on('second-instance', (_event, argv) => {
+  if (!opensWindowFor(argv)) {
+    console.log('[main] The service started while this resmon runs; it takes over once this one quits');
+    return;
+  }
   void showWindow(null);
 });
 

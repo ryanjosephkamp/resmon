@@ -62,6 +62,26 @@ describe('signing in through the command’s own login', () => {
     await waitFor(() => expect(GET).toHaveBeenCalledTimes(2));
   });
 
+  test('checked again, the last answer stays in place until the new one comes', async () => {
+    const said = 'The Codex command did not say whether it is signed in. It said: env: node: No such file or directory';
+    GET.mockReturnValueOnce(reply({ ...checked('failed', said), provider: 'codex' }));
+    let settle: (value: unknown) => void = () => undefined;
+    GET.mockReturnValueOnce(new Promise((resolve) => { settle = resolve; }));
+    const onAnswer = jest.fn();
+    mount(<CliSignIn provider="codex" purpose="ask" checkOnOpen onAnswer={onAnswer} />);
+    expect(await screen.findByText(said)).toBeInTheDocument();
+    onAnswer.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }));
+    expect(await screen.findByRole('button', { name: 'Checking…' })).toBeDisabled();
+    // The words and the state the description reads are unchanged while the check runs.
+    expect(screen.getByText(said)).toBeInTheDocument();
+    expect(screen.queryByText(/Checking whether the Codex command/)).toBeNull();
+    expect(onAnswer).not.toHaveBeenCalledWith(null);
+    settle({ data: { ...checked('signed_in', 'The Codex command is signed in.'), provider: 'codex' }, error: undefined, response: {} });
+    expect(await screen.findByText('The Codex command is signed in.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check again' })).toBeEnabled();
+  });
+
   test('Sign in opens the command’s login in Terminal, and says to come back', async () => {
     GET.mockReturnValue(reply(checked('signed_out', 'The Claude Code command on this computer is not signed in.')));
     POST.mockReturnValue(reply({

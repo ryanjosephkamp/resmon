@@ -74,7 +74,12 @@ export function laneSentence(lane: RunAiLane, running: boolean): string {
         ? `${lane.lane_label}: summarized none of ${papers(lane.docs_attempted)}${reason ? `: ${reason}` : ''}.`
         : `${lane.lane_label}: could not be used${reason ? `: ${reason}` : ''}.`;
     case 'skipped':
-      return `${lane.lane_label}: not needed, because an earlier connection covered every paper.`;
+      // A lane that attempted nothing either could not be used, and its row says why, or was never
+      // reached because a lane before it covered every paper. The first lane has none before it.
+      if (reason) return `${lane.lane_label}: could not be used: ${reason}.`;
+      return lane.lane_index > 0
+        ? `${lane.lane_label}: not needed, because an earlier connection covered every paper.`
+        : `${lane.lane_label}: summarized no paper, and recorded no reason.`;
     default:
       return running ? `${lane.lane_label}: summarizing now.` : `${lane.lane_label}: was summarizing when the run stopped.`;
   }
@@ -119,6 +124,11 @@ export function runSummaries(
     ? ` Asked for ${choice.length} length, ${choice.tone} tone.` : '';
   const wording = adjusted.length ? `${asked} Its ${listWords(adjusted)} ${adjusted.length === 1 ? 'was' : 'were'} set for ${whose}.` : asked;
   let note: string | null = null;
+  // Connections that all wrote nothing: the run's line says so plainly, before what each one did.
+  if (labels.length && rows.length && !running && rows.every((row) => row.docs_succeeded === 0)
+    && run.result_count !== 0) {
+    note = 'No summary was written for this run.';
+  }
   if (labels.length && !rows.length) {
     if (running) note = 'Summaries are written once the run has its papers.';
     else if (run.status === 'completed' && run.result_count === 0) note = 'This run found no papers, so there was nothing to summarize.';

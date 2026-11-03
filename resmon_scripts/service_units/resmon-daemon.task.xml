@@ -32,7 +32,9 @@
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-    <Priority>7</Priority>
+    <!-- 5, normal priority: the service is the app, and a window opened while it
+         runs is drawn by this process. Task Scheduler's default, 7, is below normal. -->
+    <Priority>5</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>

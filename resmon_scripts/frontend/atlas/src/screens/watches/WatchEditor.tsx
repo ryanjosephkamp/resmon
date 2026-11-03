@@ -29,6 +29,7 @@ import {
   DEFAULT_DAYS, MAX_DAYS, WINDOWS, byOrder, coarseMovingSentences, fixedWords, listed, relevanceSentence, startNeeded,
   windowHint, windowSpan, type DateWindowComputed,
 } from './window';
+import { CountField } from '../../shell/CountField';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -308,8 +309,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
               {form.window === 'last_days' && (
                 <label className="cap">
                   <span>The last</span>
-                  <input type="number" min={1} max={MAX_DAYS} value={form.lastDays} aria-label="Days before each run"
-                    onChange={(e) => set({ lastDays: Math.max(1, Math.min(MAX_DAYS, Math.round(Number(e.target.value)) || 1)) })} />
+                  <CountField min={1} max={MAX_DAYS} value={form.lastDays} aria-label="Days before each run"
+                    onValue={(lastDays) => set({ lastDays })} />
                   <span>days before each run</span>
                 </label>
               )}
@@ -328,8 +329,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
               )}
               <label className="cap">
                 <span>Up to</span>
-                <input type="number" min={1} max={1000} value={form.cap} aria-label="Most papers per source"
-                  onChange={(e) => set({ cap: Math.max(1, Math.min(1000, Number(e.target.value) || 1)) })} />
+                <CountField min={1} max={1000} value={form.cap} aria-label="Most papers per source"
+                  onValue={(cap) => set({ cap })} />
                 <span>papers per source, each run</span>
               </label>
             </div>
@@ -469,8 +470,8 @@ function ScheduleField({ form, keptOffered, storedWords, storedCron, onCadence, 
             </label>
             <label className="date">
               <span>at minute</span>
-              <input type="number" min={0} max={59} aria-label="Minute past the hour" value={s.minute} className="minute"
-                onChange={(e) => onChange({ minute: Math.max(0, Math.min(59, Number(e.target.value) || 0)) })} />
+              <CountField min={0} max={59} aria-label="Minute past the hour" value={s.minute} className="minute"
+                onValue={(minute) => onChange({ minute })} />
             </label>
           </>
         )}

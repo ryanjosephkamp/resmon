@@ -144,6 +144,53 @@ def test_an_unrecognised_catalog_shape_costs_the_dropdown_not_the_lane(tmp_path,
     assert "type a model name" in catalog.error.lower()
 
 
+def test_a_codex_that_fails_says_what_it_said_not_that_its_shape_was_wrong(tmp_path):
+    """A command that exits before listing anything has not answered in some new
+    shape. Its own words are what tells the person what to fix."""
+    script = tmp_path / "codex"
+    script.write_text("#!/bin/sh\necho 'env: node: No such file or directory' >&2\nexit 127\n")
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    catalog = list_subscription_catalog("codex", str(script))
+    assert catalog.models == []
+    assert "It said: env: node: No such file or directory" in catalog.error
+    assert "shape" not in catalog.error
+
+
+def test_a_codex_launcher_finds_the_interpreter_installed_beside_it(tmp_path, monkeypatch):
+    """npm installs `codex` as a script that starts `#!/usr/bin/env node`, with the
+    node it means in the same folder. A packaged app opened from the Finder has
+    launchd's short PATH, which holds neither, so the command's own folder goes
+    first on the PATH it runs with."""
+    import sys as _sys
+
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    interpreter = folder / "fakenode"
+    interpreter.write_text(f"#!/bin/sh\nexec {_sys.executable} \"$@\"\n")
+    interpreter.chmod(interpreter.stat().st_mode | stat.S_IXUSR)
+    launcher = folder / "codex"
+    launcher.write_text(
+        "#!/usr/bin/env fakenode\n"
+        f"import json\nprint(json.dumps({_CATALOG!r}))\n"
+    )
+    launcher.chmod(launcher.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+    catalog = list_subscription_catalog("codex", str(launcher))
+    assert catalog.error == ""
+    assert catalog.models == ["gpt-5.6-sol", "gpt-5.5"]
+
+
+def test_the_command_folder_goes_first_on_path_once():
+    from implementation_scripts.ai_cli import with_command_dir
+
+    env = {"PATH": "/usr/bin:/bin", "HOME": "/Users/someone"}
+    assert with_command_dir(env, "/opt/homebrew/bin/codex")["PATH"] == "/opt/homebrew/bin:/usr/bin:/bin"
+    assert with_command_dir({"PATH": "/opt/homebrew/bin:/usr/bin"}, "/opt/homebrew/bin/codex")["PATH"] == "/opt/homebrew/bin:/usr/bin"
+    assert with_command_dir(env, None) == env
+    assert with_command_dir(env, "/opt/homebrew/bin/codex")["HOME"] == "/Users/someone"
+    assert env["PATH"] == "/usr/bin:/bin"
+
+
 def test_a_missing_codex_says_where_it_looked(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "/nonexistent-resmon-test-dir")
     monkeypatch.setattr(

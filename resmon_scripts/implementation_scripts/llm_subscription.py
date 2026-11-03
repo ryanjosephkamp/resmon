@@ -65,6 +65,7 @@ import tempfile
 import threading
 from typing import Optional
 
+from .ai_cli import with_command_dir
 from .ai_errors import AIError, AIErrorKind, is_cli_sign_in_failure
 from .child_process import hidden_window_kwargs
 from .prompt_templates import (
@@ -733,6 +734,10 @@ class SubscriptionLLMClient:
                     # blocks forever on a pipe is indistinguishable from one
                     # that has crashed.
                     stdin=subprocess.DEVNULL,
+                    # The environment passes through untouched, with the
+                    # command's own folder first on PATH, so a launcher that
+                    # starts `#!/usr/bin/env node` finds the node beside it.
+                    env=with_command_dir(os.environ, argv[0] if argv else None),
                     **hidden_window_kwargs(),
                 )
                 self._active.add(process)

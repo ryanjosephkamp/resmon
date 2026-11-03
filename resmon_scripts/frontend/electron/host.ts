@@ -27,6 +27,18 @@ export function isServiceLaunch(argv: readonly string[], env: NodeJS.ProcessEnv)
 }
 
 /**
+ * Whether a second launch, handed over to the resmon already running, asks for
+ * a window. A person opening resmon does. The service starting does not: it
+ * found resmon already running and quits, and launchd starts it again every ten
+ * seconds until it is the only one. Answered with a window, each of those
+ * starts brought the running window to the front, every ten seconds, for as
+ * long as it was open.
+ */
+export function opensWindowFor(argv: readonly string[]): boolean {
+  return !argv.includes('--service');
+}
+
+/**
  * The port the service's engine listens on: `--port=N` on the command line, as
  * a unit installed from the packaged app passes it, else `RESMON_DAEMON_PORT`,
  * as the unit sets it and as `service_manager.default_port` reads it, else 8742.
