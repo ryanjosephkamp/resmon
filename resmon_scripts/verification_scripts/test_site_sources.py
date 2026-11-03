@@ -42,3 +42,35 @@ def test_the_site_lists_every_shipped_source_once():
     slugs = [entry["slug"] for entry in data["sources"]]
     assert data["count"] == len(slugs) == len(set(slugs))
     assert slugs == [entry.slug for entry in REPOSITORY_CATALOG]
+
+
+#: Where the site's guide and the README write the number of sources in words a
+#: reader takes as a count: "26 open scholarly sources", "The 26 sources",
+#: "Of the 26 sources", "lists all 26".
+COUNT_PHRASES = (
+    r"\b(\d+) open scholarly sources\b",
+    r"\b[Tt]he (\d+) sources\b",
+    r"\bOf the (\d+) sources\b",
+    r"\blists all (\d+)\b",
+)
+
+
+def test_every_written_count_of_the_sources_is_the_catalogs():
+    """The home page says the count from the catalog when it is built; the guide
+    and the README are prose, so a source added or retired has to be counted
+    again there. This names every place that still says the old number."""
+    import re
+
+    from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
+
+    pages = sorted((ROOT / "site" / "src" / "content").rglob("*.md")) + [ROOT / "README.md"]
+    wrong = []
+    for page in pages:
+        for line_number, line in enumerate(page.read_text(encoding="utf-8").splitlines(), start=1):
+            for phrase in COUNT_PHRASES:
+                for match in re.finditer(phrase, line):
+                    if int(match.group(1)) != len(REPOSITORY_CATALOG):
+                        wrong.append(f"{page.relative_to(ROOT)}:{line_number}: {match.group(0)!r}")
+    assert not wrong, (
+        f"The catalog holds {len(REPOSITORY_CATALOG)} sources, and these say otherwise:\n" + "\n".join(wrong)
+    )

@@ -5,7 +5,7 @@
 <h1 align="center">resmon</h1>
 
 <p align="center">
-  <strong>One desktop app watching 26 open scholarly sources for the papers you follow.</strong>
+  <strong>New papers, charted. Every source, accounted for.</strong>
 </p>
 
 <p align="center">
