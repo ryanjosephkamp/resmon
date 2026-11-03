@@ -516,21 +516,34 @@ def wall(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     if not runs_ or not sources:
         return 0
 
-    width = max(len(str(s.get("name"))) for s in sources) + 2
-    out.line()
-    arrow = "→" if out.unicode else "->"
-    out.line(" " * width + f"#{runs_[0].get('execution_id')} {arrow} #{runs_[-1].get('execution_id')}, "
-             "oldest to newest")
+    rows = []
     for source in sources:
         # A state this command has no mark for is drawn as "not recorded":
         # failing toward "resmon does not know", as ``knownState`` does in the app.
         cells = " ".join(marks.get(c.get("state"), marks["not_recorded"]) for c in source.get("cells") or [])
         tally = [f"{n} {legend.get(state, {}).get('label', state)}"
                  for state, n in (source.get("counts") or {}).items() if n]
-        name = str(source.get("name")) + ("" if source.get("in_catalog", True) else " (not in the catalog)")
+        rows.append((source, cells, tally))
+
+    def label(source: dict, suffix: str) -> str:
+        return str(source.get("name")) + ("" if source.get("in_catalog", True) else suffix)
+
+    # The name column fits the longest name as printed, suffix included, with
+    # two spaces before the first mark. Where that would push the marks past
+    # the width, the suffix is shortened; a source's name never is.
+    suffix = " (not in the catalog)"
+    longest_cells = max(len(cells) for _, cells, _ in rows)
+    if max(len(label(s, suffix)) for s, _, _ in rows) + 2 + longest_cells > out.width:
+        suffix = " (unlisted)"
+    width = max(len(label(s, suffix)) for s, _, _ in rows) + 2
+    out.line()
+    arrow = "→" if out.unicode else "->"
+    out.line(" " * width + f"#{runs_[0].get('execution_id')} {arrow} #{runs_[-1].get('execution_id')}, "
+             "oldest to newest")
+    for source, cells, tally in rows:
         # " · " between counts, because one of the engine's labels ("answered,
         # zero") carries a comma of its own.
-        out.line(f"{name:<{width}}{cells}   {' · '.join(tally)}")
+        out.line(f"{label(source, suffix):<{width}}{cells}   {' · '.join(tally)}")
     out.line()
     out.packed([f"{marks[s]} {legend.get(s, {}).get('label', s)}" for s in data.get("states") or MARKS
                 if s in marks])

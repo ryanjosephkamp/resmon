@@ -45,6 +45,7 @@ from implementation_scripts import daemon, database, normalizer  # noqa: E402
 from implementation_scripts.api_base import NormalizedResult  # noqa: E402
 from perf import instance  # noqa: E402
 from resmon_cli import __version__  # noqa: E402
+from resmon_cli import commands as cli_commands  # noqa: E402
 from resmon_cli import engine as cli_engine  # noqa: E402
 from resmon_cli import install as cli_install  # noqa: E402
 from resmon_cli import main as cli_main  # noqa: E402
@@ -400,6 +401,39 @@ def test_the_source_wall(service):
 
     status, out, _ = cli(cli_env(backend.state), "wall", "--json")
     assert json.loads(out) == data
+
+
+def _wall_lines(width: int, sources: list[dict]) -> list[str]:
+    """What ``resmon wall`` prints for these sources, from an engine that holds nothing else."""
+    cells = [{"state": "answered"}, {"state": "not_selected"}, {"state": "could_not_be_asked"}]
+    body = {"runs": [{"execution_id": 1}, {"execution_id": 3}], "window": {"runs_available": 3},
+            "sources": [{**s, "cells": cells, "counts": {"answered": 1}} for s in sources],
+            "state_legend": [{"state": "answered", "label": "answered"}]}
+
+    class Stub:
+        def get(self, path, params=None):
+            return body
+
+    stream = io.StringIO()
+    cli_commands.wall(Stub(), type("Args", (), {"runs": 3, "json": False, "legend": False})(),
+                      cli_text.Out(stream, width))
+    return stream.getvalue().splitlines()
+
+
+def test_the_wall_makes_room_for_its_longest_name():
+    lines = _wall_lines(100, [{"name": "IEEE Xplore", "in_catalog": False}, {"name": "arXiv"}])
+    row = next(line for line in lines if line.startswith("IEEE Xplore"))
+    # The marks start two spaces past the longest name as printed, suffix included.
+    assert row.startswith("IEEE Xplore (not in the catalog)  ● – ⊘")
+    other = next(line for line in lines if line.startswith("arXiv"))
+    assert other.index("●") == row.index("●")
+
+
+def test_the_wall_shortens_its_suffix_before_it_shortens_a_name():
+    lines = _wall_lines(36, [{"name": "IEEE Xplore", "in_catalog": False}, {"name": "arXiv"}])
+    row = next(line for line in lines if line.startswith("IEEE Xplore"))
+    assert row.startswith("IEEE Xplore (unlisted)  ● – ⊘")
+    assert "not in the catalog" not in "\n".join(lines)
 
 
 def test_search_as_the_explorer_does(service):
