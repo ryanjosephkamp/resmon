@@ -8,7 +8,7 @@ that a TestClient cannot establish.
 
 What this file cannot see: whether a *user's* corpus, with years of rows and
 indexes an upgrade path never anticipated, survives the table rebuild. The
-committed v2.2.0 fixture in `test_cumulative_upgrade.py` is the nearest
+committed schema-18 fixture in `test_cumulative_upgrade.py` is the nearest
 available thing to that, and it is a fixture, not someone's corpus.
 """
 
@@ -34,9 +34,9 @@ import resmon as resmon_mod  # noqa: E402
 def db_conn(tmp_path):
     """A real file-backed corpus that `resmon._get_db()` also opens.
 
-    The reconciliation hook reads through resmon's own per-thread connection
-    (BUG-020), so a bare `sqlite3.connect(":memory:")` would leave it looking
-    at a different database entirely and every assertion here would be about
+    The reconciliation hook reads through resmon's own connection for its
+    thread, so a bare `sqlite3.connect(":memory:")` would leave it looking at a
+    different database entirely and every assertion here would be about
     nothing.
     """
     path = tmp_path / "corpus.db"
@@ -63,7 +63,7 @@ def _schema_18_executions(path: Path) -> sqlite3.Connection:
 
     Built by running `init_db` and then putting `executions` back the way 18
     had it: the narrow CHECK, and none of the schema-19 columns. Reproducing
-    v2.2.0's whole file by hand is what the committed fixture is for; what this
+    a schema-18 file by hand is what the committed fixture is for; what this
     needs is the one table, populated, with the constraint that is about to
     move.
     """

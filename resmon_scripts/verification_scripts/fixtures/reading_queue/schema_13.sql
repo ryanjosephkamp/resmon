@@ -1,25 +1,22 @@
--- The complete resmon schema at version 13, as `init_db` left it at commit
--- a1a377b9d9d5ff0b224c5dceb1ac1ae2f29fbf8f — the last public `main` before the
+-- The complete resmon schema at version 13, as `init_db` left it, before the
 -- reading queue.
 --
 -- Dumped from a database that version actually built, rather than written by
--- hand: the schema-13 migration itself shipped broken on existing corpora
--- because a hand-reasoned idea of "what an older database looks like" left out
--- a column, and the only fixture that catches that class of bug is one the old
--- code produced. `test_reading_queue_upgrade.py` executes this file, fills the
--- tables with rows, and upgrades it.
+-- hand: a hand-reasoned idea of "what an older database looks like" can leave
+-- out a column, and the only fixture that catches that class of bug is one the
+-- old code produced. `test_reading_queue_upgrade.py` executes this file, fills
+-- the tables with rows, and upgrades it.
 --
 -- **Only what SQLite creates for itself is omitted**: the fts5 shadow tables
 -- `documents_fts_{config,content,data,docsize,idx}`, which `CREATE VIRTUAL
 -- TABLE documents_fts` below brings with it, and `sqlite_sequence`, which
--- appears with the first AUTOINCREMENT insert. The first version of this file
--- dropped everything whose name began `documents_fts`, which silently took the
--- three `documents_fts_insert` / `_delete` / `_update` **triggers** with it —
--- those are resmon's own DDL and are what keeps the search index in step with
--- the corpus. Reconciliation caught it; `test_the_fixture_holds_every_object_
--- the_application_owns` now derives the shadow-name set at run time from a
--- throwaway fts5 table instead of matching on a prefix, so the same mistake
--- cannot be made silently again.
+-- appears with the first AUTOINCREMENT insert. Dropping everything whose name
+-- begins `documents_fts` would silently take the three `documents_fts_insert`
+-- / `_delete` / `_update` **triggers** with it — those are resmon's own DDL
+-- and are what keeps the search index in step with the corpus.
+-- `test_the_fixture_holds_every_object_the_application_owns` derives the
+-- shadow-name set at run time from a throwaway fts5 table instead of matching
+-- on a prefix, so that mistake cannot be made silently.
 --
 -- Committed rather than generated at test time so the check is portable: CI
 -- has no copy of the old code, and a fixture that has to be regenerated from
@@ -68,7 +65,7 @@ CREATE TABLE cloud_sync (
 CREATE TABLE document_authors (
     document_id       INTEGER NOT NULL,
     author            TEXT NOT NULL,
-    -- Schema 13 (2.1). All three are nullable and are NULL far more often than
+    -- Schema 13. All three are nullable and are NULL far more often than
     -- not: measured on 2026-09-06, OpenAlex carried an ORCID on 9 of 17
     -- authorships and Crossref on 2 of 84. NULL means **the source did not
     -- say**, never "this person has no ORCID", and nothing downstream may read
