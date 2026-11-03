@@ -30,7 +30,11 @@
     <string>{{LOG_DIR}}/resmon-daemon.out.log</string>
     <key>StandardErrorPath</key>
     <string>{{LOG_DIR}}/resmon-daemon.err.log</string>
+    <!-- Interactive, not Background: the service is the app, and opening resmon
+         while it runs opens the window in this same process. launchd throttles a
+         Background job's CPU and I/O to the background band (priority 4, where an
+         app runs at 31), which every scroll in that window felt. -->
     <key>ProcessType</key>
-    <string>Background</string>
+    <string>Interactive</string>
 </dict>
 </plist>

@@ -331,6 +331,9 @@ def test_plist_runs_the_app_with_the_state_flags_and_keeps_the_service_alive():
     # The app exits 1 when its engine dies, and KeepAlive starts it again.
     assert unit["KeepAlive"] is True
     assert unit["RunAtLoad"] is True
+    # The window resmon opens while the service runs is drawn by this process, so it runs as an app
+    # does: Background put it in launchd's background band, and every scroll lagged.
+    assert unit["ProcessType"] == "Interactive"
 
 
 def test_systemd_unit_runs_the_appimage_file_and_restarts_it_on_failure():
@@ -346,6 +349,20 @@ def test_systemd_unit_runs_the_appimage_file_and_restarts_it_on_failure():
     assert "implementation_scripts" not in line
     assert "WorkingDirectory=/home/a b/Apps" in rendered
     assert "Restart=on-failure" in rendered
+
+
+def test_task_runs_at_normal_priority_since_it_draws_the_window():
+    """Task Scheduler starts a task below normal (7) unless told otherwise; the service draws the
+    window resmon opens while it runs, so it asks for normal (5)."""
+    import xml.etree.ElementTree as ET
+
+    rendered = service_manager.render_template(
+        port=8742, log_dir=Path(r"C:\logs"),
+        template=service_manager.TEMPLATES_DIR / "resmon-daemon.task.xml",
+        state_args=[_WIN_STATE], app_executable=_WIN_APP,
+    )
+    root = ET.fromstring(rendered)
+    assert [e.text for e in root.iter() if e.tag.endswith("Priority")] == ["5"]
 
 
 def test_task_xml_runs_the_app_with_service_in_its_arguments():
