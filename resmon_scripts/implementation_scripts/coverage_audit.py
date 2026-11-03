@@ -1,19 +1,19 @@
 # resmon_scripts/implementation_scripts/coverage_audit.py
-"""Is this routine finding what its owner meant, and what is it missing?
+"""Is this routine finding what its user meant, and what is it missing?
 
 The two questions
 -----------------
 A routine runs a keyword string against a set of sources on a schedule, and
 nobody ever checks whether the string still means what the person meant. Two
-failures follow and neither is visible today:
+failures follow and neither is visible in the report:
 
 **Off-target.** The routine returns 412 papers a week and 300 of them are about
-something else, because one keyword is too broad. The owner stops reading the
+something else, because one keyword is too broad. The user stops reading the
 report, which is the same outcome as the routine breaking.
 
 **Missed in the corpus.** Papers this routine *should* have found are already in
 resmon — another routine found them, or an earlier manual sweep did — and this
-one never returned them. That is a keyword gap the owner can act on, and it is
+one never returned them. That is a keyword gap the user can act on, and it is
 the only kind of miss resmon is entitled to talk about.
 
 What this refuses to claim
@@ -33,7 +33,7 @@ watchdog uses for "looks unusual".
 
 Where the intent comes from
 ---------------------------
-``routines.intent`` when the owner wrote one; the keyword string otherwise. Those
+``routines.intent`` when the user wrote one; the keyword string otherwise. Those
 are different facts and the payload says which it used (``intent_source``). A
 routine whose intent is its keywords cannot be off-target *by construction* in
 the way one with a stated intent can — the audit is then measuring the keywords
@@ -69,7 +69,7 @@ CANNOT_SEE = (
 # Below this many embedded results, a distribution is not a distribution. The
 # audit still runs and still reports the intent and the corpus side; it declines
 # to draw a cutoff and says why. Twelve is small, and deliberately: a routine
-# with fifteen results is exactly the one whose owner most wants to know.
+# with fifteen results is exactly the one whose user most wants to know.
 MIN_RESULTS_FOR_DISTRIBUTION = 12
 
 # How far out to look for papers this routine never returned. Taken from the
@@ -78,7 +78,7 @@ MIN_RESULTS_FOR_DISTRIBUTION = 12
 # than that is one the routine would plausibly have wanted.
 _MISSED_MULTIPLIER = 1.0
 
-# A page of them. The point is to give the owner something to read, not to
+# A page of them. The point is to give the user something to read, not to
 # enumerate a corpus. The payload carries the *total* beside each list
 # (``off_target_total``, ``missed_in_corpus_total``) so a surface can say it is
 # showing a page — a list silently truncated at 25 reads as the whole answer,
@@ -297,11 +297,10 @@ def summary_line(audit: dict) -> Optional[str]:
     reason = audit.get("reason")
 
     # A reason and a finding are not mutually exclusive, and treating them as
-    # such lost real information: a routine with too few embedded results to draw
-    # an off-target cutoff can still have papers it missed, and an earlier version
-    # of this function reported only the reason and silently dropped them. The
-    # reason explains the half that could not be measured; the other half still
-    # has an answer.
+    # such loses real information: a routine with too few embedded results to draw
+    # an off-target cutoff can still have papers it missed, and reporting only the
+    # reason would silently drop them. The reason explains the half that could not
+    # be measured; the other half still has an answer.
     if not off and not missed:
         if reason:
             return reason

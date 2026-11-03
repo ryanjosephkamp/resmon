@@ -1,14 +1,13 @@
 # resmon_scripts/implementation_scripts/api_ssrn.py
 """SSRN scraper client — heuristic HTML scraping with robots.txt compliance (Tier 3).
 
-STATUS: EXCLUDED from the active resmon registry as of 2026-04-18.
+STATUS: EXCLUDED from the active resmon registry.
 
 SSRN's results.cfm search page is protected by Cloudflare and returns HTTP 403
 bot-challenge responses to programmatic clients. SSRN does not publish an open
-search API. This module is retained on disk for historical reference only; it
+search API. This module is retained on disk for reference only; it
 is not imported by ``api_registry.py`` and therefore cannot be invoked from the
-application. See ``.ai/prep/repos.md`` → "Excluded Repositories" for the full
-rationale.
+application. See ``docs/source-landscape.md`` for the full rationale.
 """
 
 import logging

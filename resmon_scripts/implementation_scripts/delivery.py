@@ -400,13 +400,13 @@ def delete_target(conn: sqlite3.Connection, target_id: int) -> bool:
     **Removing the last email target also turns ``routines.email_enabled``
     off.** The switch on the Routines page and the email target row are two
     representations of one intent, and while they could disagree a deletion did
-    not stick: the schema-21 seed used to re-create the row on the next launch
-    (gated on the upgrade now), and ``enqueue_for_execution`` still re-creates
-    it on the routine's next completed run, because a routine with the switch
-    on and no target is also how a pre-21 routine looks and that one has to
-    keep sending. Nothing in that path could tell the two apart. Writing both
-    halves of the intent here is what tells them apart, and it leaves the
-    enqueue path exactly as it was.
+    not stick: the schema-21 seed would re-create the row on the next launch
+    (it is gated on the upgrade), and ``enqueue_for_execution`` re-creates it
+    on the routine's next completed run, because a routine with the switch on
+    and no target is also how a routine from before schema 21 looks and that
+    one has to keep sending. Nothing in that path could tell the two apart.
+    Writing both halves of the intent here is what tells them apart, and it
+    leaves the enqueue path exactly as it was.
 
     Both writes share the one implicit transaction this module's connections
     run in and are committed together, so a crash between them cannot leave
@@ -669,7 +669,7 @@ def requeue_orphaned(
 # An adapter is handed the execution, the routine, the address or directory
 # recorded on the target, the ``deliveries`` row itself (which is how an
 # adapter reaches its target id, and through that the keyring entry holding a
-# per-target secret), and a callable that materialises the bundle .zip on
+# per-target secret), and a callable that materializes the bundle .zip on
 # demand -- the folder channel always needs it, the email channel needs it only
 # when the routine attaches results, the feed channel never does, and building
 # it copies every report and renders a PDF.
@@ -686,11 +686,12 @@ def _deliver_email(
 ) -> None:
     """Send the completion email, recording why if it does not go.
 
-    This is the pre-21 hook, moved behind the adapter with two changes: an
-    unconfigured or refusing SMTP server now raises rather than logging and
-    returning, so the reason reaches ``deliveries.last_error``; and the
-    attached bundle carries the search-record companions, which the export
-    route has always included and the email hook silently did not.
+    This is the completion hook that sent the email directly, moved behind the
+    adapter with two changes: an unconfigured or refusing SMTP server raises
+    rather than logging and returning, so the reason reaches
+    ``deliveries.last_error``; and the attached bundle carries the
+    search-record companions, which the export route includes and the email
+    hook did not.
     """
     from . import email_sender
 
@@ -1385,8 +1386,9 @@ class DeliveryQueue:
     folder, and neither is made faster by resmon asking it two things at once;
     what serial buys is that a failure has one owner and the record has one
     writer. ``conn_factory`` is called on the drain thread so the connection
-    belongs to it (BUG-020), and ``now_fn`` is injectable so the backoff can be
-    tested without waiting twenty-five minutes for it.
+    belongs to it (sharing one across threads can segfault CPython), and
+    ``now_fn`` is injectable so the backoff can be tested without waiting
+    twenty-five minutes for it.
     """
 
     def __init__(

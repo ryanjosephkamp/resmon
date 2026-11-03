@@ -38,7 +38,7 @@ def _count(execution_data: dict, key: str) -> object:
 
     ``None`` is handled beside the missing key on purpose. A row loaded from
     SQLite carries ``None`` for a null column rather than omitting the key, so
-    a fix that only changed ``dict.get``'s default would have shipped the line
+    a fix that only changed ``dict.get``'s default would ship the line
     "New results: None" to a user.
     """
     value = execution_data.get(key)

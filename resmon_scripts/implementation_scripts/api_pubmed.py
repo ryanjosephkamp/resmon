@@ -95,8 +95,8 @@ class PubmedClient(BaseAPIClient):
     def _efetch(self, pmids: list[str]) -> list[NormalizedResult]:
         """Fetch the PMIDs esearch named, stopping at the first batch that fails.
 
-        This loop used to ``continue`` past a failed batch. Every sibling
-        client breaks, and the difference is not stylistic: ``note_attempt()``
+        This loop breaks rather than ``continue``-ing past a failed batch, as
+        every sibling client does, and the difference is not stylistic: ``note_attempt()``
         on the next batch clears ``last_call_failed``, so a later success
         erased the failure from ``zero_reason.terminal_issue`` and the sweep
         recorded ``status=ok`` with a result count silently short by the whole

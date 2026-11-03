@@ -1,18 +1,17 @@
 """The source wall: every source's recorded answer to every recent run.
 
-``execution_sources`` has held one row per source per execution since schema
-6, and ``source_coverage.outcome`` has classified one of those rows since 2.1.
-What has never existed is a reader that puts the classification *across* runs:
-every surface reads one execution at a time, so a source that quietly stopped
-answering three runs ago is visible only to someone who opens three runs and
-compares them by hand. That is the gap this module closes, and it closes it
-with no new recording, no migration and no second copy of the classification.
+``execution_sources`` holds one row per source per execution, and
+``source_coverage.outcome`` classifies each of those rows. This module is a
+reader that puts the classification *across* runs: every other surface reads one
+execution at a time, so a source that quietly stopped answering three runs ago
+is visible only to someone who opens three runs and compares them by hand. That
+is the gap this module closes, and it closes it with no new recording, no
+migration and no second copy of the classification.
 
 **This module classifies nothing.** ``zero_reason.answered`` and
 ``source_coverage.outcome`` decide what a recorded row means, and they are
-called, not re-implemented. A sixth copy of that decision is exactly the
-defect that put a green tick on the seven sources that have no author query
-(fixed in "One source of truth for 'did not answer' in the renderer"). What
+called, not re-implemented. A separate copy of that decision could drift from
+them and put a green tick on a source that has no author query. What
 this module adds is a *projection*: the three categories plus the flags that
 ``outcome`` already returns, folded into the states a wall can draw, and
 a sentence saying what the wall adds up to.

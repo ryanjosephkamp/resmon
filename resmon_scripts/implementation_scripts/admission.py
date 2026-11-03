@@ -337,8 +337,8 @@ class RoutineClaimRegistry:
     SIGKILLed leaves ``running`` rows behind that no process owns, and until the
     next start reconciles them (schema 19) that query would refuse every fire of
     the routine forever -- a crash on Monday silencing a routine until somebody
-    noticed. ``SessionBus.try_open`` in ``assistant_runtime`` learned the same
-    lesson about assistant turns; this is that shape.
+    noticed. ``SessionBus.try_open`` in ``assistant_runtime`` guards assistant
+    turns the same way; this is that shape.
 
     **What the claim is, exactly.** An entry in this process's memory, held from
     before the execution thread starts until that thread's ``finally``. It is

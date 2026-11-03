@@ -161,16 +161,15 @@ def build_llm_client_from_settings(
 
 
 # ---------------------------------------------------------------------------
-# Lane-aware construction (1.8a)
+# Lane-aware construction
 # ---------------------------------------------------------------------------
 #
-# ``build_llm_client_from_settings`` above is kept as-is: it is the pre-1.8
-# entry point, it is what ``resmon.py`` calls today, and a pile of tests pin
-# its exact behavior including which failures return None and which raise.
-# The functions below are the lane-shaped view of the same machinery. 1.8b
-# moves the caller onto them; until then both exist and agree, because the
-# one-lane chain a legacy configuration resolves to produces exactly the
-# client the old path produced.
+# ``build_llm_client_from_settings`` above builds the single client for the
+# configured provider, and a pile of tests pin its exact behavior including
+# which failures return None and which raise. The functions below are the
+# lane-shaped view of the same machinery. Both agree, because the one-lane
+# chain a legacy configuration resolves to produces exactly the client the
+# single-provider path produces.
 
 
 def build_client_for_lane(

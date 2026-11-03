@@ -210,13 +210,12 @@ def generate_report(documents: list[dict], metadata: dict) -> str:
 
     # --- Footer: every incomplete or empty source result, and why ---
     #
-    # This used to name only the sources missing an API key, which was the one
-    # zero resmon could explain. Every other zero -- an outage, a window the
-    # source cannot answer, a reply that would not parse -- reached the report
-    # as silence, and the reader had no way to tell a quiet field from a
-    # broken one. Each line is a recorded fact or says the reason was not
+    # This names every source that returned nothing, not only those missing an
+    # API key. Any other zero -- an outage, a window the source cannot answer, a
+    # reply that would not parse -- would otherwise reach the report as silence,
+    # and the reader would have no way to tell a quiet field from a broken one. Each line is a recorded fact or says the reason was not
     # recorded; there is no third kind of line here.
-    # Near-duplicate links (1.9b). A section rather than a note per paper: the
+    # Near-duplicate links. A section rather than a note per paper: the
     # reader wants to know "does this report count anything twice", and the
     # answer is a short list they can scan, not a badge scattered through fifty
     # entries. Nothing is removed from the report and no count changes -- the
@@ -556,7 +555,7 @@ def _format_paper_entry(doc: dict) -> list[str]:
     if author_str:
         lines.append(f"- **Authors:** {author_str}")
 
-    # 2.1 — why this paper is in a watch run's report, immediately under the
+    # Why this paper is in a watch run's report, immediately under the
     # authors, because that is the line it is a claim about. Absent from every
     # keyword run, where there is no such claim to make.
     basis = doc.get("match_basis")

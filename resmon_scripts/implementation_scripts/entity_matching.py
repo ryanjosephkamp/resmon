@@ -1,6 +1,6 @@
 """Deciding whether a paper is *this person's*, and saying which kind of yes.
 
-Phase 2.1's whole rule lives here: **an author match is a string match unless
+The whole rule lives here: **an author match is a string match unless
 the source gave an identifier, and the product says so.** So this module never
 answers "yes"; it answers with a ``Match`` carrying a ``basis``, and the basis is
 what the interface prints beside the paper.
@@ -21,7 +21,7 @@ Three bases, strongest first:
 
 ## The source's answer is a candidate, never the verdict
 
-Decision 6, and it is the reason ``match`` takes a record rather than a search
+This is the reason ``match`` takes a record rather than a search
 result. A source's author search is a *generator*: arXiv's ``au:`` is a text
 match over a field, Crossref's ``query.author`` is relevance-ranked, and neither
 is a claim about identity. **Every candidate is re-checked here**, including the
@@ -40,8 +40,8 @@ collapse a large population onto a small one, and "J. Smith" is compatible with
 every John, Jane, Jamal and Jia Smith who ever published. It is enabled because
 refusing it would miss most of the real matches in a corpus where a majority of
 sources abbreviate given names — and it is the single largest contributor to
-false positives on the ``name_only`` basis, which is why the field test grades
-that basis separately.
+false positives on the ``name_only`` basis, which is why that basis is graded
+separately.
 """
 
 from __future__ import annotations

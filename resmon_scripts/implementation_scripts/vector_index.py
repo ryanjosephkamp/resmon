@@ -82,14 +82,15 @@ INDEX_MODEL_KEY = "vector_index_model"
 
 # Rebuilding drops and recreates a real table in the database file, so it is
 # **process-wide state** even though every thread has its own connection
-# (BUG-020). Two threads rebuilding at once is not hypothetical: the Explorer's
+# (sharing one sqlite3 connection across threads can segfault CPython). Two
+# threads rebuilding at once is not hypothetical: the Explorer's
 # similarity search ranks, and every open similar-papers panel ranks too, so a
 # single page can put several ranking requests in flight together. Without this
-# lock one thread dropped ``vec_document_embeddings`` while another was querying
-# it, the exception escaped before FastAPI's CORS middleware could wrap it, and
-# the browser reported a bare `net::ERR_FAILED` -- a 500 with no
+# lock one thread could drop ``vec_document_embeddings`` while another was
+# querying it, the exception would escape before FastAPI's CORS middleware could
+# wrap it, and the browser would report a bare `net::ERR_FAILED` -- a 500 with no
 # Access-Control-Allow-Origin header reads as a CORS failure, not as a server
-# error, which is why this took a network log to find rather than a stack trace.
+# error, so the cause would take a network log to find rather than a stack trace.
 _REBUILD_LOCK = threading.Lock()
 
 # Set by the first ``load_extension`` in this process so a failure reads the
@@ -127,7 +128,7 @@ def load_extension(conn: sqlite3.Connection) -> Optional[str]:
     :func:`extension_status`, and it is what the interface shows the user.
 
     Loading is per *connection*, not per process, and resmon holds one
-    connection per thread (BUG-020), so this runs on every connection that wants
+    connection per thread, so this runs on every connection that wants
     to rank. The probe *result* is cached for reporting; the load itself is not
     skipped, because "it worked on another connection" is not a statement about
     this one.
@@ -267,14 +268,14 @@ def index_state(conn: sqlite3.Connection) -> dict:
     from six places, several of them the *first* thing an endpoint does.
 
     FastAPI runs sync endpoints on a thread pool and resmon holds one connection
-    per thread (BUG-020), so whether the extension is loaded on *this*
-    connection depends on which thread the request landed on. That made it
-    intermittent, and because the exception escaped before the CORS middleware
-    the browser reported a bare ``net::ERR_FAILED`` with no status code — the
-    same disguise the rebuild race wore.
+    per thread, so whether the extension is loaded on *this* connection depends
+    on which thread the request landed on. A missing load is therefore
+    intermittent, and because the exception escapes before the CORS middleware
+    the browser reports a bare ``net::ERR_FAILED`` with no status code — the
+    same disguise the rebuild race wears.
 
     The module docstring says there is exactly one function that loads the
-    extension and every caller routes through it. This one did not. It does now.
+    extension and every caller routes through it. This one does too.
     """
     if load_extension(conn) is None:
         return {"model": None, "dims": None, "rows": 0}
@@ -468,7 +469,7 @@ def nearest(
     for a different one. The join against ``document_embeddings`` then costs
     nothing — and if the recorded model is ever wrong, it drops the foreign rows
     instead of ranking against them. It fails by returning fewer rows, never
-    wrong ones. P7's mutation is to remove it.
+    wrong ones. Removing it would let rows from another model through.
     """
     if load_extension(conn) is None:
         return []

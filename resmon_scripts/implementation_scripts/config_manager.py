@@ -312,15 +312,15 @@ def import_configs(
 
     Takes either shape the app can put in a user's hands: the ZIP that
     ``export_configs`` writes, holding one JSON file per configuration, or a
-    loose ``.json`` file out of one. This used to take only the second, which
-    meant the Configurations page would not read back the single file its own
-    Export Selected button produced -- the import refused the archive and the
-    journey stopped at the format boundary.
+    loose ``.json`` file out of one. Taking only the second would mean the
+    Configurations page could not read back the archive its own Export
+    Selected button produces -- the import would refuse it and the journey
+    would stop at the format boundary.
 
     What a file *is* is decided from its content, never its name. The caller
     writes each upload to a temporary file of its own choosing, so by the time
     a path reaches here its suffix says nothing about what the user picked.
-    ``display_names`` carries the names the user does recognise, aligned with
+    ``display_names`` carries the names the user does recognize, aligned with
     ``file_paths``; without it the temporary names are used, which is right for
     a caller reading real files off disk.
 
@@ -365,7 +365,7 @@ def import_configs(
         for label, raw in documents:
             # ``json.loads`` on bytes, not an opened text handle: a file that
             # is not UTF-8 raises UnicodeDecodeError from the decoder, which is
-            # not a JSONDecodeError and used to escape this handler as a 500.
+            # not a JSONDecodeError and would escape this handler as a 500.
             try:
                 data = json.loads(raw)
             except (json.JSONDecodeError, UnicodeDecodeError) as exc:

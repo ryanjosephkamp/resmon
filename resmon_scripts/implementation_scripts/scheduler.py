@@ -200,7 +200,7 @@ def _normalize_dow(field: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Structured "every N <unit>" schedule support (Update 3 fix).
+# Structured "every N <unit>" schedule support.
 #
 # Cron's ``*/N`` semantics restart at every period boundary (month, day,
 # year), which produces alternating short / correct intervals for
@@ -414,13 +414,12 @@ class ResmonScheduler:
             kwargs={"routine_id": int(routine_dict["id"]), "parameters": params},
             replace_existing=True,
             coalesce=True,
-            # Update 4 / Fix B: a 1-hour grace window prevents missed
-            # fires when the daemon briefly restarts (launchd respawn,
-            # OS sleep/wake) or when a renderer-spawned scheduler dies
-            # without a clean shutdown. The APScheduler default of 1
-            # second silently drops any fire whose nominal time is more
-            # than a second in the past, which manifested as routines
-            # appearing to never fire after the app closed.
+            # A 1-hour grace window prevents missed fires when the daemon
+            # briefly restarts (launchd respawn, OS sleep/wake) or when a
+            # renderer-spawned scheduler dies without a clean shutdown. The
+            # APScheduler default of 1 second silently drops any fire whose
+            # nominal time is more than a second in the past, which makes
+            # routines appear to never fire after the app closes.
             misfire_grace_time=3600,
             # One run per routine. This is APScheduler's default and has
             # always been in force; it is written out because it is a

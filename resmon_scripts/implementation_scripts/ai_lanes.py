@@ -12,16 +12,16 @@ A **lane** is one route to an answer. Three kinds:
 ``subscription``
     The agent CLI the user already installed and authenticated, so AI usage
     draws on the Claude Max or ChatGPT plan they already pay for. Resolved here;
-    the client that drives it arrives in 1.8c.
+    the client that drives it is :mod:`llm_subscription`.
 
-Until now :func:`llm_factory.build_llm_client_from_settings` returned a single
-client, which meant there was nowhere to put a second choice. This module is the
-change that makes a chain expressible. It resolves configuration into lanes and
-builds a client from one; **executing** a chain — trying lane two when lane one
-fails — is 1.8b.
+:func:`llm_factory.build_llm_client_from_settings` returns a single client,
+which leaves nowhere to put a second choice. This module makes a chain
+expressible. It resolves configuration into lanes and builds a client from one;
+**executing** a chain — trying lane two when lane one fails — is
+:mod:`ai_chain`.
 
 Backward compatibility is a requirement, not a courtesy: standing rule,
-functionality never decreases. A database that has only the old ``ai_provider``
+functionality never decreases. A database that has only the single-provider ``ai_provider``
 keys resolves to a one-lane chain at read time. No data moves, no migration
 runs, and nobody's app behaves differently until they add a second lane
 themselves.
@@ -62,14 +62,14 @@ SUBSCRIPTION_PROVIDERS = ("claude_code", "codex")
 # 200-paper sweep routed through one is capable of exhausting the plan the user
 # actually needs.
 #
-# **Fifty since 1.8.5, and the number moved because batching moved it.** At the
+# **Fifty, and the number moved because batching moved it.** At the
 # default batch size of five, a measured paper costs 0.33× what it cost per
 # document and 0.23× the input-side tokens — the constitution and the prompt
 # scaffold are ~5.6k tokens paid once per call rather than once per paper. Fifty
-# papers now spend rather less of the window than twenty-five did before
-# batching existed.
+# papers spend rather less of the window than twenty-five did without
+# batching.
 #
-# Not a hundred. Every real batched run in D3 came back one summary short of its
+# Not a hundred. Every real batched run came back one summary short of its
 # batch, and each miss costs a re-send call; doubling is what the measurement
 # supports, quadrupling is not.
 #
@@ -77,7 +77,7 @@ SUBSCRIPTION_PROVIDERS = ("claude_code", "codex")
 # with the next lane, and execution_ai records that the cap was the reason.
 DEFAULT_SUBSCRIPTION_DOC_CAP = 50
 
-# How many documents one subscription-lane CLI call carries (1.8.5).
+# How many documents one subscription-lane CLI call carries.
 #
 # One call per paper was the dominant cost of this lane: a process to start, a
 # session to establish and the constitution to read, per abstract.
@@ -328,11 +328,11 @@ def _lane_from_entry(entry: Any, index: int) -> Optional[AILane]:
 
 
 def lane_from_legacy_settings(settings: dict[str, Any]) -> Optional[AILane]:
-    """Build the single lane implied by the pre-1.8 ``ai_*`` settings.
+    """Build the single lane implied by the legacy ``ai_*`` settings.
 
-    This is the whole backward-compatibility story: existing configuration is
-    read as a one-lane chain at load time. Nothing is written, so downgrading
-    to an earlier build keeps working too.
+    This is the whole backward-compatibility story: configuration that has only
+    the single-provider ``ai_*`` keys is read as a one-lane chain at load time.
+    Nothing is written, so the keys stay valid.
     """
     provider = str(settings.get("ai_provider") or "").strip().lower()
     if not provider:

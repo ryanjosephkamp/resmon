@@ -1,9 +1,8 @@
 """Corpus-wide search and faceting.
 
-Until now the only way to look at papers was one execution at a time. This
-module searches everything resmon has ever collected, filtered by author,
-source, subject category, publication date, and free text across titles and
-abstracts.
+This module searches everything resmon has ever collected rather than one
+execution at a time, filtered by author, source, subject category, publication
+date, and free text across titles and abstracts.
 
 Scale
 -----
@@ -34,8 +33,8 @@ Result counts are capped (:data:`COUNT_CAP`). Counting an unbounded match set
 is the one remaining full scan, and "10,000+" is as useful to a person as an
 exact five-digit number.
 
-Sorting by meaning (1.9)
-------------------------
+Sorting by meaning
+------------------
 ``sort="similarity"`` ranks the corpus by distance from the search phrase,
 **within the structured filters** — sources, authors, categories, dates. Those
 still choose which papers are in scope and switching sort never changes them.
@@ -305,8 +304,8 @@ def _search_by_similarity(
     """The corpus, ranked by distance, within the structured filters.
 
     **The free-text phrase is the ranking query and not a filter here** — the one
-    thing that separates this from the newest sort, and the change 1.9a's field
-    test forced. Sources, authors, categories and dates still apply exactly as
+    thing that separates this from the newest sort, and what lets a
+    plain-English query work. Sources, authors, categories and dates still apply exactly as
     they do everywhere else; the phrase does not.
 
     Why: the text filter is an ``AND`` over every word typed, so a plain-English
@@ -317,8 +316,7 @@ def _search_by_similarity(
     control says "Closest to", and a control that says that and then answers
     from a keyword slice is not doing what its label promises.
 
-    The invariant that survives, and that P4 now states, is about the
-    *structured* filters: switching sort never changes which sources, authors,
+    The invariant that holds is about the *structured* filters: switching sort never changes which sources, authors,
     categories or dates are in scope. It is kept by construction — the candidate
     set is :func:`matching_ids` with ``query=None``, the same ``_build_where``
     the other sort uses minus the one clause — and everything after is a

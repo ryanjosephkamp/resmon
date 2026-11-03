@@ -7,8 +7,8 @@
 The reason is an access block on OAPEN's side, not its terms and not any
 defect here. Its search API answered HTTP 403, with a body saying the caller's
 address is not allowed to access the API, to GitHub's hosted runners in the
-weekly live run of October 19, 2026 and to a workstation on October 25, 2026,
-when the library's website root answered 200.
+weekly live run and to a workstation, when the library's website root answered
+200.
 ``api_registry.RETIRED_REPOSITORIES`` holds the sentence a user is shown.
 
 Kept on disk because nothing here was found wrong: if OAPEN lifts the block,

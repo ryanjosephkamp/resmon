@@ -15,7 +15,7 @@ is no path to it.
 
 **Everything that is not an explicit allow is a deny.** A backend that has gone
 away, an unparseable answer, a request that timed out, a tool name this server
-does not recognise: all deny, each saying which. That direction is not
+does not recognize: all deny, each saying which. That direction is not
 arbitrary — a gate whose failure mode is "open" is not a gate, and this one is
 the only thing standing between a prompt injected into an abstract and a write.
 

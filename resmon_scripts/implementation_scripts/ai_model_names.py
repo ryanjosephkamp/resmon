@@ -25,7 +25,7 @@ _CLOUD_PREFIX = re.compile(r"^(?:[a-z]{2,4}\.)?anthropic[./]")
 
 # Suffixes that name a snapshot of the same model rather than another model:
 # a release date (``-20251001``, ``@20250929``), ``-latest``, and a cloud
-# catalogue's version tag (``-v1:0``).
+# catalog's version tag (``-v1:0``).
 _SNAPSHOT_SUFFIX = re.compile(r"(?:@\d{8}|-\d{8}|-latest|-v\d+(?::\d+)?)$")
 
 # ``claude-haiku-5-5``, ``claude-opus-4-1``, ``claude-fable-5-1``, ``claude-opus-4``.

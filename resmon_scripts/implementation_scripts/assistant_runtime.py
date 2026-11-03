@@ -26,9 +26,9 @@ fresh on every launch including a resumed one — verified against claude 2.1.25
 by resuming a session and getting the appended rule's behaviour back. That flag
 matters: with snapshotting on, a resumed conversation would replay whatever
 system prompt was recorded the first time, and an edited constitution would not
-reach an old session. The 1.8.4 failure was a lane that said "follow the
-attached constitution" with nothing attached, and the agent fabricated a file
-search rather than admitting it could not find one.
+reach an old session. A lane that says "follow the attached constitution" with
+nothing attached makes the agent fabricate a file search rather than admit it
+could not find one.
 
 **The user's own Claude Code configuration stays out of it.**
 ``--setting-sources ""`` and ``--disable-slash-commands`` empty the skills and
@@ -65,11 +65,11 @@ lane established for it.
 
 ## The disguise an escaping exception wears
 
-1.9a shipped two bugs that both looked like a network failure, because an
-exception escaping before FastAPI's CORS middleware has no status code and the
-browser reports ``net::ERR_FAILED``. A streaming endpoint is worse: the response
-has already started, so an exception truncates the stream and the panel sees a
-conversation that stopped mid-sentence. Everything in ``run_turn`` is therefore
+An escaping exception can look like a network failure: one that escapes before
+FastAPI's CORS middleware has no status code and the browser reports
+``net::ERR_FAILED``. A streaming endpoint is worse: the response has already
+started, so an exception truncates the stream and the panel sees a conversation
+that stopped mid-sentence. Everything in ``run_turn`` is therefore
 inside a ``try`` that turns any failure into an ``error`` event, and the
 generator's own consumer does the same.
 """
@@ -138,12 +138,12 @@ EVENT_TYPES = (
 # test: a kind added here with no test that watches its constitution arrive
 # fails ``test_every_runtime_kind_has_a_transmission_test``.
 #
-# ``api_key`` (2.0b) is resmon's own loop over the same tools, for someone with
+# ``api_key`` is resmon's own loop over the same tools, for someone with
 # a provider key and no agent CLI. It has three request shapes and each one is a
 # separate place the constitution has to arrive, so the transmission test is
-# parametrised over families as well as kinds -- 1.8.4's defect was one lane of
-# three, and "the runtime sends it" was true of the runtime and false of two of
-# its paths.
+# parametrised over families as well as kinds -- a defect in one of the three
+# shapes would make "the runtime sends it" true of the runtime and false of one
+# of its paths.
 RUNTIME_KINDS = ("claude_cli", "codex_cli", "api_key")
 
 # A turn that has produced nothing for this long is killed. Chosen against the
@@ -160,30 +160,29 @@ DEFAULT_TURN_TIMEOUT = 300
 # tell someone that is indefensible.
 #
 # **Measured rather than chosen.** The CLI's ``init`` message is the first thing
-# it emits, and across every measurement taken while diagnosing the v2.0.1 field
-# defect -- shell, packaged bundle, dev app, spawned by Node, spawned by
-# Electron, with and without MCP servers, cold and warm -- it arrived in
+# it emits, and across every measurement taken of its startup -- shell,
+# packaged bundle, dev app, spawned by Node, spawned by Electron, with and
+# without MCP servers, cold and warm -- it arrived in
 # **0.25 s to 2.98 s**. Thirty seconds is ten times the slowest ever seen.
 #
-# This is what turns the field defect from a five-minute spinner ending in
-# "resmon could not finish that turn" into a specific sentence in half a minute.
-# It does not stop the CLI hanging; it stops resmon pretending that is normal.
+# This turns a five-minute spinner ending in "resmon could not finish that
+# turn" into a specific sentence in half a minute. It does not stop the CLI
+# hanging; it stops resmon pretending that is normal.
 FIRST_OUTPUT_TIMEOUT = 30
 
 # A hard stop the CLI enforces on itself, per turn, in dollars.
 #
 # Token efficiency is a *contract* term rather than an aspiration -- "a harness
 # asking what did my arXiv routine find this week must not cost a five-hour
-# usage window" -- and until now the only things holding it were the tool
-# surface's small page sizes and the constitution asking nicely. ``claude`` has
-# ``--max-budget-usd``, so it can be enforced, and it fails cleanly and
+# usage window" -- and besides this budget the only things holding it are the
+# tool surface's small page sizes and the constitution asking nicely. ``claude``
+# has ``--max-budget-usd``, so it can be enforced, and it fails cleanly and
 # detectably (``subtype: error_max_budget_usd``, verified against 2.1.258).
 #
 # 0.75 is **four times the dearest of the ten canonical requests measured**
-# (create-routine, $0.1875 -- see
-# ``workspace/handbacks/2.0/evidence/assistant-cost.md``). Four rather than two,
-# because this is a runaway stop and not a quota: a turn costing twice the
-# dearest measured is a big question, and one costing four times it is a loop.
+# (create-routine, $0.1875). Four rather than two, because this is a runaway
+# stop and not a quota: a turn costing twice the dearest measured is a big
+# question, and one costing four times it is a loop.
 # The regression *detector* is a different number in a different place --
 # ``test_assistant_budget.py`` holds the canonical requests to 2x -- so a change
 # that makes ordinary turns dearer fails a test rather than cutting off a user's
@@ -206,9 +205,8 @@ TURN_BUDGET_USD = 0.75
 # field at all**, so a classifier reading only the result text has nothing to
 # read. The subtype is the generic ``error_during_execution``, so the subtype
 # alone cannot tell this apart from any other mid-run failure. The specific
-# sentence is in ``errors``, an array 2.0a's normaliser dropped on the floor --
-# which is why this is matched on ``errors`` first and on stderr only as a
-# fallback.
+# sentence is in ``errors``, an array that is easy to overlook -- which is why
+# this is matched on ``errors`` first and on stderr only as a fallback.
 #
 # Matched on the stable half of the sentence. The session id is interpolated
 # into it, so the whole string is never a constant; "no conversation found" is
@@ -254,8 +252,8 @@ class AssistantStartupTimeout(Exception):
 
     Its own message reaches the panel, which is the point: ``run_turn``'s
     catch-all turns every other failure into "resmon could not finish that
-    turn", and that sentence is what a user saw for five minutes in v2.0.0 and
-    v2.0.1 when the CLI hung before its first line.
+    turn", and that sentence is what a user would see for five minutes if the
+    CLI hung before its first line.
     """
 
 
@@ -525,10 +523,10 @@ class ClaudeCliRuntime(AssistantRuntime):
         loud.** ``claude`` keeps its conversations in its own storage, on its
         own terms: a user who runs ``claude`` themselves, clears its history, or
         moves to a machine that restored resmon's database but not the CLI's,
-        has a resmon conversation whose CLI session no longer exists. Before
-        this, that turn simply failed -- the user's message was stored, nothing
-        answered it, and the sentence they got was "exit code 1". Now the failed
-        resume is recognised from what the CLI actually said, a fresh CLI
+        has a resmon conversation whose CLI session no longer exists. Without this
+        recovery that turn would simply fail -- the user's message is stored,
+        nothing answers it, and the sentence they get is "exit code 1". Instead
+        the failed resume is recognised from what the CLI actually said, a fresh CLI
         session answers the same message, and a ``notice`` event tells the
         person their earlier messages are still on screen but no longer in front
         of the assistant.
@@ -555,9 +553,8 @@ class ClaudeCliRuntime(AssistantRuntime):
                 )
             except AssistantStartupTimeout as exc:
                 # This one carries its own sentence. The catch-all below would
-                # flatten it to "resmon could not finish that turn", which is
-                # what a user saw for five minutes in v2.0.0 and v2.0.1 and
-                # could do nothing with.
+                # flatten it to "resmon could not finish that turn", which a
+                # user could do nothing with.
                 logger.warning("Assistant turn: %s", exc)
                 yield _error_event(str(exc), detail="startup_timeout")
             except Exception as exc:                # noqa: BLE001 - see the docstring
@@ -1543,11 +1540,11 @@ class SessionBus:
 
         **This is the concurrency guard, and it has to be here rather than at
         the endpoint.** The obvious guard — "is a process running for this
-        session?" — was written first and was wrong: the subprocess is not
+        session?" — is wrong: the subprocess is not
         registered until the worker thread reaches it, so a second request
-        arriving in that window saw no process and was accepted. Two CLIs then
-        ran the same conversation, resuming the same session id and racing each
-        other into the transcript. Found by
+        arriving in that window would see no process and be accepted. Two CLIs
+        would then run the same conversation, resuming the same session id and
+        racing each other into the transcript. Pinned by
         ``test_a_second_turn_is_refused_while_one_is_running``, which sends the
         second request in a loop rather than once.
 
@@ -1680,9 +1677,10 @@ def _normalise(line: str) -> list[dict]:
             "subtype": message.get("subtype"),
             "is_error": bool(message.get("is_error")),
             # The CLI's structured account of what went wrong, which is where a
-            # failed ``--resume`` says so. 2.0a dropped this field; the result
+            # failed ``--resume`` says so. The result
             # envelope for a lost conversation has no ``result`` text at all, so
-            # dropping it left the only description of the failure on stderr.
+            # dropping this field would leave the only description of the failure
+            # on stderr.
             "errors": [str(e) for e in (message.get("errors") or [])],
             # ``None`` rather than 0 when the CLI did not report a figure. The
             # store keeps NULL and the panel says "not reported"; a zero here
@@ -1846,9 +1844,9 @@ def _lines_with_timeout(
     thirty seconds against a first line that has never taken longer than three
     (see ``FIRST_OUTPUT_TIMEOUT``).
 
-    That distinction is the v2.0.1 field defect. The CLI hung before its first
-    line and resmon waited the full five minutes, then said "resmon could not
-    finish that turn" -- a sentence that names nothing and suggests nothing. The
+    That distinction matters when the CLI hangs before its first line: without
+    it resmon waits the full five minutes, then says "resmon could not finish
+    that turn" -- a sentence that names nothing and suggests nothing. The
     startup deadline does not stop the CLI hanging. It stops resmon treating a
     silent CLI as a slow one.
     """
@@ -1905,19 +1903,18 @@ def _child_env() -> dict:
     accidentally. That is the ambiguity the contract's "a named port is never
     widened" rule exists for.
 
-    The first version answered it by keeping a short list of variables that
-    looked necessary. It dropped ``USER``, and without ``USER`` the ``claude``
-    CLI cannot find its stored login: every turn came back *"Not logged in ·
-    Please run /login"* from a CLI that was signed in. Measured by bisecting the
+    Answering it by keeping a short list of variables that look necessary does
+    not work. It drops ``USER``, and without ``USER`` the ``claude`` CLI cannot
+    find its stored login: every turn comes back *"Not logged in ·
+    Please run /login"* from a CLI that is signed in. Measured by bisecting the
     environment against the real binary — ``USER`` alone restores it, and
     ``LOGNAME``, ``SHELL``, ``TMPDIR`` and ``XPC_SERVICE_NAME`` do not.
 
-    The lesson generalises past ``USER``: an allowlist of what an agent CLI
-    needs is a guess about someone else's program, and the next thing it needs
-    breaks the same way. The summary lane has always passed the environment
-    through untouched, so this now matches it — the CLI is the user's own,
-    running as the user, and the only thing it must not see is resmon's idea of
-    where resmon is.
+    That generalises past ``USER``: an allowlist of what an agent CLI needs is
+    a guess about someone else's program, and the next thing it needs breaks the
+    same way. The summary lane passes the environment through untouched, so this
+    matches it — the CLI is the user's own, running as the user, and the only
+    thing it must not see is resmon's idea of where resmon is.
     """
     env = {k: v for k, v in os.environ.items() if not k.startswith("RESMON_")}
     env.setdefault("PATH", os.defpath)
@@ -1962,7 +1959,7 @@ def get_runtime(settings: dict, *, backend_port: Optional[int] = None) -> Assist
 
     ``claude_cli`` unless the user has chosen ``api_key``. The CLI stays the
     default because it spends a subscription the user already has rather than a
-    key they pay per token for -- decision 1's "but not first".
+    key they pay per token for.
     """
     chosen = str(settings.get("assistant_runtime") or "").strip().lower()
     if chosen == "codex_cli":

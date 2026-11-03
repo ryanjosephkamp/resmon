@@ -1,9 +1,8 @@
 """Consistent backup of the database and the Library vault, and the restore that undoes it.
 
-Until this module there was no backup and no restore: an upload to Google
-Drive, since removed, sent ``REPORTS_DIR`` and nothing else -- not the
-database, not one vault byte -- and nothing anywhere could read a backup back.
-The two facts that shape everything here:
+A backup that covers only ``REPORTS_DIR`` is not a backup: the database and
+the vault bytes are what a user cannot rebuild, and a backup nothing can read
+back is no use. The two facts that shape everything here:
 
 * **The database and the vault are a pair.** ``library._catalog_tree`` requires
   the directory listing to equal the catalog exactly, so a database restored
@@ -78,9 +77,9 @@ SET_ASIDE_SUFFIXES = ("", "-wal", "-shm", "-map.npz", "-map.npz-fit.npz", "-word
 #: whether the bundle simply missed it.
 PROCESS_STATE_FILES = ("daemon.lock", "resmon.port", "api-token-<port>")
 
-#: The Google Drive sign-in of the upload resmon no longer has. A bundle
-#: written before the upload was removed may name them, and a restore does not
-#: ask for them back: nothing can enter them, and nothing reads them.
+#: The Google Drive sign-in of the upload resmon no longer has. A bundle may
+#: still name them, and a restore does not ask for them back: nothing can
+#: enter them, and nothing reads them.
 RETIRED_CREDENTIALS = frozenset({"google_drive_token", "google_drive_client_id", "google_drive_client_secret"})
 
 
@@ -285,9 +284,9 @@ def foreign_key_violations(conn: sqlite3.Connection) -> tuple[list[dict], int, i
     already gated the restore, so a corpus carrying one orphan row -- which
     resmon opens quite happily, because the pragma is a check and not a
     constraint on existing rows -- could be backed up, could be verified, and
-    could then never be restored. The user found that out at the worst possible
-    moment. Now the bundle records what it found, verify reports it, and the
-    restore asks the user to accept it rather than refusing forever.
+    could then never be restored, and the user would find that out at the worst
+    possible moment. So the bundle records what it found, verify reports it,
+    and the restore asks the user to accept it rather than refusing forever.
 
     Rows come back as ``(table, rowid, parent, fkid)``. The pragma answers once
     per unsatisfied foreign key, so one row with two broken keys appears twice;
@@ -391,17 +390,18 @@ def create_backup(
         # bundle's own copy, which is what a restore will put back -- never
         # from the live connection, which has moved on since the snapshot.
         #
-        # The vault catalog is the one that can destroy something. This used to
-        # read ``library_vault`` and ``library_files`` from ``conn`` *after* the
-        # snapshot, and ``POST /api/backup`` serves this on the running backend
-        # holding no import lock, so a Library import committing in between put
-        # a file into ``vault/`` that the bundle's own database had no row for
-        # (a deletion did the reverse). ``library._catalog_tree`` compares the
-        # retained directories against the catalog exactly and has no automatic
-        # recovery, so the restored Library refused every import with
-        # ``needs_attention`` -- the exact failure this module's docstring says
-        # it exists to prevent. ``verify_bundle`` could not catch it either: it
-        # re-hashes the file list that same post-snapshot read wrote.
+        # The vault catalog is the one that can destroy something. Reading
+        # ``library_vault`` and ``library_files`` from ``conn`` *after* the
+        # snapshot would be wrong: ``POST /api/backup`` serves this on the
+        # running backend holding no import lock, so a Library import
+        # committing in between would put a file into ``vault/`` that the
+        # bundle's own database had no row for (a deletion does the reverse).
+        # ``library._catalog_tree`` compares the retained directories against
+        # the catalog exactly and has no automatic recovery, so the restored
+        # Library would refuse every import with ``needs_attention`` -- the
+        # exact failure this module's docstring says it exists to prevent.
+        # ``verify_bundle`` could not catch it either: it re-hashes the file
+        # list that same post-snapshot read wrote.
         #
         # Taking the Library's ``.import.lock`` around both halves was the other
         # option and is worse: that lock is an exclusive-create file with no
@@ -809,12 +809,13 @@ def _strip_process_state(conn: sqlite3.Connection) -> dict:
     asked is ``interrupted`` with reason ``unknown`` -- not ``owner_dead``,
     which claims a fact this path did not establish.
 
-    **Runs after ``init_db``, and raises.** It used to run before, against the
-    bundle's own schema, and swallow ``sqlite3.Error``: on a v2.2.0-era bundle
-    that is "no such table: deliveries", and the restore carried on and
-    reported success while every ``delivering`` row it was meant to requeue was
-    still owned by a process on another machine. A failure here is a failure of
-    the restore and is treated like one -- the undo copy goes back.
+    **Runs after ``init_db``, and raises.** Run before it, against the
+    bundle's own schema, it would hit ``sqlite3.Error`` on a bundle from an
+    older schema ("no such table: deliveries"), and swallowing that would let
+    the restore carry on and report success while every ``delivering`` row it
+    was meant to requeue was still owned by a process on another machine. A
+    failure here is a failure of the restore and is treated like one -- the
+    undo copy goes back.
 
     ``awaiting_review`` is deliberately untouched: it describes a *decision the
     user has not made*, not a process, and requeueing it would deliver
@@ -858,9 +859,9 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
 
     A vault that *is* replaced is **moved aside, not deleted**, into the same
     ``restore-undo/<stamp>/`` directory as the database files of the same
-    restore -- which is what makes the undo cover both halves of the pair. It
-    used to be removed outright, so a restore that failed after this point put
-    the database back and left the user's retained bytes gone.
+    restore -- which is what makes the undo cover both halves of the pair.
+    Removing it outright would let a restore that failed after this point put
+    the database back and leave the user's retained bytes gone.
 
     ``shutil.move`` renames within a volume and copies between them, so a vault
     on a different volume from the state directory costs a full copy of every
@@ -1069,8 +1070,8 @@ def apply_pending_restore(
 
         # ``init_db`` first, and before anything writes a row. The migrations
         # bring an older bundle to today's schema, and every statement below
-        # assumes today's tables and today's CHECK vocabularies -- a v2.2.0-era
-        # bundle has no ``deliveries`` table at all and no
+        # assumes today's tables and today's CHECK vocabularies -- a bundle from
+        # an older schema has no ``deliveries`` table at all and no
         # ``interrupted_reason`` column to write ``unknown`` into.
         init_db(str(db_path))
 

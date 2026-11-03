@@ -75,11 +75,10 @@ def normalize_authors(authors) -> list:
 
     Accepts names or ``Author`` objects and returns the same kind it was given,
     so the twenty-odd clients that still pass strings are unaffected and the
-    handful that now pass structured authors do not lose their ORCID to a
-    normalisation step. That last clause is the point: this function used to
-    take ``list[str]`` and return ``list[str]``, and running it over structured
-    authors would have quietly discarded exactly the fields phase 2.1 exists to
-    keep.
+    handful that pass structured authors do not lose their ORCID to a
+    normalisation step. That last clause is the point: a function that took
+    ``list[str]`` and returned ``list[str]`` would quietly discard exactly the
+    fields author matching exists to keep.
     """
     normalized: list = []
     for entry in as_authors(authors):
@@ -169,10 +168,9 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
         categories=list(result.categories),
     )
     # Attach metadata hash as a transient attribute for dedup
-    # The hash is over the *names*, unchanged from before 2.1: adding an ORCID
-    # to a record must not make it a different paper from the same record
-    # without one, or every cross-source duplicate would stop matching the day a
-    # client learned to fill the field.
+    # The hash is over the *names* alone: adding an ORCID to a record must not
+    # make it a different paper from the same record without one, or every
+    # cross-source duplicate would stop matching once a client fills the field.
     normalized._metadata_hash = compute_metadata_hash(  # type: ignore[attr-defined]
         title, [a.name for a in normalized.authors], pub_date)
     return normalized

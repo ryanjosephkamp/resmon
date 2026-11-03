@@ -16,8 +16,8 @@ record has no public name, so the check could not confirm it, and an unverifiabl
 identifier does not belong in a set held up as the example.
 
 **People only, for now.** Institution profiles need affiliation matching, which
-is 2.1b: shipping them here would put profiles in the picker that no routine mode
-can yet use.
+resmon does not do yet: shipping them here would put profiles in the picker that
+no routine mode can yet use.
 
 These are examples, not endorsements, and they are yours to edit or delete —
 importing one copies it into your own database, after which it is a profile like

@@ -1,9 +1,8 @@
 # resmon_scripts/implementation_scripts/repo_catalog.py
 """Static repository catalog.
 
-Single source of truth (in code) mirroring the ``Active`` rows of
-``.ai/prep/repos.csv``. Registration URLs are drawn from
-``.ai/prep/repos.md``. Nothing in this module references or returns raw
+Single source of truth for the active repositories. Registration URLs point at
+each source's own sign-up page. Nothing in this module references or returns raw
 credential values.
 """
 
@@ -31,14 +30,13 @@ AttributionRequirement = Literal["none", "requested", "required"]
 # Library and Semantic Scholar for whole years; everything else for exact
 # days.
 #
-# **DOAJ was in that list for three releases without being in this field.**
+# **A transcription error can leave a source out of this field.**
 # ``api_doaj.py`` clips both bounds with ``[:4]`` and sends a ``bibjson.year``
-# range, and this said ``day`` -- which the Repositories page renders as
-# "Exact dates - resmon can ask for any window". It was a transcription
-# error rather than a disagreement about the behaviour, and it survived
-# because nothing compared the two. ``SourceConstraints.window_effect``
-# records the same quantity in the vocabulary the search forms need, and
-# ``test_source_constraints.py`` now requires the two to agree row by row:
+# range, and ``day`` here would be rendered by the Repositories page as "Exact
+# dates - resmon can ask for any window". That error survives unless something
+# compares the two. ``SourceConstraints.window_effect`` records the same
+# quantity in the vocabulary the search forms need, and
+# ``test_source_constraints.py`` requires the two to agree row by row:
 # ``day`` with ``as_asked``, ``month`` with ``whole_months``, ``year`` with
 # ``whole_years``. Either field alone can be mistyped; both of them wrong in
 # the same direction takes effort.
@@ -75,16 +73,16 @@ ResultOrder = Literal["newest_first", "relevance", "unstated"]
 
 
 # ---------------------------------------------------------------------------
-# entity_search (2.1) — what a source can be asked about a *person*
+# entity_search — what a source can be asked about a *person*
 # ---------------------------------------------------------------------------
 #
-# Phase 2.1 watches people, and the first thing that requires is knowing which
-# of these sources can be asked about one at all. Every client has exactly one
-# search shape — a keyword string in, records out — so an author query is either
-# a field syntax *inside* that string, a separate parameter the client does not
-# expose today, or a different endpoint entirely. Which, per source, was
-# established by ``verification_scripts/probe_entity_search.py`` on 2026-09-06
-# and each entry below carries what came back.
+# Watching people requires knowing which of these sources can be asked about
+# one at all. Every client has exactly one search shape — a keyword string in,
+# records out — so an author query is either a field syntax *inside* that
+# string, a separate parameter the client does not expose today, or a
+# different endpoint entirely. Which, per source, was established by
+# ``verification_scripts/probe_entity_search.py`` on 2026-09-06 and each entry
+# below carries what came back.
 #
 # **The probe has three controls, and it needed all three.** Asking a source for
 # ``au:Hinton`` and getting papers proves nothing: most of these endpoints
@@ -103,10 +101,10 @@ ResultOrder = Literal["newest_first", "relevance", "unstated"]
 #   what a working field looks like. OAPEN was withdrawn in October 2026
 #   (``api_registry.RETIRED_REPOSITORIES``) and has no entry below; the
 #   finding stays here because it is why control D exists.
-# * **arXiv, NDL and PubMed are XML**, and the first version of the comparison
-#   read JSON keys only — so for those three the controls ran and were compared
-#   to nothing. Their verdicts came from A and B alone until the comparison
-#   learned to read ``<id>``, ``<PMID>`` and ``<dcterms:identifier>``.
+# * **arXiv, NDL and PubMed are XML**, so the comparison reads ``<id>``,
+#   ``<PMID>`` and ``<dcterms:identifier>`` as well as JSON keys. A comparison
+#   that read JSON keys only would run the controls for those three and compare
+#   them to nothing, leaving their verdicts to A and B alone.
 #
 # ``unknown`` is a real answer and is used rather than a guess: four sources
 # need a key this machine does not hold and one has been answering HTTP 500
@@ -262,22 +260,20 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 #                        With no start date the window is the default itself,
 #                        so it is not shown there.
 #
-# **Every one of these exists because a sentence was found being shown where
-# it was not true.** The first version of this record had one flag; a render
-# of the real panel caught bioRxiv promising a January 1, 2020 floor
-# underneath a start date the user had just typed, and a review caught DBLP
-# saying "a record carrying no year is dropped" directly under "DBLP will not
-# be searched at all". A notice whose state cannot be expressed here does not
+# **Every one of these exists because a sentence must not be shown where it is
+# not true.** A single flag is not enough: bioRxiv would promise a January 1,
+# 2020 floor underneath a start date the user had just typed, and DBLP would
+# say "a record carrying no year is dropped" directly under "DBLP will not be
+# searched at all". A notice whose state cannot be expressed here does not
 # get shown with an approximation -- the state gets added.
 #
-# ``with_end_date`` is that rule being broken and then obeyed. NIST RMM's
-# sentence was scoped ``with_both_dates`` because that state already existed
-# and was *close*. It is not the same state: with an end date and no start
-# date the client sends no upstream date bound at all and filters every
-# record locally, which is the case where "a run can come back with fewer
-# in-window records than the cap you set" is most true -- and the
-# approximation hid it there. The near-enough state is the trap, not the
-# missing one.
+# ``with_end_date`` is that rule applied. NIST RMM's sentence cannot be scoped
+# ``with_both_dates`` just because that state exists and is *close*. It is not
+# the same state: with an end date and no start date the client sends no
+# upstream date bound at all and filters every record locally, which is the
+# case where "a run can come back with fewer in-window records than the cap
+# you set" is most true -- and the approximation would hide it there. The
+# near-enough state is the trap, not the missing one.
 #
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
 # than read off it: two of the fifteen window-scoped notices are record
@@ -534,8 +530,6 @@ def _entry(
 
 # ---------------------------------------------------------------------------
 # Catalog — 27 active repositories.
-# Field values mirror `.ai/prep/repos.csv` rows with Status=Active and the
-# registration-URL annotations in `.ai/prep/repos.md`.
 # ---------------------------------------------------------------------------
 
 REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
@@ -872,8 +866,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
                 "and the bare and `titles.title:` controls returned different id sets. "
                 "**No ORCID and no affiliation was populated on any of the 54 creators "
-                "measured**, although both keys appear in the document — the brief listed "
-                "DataCite as a fill candidate and the record says otherwise."),
+                "measured**, although both keys appear in the document."),
         ),
     ),
     _entry(
@@ -1667,7 +1660,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 "author 0; the echoed query shows OpenAIRE parsed it as "
                 "`resultauthor exact \"Yoshua Bengio\"`. **Neither ORCID nor a per-author "
                 "affiliation was established from the creator objects**, so nothing is "
-                "filled from here — the brief listed it as a candidate."),
+                "filled from here."),
         ),
     ),
     _entry(
@@ -2058,8 +2051,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             established=(
                 f"{ENTITY_PROBED_ON}: `creators.name:\"Yoshua Bengio\"` returned 5, the nonsense author 0, "
                 "and the `title:` control 0. **No ORCID and no affiliation was populated on "
-                "any of the 16 creators measured**, though both keys exist in the schema — "
-                "the brief listed Zenodo as a fill candidate and the record says otherwise."),
+                "any of the 16 creators measured**, though both keys exist in the schema."),
         ),
     ),
 ]
@@ -2078,11 +2070,10 @@ def credential_names() -> set[str]:
 def required_credential_for(slug: str) -> str | None:
     """Return the credential name for a repo if it is strictly required, else None.
 
-    This is the single answer to "does this source need a key?". It had no
-    caller outside its own test for three releases while ``sweep_engine``
-    carried a hand-written dict of three slugs beside it, and the fourth —
-    GovInfo — was recorded as a source that had answered with nothing rather
-    than one that had never been asked. The sweep's gate reads this now.
+    This is the single answer to "does this source need a key?". The sweep's
+    gate reads it, because a hand-written list of keyed slugs beside it can
+    omit one, and a source that needs a key but is never asked is then recorded
+    as one that had answered with nothing.
     """
     for e in REPOSITORY_CATALOG:
         if e.slug == slug and e.api_key_requirement == "required":

@@ -91,15 +91,14 @@ SERVICE_NAMES = {"crossref": "Crossref", "biorxiv": "bioRxiv", "arxiv": "arXiv"}
 CROSSREF_BATCH = 40
 
 # arXiv accepts a comma-separated ``id_list``, so version checks batch exactly
-# like Crossref DOIs do. Without this a corpus of five thousand arXiv papers was
-# five thousand separate requests, which is what made a full pass impractical
+# like Crossref DOIs do. Without this a corpus of five thousand arXiv papers would
+# be five thousand separate requests, which would make a full pass impractical
 # rather than merely slow.
 ARXIV_BATCH = 50
 
-# Default ceiling on one run of the check. Raised from the 200 this feature was
-# first written with, which never shipped: at 200 a
-# 15,000-paper corpus needed seventy-nine presses of the button, which is not a
-# bounded operation, it is an unusable one. With Crossref and arXiv both batching
+# Default ceiling on one run of the check. At a ceiling of 200 a
+# 15,000-paper corpus would need seventy-nine presses of the button, which is not
+# a bounded operation, it is an unusable one. With Crossref and arXiv both batching
 # a thousand papers is a handful of requests, and ``run_until_done`` exists for
 # users who simply want the whole corpus covered.
 DEFAULT_LIMIT = 1000
@@ -469,7 +468,7 @@ def documents_due(
     past the re-check interval. That ordering makes the bounded check resumable:
     running it repeatedly walks the corpus rather than re-reading its head.
 
-    ``document_ids`` narrows the same selection to a named set — 2.1's
+    ``document_ids`` narrows the same selection to a named set — the
     ``retractions`` watch mode checks the papers matched to one profile rather
     than the whole corpus. It is a *restriction* and never a widening: a paper
     in the set that is not due is still not checked, so a watch routine firing
@@ -688,7 +687,7 @@ def check_documents(
 ) -> dict:
     """Check a named set of papers, one bounded slice, through the same path.
 
-    2.1's ``retractions`` watch mode. It is deliberately ``check_corpus`` with a
+    The ``retractions`` watch mode. It is deliberately ``check_corpus`` with a
     narrower selection and **no new provider**: the rule that resmon never
     asserts a lifecycle event on its own authority is at its most load-bearing
     when the event is attached to a named person, so the retraction claims a
