@@ -7,14 +7,14 @@
  * `cwd: FRONTEND_ROOT` written into it and a pile of assertions about its own
  * cleanup. A journey has to be launchable against another build, so the piece
  * that redirects arXiv is here, parameterised by the repository root of the
- * build under test, and everything else it used to carry stays over there.
+ * build under test, and everything else stays over there.
  *
  * What it replaces is the **input** and nothing else. The request is a real
  * HTTP request over a real socket, made by the shipped arXiv client through
  * `safe_request`; every outcome, zero reason, SQLite write and rendered row
  * downstream is the app's own. What no authored reply can see is arXiv's own
- * behaviour — a schema change or an outage upstream is invisible here, and the
- * handback says so.
+ * behaviour — a schema change or an outage upstream is invisible here, and this
+ * suite does not claim otherwise.
  *
  * **The guard is not optional.** The `sitecustomize.py` this writes refuses any
  * connection that is not loopback, and refuses port 8742 in particular: that
@@ -41,7 +41,7 @@ export type SourceReply =
   /**
    * Three records over a real HTTP 200, two of which are the same work.
    *
-   * Slice 2a. The near-duplicate scan requires two signals to agree — close
+   * The near-duplicate scan requires two signals to agree — close
    * vectors *and* a near-identical title, with an abstract behind both — so a
    * pair that differs only in the fields dedup keys on is the smallest honest
    * way to produce one. `AUTHORED_TWICE` is that pair.
@@ -209,7 +209,7 @@ export interface SourceEndpoint {
   /**
    * Answer differently from now on.
    *
-   * Slice 2a: the Watchdog row needs a source that fails three times and then
+   * The Watchdog row needs a source that fails three times and then
    * recovers, which is a sequence rather than a state. Nothing else about the
    * endpoint changes — the socket, the client and the parser stay the app's own.
    */

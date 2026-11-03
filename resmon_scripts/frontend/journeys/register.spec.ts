@@ -11,14 +11,13 @@
  *    is not carried forward names the decision that dropped it. Nothing leaves
  *    the register silently.
  * 3. **No spec reaches the renderer.** Everything goes through the driver, so
- *    the 3.0 renderer supplies one file rather than forty-five rewrites.
+ *    a change of renderer means one file rewritten rather than forty-five.
  * 4. **Every screen the app has names the rows that carry it.** The first
  *    three compare the register with this directory; this one compares it
- *    with the app (`atlas/src/screenPaths.ts`), which nothing did until the
- *    Source wall had been a page with no row for nine days.
+ *    with the app (`atlas/src/screenPaths.ts`).
  * 5. **A driver waits for a state, never for a duration**, and never reads the
  *    screen before it has waited for something.
- * 6. **The candidate takes a person's setup through Atlas's screen.** It
+ * 6. **The Atlas driver takes a person's setup through Atlas's screen.** It
  *    borrows from the screenless driver only what `drivers/borrowed.ts` lists:
  *    what has no screen, and setup Atlas has no screen for yet, each entry
  *    with its reason, and none that Atlas now implements.
@@ -57,7 +56,7 @@ test.describe('the journey register and this directory agree', () => {
     expect(new Set(ids).size, 'a register ID appears twice').toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^J\d{2}$/);
     expect([...ids].sort(), 'the register is not in ID order').toEqual(ids);
-    expect(JOURNEY_REGISTER.length, 'the parity register has 49 journeys').toBe(49);
+    expect(JOURNEY_REGISTER.length, 'the register has 49 journeys').toBe(49);
   });
 
   test('every built row has exactly one spec named for it', () => {
@@ -76,7 +75,7 @@ test.describe('the journey register and this directory agree', () => {
   test('every spec maps to a carried row of the built slice', () => {
     const built = new Set(builtRows().map((row) => `${specStem(row)}.spec.ts`));
     const stray = journeySpecFiles().filter((name) => !built.has(name));
-    expect(stray, 'a spec file claims a row the register does not have in this slice').toEqual([]);
+    expect(stray, 'a spec file claims a row the register does not have').toEqual([]);
     // And nothing in the directory is a spec that claims no row at all, other
     // than this guard itself.
     const unclaimed = specFiles().filter((name) => name !== GUARD && !/^J\d{2}-/.test(name));
@@ -103,7 +102,7 @@ test.describe('the journey register and this directory agree', () => {
     const unexplained = dropped.filter((row) => !row.reason || !row.reason.trim());
     expect(
       unexplained.map((r) => r.id),
-      'a row left the register with no N-row and no initials (B4)',
+      'a row left the register with no decision and no initials',
     ).toEqual([]);
   });
 
@@ -159,7 +158,7 @@ test.describe('no spec reaches the renderer except through the driver', () => {
     expect(
       hits,
       'a journey spec reaches the renderer directly, which is the one thing that would '
-      + 'make this suite un-runnable against the 3.0 build',
+      + 'make this suite un-runnable against another build',
     ).toEqual([]);
   });
 
@@ -199,16 +198,13 @@ test.describe('no spec reaches the renderer except through the driver', () => {
  * The driver may not wait for a duration, and may not read before it has
  * waited for something.
  *
- * **This is the class, not the incident.** J03 read a routine's `active` flag
- * on the line after activating it and failed in three seconds against a
- * healthy seven-second run: five red Journeys jobs across four branches and
- * four dates, one of them on a pull request whose entire content was one word
- * in a markdown file. A red Journeys job reads as "this branch broke a
- * journey", so each occurrence cost somebody half an hour ruling out their own
- * diff, and three different people paid it. Slice 4 removed `goto`'s trailing
- * 400 ms — the last duration the suite leaned on — and exposed six reads that
- * had been living behind it; slice 5 was written to sweep the rest and was
- * never dispatched. These two tests are that sweep made permanent.
+ * **This is a class of failure.** Reading a routine's `active` flag on the
+ * line after activating it fails in three seconds against a healthy
+ * seven-second run, and a red Journeys job reads as "this branch broke a
+ * journey", so each occurrence costs somebody half an hour ruling out their own
+ * diff. A duration can also hide reads that happen too early: a trailing wait
+ * in `goto` would mask every read that never waited for anything. These two
+ * tests sweep for both.
  *
  * A duration is the tell. It is not a wait for anything: it is a guess about
  * how long something takes on the machine the author happened to be using, and
@@ -361,13 +357,11 @@ test.describe('the driver waits for states, not for durations', () => {
 /**
  * Setup a person does on a screen goes through Atlas's screen.
  *
- * The candidate drives Atlas and borrows from the screenless driver only what
+ * The Atlas driver borrows from the screenless driver only what
  * `drivers/borrowed.ts` lists: members that touch no screen, and setup steps
- * Atlas has no screen for yet, each with the reason. Before
- * this guard the borrowed list mixed the two, and a journey whose setup was
- * borrowed passed whether or not Atlas could take the step: Atlas shipped
- * without Settings › AI › Embeddings while J09 and J11 passed. So the lists
- * are held to four things, all read from the files rather than from a running
+ * Atlas has no screen for yet, each with the reason. A journey whose setup is
+ * borrowed passes whether or not Atlas can take the step, so the lists are held
+ * to four things, all read from the files rather than from a running
  * driver, because this guard launches nothing:
  *
  * 1. Nothing is borrowed except through the two lists, and each name in them
@@ -375,7 +369,7 @@ test.describe('the driver waits for states, not for durations', () => {
  * 2. Each API-setup entry says, as a fact, which Atlas screen is missing and
  *    which route the screenless driver takes instead.
  * 3. No entry outlives the Atlas screen: once `atlas.ts` implements a member,
- *    the candidate takes that step through Atlas, and the entry has to go.
+ *    the Atlas driver takes that step through Atlas, and the entry has to go.
  * 4. A screenless member writes nothing to the app in its own body. That is
  *    the check that keeps a setup step from being filed as screenless to skip
  *    giving a reason. It reads the member's own body, not the helpers it
@@ -421,7 +415,7 @@ function atlasMembers(): Set<string> {
 /** A write to the app's API, in any of the shapes the drivers make one. */
 const API_WRITE = /\bapi(?:<[^>]*>)?\(\s*['"](?:POST|PUT|PATCH|DELETE)['"]|\bmethod:\s*['"](?:POST|PUT|PATCH|DELETE)['"]/;
 
-test.describe('the candidate borrows from the screenless driver only what Atlas has no screen for', () => {
+test.describe('the Atlas driver borrows from the screenless driver only what Atlas has no screen for', () => {
   const setup = Object.keys(API_SETUP);
 
   test('nothing is borrowed except through the two lists, and each name is a screenless member', () => {
@@ -435,7 +429,7 @@ test.describe('the candidate borrows from the screenless driver only what Atlas 
       if (!declared.has(name)) problems.push(`${name} is not a member of JourneyDriver`);
       else if (!screenless.has(name)) problems.push(`${name} is not implemented by the screenless driver`);
     }
-    // The candidate itself: every read of the screenless driver's members goes
+    // The Atlas driver itself: every read of the screenless driver's members goes
     // through `borrowed`, and the one member it hands Atlas by name is
     // screenless.
     const candidate = fs.readFileSync(path.join(DRIVERS, 'candidate.ts'), 'utf8').split('\n').map(code);
@@ -447,7 +441,7 @@ test.describe('the candidate borrows from the screenless driver only what Atlas 
         if (!SCREENLESS.includes(name)) problems.push(`candidate.ts:${index + 1} hands Atlas screenless.${name}, which is not screenless`);
       }
     });
-    expect(problems, 'a member reaches the candidate from the screenless driver without a list that says why').toEqual([]);
+    expect(problems, 'a member reaches the Atlas driver from the screenless driver without a list that says why').toEqual([]);
   });
 
   test('every API-setup entry says which Atlas screen is missing', () => {
@@ -474,7 +468,7 @@ test.describe('the candidate borrows from the screenless driver only what Atlas 
     const outlived = setup.filter((name) => atlas.has(name))
       .map((name) => `${name}: atlas.ts implements it, so the API-setup entry is an exception with no screen missing`);
     const unreached = SCREENLESS.filter((name) => atlas.has(name))
-      .map((name) => `${name}: atlas.ts implements it, so the candidate never borrows it`);
+      .map((name) => `${name}: atlas.ts implements it, so the Atlas driver never borrows it`);
     expect([...outlived, ...unreached], 'a borrowed entry names a member Atlas now takes itself; remove it').toEqual([]);
   });
 
@@ -504,8 +498,8 @@ test.describe('the candidate borrows from the screenless driver only what Atlas 
  *
  * `RESMON_JOURNEY_BREAK_ROW=J20` makes exactly that row's guard fail and
  * nothing else — the same shape as `RESMON_E2E_BREAK_ROUTE` next door, and for
- * the same reason: B2 says a new CI job is trusted once it has been made to go
- * red, and a job that cannot be made to go red on demand has to be trusted on
+ * the same reason: a new CI job is trusted once it has been made to go red, and
+ * a job that cannot be made to go red on demand has to be trusted on
  * somebody's word instead.
  */
 test('a named row can be broken on purpose', () => {

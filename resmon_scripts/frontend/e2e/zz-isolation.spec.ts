@@ -1,5 +1,6 @@
 /**
- * The suite leaves nothing behind — P12 and P14.
+ * The suite leaves nothing behind: the developer's own profile is untouched
+ * (P12), and a run leaves the working tree clean (P14).
  *
  * **Named `zz-` on purpose.** Playwright runs spec files in path order, and
  * these two checks are about the state of the machine *after* everything else
@@ -7,19 +8,18 @@
  * removed, and every launch has come and gone. A file named `isolation` would
  * sort fourth and measure a run that had barely started.
  *
- * **P12 — the developer's own resmon is not the test subject.** This was found
- * the hard way by the spike: `RESMON_STATE_DIR` isolates the *backend's* state
- * — database, reports, daemon lock — and does nothing about Chromium's own
- * profile, which `app.getPath('userData')` puts in the real
- * `~/Library/Application Support/resmon`, the directory the installed app uses.
- * The first run of the launch fixture inherited a persisted 1.2 zoom factor
- * from somebody's real session, and was writing into that profile as it went. A
- * screenshot taken at an inherited zoom is not evidence of anything.
+ * **P12 — the developer's own resmon is not the test subject.** `RESMON_STATE_DIR`
+ * isolates the *backend's* state — database, reports, daemon lock — and does
+ * nothing about Chromium's own profile, which `app.getPath('userData')` puts in
+ * the real `~/Library/Application Support/resmon`, the directory the installed
+ * app uses. A launch without its own profile inherits a persisted zoom factor
+ * from a real session, and writes into that profile as it goes. A screenshot
+ * taken at an inherited zoom is not evidence of anything.
  *
- * **P14 — a run leaves the working tree clean.** 18 screenshots used to be
- * committed and every stacked branch conflicted on them, because two branches
- * that both run the suite both rewrite every file. A committed screenshot is a
- * merge conflict, not evidence.
+ * **P14 — a run leaves the working tree clean.** Committed screenshots
+ * conflict on every merge, because two branches that both run the suite both
+ * rewrite every file. A committed screenshot is a merge conflict, not
+ * evidence.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -95,11 +95,10 @@ test('P12b: every file that launches the app passes --user-data-dir', () => {
   // switch handled before any app code, so it cannot be asserted from inside
   // the app for a launch that never happened.
   //
-  // Scoped to the **file** rather than the call site, and the first version of
-  // this was scoped to the call site and produced a false positive:
-  // a spec that built its `args` array in a variable a few lines
-  // above the call, which is perfectly correct and invisible to a regex over
-  // the call. What that costs is stated in the handback: a launch whose args
+  // Scoped to the **file** rather than the call site, because a call-site
+  // scope gives a false positive on a spec that built its `args` array in a
+  // variable a few lines above the call, which is perfectly correct and
+  // invisible to a regex over the call. The cost is that a launch whose args
   // came from *another module* would pass this.
   const files = fs.readdirSync(E2E_DIR, { recursive: true, encoding: 'utf8' } as never) as
     unknown as string[];

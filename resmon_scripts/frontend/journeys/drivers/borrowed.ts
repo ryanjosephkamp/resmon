@@ -1,5 +1,5 @@
 /**
- * What the candidate borrows from the screenless driver (`screenless.ts`), and
+ * What the Atlas driver borrows from the screenless driver (`screenless.ts`), and
  * why: the only way a journey takes a step without going through an Atlas
  * screen.
  *
@@ -65,7 +65,7 @@ export const API_SETUP: Readonly<Record<string, string>> = {
     + 'POST /api/links/scan.',
 };
 
-/** Whether the candidate takes this member from the screenless driver. */
+/** Whether the Atlas driver takes this member from the screenless driver. */
 export function borrowed(member: string): boolean {
   return SCREENLESS.includes(member) || Object.prototype.hasOwnProperty.call(API_SETUP, member);
 }

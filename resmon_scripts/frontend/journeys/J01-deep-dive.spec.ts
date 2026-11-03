@@ -48,8 +48,8 @@ journey.describe('J01 Deep Dive', () => {
     expect(recorded, 'the run recorded no outcome at all for the source it queried').toBeTruthy();
 
     // The denominator comes from the build under test's own vocabulary, not
-    // from a list written here: the register says "one of the nine" and the
-    // module at this base declares ten.
+    // from a list written here, which could drift from the module that declares
+    // the reasons.
     const vocabulary = await resmon.backend.zeroReasonVocabulary();
     expect(vocabulary.length).toBeGreaterThan(0);
     expect(vocabulary, 'the recorded reason is not one the build knows').toContain(recorded.zero_reason);

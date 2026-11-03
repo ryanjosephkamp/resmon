@@ -1,12 +1,12 @@
 /**
  * The assistant's first line, in a backend Electron actually spawned.
  *
- * **This is the shape the v2.0.1 field defect lived in and nothing covered.**
- * Every other assistant check runs the backend from pytest — a subprocess of
- * the test process. The published app's backend is a child of Electron, and the
- * CLI is a child of that. When the CLI went silent there, resmon waited five
- * minutes and said "resmon could not finish that turn"; `test_assistant_packaged.py`
- * asserted `tools/list` on the MCP servers and never a *turn*, which is Ledger 75.
+ * **Only this check runs a turn the way the published app does.** Every other
+ * assistant check runs the backend from pytest — a subprocess of the test
+ * process. The published app's backend is a child of Electron, and the CLI is a
+ * child of that. When the CLI goes silent there, resmon waits five minutes and
+ * says "resmon could not finish that turn"; `test_assistant_packaged.py`
+ * asserts `tools/list` on the MCP servers, never a *turn*.
  *
  * It needs no signed-in CLI. `ai_cli_path` points at the same `fake_claude.py`
  * the Python suite uses, so what is under test is resmon's own path from the

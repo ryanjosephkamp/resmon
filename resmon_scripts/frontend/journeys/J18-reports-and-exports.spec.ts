@@ -2,12 +2,11 @@
  * J18 Reports and exports — the five report tabs are reachable, and two runs
  * selected together export one entry per paper.
  *
- * The second half is PR113's defect, which is why it is in this slice: the
- * BibTeX export used to give a paper one entry per run it appeared in, with a
- * duplicated citation key, so a reference manager silently kept one of them.
- * Two dives over the same authored source produce two runs that found the same
- * two papers, which is the exact shape that broke — and a per-run count would
- * say four.
+ * The second half guards the BibTeX export: a paper that appears in two runs
+ * must get one entry, not one per run with a duplicated citation key, which a
+ * reference manager would silently collapse to one of them. Two dives over the
+ * same authored source produce two runs that found the same two papers, which
+ * is the exact shape that breaks it — and a per-run count would say four.
  */
 import { expect, journey } from './driver';
 

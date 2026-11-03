@@ -1,5 +1,5 @@
 /**
- * P6 — the app behaves the same with `RESMON_E2E` unset.
+ * The app behaves the same with `RESMON_E2E` unset.
  *
  * A diff of the code shows three `isE2E()` branches; it does not show that the
  * unset path still does what it did. This launches the same app twice, with
@@ -15,7 +15,7 @@
  *   - hunk 3, the auto-updater: `initAutoUpdater` returns at `!app.isPackaged`
  *     before it ever reaches the `isE2E()` line, so in a checkout that hunk is
  *     unreachable and this spec cannot observe it. That is stated rather than
- *     asserted around — see `docs/ui-verification-feasibility.md`, Q7.
+ *     asserted around.
  *
  * Everything else in `main.ts` is untouched by the flag, and the two launches
  * agree on it: same renderer URL shape, same title, same preload bridge, same
@@ -114,7 +114,7 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   // the E2E size**, and it takes whichever pre-flag size the display allows —
   // the work area where a window manager exists, the constructor's 1280x820
   // where one does not. Which arm held is logged, because the difference is
-  // exactly the limitation 1.8.7 needs to know about: *the maximize-on-open
+  // exactly the limitation worth knowing about: *the maximize-on-open
   // behaviour cannot be verified on a bare-X runner at all.*
   const DEFAULT_WIDTH = 1280;
   const DEFAULT_HEIGHT = 820;

@@ -1,12 +1,11 @@
 /**
  * `electron/main.ts`, under test: what only a real browser engine and a real
- * main process can see, each a fix a human found by looking at the app and
- * each undone silently by an ordinary refactor with the rest of the suite
- * green.
+ * main process can see, each undone silently by an ordinary refactor with the
+ * rest of the suite green.
  *
  * - **P3** an external link opens *in-app*, with the URL in the title bar and
  *   the main window's background, and never hands http(s) to the system
- *   browser (link behavior used to depend on where you clicked);
+ *   browser (link behavior must not depend on where you clicked);
  * - **P3b** the main process's OS-facing calls are still the five the guards
  *   count;
  * - **P4** the History menu moves the hash route.
@@ -103,7 +102,7 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
       .toBe(rgbHex((main as { background: string }).background));
 
     // And nothing was handed to the system browser. This is the assertion the
-    // v1.8.3 fix exists for, and it is a count rather than an inference.
+    // in-app link window exists for, and it is a count rather than an inference.
     const guards = await readGuards(app);
     console.log('P3 GUARD COUNTS', JSON.stringify(guards.escaped));
     expect(guards.escaped).toEqual(NOTHING_ESCAPED);

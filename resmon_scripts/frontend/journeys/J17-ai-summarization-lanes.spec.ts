@@ -17,19 +17,19 @@
  * the envelope, classifying the failure as fatal to the lane, standing it down,
  * finishing the run and writing the log. What no double can see is a real CLI's
  * own behaviour — a version change, a flag that stopped being accepted — and
- * the ledger says so.
+ * this journey does not claim to.
  *
- * **A second finding, and the guard is what found it.** `summarizer.py` calls
+ * **The tokenizer.** `summarizer.py` calls
  * `nltk.data.find("tokenizers/punkt_tab")` at *import* time and, on a miss,
  * `nltk.download(...)` — a fetch from `raw.githubusercontent.com` performed
  * inside the backend during a user's run. This row is the only one that imports
  * that module, so on a CI runner, where nothing is cached, the launch guard
- * refused the connection and this row went red on the one assertion it was
- * always going to be right about. The suite now hands the app the tokenizer in
- * its own state directory, so nothing is downloaded anywhere; the app's
- * behaviour is unchanged and is printed below every run. **A local-first
- * desktop app must not need the internet to summarize on a first run**, and
- * that is 3.0's, not this suite's.
+ * refuses the connection and the row goes red on the one assertion it was
+ * always going to be right about. The suite hands the app the tokenizer in its
+ * own state directory, so nothing is downloaded anywhere; the app's behaviour
+ * is unchanged and is printed below every run. **A local-first desktop app must
+ * not need the internet to summarize on a first run**, which is the app's to
+ * fix, not this suite's.
  *
  * **A disagreement this row reports rather than decides.** The run's log is
  * careful: it names the lane, its outcome, the reason and `0 / 2 documents`.
@@ -37,7 +37,7 @@
  * whenever AI was asked for, including when that lane produced nothing at all.
  * A reader of the report alone would take it for a report that was summarized.
  * The row asserts what is true and prints the disagreement; whether the header
- * or the register is wrong is the lead's call, not this suite's.
+ * or the register is wrong is not this suite's call.
  */
 import { expect, journey } from './driver';
 

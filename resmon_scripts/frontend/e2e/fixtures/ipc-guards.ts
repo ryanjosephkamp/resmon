@@ -2,13 +2,12 @@
  * The OS-facing guards: every native call `main.ts` can make, replaced with a
  * counter before a spec touches the app.
  *
- * Extracted from `ipc-stubs.spec.ts` in phase 1.8.7 so more than one spec can
- * install them. The reasoning is unchanged and is worth restating, because it
- * is what makes "no native dialog opened" a **measurement** rather than an
- * inference: `electronApp.evaluate()` runs in the main process with the
- * `electron` module in scope, so assigning over `dialog.showOpenDialog` and
- * friends *replaces* them — the real call is never reached, and a counter says
- * whether anything tried.
+ * Shared by `ipc-stubs.spec.ts` and every other spec that installs them. The
+ * reasoning is worth stating, because it is what makes "no native dialog
+ * opened" a **measurement** rather than an inference: `electronApp.evaluate()`
+ * runs in the main process with the `electron` module in scope, so assigning
+ * over `dialog.showOpenDialog` and friends *replaces* them — the real call is
+ * never reached, and a counter says whether anything tried.
  *
  * The five are the complete set, taken from
  * `grep -n 'dialog\.\|shell\.' electron/main.ts`: `dialog.showOpenDialog`,
@@ -41,8 +40,8 @@ export interface Stubbed {
 /**
  * The IPC channels the preload bridge exposes, and therefore the complete set a
  * guard has to replace. Checked against `electron/preload.ts` by
- * `ipc-stubs.spec.ts`, not counted by hand — the spike's report called this a
- * denominator and it was a hand count.
+ * `ipc-stubs.spec.ts`, not counted by hand, so the set is a denominator rather
+ * than a hand count.
  */
 export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
   chooseDirectory: 'resmon:choose-directory',

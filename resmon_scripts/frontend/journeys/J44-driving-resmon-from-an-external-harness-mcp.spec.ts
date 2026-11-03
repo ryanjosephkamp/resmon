@@ -4,10 +4,9 @@
  *
  * The register's invariant has three parts and the third is the one with teeth:
  * a wrong or absent app is a refusal, never a silent fallback to the daemon's
- * port. That failure has happened — a v1.2.1 daemon from April answered every
- * tool truthfully about a completely different corpus — and it is why
- * `mcp_server.py` checks a version and reads a token file rather than assuming
- * 8742. So this journey launches the app, hands the harness nothing but that
+ * port. That failure is real — an older daemon over a different corpus answers
+ * every tool truthfully about the wrong corpus — and it is why `mcp_server.py`
+ * checks a version and reads a token file rather than assuming 8742. So this journey launches the app, hands the harness nothing but that
  * app's state directory, and asks whether the instance that answers is the one
  * on screen.
  *
@@ -52,7 +51,7 @@ journey.describe('J44 Driving resmon from an external harness (MCP)', () => {
       .toBe(app.version);
     expect(String(mcp.health.status ?? ''), 'the app the harness found is not healthy').toBe('ok');
     expect(Number(mcp.health.pid)).toBe(Number(app.pid));
-    // B3, from the other side of the boundary: the port the harness discovered
+    // The other side of the boundary: the port the harness discovered
     // is this app's own and never the live daemon's.
     expect(String(await resmon.backend.port())).not.toBe('8742');
 

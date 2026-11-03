@@ -3,21 +3,17 @@
  * app wrote, that file carries no secret, and a routine imported from it
  * arrives inactive whatever the file says.
  *
- * **This row was green for as long as its journey was broken.** It saved a
- * configuration with a POST, exported, read the members out of the archive
- * itself, and then imported a JSON string the spec had built — for a different
- * configuration. So the step that failed a real person, handing the exported
- * file back to Import, never happened here, and the row passed while Import
- * refused every archive Export Selected had ever written. #199 fixed Import;
- * this is the journey that would have caught it.
- *
- * So each step is the person's, and each step's input is the step before's
- * output. The configuration is saved with Deep Sweep's own Save Configuration
- * button, exported with Export Selected, and the archive the app wrote — that
- * path, those bytes — is what Import is handed. The driver will not take
- * anything else: its import takes an export, not text, and a spec in this
- * directory cannot write a file of its own. What comes back is compared with
- * what the app stored when the button was pressed, field by field.
+ * **Each step is the person's, and each step's input is the step before's
+ * output.** A row that saved a configuration with a POST, exported, read the
+ * members out of the archive itself, and then imported a JSON string the spec
+ * had built would never hand the exported file back to Import, so it would pass
+ * while Import refused every archive Export Selected wrote. The configuration
+ * is saved with Deep Sweep's own Save Configuration button, exported with
+ * Export Selected, and the archive the app wrote — that path, those bytes — is
+ * what Import is handed. The driver will not take anything else: its import
+ * takes an export, not text, and a spec in this directory cannot write a file
+ * of its own. What comes back is compared with what the app stored when the
+ * button was pressed, field by field.
  *
  * Two invariants ride on the round trip. The export is searched member by
  * member for anything shaped like a credential, because the compressed bytes
@@ -31,8 +27,7 @@
  * automated can operate one. What that dialog would have offered is still
  * read — the page's own `accept` list — and must admit the archive, because a
  * dialog that greys the file out is a round trip nobody can make. A refusal of
- * any kind fails the row, which is how the row's red was produced — with
- * #199's import side reverted.
+ * any kind fails the row.
  */
 import { expect, journey } from './driver';
 

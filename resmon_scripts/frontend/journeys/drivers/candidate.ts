@@ -13,9 +13,8 @@
  * - **Setup Atlas has no screen for** (`API_SETUP` in `borrowed.ts`) also
  *   comes from `screenless.ts`, which takes it over the app's API, and only
  *   with a reason that says which screen is missing. Without that rule a
- *   journey passes while Atlas has no screen for one of its steps, which is
- *   how Atlas shipped without Settings › AI › Embeddings while J09 and J11
- *   passed. `register.spec.ts` holds the lists to it.
+ *   journey passes while Atlas has no screen for one of its steps.
+ *   `register.spec.ts` holds the lists to it.
  * - **Everything else** is skipped with the reason "Not in Atlas yet: …",
  *   which Playwright reports per row. Never a failure, which would say Atlas
  *   broke a journey it has not reached; never a pass, which would claim one.

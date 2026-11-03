@@ -1,5 +1,5 @@
 /**
- * The local API lock-down (2.2), observed in the real Electron app.
+ * The local API lock-down, observed in the real Electron app.
  *
  * The backend-side properties — every route, Host, Origin, preflight — are
  * proven against a real backend process in `test_local_api_auth.py`. What only

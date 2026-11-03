@@ -20,14 +20,13 @@
  * the app would have to be told about. Nothing here needs a fixed port, which is
  * one fewer `RESMON_E2E` branch in `main.ts`.
  *
- * **`RESMON_STATE_DIR` does not isolate Electron itself, and that was found the
- * hard way.** It isolates the *backend's* state — database, reports, daemon lock
+ * **`RESMON_STATE_DIR` does not isolate Electron itself.** It isolates the *backend's* state — database, reports, daemon lock
  * — but Chromium keeps its own profile in `app.getPath('userData')`, which in a
  * checkout is the real `~/Library/Application Support/resmon` the installed app
- * uses. The first run of this fixture returned a 1440x900 window whose renderer
- * reported a 1200x723 viewport, because that profile carried a persisted
- * per-origin zoom factor of 1.2 from somebody's real session. A screenshot taken
- * that way is not evidence of anything, and the suite was also writing into the
+ * uses. A launch that inherits it can return a 1440x900 window whose renderer
+ * reports a 1200x723 viewport, because that profile carries a persisted
+ * per-origin zoom factor of 1.2 from a real session. A screenshot taken that
+ * way is not evidence of anything, and the suite was also writing into the
  * user's own profile. `--user-data-dir` — a Chromium switch, handled before any
  * app code runs, so it costs no `RESMON_E2E` branch — points the profile at the
  * same temp directory. Zoom is then 1 and the profile is the suite's own.
@@ -39,7 +38,7 @@
  * can log after the next route has been entered, and it will be tagged with the
  * route that was current when it fired. The two collectors record the tag, so a
  * misattribution is visible as a surprising route rather than invisible — but it
- * is a real limitation, and it is stated in the report under P2.
+ * is a real limitation.
  */
 import { test as base, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page, ConsoleMessage, Request } from '@playwright/test';
@@ -49,7 +48,7 @@ import * as path from 'path';
 import { resolveInterpreter } from './python-interpreter';
 
 // ---------------------------------------------------------------------------
-// The local API token, for the suite's own backend calls (2.2 lock-down)
+// The local API token, for the suite's own backend calls
 // ---------------------------------------------------------------------------
 //
 // The backend now refuses any request without its token. The *app* gets the
@@ -169,9 +168,8 @@ export function appRootAt(frontend: string): AppRoot {
 /**
  * Where a run's screenshots land.
  *
- * Inside `e2e/screenshots/` by default, which is **gitignored** from phase
- * 1.8.7: the spike committed 15 PNGs and 1.8.6 added three, and every stacked
- * branch afterwards conflicted on them, because two branches that both run the
+ * Inside `e2e/screenshots/` by default, which is **gitignored**: committed
+ * screenshots conflict on every merge, because two branches that both run the
  * suite both rewrite every file. CI uploads the directory as a workflow
  * artifact and `npm run e2e:review` overrides this to a directory outside the
  * repository, so a review run leaves the working tree untouched.
@@ -355,7 +353,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   win: [async ({ app, consoleErrors, failedRequests, currentRoute }, use) => {
     const win = await app.firstWindow({ timeout: 180_000 });
 
-    // Q3's collectors. Attached before the first navigation so nothing on the
+    // The console-error and failed-request collectors. Attached before the first navigation so nothing on the
     // initial load is missed.
     win.on('console', (msg: ConsoleMessage) => {
       if (msg.type() !== 'error') return;
@@ -450,7 +448,7 @@ export { expect } from '@playwright/test';
  *
  * Asserting on a third party's own output makes the suite red for reasons no
  * change to this repository can fix. Asserting only on resmon's own origins
- * makes it a signal. The cost is real and is recorded in the report under P2:
+ * makes it a signal. The cost is real:
  * **a broken blog webview is invisible to the smoke suite.** Third-party
  * events are printed rather than dropped, so a person reading the log can
  * still see them.

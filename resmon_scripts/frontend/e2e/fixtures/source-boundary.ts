@@ -9,8 +9,8 @@
  * request is a real HTTP request over a real socket, made by the real client,
  * and every match, vector, link and rendered row downstream is computed by the
  * app. What they cannot see is a provider's own behaviour — a schema change or
- * an outage at arXiv or OpenAlex is invisible to an authored reply, and the
- * handback says so.
+ * an outage at arXiv or OpenAlex is invisible to an authored reply, and this
+ * suite does not claim otherwise.
  */
 import * as fs from 'fs';
 import * as http from 'http';
@@ -118,7 +118,7 @@ export const AUTHORED_CORPUS_PAPERS: AuthoredPaper[] = [
 
 /** The pair the near-duplicate rule is meant to find: one work, indexed twice.
  *  `documents` is unique on (source, external_id), so the two survive as two
- *  rows with two provenances — which is the state P12 is about. The text is
+ *  rows with two provenances — which is the state the near-duplicate rule exists for. The text is
  *  identical on purpose, so the vectors are identical and the title path's two
  *  signals both fire; nothing asserts the link into the table. */
 export const AUTHORED_SHARED_TITLE = 'Authored duplicate work on fixture graph alignment';

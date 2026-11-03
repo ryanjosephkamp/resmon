@@ -9,14 +9,14 @@
  * the service record agree, and the screen and the daemon probe agree — rather
  * than a fixed sentence.
  *
- * **The launch agent is isolated, and that took finding.** `RESMON_STATE_DIR`
- * covers the database, the reports and the daemon lock; it does not cover the
- * unit file, which `service_manager.unit_path()` puts in the machine's own
- * LaunchAgents or systemd directory. A journey in a brand-new state directory
- * on a developer's Mac therefore read `Status: Installed` — true about the
- * machine, useless about the app. `unit_path()` already honours
- * `RESMON_SERVICE_UNIT_DIR`, and the session now points it inside its own temp
- * state, so the register's sentence holds on every machine with no branch.
+ * **The launch agent is isolated.** `RESMON_STATE_DIR` covers the database, the
+ * reports and the daemon lock; it does not cover the unit file, which
+ * `service_manager.unit_path()` puts in the machine's own LaunchAgents or
+ * systemd directory. A journey in a brand-new state directory on a developer's
+ * Mac would otherwise read `Status: Installed` — true about the machine,
+ * useless about the app. `unit_path()` honours `RESMON_SERVICE_UNIT_DIR`, and
+ * the session points it inside its own temp state, so the register's sentence
+ * holds on every machine with no branch.
  *
  * **Nothing is installed or removed by this test.** Installing a launch agent
  * would write outside the state directory, would survive the run, and would put
@@ -41,7 +41,8 @@ journey.describe('J04 Background daemon', () => {
     expect(panel.text, 'the panel does not show the unit path it was given')
       .toContain(String(service.unit_path));
 
-    // The half that is isolated, and the half B3 cares about. This state
+    // The half that is isolated, and the half that keeps a journey away from the
+    // live daemon. This state
     // directory has no daemon lock, so nothing is running for this app to
     // attach to, and the panel says exactly that rather than inferring a
     // running daemon from an installed unit.

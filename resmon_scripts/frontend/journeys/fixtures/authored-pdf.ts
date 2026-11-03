@@ -10,8 +10,8 @@
  * **Why it is built here and not copied from the repository's fixtures.**
  * `verification_scripts/fixtures/evidence/two-pages.pdf` would do, and the
  * e2e spec uses it. But a journey spec may import nothing but the driver, and
- * a file it names by path in somebody else's checkout is a file the candidate
- * build might not carry. So the bytes are generated, and every sentence in
+ * a file it names by path in somebody else's checkout is a file the build under
+ * test might not carry. So the bytes are generated, and every sentence in
  * them is invented for this suite, as `AUTHORED_RECORDS` next door is.
  *
  * **The shape is the smallest one the app's two readers both accept.** The

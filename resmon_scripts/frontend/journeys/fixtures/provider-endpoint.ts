@@ -83,8 +83,7 @@ export async function startProviderEndpoint(answer: string): Promise<ProviderEnd
     url: `http://127.0.0.1:${address.port}`,
     calls: () => [...calls],
     // Closed through the session's own teardown list: a server nobody closed
-    // keeps the worker's event loop alive after the last case, which this suite
-    // has already paid for once.
+    // keeps the worker's event loop alive after the last case.
     close: () => new Promise<void>((resolve) => { server.close(() => resolve()); }),
   };
 }
@@ -96,7 +95,7 @@ const pointedAt = new WeakMap<Session, ProviderEndpoint>();
  * Start one for this launched app, closed with it, and remembered against it.
  *
  * Remembered because pointing the app at it and reading what it received can
- * be two drivers' members: the candidate points Atlas at it through Settings ›
+ * be two drivers' members: the Atlas driver points Atlas at it through Settings ›
  * AI, and reads what it received with the screenless driver's member, which
  * touches no screen.
  */
