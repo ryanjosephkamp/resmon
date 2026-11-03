@@ -2,17 +2,17 @@ import { useEffect, useEffectEvent, useState, type ToggleEvent } from 'react';
 import { Icon } from '../../shell/Icon';
 import { number } from '../today/format';
 import {
-  chosenIn, dateRangeProblem, facetCaption, facetRows, othersSet,
+  chosenIn, dateRangeProblem, facetCaption, facetEmptyWords, facetRows, othersSet,
   type DateKey, type FacetKey, type Facets, type Filters,
 } from './filters';
 
 /** The menu that is open: a group of values, or the publication dates. */
 export type Menu = FacetKey | 'published';
 
-const GROUPS: readonly { key: FacetKey; label: string; field: keyof Omit<Facets, 'max_values'>; singular: string }[] = [
-  { key: 'source', label: 'Source', field: 'sources', singular: 'a source' },
-  { key: 'category', label: 'Category', field: 'categories', singular: 'a category' },
-  { key: 'author', label: 'Author', field: 'authors', singular: 'an author' },
+const GROUPS: readonly { key: FacetKey; label: string; field: keyof Omit<Facets, 'max_values'> }[] = [
+  { key: 'source', label: 'Source', field: 'sources' },
+  { key: 'category', label: 'Category', field: 'categories' },
+  { key: 'author', label: 'Author', field: 'authors' },
 ];
 
 /** How long a date being typed waits before it narrows the list, as the search box does. */
@@ -24,6 +24,8 @@ interface Props {
   facets: { data: Facets | undefined; error: Error | null; busy: boolean; stale: boolean };
   /** Whether the search box's words narrow the collection (they do not when it is ranked by meaning). */
   words: boolean;
+  /** How many papers the list holds under the words and every filter; null until it is read. */
+  matches: number | null;
   nameOf: (slug: string) => string;
   onMenu: (menu: Menu, open: boolean) => void;
   onToggle: (key: FacetKey, value: string) => void;
@@ -39,7 +41,7 @@ interface Props {
  * Native popovers: one open at a time, closed by Escape or a click outside,
  * and drawn above the list rather than pushing it down.
  */
-export function FacetMenus({ filters, facets, words, nameOf, onMenu, onToggle, onDate }: Props) {
+export function FacetMenus({ filters, facets, words, matches, nameOf, onMenu, onToggle, onDate }: Props) {
   const toggle = (menu: Menu) => (event: ToggleEvent<HTMLDivElement>) => onMenu(menu, event.newState === 'open');
   const dates = (filters.from ? 1 : 0) + (filters.to ? 1 : 0);
   const problem = dateRangeProblem(filters);
@@ -64,9 +66,7 @@ export function FacetMenus({ filters, facets, words, nameOf, onMenu, onToggle, o
                 <>
                   <p className="facet-caption">{facetCaption(group.key, scope, listed.length, facets.data.max_values)}</p>
                   {rows.length === 0 && (
-                    <p className="facet-empty">
-                      No paper {scope.words || scope.others ? 'that matches' : 'in your collection'} has {group.singular} recorded.
-                    </p>
+                    <p className="facet-empty">{facetEmptyWords(group.key, scope, matches)}</p>
                   )}
                   <ul className="facet-list" data-stale={facets.stale || undefined}>
                     {rows.map((row) => (

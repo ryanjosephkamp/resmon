@@ -242,6 +242,7 @@ export function Collection() {
               filters={filters}
               facets={{ data: facets.data, error: facets.error, busy: facets.isFetching, stale: facets.isPlaceholderData }}
               words={!!scope.query}
+              matches={first ? first.total : null}
               nameOf={nameOf}
               onMenu={(which, open) => setMenu((now) => (open ? which : now === which ? null : now))}
               onToggle={(key, value) => setParams(toggled(params, key, value))}

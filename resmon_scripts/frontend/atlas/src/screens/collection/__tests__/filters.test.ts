@@ -1,5 +1,5 @@
 import {
-  chips, countSentence, dateRangeProblem, engineFilters, exportedWords, exportWords, facetCaption, facetRows,
+  chips, countSentence, dateRangeProblem, engineFilters, exportedWords, exportWords, facetCaption, facetEmptyWords, facetRows,
   filterCount, narrowingWords, othersSet, readFilters, toggled, withDate, withoutFilters,
 } from '../filters';
 import { collectionFor } from '../../health/analyticsModel';
@@ -58,6 +58,21 @@ describe('the collection’s filters, held in the address', () => {
 });
 
 describe('what a count means, said where it is shown', () => {
+  test('a group with nothing to list says nothing matches when nothing does, and no value is recorded when papers match', () => {
+    expect(facetEmptyWords('source', { words: true, others: false }, 0))
+      .toBe('Nothing matches your words, so there is no source to choose.');
+    expect(facetEmptyWords('author', { words: true, others: true }, 0))
+      .toBe('Nothing matches your words and your other filters, so there is no author to choose.');
+    expect(facetEmptyWords('category', { words: false, others: true }, 0))
+      .toBe('Nothing matches your other filters, so there is no category to choose.');
+    expect(facetEmptyWords('source', { words: false, others: false }, 0))
+      .toBe('Your collection has no papers yet, so there is no source to choose.');
+    expect(facetEmptyWords('source', { words: true, others: false }, 12)).toBe('No paper that matches has a source recorded.');
+    expect(facetEmptyWords('author', { words: false, others: false }, 40)).toBe('No paper in your collection has an author recorded.');
+    // Until the list's count is read, nothing is said to match or not.
+    expect(facetEmptyWords('source', { words: true, others: false }, null)).toBe('No paper that matches has a source recorded.');
+  });
+
   test('each group’s caption names what its numbers count, and against what', () => {
     expect(facetCaption('source', { words: false, others: false }, 2, 30))
       .toBe('Each number counts the papers from that source in your collection. Tick several to see papers from any of them.');

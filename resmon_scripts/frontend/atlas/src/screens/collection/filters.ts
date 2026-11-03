@@ -173,6 +173,24 @@ export function facetCaption(key: FacetKey, scope: { words: boolean; others: boo
   return `Each number counts the papers ${each.with} ${against}. ${each.widen}${cut}`;
 }
 
+/**
+ * What a group's menu says when it lists nothing. Where nothing matches at
+ * all there is nothing to choose from, and it says that rather than that the
+ * papers that match have no source recorded. `matches` is the list's own
+ * count: a group with nothing listed has none of its own values ticked, so
+ * the list is narrowed by exactly what the group's counts are.
+ */
+export function facetEmptyWords(key: FacetKey, scope: { words: boolean; others: boolean }, matches: number | null): string {
+  const noun = { source: 'source', category: 'category', author: 'author' }[key];
+  if (matches === 0) {
+    const against = scope.words && scope.others ? 'your words and your other filters'
+      : scope.words ? 'your words' : scope.others ? 'your other filters' : null;
+    return against ? `Nothing matches ${against}, so there is no ${noun} to choose.`
+      : `Your collection has no papers yet, so there is no ${noun} to choose.`;
+  }
+  return `No paper ${scope.words || scope.others ? 'that matches' : 'in your collection'} has ${key === 'author' ? 'an' : 'a'} ${noun} recorded.`;
+}
+
 // ------------------------------------------------------------------ words
 
 const US_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
