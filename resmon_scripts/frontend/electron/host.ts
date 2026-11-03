@@ -1,15 +1,15 @@
 /**
  * resmon's app as the background service, and as the poster of its notifications.
  *
- * The background service used to be a bare Python process that launchd (or
- * systemd, or Task Scheduler) started. Nothing about it was resmon as far as
- * the OS could tell, so its notifications went out through `osascript` and
- * macOS credited every one to Script Editor: its name, its icon, and a click
- * that opened Script Editor. A process cannot post under another app's name,
- * so the app has to be the one posting, which means the app has to be running.
+ * A background service that is a bare Python process, started by launchd (or
+ * systemd, or Task Scheduler), is nothing the OS can tell is resmon, so its
+ * notifications would go out through `osascript` and macOS would credit every
+ * one to Script Editor: its name, its icon, and a click that opened Script
+ * Editor. A process cannot post under another app's name, so the app has to be
+ * the one posting, which means the app has to be running.
  *
  * Launched with `--service`, the app is that process: it starts the engine
- * (the same `implementation_scripts.daemon` the unit used to start) as its
+ * (`implementation_scripts.daemon`, the service's entry point) as its
  * child, keeps no window and no Dock icon, and stays up when a window it
  * opened is closed. A notification the engine sends to the listener here is
  * posted by the app, and clicking it opens the run. Opening resmon while the
@@ -90,7 +90,8 @@ export interface NoticeListener {
  *
  * `onNotice` says whether the app posted it. When it could not (no
  * notification support here), the answer is 503 and the engine posts the
- * notification itself, the old way, rather than the notification being lost.
+ * notification itself, through the operating system's own tool, rather than
+ * the notification being lost.
  */
 export function startNoticeListener(onNotice: (notice: Notice) => boolean): Promise<NoticeListener> {
   const token = crypto.randomBytes(32).toString('base64url');
