@@ -69,9 +69,9 @@ describe('whether a run summarized, with what, and how it went', () => {
     const said = runSummaries({
       status: 'completed', ai_lanes: [
         lane({ outcome: 'failed', docs_attempted: 0, docs_succeeded: 0, safe_message: 'No API key is stored.' }),
-        lane({ lane_label: 'Ollama · llama3', outcome: 'partial', docs_succeeded: 1, safe_message: 'one abstract was refused' }),
-        lane({ lane_label: 'Codex', outcome: 'skipped', docs_attempted: 0, docs_succeeded: 0 }),
-        lane({ lane_label: 'Claude Code', outcome: 'running' }),
+        lane({ lane_index: 1, lane_label: 'Ollama · llama3', outcome: 'partial', docs_succeeded: 1, safe_message: 'one abstract was refused' }),
+        lane({ lane_index: 2, lane_label: 'Codex', outcome: 'skipped', docs_attempted: 0, docs_succeeded: 0 }),
+        lane({ lane_index: 3, lane_label: 'Claude Code', outcome: 'running' }),
       ],
     }, [choice()]);
     expect(said.lanes).toEqual([
@@ -121,3 +121,24 @@ describe('which model wrote the summaries, and a lane that needs a sign-in', () 
     expect(needsSignIn(lane({ outcome: 'failed', error_kind: 'cli_auth' }))).toBe(false);
   });
 });
+
+describe('a connection that summarized nothing says why', () => {
+  const ANTHROPIC = 'Anthropic · claude-haiku-4-5-20251001';
+  test('the first connection, unusable, gives its own reason, and the run says nothing was written', () => {
+    const unusable = lane({
+      lane_label: ANTHROPIC, provider: 'anthropic', outcome: 'skipped', docs_attempted: 0, docs_succeeded: 0,
+      safe_message: 'No API key is stored for Anthropic.',
+    });
+    expect(laneSentence(unusable, false)).toBe(`${ANTHROPIC}: could not be used: No API key is stored for Anthropic.`);
+    const said = runSummaries({ status: 'completed', result_count: 10, ai_lanes: [unusable] }, [choice({ lane_source: 'settings' })]);
+    expect(said.note).toBe('No summary was written for this run.');
+  });
+
+  test('a later connection that was never reached is not needed, and the first one never is', () => {
+    expect(laneSentence(lane({ lane_index: 1, outcome: 'skipped', docs_attempted: 0, docs_succeeded: 0 }), false))
+      .toBe(`${CUSTOM}: not needed, because an earlier connection covered every paper.`);
+    expect(laneSentence(lane({ lane_index: 0, outcome: 'skipped', docs_attempted: 0, docs_succeeded: 0 }), false))
+      .toBe(`${CUSTOM}: summarized no paper, and recorded no reason.`);
+  });
+});
+
