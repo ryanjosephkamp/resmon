@@ -1,0 +1,73 @@
+---
+/**
+ * A page's title, set in a cartouche: the double-ruled block the app sets its
+ * plate's title in. One per page, holding the page's only h1.
+ */
+interface Props {
+  title: string;
+  /** The part of the site the page belongs to, set before the line under the title. */
+  section?: string;
+  /** The line under the title. */
+  meta?: string;
+}
+const { title, section, meta } = Astro.props;
+---
+
+<header class="cartouche">
+  <h1>{title}</h1>
+  {
+    (section || meta) && (
+      <p class="meta">
+        {section && <span class="section">{section}</span>}
+        {meta && <span>{meta}</span>}
+      </p>
+    )
+  }
+  <slot />
+</header>
+
+<style>
+  .cartouche {
+    margin-bottom: var(--space-6);
+    padding: var(--space-5) var(--space-5) var(--space-4);
+    background: var(--color-canvas);
+    border: var(--border-width) solid var(--color-border-strong);
+    box-shadow:
+      inset 0 0 0 var(--space-1) var(--color-canvas),
+      inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border);
+  }
+
+  h1 {
+    margin: 0;
+    font-size: var(--text-3xl);
+    line-height: var(--leading-display);
+  }
+
+  .meta {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1) var(--space-3);
+    margin: var(--space-3) 0 0;
+    max-width: var(--measure);
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .section {
+    font-weight: var(--weight-semibold);
+    color: var(--color-text);
+  }
+
+  @media (min-width: 40rem) {
+    .meta {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+
+    .section::after {
+      content: '\00B7';
+      margin-inline-start: var(--space-3);
+      color: var(--color-text-faint);
+    }
+  }
+</style>

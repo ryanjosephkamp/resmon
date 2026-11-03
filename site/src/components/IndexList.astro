@@ -1,9 +1,8 @@
 ---
 /**
- * A numbered index in the site's listing form: `[n]`, a title that links,
- * a one-line description, and where the page comes from in the repository.
- * The guide and reference indexes use it, so they read like the source
- * listing on the home page rather than as a grid of cards.
+ * An index of pages: a title that links, a one-line description, and where
+ * the page comes from in the repository, ruled like the app's own lists. The
+ * guide and reference indexes use it.
  */
 interface Row {
   href: string;
@@ -13,17 +12,14 @@ interface Row {
 }
 interface Props {
   rows: Row[];
-  /** Number from here, so a second list on one page continues the first. */
-  start?: number;
 }
-const { rows, start = 1 } = Astro.props;
+const { rows } = Astro.props;
 ---
 
 <ol class="index">
   {
-    rows.map((row, i) => (
+    rows.map((row) => (
       <li>
-        <span class="index-n mono">[{start + i}]</span>
         <span class="index-body">
           <a href={row.href}>{row.title}</a>
           {row.description && <span class="index-desc">{row.description}</span>}
@@ -44,17 +40,9 @@ const { rows, start = 1 } = Astro.props;
   }
 
   .index li {
-    display: grid;
-    grid-template-columns: var(--entry-number) 1fr;
     margin: 0;
     padding-block: var(--space-3);
     border-bottom: var(--border-width) solid var(--color-border);
-  }
-
-  .index-n {
-    font-size: var(--text-sm);
-    color: var(--color-text-faint);
-    padding-top: var(--space-1);
   }
 
   .index-body {
@@ -63,8 +51,8 @@ const { rows, start = 1 } = Astro.props;
   }
 
   .index-body a {
-    font-size: var(--text-entry);
-    font-weight: var(--weight-heavy);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
     letter-spacing: var(--tracking-tight);
     line-height: var(--leading-tight);
     text-decoration-color: transparent;

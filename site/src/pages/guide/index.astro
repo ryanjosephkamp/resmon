@@ -6,6 +6,7 @@
 import { getCollection } from 'astro:content';
 import Base from '../../layouts/Base.astro';
 import IndexList from '../../components/IndexList.astro';
+import Cartouche from '../../components/Cartouche.astro';
 import { url } from '../../lib/urls';
 
 const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.data.order);
@@ -17,10 +18,7 @@ const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.dat
   path="/guide/"
   width="wide"
 >
-  <header class="page-head">
-    <h1>Guide</h1>
-    <p class="lede">Installing, running, and configuring resmon, a page per topic.</p>
-  </header>
+  <Cartouche title="Guide" meta="Installing, running, and configuring resmon, a page per topic." />
 
   <IndexList
     rows={guide.map((entry) => ({
@@ -30,20 +28,3 @@ const guide = (await getCollection('guide')).sort((a, b) => a.data.order - b.dat
     }))}
   />
 </Base>
-
-<style>
-  .page-head {
-    padding-bottom: var(--space-4);
-    border-bottom: var(--border-width-heavy) solid var(--color-rule-heavy);
-  }
-
-  h1 {
-    margin-top: 0;
-  }
-
-  .lede {
-    color: var(--color-text-muted);
-    max-width: var(--measure);
-    margin: 0;
-  }
-</style>

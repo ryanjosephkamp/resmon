@@ -6,6 +6,7 @@
  */
 import Base from '../layouts/Base.astro';
 import { url } from '../lib/urls';
+import Cartouche from '../components/Cartouche.astro';
 ---
 
 <Base
@@ -13,19 +14,10 @@ import { url } from '../lib/urls';
   description="That page is not on this site."
   path="/404.html"
 >
-  <h1>Page not found</h1>
-  <p>
-    There is nothing at that address. These pages are the places to start.
-  </p>
+  <Cartouche title="Page not found" meta="There is nothing at that address. These pages are the places to start." />
   <ul>
     <li><a href={url('/')}>Home</a></li>
     <li><a href={url('/guide/')}>Guide</a></li>
     <li><a href={url('/reference/')}>Reference documents</a></li>
   </ul>
 </Base>
-
-<style>
-  h1 {
-    margin-top: 0;
-  }
-</style>
