@@ -299,3 +299,32 @@ export function findSelection(text: string, selected: string): { start: number; 
   }
   return first ? { ...first, count } : null;
 }
+
+/**
+ * Where the words are, literally, in a page's canonical text: each place, as a
+ * UTF-16 offset, in order, the next one starting after the last one ends, so
+ * the count is the count a person reading would make.
+ */
+export function literalMatches(text: string, words: string): number[] {
+  const at: number[] = [];
+  if (!words) return at;
+  for (let i = text.indexOf(words); i >= 0; i = text.indexOf(words, i + words.length)) at.push(i);
+  return at;
+}
+
+/**
+ * The match a find on a page's text goes to, by its index in `matches`. From
+ * the match the text has selected, the next one, or the previous going back,
+ * wrapping at either end; from anywhere else, the first at or after the
+ * selection going forward, or the last before it going back.
+ */
+export function stepMatch(matches: readonly number[], length: number, selection: { start: number; end: number }, back: boolean): number {
+  const shown = selection.end - selection.start === length ? matches.indexOf(selection.start) : -1;
+  if (shown >= 0) return (shown + (back ? matches.length - 1 : 1)) % matches.length;
+  if (back) {
+    for (let i = matches.length - 1; i >= 0; i -= 1) if (matches[i]! < selection.start) return i;
+    return matches.length - 1;
+  }
+  const next = matches.findIndex((at) => at >= selection.start);
+  return next >= 0 ? next : 0;
+}

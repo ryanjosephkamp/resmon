@@ -1,7 +1,7 @@
 import { Drawer } from '../pdfDocument';
 import {
   CSS_UNITS, FOCUS_ZOOM, OPENING_ZOOM, PAGE_GAP, PAGE_PAD, allot, anchorAt, currentPage, explicitDest, findSelection, keptPages, layout,
-  linkBox, linkTarget, stepZoom, topOf, webHref, zoomPercent, zoomScale,
+  linkBox, linkTarget, literalMatches, stepMatch, stepZoom, topOf, webHref, zoomPercent, zoomScale,
 } from '../readerModel';
 
 const LETTER = { width: 612, height: 792 };
@@ -176,4 +176,35 @@ test('the drawer runs the nearest job first, a few at a time, and withdraws a jo
   drawer.stop();
   await new Promise((resolve) => setTimeout(resolve, 20));
   expect(aborted).toBe(true);
+});
+
+describe('find on a page\'s text steps through its matches, as the PDF\'s find does', () => {
+  const TEXT = 'The wombat dug. A second wombat slept.';
+  const all = literalMatches(TEXT, 'wombat');
+  const at = (i: number) => ({ start: all[i]!, end: all[i]! + 'wombat'.length });
+
+  test('every literal match, in order, each after the one before it ends', () => {
+    expect(all).toEqual([4, 25]);
+    expect(literalMatches('aaaa', 'aa')).toEqual([0, 2]);
+    expect(literalMatches(TEXT, 'Wombat')).toEqual([]);
+    expect(literalMatches(TEXT, '')).toEqual([]);
+  });
+
+  test('Enter goes to the next and Shift+Enter to the previous, wrapping at either end', () => {
+    const nothing = { start: 0, end: 0 };
+    expect(stepMatch(all, 6, nothing, false)).toBe(0);
+    expect(stepMatch(all, 6, at(0), false)).toBe(1);
+    expect(stepMatch(all, 6, at(1), false)).toBe(0);
+    expect(stepMatch(all, 6, at(1), true)).toBe(0);
+    expect(stepMatch(all, 6, at(0), true)).toBe(1);
+    expect(stepMatch(all, 6, nothing, true)).toBe(1);
+  });
+
+  test('from a selection that is not a match, it goes from where the selection is', () => {
+    expect(stepMatch(all, 6, { start: 10, end: 14 }, false)).toBe(1);
+    expect(stepMatch(all, 6, { start: 10, end: 14 }, true)).toBe(0);
+    expect(stepMatch(all, 6, { start: 30, end: 30 }, false)).toBe(0);
+    // Words made longer keep the place: the match that begins where the shorter one did.
+    expect(stepMatch(all, 6, { start: 25, end: 28 }, false)).toBe(1);
+  });
 });

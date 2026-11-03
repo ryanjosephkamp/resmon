@@ -1173,7 +1173,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await reader.getByLabel('Find on this page’s text', { exact: true }).fill(quote);
       await reader.getByRole('button', { name: 'Find', exact: true }).click();
       await expect(reader.locator('[data-evidence="found"]'), `the reader never reported searching for "${quote}"`)
-        .toHaveText(/^\d+ literal match(es)? on this page’s text only\.$/, { timeout: 30_000 });
+        .toHaveText(/^\d+ of \d+ literal match(es)? on this page’s text only\.$/, { timeout: 30_000 });
       const use = reader.getByRole('button', { name: 'Use selected passage', exact: true });
       await expect(use, `the reader found no "${quote}" to use`).toBeEnabled({ timeout: 30_000 });
       await use.click();
