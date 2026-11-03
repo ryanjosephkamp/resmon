@@ -328,17 +328,33 @@ def _codex_catalog(binary_path: str | None) -> SubscriptionCatalog:
             models=[], provenance="", error=discovery.describe(),
         )
 
+    from .assistant_runtime import _child_env  # noqa: PLC0415 - the environment every CLI call runs in
+
     try:
         completed = subprocess.run(
             [discovery.path or "", "debug", "models"],
             capture_output=True, text=True, timeout=_CLI_CATALOG_TIMEOUT,
-            stdin=subprocess.DEVNULL, check=False, **hidden_window_kwargs(),
+            stdin=subprocess.DEVNULL, check=False, env=_child_env(discovery.path),
+            **hidden_window_kwargs(),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         logger.info("codex debug models did not answer: %s", exc)
         return SubscriptionCatalog(
             models=[], provenance="",
             error="The codex command did not answer with its model catalog.",
+        )
+
+    if completed.returncode != 0:
+        # The command failed before it could list anything, which is not a
+        # shape it answered in. Say what it said, as the sign-in check does.
+        said = next((line.strip() for line in (completed.stderr or "").splitlines() if line.strip()), "")
+        logger.info("codex debug models exited %s", completed.returncode)
+        return SubscriptionCatalog(
+            models=[], provenance="",
+            error=(
+                f"The codex command could not list its models{f'. It said: {said[:200]}' if said else ''}. "
+                "Type a model name instead."
+            ),
         )
 
     try:
@@ -349,12 +365,12 @@ def _codex_catalog(binary_path: str | None) -> SubscriptionCatalog:
     except (ValueError, TypeError, KeyError):
         # `debug` is not a stable interface. A shape change costs the dropdown
         # and nothing else; free text still reaches the CLI.
-        logger.info("codex debug models returned an unrecognised shape.")
+        logger.info("codex debug models returned an unrecognized shape.")
         return SubscriptionCatalog(
             models=[], provenance="",
             error=(
                 "The codex command's model catalog was not in a shape resmon "
-                "recognises. Type a model name instead."
+                "recognizes. Type a model name instead."
             ),
         )
 

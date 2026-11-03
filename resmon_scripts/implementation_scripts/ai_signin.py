@@ -279,7 +279,7 @@ def check_sign_in(
     if env is None:
         from .assistant_runtime import _child_env  # noqa: PLC0415 - the lanes' own environment
 
-        env = _child_env()
+        env = _child_env(binary)
     try:
         completed = run(
             status_argv(provider, binary), capture_output=True, text=True,

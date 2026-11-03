@@ -634,7 +634,7 @@ class ClaudeCliRuntime(AssistantRuntime):
             # user's login; it does not need resmon's, and it must not inherit
             # RESMON_PORT from this process -- the MCP config sets that per
             # server, deliberately and explicitly.
-            env=_child_env(),
+            env=_child_env(argv[0] if argv else None),
         )
         with _PROCESS_LOCK:
             _PROCESSES[session_id] = process
@@ -723,7 +723,7 @@ class ClaudeCliRuntime(AssistantRuntime):
             config = os.path.join(workdir, "mcp.json")
             Path(config).write_text('{"mcpServers":{}}', encoding='utf-8')
             argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
-            source_env = _child_env()
+            source_env = _child_env(argv[0] if argv else None)
             env = {k: source_env[k] for k in ('HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SYSTEMROOT','WINDIR') if k in source_env}
             def consume(stream: Any, label: str) -> None:
                 try:
@@ -1417,7 +1417,7 @@ class CodexCliRuntime(AssistantRuntime):
         process = subprocess.Popen(
             argv, cwd=workdir, stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            text=True, bufsize=1, env=_child_env(), **hidden_window_kwargs(),
+            text=True, bufsize=1, env=_child_env(argv[0] if argv else None), **hidden_window_kwargs(),
         )
         with _PROCESS_LOCK:
             _PROCESSES[session_id] = process
@@ -1894,8 +1894,9 @@ def _lines_with_timeout(
         yield item
 
 
-def _child_env() -> dict:
-    """The environment the CLI runs in: the user's own, minus resmon's.
+def _child_env(binary: Optional[str] = None) -> dict:
+    """The environment the CLI runs in: the user's own, minus resmon's, with the
+    folder the command was found in first on PATH (``ai_cli.with_command_dir``).
 
     **A denylist, and it started as an allowlist that broke the feature
     outright.** The concern is real and narrow: ``RESMON_PORT`` and the
@@ -1918,9 +1919,11 @@ def _child_env() -> dict:
     matches it — the CLI is the user's own, running as the user, and the only
     thing it must not see is resmon's idea of where resmon is.
     """
+    from .ai_cli import with_command_dir  # noqa: PLC0415
+
     env = {k: v for k, v in os.environ.items() if not k.startswith("RESMON_")}
     env.setdefault("PATH", os.defpath)
-    return env
+    return with_command_dir(env, binary)
 
 
 def _bundled_python() -> str:
