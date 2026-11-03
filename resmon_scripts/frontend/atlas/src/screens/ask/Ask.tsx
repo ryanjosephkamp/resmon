@@ -8,7 +8,7 @@ import { CliSignIn } from '../settings/CliSignIn';
 import { listFor, useModelList } from '../settings/ModelField';
 import { LAST_ANSWERED_KEY, lastFor, modelOptionWords, readLastAnswered } from '../settings/modelWords';
 import { refusal } from '../settings/ProviderKey';
-import { effortsFor } from '../settings/summaryLanes';
+import { effortsFor, routeSentence } from '../settings/summaryLanes';
 import { ask, type Bound, type ChoiceRequest, type Choices, type Detail, type Message, type TurnChoices, type TurnFailure } from './askApi';
 import {
   answerFooterWords, answeredWords, basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall,
@@ -514,6 +514,8 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
   // Which model each alias last resolved to, from answers already kept.
   const last = useQuery({ queryKey: LAST_ANSWERED_KEY, queryFn: readLastAnswered, enabled: cli || codex, refetchOnMount: 'always' });
   const command = codex ? 'codex' : 'claude_code';
+  // What the command's sign-in check below answered, so Codex's reason does not still call its sign-in unverified.
+  const [signIn, setSignIn] = useState<string | null>(null);
   const modelWords = (model: string) => modelOptionWords(command, model, lastFor(last.data, command, model), choices.claude_aliases);
   // Codex lists its own models, and each one's effort levels, when asked
   // (`codex debug models`, run by the engine). Asked on Load models, never on
@@ -610,8 +612,12 @@ function ChoiceControls({ choices, value, onChange, legacy }: {
           a command, the command itself is asked whether it is signed in, which says more than the
           engine's "sign-in unverified" can; model acceptance is in the limits below. Codex's reason
           also says what it is given: resmon's read-only tools only. */}
-      {connection?.available && !cli && <p className="conv-quiet conv-reason" data-ask="connection-reason">{connection.reason}</p>}
-      {(cli || codex) && connection?.available && <CliSignIn key={command} provider={command} purpose="ask" checkOnOpen />}
+      {connection?.available && !cli && (
+        <p className="conv-quiet conv-reason" data-ask="connection-reason">
+          {codex ? routeSentence('codex_cli', true, connection.reason, true, signIn) : connection.reason}
+        </p>
+      )}
+      {(cli || codex) && connection?.available && <CliSignIn key={command} provider={command} purpose="ask" checkOnOpen onAnswer={setSignIn} />}
       {!value && choices.default_error && <p className="conv-quiet">{choices.default_error}</p>}
       <details className="conv-limits">
         <summary>What these choices establish</summary>

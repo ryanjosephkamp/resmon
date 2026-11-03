@@ -40,6 +40,16 @@ describe('signing in through the command’s own login', () => {
     expect(screen.getByRole('group', { name: 'Claude Code sign-in' })).toHaveAttribute('data-state', 'signed_in');
   });
 
+  test('it tells the screen what the check answered, and nothing until it has', async () => {
+    GET.mockReturnValue(reply(checked('signed_in', 'The Claude Code command is signed in as r@example.com (max).')));
+    const onAnswer = jest.fn();
+    const { unmount } = mount(<CliSignIn provider="claude_code" purpose="ask" checkOnOpen onAnswer={onAnswer} />);
+    expect(onAnswer).toHaveBeenLastCalledWith(null);
+    await waitFor(() => expect(onAnswer).toHaveBeenLastCalledWith('signed_in'));
+    unmount();
+    expect(onAnswer).toHaveBeenLastCalledWith(null);
+  });
+
   test('under a failure it runs nothing until Check again', async () => {
     GET.mockReturnValue(reply(checked('expired', 'The Claude Code command’s sign-in has expired. Sign in again through it.')));
     mount(<CliSignIn provider="claude_code" purpose="summaries" checkOnOpen={false} />);

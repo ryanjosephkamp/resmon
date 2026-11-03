@@ -116,6 +116,10 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
     await expect(signIn).toHaveAttribute('data-state', 'signed_in', { timeout: 30_000 });
     await expect(signIn).toContainText('The Codex command is signed in, with ChatGPT.');
     await expect(pane.locator('[data-ask="connection-reason"]')).toContainText('read-only tools only');
+    // Beside a sign-in the command has just confirmed, only whether the model accepts a message is unverified.
+    await expect(pane.locator('[data-ask="connection-reason"]'))
+      .toContainText('Codex command found; whether the model accepts a message is unverified until the first message.');
+    await expect(pane.locator('[data-ask="connection-reason"]')).not.toContainText('sign-in');
     await expect(pane.locator('[data-ask="model-words"]')).toHaveText('Model: The command’s default.');
 
     // — Codex's own models, and each one's effort levels, when asked ----------------------
@@ -243,6 +247,9 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
       assistant_runtime: 'codex_cli', assistant_model: 'gpt-5.5-codex', assistant_effort: 'medium' });
     await expect(routes.locator('li').first()).toHaveAttribute('data-kind', 'codex_cli');
     await expect(win.locator('section[aria-labelledby="ai-assistant"] [data-ai="sign-in"]')).toHaveAttribute('aria-label', 'Codex sign-in');
+    await expect(win.locator('section[aria-labelledby="ai-assistant"] [data-ai="sign-in"]')).toHaveAttribute('data-state', 'signed_in', { timeout: 30_000 });
+    await expect(routes.locator('li').first()).toContainText('whether the model accepts a message is unverified until the first message');
+    await expect(routes.locator('li').first()).not.toContainText('sign-in');
     await shoot(app, win, 'atlas-ask-codex-default', form);
     await win.evaluate(() => { window.location.hash = '#/ask'; });
     await win.getByRole('region', { name: 'Saved chats' }).getByRole('button', { name: 'New conversation' }).click();
