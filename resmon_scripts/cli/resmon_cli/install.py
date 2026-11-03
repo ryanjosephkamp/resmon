@@ -49,7 +49,11 @@ def describe(package_file: str, app_version: Optional[str] = None) -> str:
     if app_version is None:
         return f"resmon {__version__} (installed from source: {package_file})"
     archive = archive_of(package_file)
-    return f"resmon {app_version} (the command line inside the resmon app: {app_folder(archive)})"
+    folder = app_folder(archive)
+    if folder == archive:
+        # A copy kept outside the app (the Linux install): not inside it, so it does not say so.
+        return f"resmon {app_version} (the resmon app's command line: {archive})"
+    return f"resmon {app_version} (the command line inside the resmon app: {folder})"
 
 
 def app_version() -> Optional[str]:

@@ -596,7 +596,7 @@ def test_python_m_resmon_cli_runs_in_a_process_of_its_own(service):
     ("C:\\Users\\me\\AppData\\Local\\Programs\\resmon\\resources\\backend\\resmon.pyz\\resmon_cli",
      "resmon 1.2.3 (the command line inside the resmon app: C:\\Users\\me\\AppData\\Local\\Programs\\resmon)"),
     ("/home/me/.local/share/resmon/resmon.pyz/resmon_cli",
-     "resmon 1.2.3 (the command line inside the resmon app: /home/me/.local/share/resmon/resmon.pyz)"),
+     "resmon 1.2.3 (the resmon app's command line: /home/me/.local/share/resmon/resmon.pyz)"),
 ])
 def test_the_app_s_command_line_names_its_app_and_version(package_file, expected):
     assert cli_install.describe(package_file, "1.2.3") == expected
