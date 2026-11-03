@@ -424,3 +424,11 @@ describe('the Metadata tab labels the stage by whether the run has ended', () =>
     expect(container.textContent).not.toContain('Last stage');
   });
 });
+
+test('the Metadata tab says a run\'s dates in words, as the rest of the run page does', () => {
+  const run = { id: 7, status: 'completed', parameters: JSON.stringify({ date_from: '2026-10-01', date_to: '2026-10-31', keywords: ['agents'] }) };
+  const { container } = render(<Metadata run={run as unknown as Parameters<typeof Metadata>[0]['run']} names={new Map()} />);
+  expect(container.textContent).toContain('Date fromOctober 1, 2026');
+  expect(container.textContent).toContain('Date toOctober 31, 2026');
+  expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+});
