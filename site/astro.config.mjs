@@ -1,5 +1,6 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
+import { fileURLToPath } from 'node:url';
 
 /**
  * The site is published by GitHub Pages from the repository's ``docs/`` folder,
@@ -31,8 +32,25 @@ export default defineConfig({
     // a name that does not depend on it is one less thing to get wrong.
     assets: 'static',
   },
-  // Content pages ship no client JavaScript at all, so there is nothing to
-  // prefetch and nothing to hydrate.
+  // Nothing to prefetch: a page's few scripts are its own.
   prefetch: false,
   devToolbar: { enabled: false },
+  /*
+   * The home page's plate is the app's own map component
+   * (`resmon_scripts/frontend/atlas/src/screens/today/Plate.tsx`), imported as it is
+   * and run on Preact, which takes React's API in a small fraction of its bytes. So
+   * JSX compiles for Preact, `react` is Preact's compatibility layer, and Preact
+   * resolves from this site's own dependencies even for files outside `site/`.
+   */
+  vite: {
+    esbuild: { jsx: 'automatic', jsxImportSource: 'preact' },
+    resolve: {
+      alias: [
+        { find: /^react$/, replacement: 'preact/compat' },
+        { find: /^react-dom$/, replacement: 'preact/compat' },
+      ],
+      dedupe: ['preact'],
+    },
+    server: { fs: { allow: [fileURLToPath(new URL('..', import.meta.url))] } },
+  },
 });

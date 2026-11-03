@@ -8,18 +8,25 @@
  * under the plate where every corner would.
  *
  * Everything is laid out at build time (`../lib/plate.ts`, with the app's own
- * map model) and drawn as inline SVG, so the plate takes the page's colors in
- * either scheme and needs no script. The one motion on the page is here: the
- * new papers light one after another, in the order they were collected, on
- * the plate and in the index at once. With motion reduced they are drawn lit.
- * Pointing at an entry rings its paper, and pointing at a ring marks its
- * entry, through `:has()`; where that is not supported, nothing is lost but
- * the pairing.
+ * map model) and drawn as inline SVG, so the plate is on the first paint, in
+ * the page's colors, with or without scripts. The new papers light one after
+ * another, in the order they were collected, on the plate and in the index at
+ * once, on the app's own schedule; with motion reduced they are drawn lit.
+ *
+ * Then the page's script (`../islands/today.tsx`) draws the same plate with
+ * the app's own map component over this one, in place, and from there it is
+ * the app's: it zooms, pans, names the paper under the pointer, and chooses a
+ * paper with the index. Without the script, pointing at an entry still rings
+ * its paper through `:has()`.
+ *
+ * The page's styles here are global, under `.today`, because the live plate's
+ * markup is the app component's, which this file's scoped styles cannot reach.
  */
 import * as plate from '../lib/plate';
 import { sourceName } from '../lib/sources';
+import { url } from '../lib/urls';
 
-const { SIZE, frame, grid, margins, stars, shading, outlines, constellations, regionLabels, watchNames, rings } = plate;
+const { SIZE, frame, grid, margins, stars, shading, outlines, constellations, regionLabels, watchNames, rings, lightAt } = plate;
 const inner = frame.inner;
 const paired = rings
   .map(({ n }) =>
@@ -31,9 +38,10 @@ const paired = rings
   .join('\n');
 ---
 
-<section class="today" aria-labelledby="index-title">
+<section class="today" aria-labelledby="index-title" data-today>
   <figure class="plate-figure">
-    <div class:list={['plate', `corner-${plate.corner}`]}>
+    <div class:list={['chart', `corner-${plate.corner}`]}>
+      <div class="plate-box">
       <svg class="sky" viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={plate.plateLabel}>
         <defs>
           <clipPath id="plate-inner">
@@ -62,7 +70,7 @@ const paired = rings
           ))}
           <g class="rings" aria-hidden="true">
             {rings.map((ring) => (
-              <g class="ring" data-ring={ring.n} style={`--n: ${ring.n}`}>
+              <g class="ring" data-ring={ring.n} style={`--at: ${ring.at}`}>
                 <circle class="pointed" cx={ring.x} cy={ring.y} r="7.5" />
                 <circle class="hit" cx={ring.x} cy={ring.y} r="9" />
                 <circle class="mark" cx={ring.x} cy={ring.y} r={plate.ringRadius} />
@@ -85,6 +93,8 @@ const paired = rings
           ))}
         </g>
       </svg>
+      <div class="plate-live" data-plate-live data-sky={url('/plate/sky.json')} data-papers={url('/plate/papers.json')}></div>
+      </div>
 
       <aside class="cartouche" aria-label="Today in brief">
         <p class="date">{plate.dateLine}</p>
@@ -124,10 +134,11 @@ const paired = rings
     <header class="index-bar">
       <h2 id="index-title">{plate.heading} <span class="index-total">{plate.total}</span></h2>
     </header>
+    <div class="paper-panel" data-paper-panel hidden></div>
     <div class="index-scroll" tabindex="0" role="region" aria-labelledby="index-title">
       {
         plate.groups.map((group) => (
-          <section class="group" aria-label={group.name}>
+          <section class="group" aria-label={group.name} data-watch={group.id}>
             <div class="ghead">
               <h3 class="name">{group.name}</h3>
               <span class="gcount">{group.total}</span>
@@ -135,7 +146,7 @@ const paired = rings
             <p class="gsub">{group.run}</p>
             <ol class="entries">
               {group.papers.map((paper) => (
-                <li class="entry" data-entry={paper.n} style={`--n: ${paper.n}`}>
+                <li class="entry" data-entry={paper.n} data-paper={paper.id} style={`--at: ${lightAt.get(paper.id) ?? 0}`}>
                   <span class="badge" aria-label={`Number ${paper.n}`}>{paper.n}</span>
                   <div class="entry-body">
                     <h4>
@@ -202,7 +213,11 @@ const paired = rings
 
 <style is:global set:html={paired}></style>
 
-<style>
+<script>
+  import '../islands/today.tsx';
+</script>
+
+<style is:global>
   .today {
     display: grid;
     gap: var(--space-5);
@@ -210,64 +225,68 @@ const paired = rings
 
   /* ---- The plate ------------------------------------------------------ */
 
-  .plate-figure {
+  .today .plate-figure {
     margin: 0;
     min-width: 0;
   }
 
-  .plate {
+  .today .chart {
     position: relative;
   }
 
-  .sky {
+  .today .plate-box {
+    position: relative;
+  }
+
+  .today .sky {
     display: block;
     width: 100%;
     height: auto;
     font-family: var(--font-sans);
   }
 
-  .ground {
+  .today .ground {
     fill: var(--color-canvas);
   }
 
-  .grid {
+  .today .grid {
     fill: none;
     stroke: var(--color-grid);
     stroke-width: 1;
   }
 
-  .shading {
+  .today .shading {
     fill: var(--color-star);
     opacity: var(--shading-strength);
   }
 
-  .outline {
+  .today .outline {
     fill: none;
     stroke: var(--color-bound);
     stroke-width: 1;
     stroke-dasharray: 3 3.5;
   }
 
-  .band {
+  .today .band {
     fill: none;
     stroke: var(--color-band);
     stroke-width: 0.75;
   }
 
-  .stars {
+  .today .stars {
     fill: none;
     stroke: var(--color-star);
     stroke-linecap: round;
   }
 
-  .sky text {
+  .today .sky text {
     paint-order: stroke;
     stroke: var(--color-canvas);
     stroke-linejoin: round;
     dominant-baseline: middle;
   }
 
-  .region {
+  .today .region {
     font-size: var(--plate-text-region);
     font-weight: 560;
     fill: var(--color-text-muted);
@@ -275,7 +294,7 @@ const paired = rings
     text-anchor: middle;
   }
 
-  .watch {
+  .today .watch {
     font-family: var(--font-serif);
     font-style: italic;
     font-size: var(--plate-text-watch);
@@ -284,22 +303,23 @@ const paired = rings
     text-anchor: middle;
   }
 
-  .ring {
-    animation: light var(--duration-fill) var(--ease) both;
-    animation-delay: calc(var(--light-start) + var(--n) * var(--light-step));
+  /* A new paper's ring appears at its turn, as the app's canvas draws it; `--at` is its turn in milliseconds. */
+  .today .ring {
+    animation: ring-on var(--duration-fast) var(--ease) both;
+    animation-delay: calc(var(--at) * var(--ms));
   }
 
-  .ring .mark {
+  .today .ring .mark {
     fill: none;
     stroke: var(--color-accent-mark);
     stroke-width: 1.25;
   }
 
-  .ring .core {
+  .today .ring .core {
     fill: var(--color-star);
   }
 
-  .ring .pointed {
+  .today .ring .pointed {
     fill: none;
     stroke: var(--color-accent-mark);
     stroke-width: 1.25;
@@ -307,31 +327,31 @@ const paired = rings
     transition: opacity var(--duration-fast) var(--ease);
   }
 
-  .ring .hit {
+  .today .ring .hit {
     fill: transparent;
     pointer-events: all;
   }
 
-  .ring-n {
+  .today .ring-n {
     font-size: var(--plate-text-number);
     font-weight: 620;
     fill: var(--color-accent-text);
     stroke-width: 3;
   }
 
-  .neat {
+  .today .neat {
     fill: none;
     stroke: var(--color-frame);
     stroke-width: 1;
   }
 
-  .neat-outer {
+  .today .neat-outer {
     fill: none;
     stroke: var(--color-frame);
     stroke-width: 0.5;
   }
 
-  .margins text {
+  .today .margins text {
     font-size: var(--plate-text-margin);
     font-weight: 500;
     fill: var(--color-text-faint);
@@ -349,9 +369,19 @@ const paired = rings
     }
   }
 
+  @keyframes ring-on {
+    from {
+      opacity: 0;
+    }
+
+    to {
+      opacity: 1;
+    }
+  }
+
   /* ---- The title block: the app's, in the plate's emptiest corner ------ */
 
-  .cartouche {
+  .today .cartouche {
     margin-top: var(--space-4);
     padding: var(--space-4) var(--space-5);
     background: var(--color-canvas);
@@ -361,17 +391,17 @@ const paired = rings
       inset 0 0 0 calc(var(--space-1) + var(--border-width)) var(--color-border);
   }
 
-  .cartouche p {
+  .today .cartouche p {
     margin: 0;
   }
 
-  .date {
+  .today .date {
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     font-variant-numeric: tabular-nums;
   }
 
-  .count {
+  .today .count {
     margin-top: var(--space-2);
     font-size: var(--text-xl);
     font-weight: var(--weight-semibold);
@@ -379,13 +409,13 @@ const paired = rings
     line-height: var(--leading-tight);
   }
 
-  .since {
+  .today .since {
     margin-top: var(--space-1);
     color: var(--color-text-muted);
     font-size: var(--text-sm);
   }
 
-  .split {
+  .today .split {
     margin: var(--space-3) 0 0;
     padding: var(--space-3) 0 0;
     list-style: none;
@@ -393,16 +423,16 @@ const paired = rings
     font-size: var(--text-sm);
   }
 
-  .split li + li {
+  .today .split li + li {
     margin-top: var(--space-1);
   }
 
-  .split b {
+  .today .split b {
     font-weight: var(--weight-semibold);
     font-variant-numeric: tabular-nums;
   }
 
-  .name {
+  .today .name {
     font-family: var(--font-serif);
     font-style: italic;
     font-weight: var(--weight-normal);
@@ -410,13 +440,13 @@ const paired = rings
 
   /* ---- The key and where the plate came from --------------------------- */
 
-  figcaption {
+  .today figcaption {
     margin-top: var(--space-3);
     font-size: var(--text-xs);
     color: var(--color-text-muted);
   }
 
-  .key {
+  .today .key {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2) var(--space-5);
@@ -425,25 +455,25 @@ const paired = rings
     list-style: none;
   }
 
-  .key li {
+  .today .key li {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
     margin: 0;
   }
 
-  .ages {
+  .today .ages {
     gap: var(--space-3);
   }
 
-  .age {
+  .today .age {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
     font-variant-numeric: tabular-nums;
   }
 
-  .dot {
+  .today .dot {
     display: inline-block;
     width: var(--space-2);
     height: var(--space-2);
@@ -452,13 +482,13 @@ const paired = rings
     transform: scale(var(--s, 1));
   }
 
-  .dot-0 { --s: 0.92; }
-  .dot-1 { opacity: 0.86; --s: 0.72; }
-  .dot-2 { opacity: 0.7; --s: 0.56; }
-  .dot-3 { opacity: 0.58; --s: 0.44; }
-  .dot-4 { opacity: 0.5; --s: 0.34; }
+  .today .dot-0 { --s: 0.92; }
+  .today .dot-1 { opacity: 0.86; --s: 0.72; }
+  .today .dot-2 { opacity: 0.7; --s: 0.56; }
+  .today .dot-3 { opacity: 0.58; --s: 0.44; }
+  .today .dot-4 { opacity: 0.5; --s: 0.34; }
 
-  .ring-key {
+  .today .ring-key {
     width: var(--space-3);
     height: var(--space-3);
     border-radius: 50%;
@@ -466,19 +496,19 @@ const paired = rings
     background: radial-gradient(circle, var(--color-star) 0 18%, transparent 22%);
   }
 
-  .bound-key {
+  .today .bound-key {
     width: var(--space-5);
     border-top: var(--border-width) dashed var(--color-bound);
   }
 
-  .shade-key {
+  .today .shade-key {
     width: var(--space-4);
     height: var(--space-3);
     background: var(--color-surface);
     border: var(--border-width) solid var(--color-border);
   }
 
-  .provenance {
+  .today .provenance {
     margin: var(--space-2) 0 0;
     max-width: var(--measure);
     color: var(--color-text-faint);
@@ -487,19 +517,19 @@ const paired = rings
 
   /* ---- The index -------------------------------------------------------- */
 
-  .index {
+  .today .index {
     display: flex;
     flex-direction: column;
     min-width: 0;
     border-top: var(--border-width) solid var(--color-border);
   }
 
-  .index-bar {
+  .today .index-bar {
     padding-block: var(--space-3);
     border-bottom: var(--border-width) solid var(--color-border);
   }
 
-  .index-bar h2 {
+  .today .index-bar h2 {
     margin: 0;
     padding: 0;
     border: 0;
@@ -507,64 +537,64 @@ const paired = rings
     font-weight: var(--weight-semibold);
   }
 
-  .index-total {
+  .today .index-total {
     margin-inline-start: var(--space-2);
     color: var(--color-text-faint);
     font-weight: var(--weight-normal);
     font-variant-numeric: tabular-nums;
   }
 
-  .index-scroll {
+  .today .index-scroll {
     max-height: var(--index-cap);
     overflow-y: auto;
     overscroll-behavior: auto;
   }
 
-  .index-scroll:focus-visible {
+  .today .index-scroll:focus-visible {
     outline-offset: calc(-1 * var(--border-width-heavy));
   }
 
-  .group {
+  .today .group {
     padding-top: var(--space-4);
   }
 
-  .ghead {
+  .today .ghead {
     display: flex;
     align-items: baseline;
     gap: var(--space-3);
   }
 
-  .ghead h3 {
+  .today .ghead h3 {
     margin: 0;
     font-size: var(--text-xl);
     line-height: var(--leading-tight);
   }
 
-  .quiet .ghead h3 {
+  .today .quiet .ghead h3 {
     font-size: var(--text-sm);
     font-weight: var(--weight-semibold);
   }
 
-  .gcount {
+  .today .gcount {
     color: var(--color-text-faint);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
   }
 
-  .gsub {
+  .today .gsub {
     margin: var(--space-1) 0 0;
     font-size: var(--text-xs);
     color: var(--color-text-muted);
     font-variant-numeric: tabular-nums;
   }
 
-  .entries {
+  .today .entries {
     margin: var(--space-3) 0 0;
     padding: 0;
     list-style: none;
   }
 
-  .entry {
+  .today .entry {
     display: grid;
     grid-template-columns: var(--badge) minmax(0, 1fr);
     gap: var(--space-3);
@@ -574,7 +604,7 @@ const paired = rings
     transition: background-color var(--duration-fast) var(--ease);
   }
 
-  .badge {
+  .today .badge {
     display: grid;
     place-items: center;
     width: var(--badge);
@@ -586,11 +616,12 @@ const paired = rings
     font-size: var(--text-2xs);
     font-weight: var(--weight-semibold);
     font-variant-numeric: tabular-nums;
-    animation: light var(--duration-fill) var(--ease) both;
-    animation-delay: calc(var(--light-start) + var(--n) * var(--light-step));
+    /* Its number brightens with its ring, as the app's index numbers do. */
+    animation: light var(--light-fade) var(--ease) both;
+    animation-delay: calc(var(--at) * var(--ms));
   }
 
-  .entry h4 {
+  .today .entry h4 {
     margin: 0;
     font-size: var(--text-base);
     font-weight: var(--weight-semibold);
@@ -598,16 +629,16 @@ const paired = rings
     text-wrap: pretty;
   }
 
-  .entry h4 a {
+  .today .entry h4 a {
     color: inherit;
     text-decoration-color: transparent;
   }
 
-  .entry h4 a:hover {
+  .today .entry h4 a:hover {
     text-decoration-color: var(--color-link-underline-hover);
   }
 
-  .meta {
+  .today .meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -617,19 +648,19 @@ const paired = rings
     color: var(--color-text-muted);
   }
 
-  .sep {
+  .today .sep {
     width: var(--space-1);
     height: var(--space-1);
     border-radius: 50%;
     background: var(--color-border-strong);
   }
 
-  .cell {
+  .today .cell {
     font-variant-numeric: tabular-nums;
     color: var(--color-text);
   }
 
-  .sum {
+  .today .sum {
     display: -webkit-box;
     margin: var(--space-2) 0 0;
     overflow: hidden;
@@ -641,26 +672,26 @@ const paired = rings
     color: var(--color-text-muted);
   }
 
-  .by {
+  .today .by {
     margin-inline-end: var(--space-1);
     font-size: var(--text-xs);
     color: var(--color-text-faint);
   }
 
-  .quiet {
+  .today .quiet {
     padding-bottom: var(--space-4);
   }
 
-  .quiet-watch {
+  .today .quiet-watch {
     margin-top: var(--space-2);
   }
 
-  .trouble {
+  .today .trouble {
     margin-top: var(--space-2);
     font-size: var(--text-xs);
   }
 
-  .trouble summary {
+  .today .trouble summary {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
@@ -669,71 +700,335 @@ const paired = rings
     list-style: none;
   }
 
-  .trouble summary::-webkit-details-marker {
+  .today .trouble summary::-webkit-details-marker {
     display: none;
   }
 
-  .trouble-part {
+  .today .trouble-part {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
   }
 
-  .trouble-mark {
+  .today .trouble-mark {
     fill: none;
     stroke: currentColor;
     stroke-width: 1.4;
   }
 
-  .trouble-mark.fault {
+  .today .trouble-mark.fault {
     color: var(--color-fault);
   }
 
-  .why {
+  .today .why {
     text-decoration: underline;
     text-decoration-color: var(--color-link-underline);
     text-underline-offset: var(--underline-offset);
   }
 
-  .trouble[open] .why {
+  .today .trouble[open] .why {
     text-decoration-color: var(--color-link-underline-hover);
   }
 
-  .notes {
+  .today .notes {
     margin: var(--space-2) 0 0;
     padding-inline-start: var(--space-5);
     color: var(--color-text-muted);
     line-height: var(--leading-snug);
   }
 
+  /* ---- The live plate: the app's own map component, over the built one --- */
+
+  /*
+   * The app's component reads its colors from these names on its own element
+   * (`readPalette` in `Plate.tsx`); they are this page's tokens under the app's
+   * names. The accent's names are the page's own.
+   */
+  .today .plate-live {
+    position: absolute;
+    inset: 0;
+    --plate: var(--color-canvas);
+    --ink: var(--color-star);
+    --ink-2: var(--color-text-muted);
+    --ink-3: var(--color-text-faint);
+    --grid: var(--color-grid);
+    --frame: var(--color-frame);
+    --band: var(--color-band);
+    --bound: var(--color-bound);
+    --dim-mark: var(--color-star-dim);
+  }
+
+  .today .plate-live:empty {
+    display: none;
+  }
+
+  .today .plate-live .plate {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+
+  /*
+   * The page scrolls past the plate: a finger dragged up or down scrolls it,
+   * one dragged sideways pans the map, and the buttons zoom.
+   */
+  .today .plate-canvas {
+    display: block;
+    cursor: crosshair;
+    touch-action: pan-y pinch-zoom;
+  }
+
+  .today .plate-canvas:focus-visible {
+    outline: var(--border-width-heavy) solid var(--color-focus);
+    outline-offset: calc(-1 * var(--border-width-thick));
+  }
+
+  .today .plate-tools {
+    position: absolute;
+    bottom: var(--tools-inset);
+    display: flex;
+    flex-direction: column;
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-canvas);
+    overflow: hidden;
+  }
+
+  .today .plate-tools.left {
+    left: var(--tools-inset);
+  }
+
+  .today .plate-tools.right {
+    right: var(--tools-inset);
+  }
+
+  .today .plate-tools button {
+    display: grid;
+    place-items: center;
+    width: var(--tool-size);
+    height: var(--tool-size);
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+
+  .today .plate-tools button + button {
+    border-top: var(--border-width) solid var(--color-border);
+  }
+
+  .today .plate-tools button:hover {
+    color: var(--color-text);
+    background: var(--color-surface);
+  }
+
+  .today .plate-tools button:focus-visible {
+    outline-offset: calc(-1 * var(--border-width-heavy));
+  }
+
+  .today .icon {
+    flex: none;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.6;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .today .sr-only {
+    position: absolute;
+    width: var(--border-width);
+    height: var(--border-width);
+    margin: calc(-1 * var(--border-width));
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* Riding on the plate the app draws, the title block fades while the view is away from home. */
+  .today .plate-live .cartouche {
+    transition: opacity var(--duration-fill) var(--ease-out);
+  }
+
+  .today .plate-live .cartouche.away {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .today .tip {
+    position: absolute;
+    z-index: 5;
+    display: grid;
+    gap: var(--space-0);
+    max-width: var(--tip-width);
+    padding: var(--space-2) var(--space-3);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-panel);
+    color: var(--color-text-faint);
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+    pointer-events: none;
+  }
+
+  .today .tip b {
+    color: var(--color-text);
+    font-weight: var(--weight-medium);
+  }
+
+  /* The chosen entry, as the app marks the card its map chose. */
+  .today .entry[data-chosen] {
+    background: var(--color-accent-surface);
+    box-shadow: inset var(--border-width-heavy) 0 0 var(--color-accent-mark);
+  }
+
+  .today .entry[data-chosen] .badge {
+    background: var(--color-action);
+    border-color: var(--color-action);
+    color: var(--color-action-text);
+  }
+
+  .today .entry:has(.badge[role='button']) {
+    cursor: pointer;
+  }
+
+  .today .ghead h3[role='button'] {
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-color: transparent;
+    text-underline-offset: var(--underline-offset);
+    transition: text-decoration-color var(--duration-fast) var(--ease);
+  }
+
+  .today .ghead h3[role='button']:hover {
+    text-decoration-color: var(--color-link-underline-hover);
+  }
+
+  /* ---- A paper the index does not hold, in the index's place ------------- */
+
+  .today .paper-panel[hidden],
+  .today .index.showing-paper .index-scroll {
+    display: none;
+  }
+
+  .today .paper {
+    padding-block: var(--space-4);
+  }
+
+  .today .paper-back,
+  .today .paper-show {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--space-6);
+    padding-inline: var(--space-3);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--color-text);
+    font: inherit;
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .today .paper-back:hover,
+  .today .paper-show:hover {
+    border-color: var(--color-accent-mark);
+  }
+
+  .today .paper-title {
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-lg);
+    line-height: var(--leading-snug);
+    text-wrap: pretty;
+  }
+
+  .today .paper-authors {
+    margin: var(--space-1) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-sm);
+  }
+
+  .today .paper-facts {
+    display: grid;
+    gap: var(--space-1);
+    margin: var(--space-4) 0 0;
+    padding-top: var(--space-3);
+    border-top: var(--border-width) solid var(--color-border);
+    font-size: var(--text-sm);
+  }
+
+  .today .paper-facts > div {
+    display: grid;
+    grid-template-columns: var(--reading-key) minmax(0, 1fr);
+    gap: var(--space-3);
+  }
+
+  .today .paper-facts dt {
+    color: var(--color-text-faint);
+  }
+
+  .today .paper-facts dd {
+    margin: 0;
+  }
+
+  .today .paper-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-4);
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-sm);
+  }
+
+  .today .paper-wait {
+    margin: var(--space-4) 0 0;
+    color: var(--color-text-muted);
+  }
+
   /* ---- A phone: the plate alone, its title block under it --------------- */
 
   @media (max-width: 39.99rem) {
-    .region,
-    .watch,
-    .ring-n {
+    .today .region,
+    .today .watch,
+    .today .ring-n {
       display: none;
     }
 
-    .margins text {
+    .today .margins text {
       font-size: var(--plate-text-margin-narrow);
+    }
+  }
+
+  /* Under the plate where it is narrow: the built title block stays, and the live plate carries none. */
+  @media (max-width: 47.99rem) {
+    .today .plate-live .cartouche {
+      display: none;
     }
   }
 
   /* ---- Wide: the title block on the plate, the index beside it --------- */
 
   @media (min-width: 48rem) {
-    .plate:not(.corner-below) .cartouche {
+    .today .chart:not(.corner-below) .cartouche {
       position: absolute;
       width: var(--cartouche-width);
       margin: 0;
       padding: var(--space-4);
     }
 
-    .corner-tl .cartouche { top: 5%; left: 5%; }
-    .corner-tr .cartouche { top: 5%; right: 5%; }
-    .corner-bl .cartouche { bottom: 5%; left: 5%; }
-    .corner-br .cartouche { bottom: 5%; right: 5%; }
+    .today .corner-tl .cartouche { top: 5%; left: 5%; }
+    .today .corner-tr .cartouche { top: 5%; right: 5%; }
+    .today .corner-bl .cartouche { bottom: 5%; left: 5%; }
+    .today .corner-br .cartouche { bottom: 5%; right: 5%; }
+
+    .today .chart.is-live > .cartouche {
+      display: none;
+    }
   }
 
   @media (min-width: 64rem) {
@@ -743,17 +1038,17 @@ const paired = rings
       align-items: start;
     }
 
-    .plate-figure {
+    .today .plate-figure {
       min-width: var(--plate-min);
     }
 
-    .index {
+    .today .index {
       align-self: stretch;
       height: 0;
       min-height: 100%;
     }
 
-    .index-scroll {
+    .today .index-scroll {
       flex: 1;
       max-height: none;
       min-height: 0;

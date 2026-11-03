@@ -38,7 +38,9 @@ import {
   number,
   troubleParts,
 } from '../../../resmon_scripts/frontend/atlas/src/screens/today/format';
+import { lightsAt } from '../../../resmon_scripts/frontend/atlas/src/screens/today/opening';
 import { pngDataUrl } from './png';
+import { SOURCES } from './sources';
 
 /** The plate's drawn size, in the SVG's own pixels; the page scales it to its column. */
 export const SIZE = 720;
@@ -69,7 +71,9 @@ const regions = map.regions as MapRegion[];
 
 const inner = { x: MARGIN, y: MARGIN, w: SIZE - MARGIN * 2, h: SIZE - MARGIN * 2 };
 const { minX, minY, size: span } = sky.bounds;
-const scale = inner.w / span;
+// The app's home view: the sky fitted inside the margins with 12 pixels to spare on each side, so
+// the map the page's script draws over this one takes over from it in place.
+const scale = (inner.w - 24) / span;
 const cx = minX + span / 2;
 const cy = minY + span / 2;
 const toScreen = (x: number, y: number): [number, number] => [
@@ -262,13 +266,16 @@ export const watchNames = shapes.flatMap((shape) => {
 // ---- The new papers: ringed, and numbered where the number has room -----
 
 export const ringRadius = px(Math.min(5.5, Math.max(3, spacing * 1.4)));
-export const rings = arrivals.flatMap(({ n, x, y }) => {
-  if (x === null || y === null) return [];
-  const label = { x: x + 6, y: y - 16, w: numberWidth(String(n)), h: 14 };
+const placedArrivals = arrivals.filter(({ x, y }) => x !== null && y !== null);
+export const rings = placedArrivals.map(({ n, x, y }, k) => {
+  const label = { x: (x ?? 0) + 6, y: (y ?? 0) - 16, w: numberWidth(String(n)), h: 14 };
   const numbered = free(label);
   if (numbered) placed.push(label);
-  return [{ n, x, y, numbered }];
+  // When it lights, in milliseconds after the page starts drawing: the app's own opening schedule.
+  return { n, x: x ?? 0, y: y ?? 0, numbered, at: Math.round(lightsAt(k + 1, placedArrivals.length)) };
 });
+/** When each entry's number brightens in the index, with its ring, by paper. */
+export const lightAt = new Map(placedArrivals.map(({ paper }, k) => [paper.id, Math.round(lightsAt(k + 1, placedArrivals.length))]));
 
 // ---- The words: the title block and the index ---------------------------
 
@@ -316,6 +323,7 @@ export interface IndexEntry {
 }
 
 export interface IndexGroup {
+  id: number;
   name: string;
   total: string;
   run: string | null;
@@ -359,6 +367,7 @@ function runLine(watch: (typeof today.watches)[number]) {
 export const groups: IndexGroup[] = today.watches
   .filter((watch) => watch.new_count > 0)
   .map((watch) => ({
+    id: watch.id,
     name: watch.name,
     total: `${number(watch.new_count)} new`,
     ...runLine(watch),
@@ -373,3 +382,20 @@ export const plateLabel =
   `Map of ${number(sky.count)} papers in ${count(regions.length, 'region')}` +
   `${arrivals.length ? `; ${count(arrivals.length, 'new paper')} ringed and numbered` : ''}.`;
 export { listWords };
+
+/**
+ * What the page's script needs to draw the plate with the app's own component
+ * (`src/islands/today.tsx`), served as `plate/sky.json`: the engine's map, the
+ * watches' members, the new papers in the order they arrived, and the names
+ * the hover gives sources. The rest it works out as the app does.
+ */
+export const live = {
+  recorded: today.now,
+  points: map.points,
+  regions: map.regions,
+  watches: today.watches.filter((w) => w.members.length > 0).map(({ id, name, members }) => ({ id, name, members })),
+  arrivals: placedArrivals.map(({ paper }) => paper.id),
+  names: Object.fromEntries(SOURCES.map((source) => [source.slug, source.name])),
+  corner,
+  label: `${plateLabel.replace(/\.$/, '')}. Choose any paper to see it beside the map.`,
+};

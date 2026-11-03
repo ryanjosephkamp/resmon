@@ -229,6 +229,10 @@
   --plate-min: 30rem;
   --index-cap: 70svh;
   --badge: 1.375rem;
+  /* The live plate's zoom buttons, and the tip that names the paper under the pointer (the app's sizes). */
+  --tools-inset: 2.75rem;
+  --tool-size: 1.875rem;
+  --tip-width: 18.75rem;
   --cartouche-width: 36%;
   /* Type on the plate, in the plate's own pixels: it is drawn 720 across and
      scaled to its column, about 600 on a laptop, so each is set a size above
@@ -247,8 +251,10 @@
   --duration-settle: 1600ms;
   /* The opening: the new papers light one after another, in the order they
      were collected, on the plate and in its index at once. */
-  --light-start: 500ms;
-  --light-step: 110ms;
+  /* Each paper's turn is the app's (`opening.ts`), written on it in milliseconds; this makes it a time. */
+  --ms: 1ms;
+  /* How long an index number takes to brighten once its turn comes (the app's FADE_MS). */
+  --light-fade: 300ms;
   --unlit: 0.18;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
@@ -344,7 +350,7 @@
     --duration-fast: 0ms;
     --duration-fill: 0ms;
     --duration-settle: 0ms;
-    --light-start: 0ms;
-    --light-step: 0ms;
+    --ms: 0ms;
+    --light-fade: 0ms;
   }
 }

@@ -13,8 +13,12 @@ engine's own answers, unedited, beside the site's other data:
   two answers Today is drawn from. The site draws its plate from them with the
   app's own map model.
 - ``site/src/data/run-record.json``: ``GET /api/coverage/source-wall`` over the
-  collection's last runs, with each run's own record: the two searches and each watch's run of the day,
+  collection's last runs, with each run's own record: the searches and each watch's run of the day,
   which ``build_collection.py`` made for real, after the history it laid out.
+- ``site/src/data/papers.json``: ``GET /api/documents/{id}`` for every paper on
+  the plate, the few fields its hover and its paper panel say: title, authors
+  (the first four names, which is as many as the app lists), source, dates,
+  and the paper's own link.
 
 Each file carries a ``provenance`` line, printed under what the site draws.
 """
@@ -56,6 +60,20 @@ def spoken_day(iso: str) -> str:
 def words(n: int) -> str:
     """A small count in words, as the provenance line says it."""
     return ["no", "one", "two", "three", "four", "five", "six"][n] if n < 7 else str(n)
+
+
+#: The columns of ``papers.json``'s rows, in order.
+PAPER_FIELDS = ["id", "title", "authors", "source", "published", "collected", "link"]
+
+
+def paper_row(doc: dict) -> list:
+    """One paper as its hover and panel say it. Authors are cut to the first
+    four names: the app lists three and says "et al." past them."""
+    names = [name.strip() for name in (doc.get("authors") or "").split(",") if name.strip()]
+    url = doc.get("url") or ""
+    link = url if url.startswith(("http://", "https://")) else (f"https://doi.org/{doc['doi']}" if doc.get("doi") else None)
+    return [doc["id"], doc["title"], ", ".join(names[:4]) or None, doc["source_repository"],
+            doc.get("publication_date"), doc.get("first_seen_at"), link]
 
 
 def write(name: str, data: dict) -> None:
@@ -104,6 +122,7 @@ def main() -> None:
                 {k: v for k, v in engine.call("GET", f"/api/executions/{run['execution_id']}").items() if k not in RECORD_SKIP}
                 for run in wall["runs"]
             ]
+            papers = [paper_row(engine.call("GET", f"/api/documents/{doc_id}")) for doc_id in plate["points"]["id"]]
         finally:
             engine.stop()
 
@@ -126,6 +145,14 @@ def main() -> None:
         ),
         "wall": wall,
         "runs": runs,
+    })
+    write("papers.json", {
+        "provenance": (
+            f"Every paper on the plate, {len(papers):,} of them, from the engine's own record of each: its title, "
+            "its first four authors, its source, its dates, and its link."
+        ),
+        "fields": PAPER_FIELDS,
+        "papers": papers,
     })
 
 
