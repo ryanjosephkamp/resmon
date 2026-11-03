@@ -5,8 +5,11 @@
  */
 import type { Health } from './model';
 
+/** The repository, written once here. `test_repository_name.py` holds every other place that spells it out to `config.py`'s copy. */
+export const REPOSITORY = 'ryanjosephkamp/resmon';
+
 /** The repository's issues page, where a person reports a problem themselves. */
-export const ISSUES_URL = 'https://github.com/ryanjosephkamp/resmon/issues';
+export const ISSUES_URL = `https://github.com/${REPOSITORY}/issues`;
 
 /** Who made resmon, and where to find him: the credit row his project sites end with, in its order and words. */
 export const MAKER = { name: 'Ryan Kamp', website: 'https://ryanjosephkamp.github.io/' } as const;

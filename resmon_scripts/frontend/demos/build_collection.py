@@ -326,7 +326,17 @@ class Engine:
         self.log.close()
 
 
-USER_AGENT = "resmon/1.0 (+https://github.com/ryanjosephkamp/resmon)"
+def user_agent() -> str:
+    """resmon's own User-Agent, with the repository URL the engine writes once.
+
+    ``config`` reads the isolated state paths when it is imported, so it is
+    imported here, after ``isolate`` has run, and not at the top of the file.
+    """
+    from implementation_scripts import config
+
+    return f"resmon/1.0 (+{config.REPOSITORY_URL})"
+
+
 #: arXiv's OAI-PMH service, whose `arXiv` metadata format names each paper's license.
 OAI = "https://oaipmh.arxiv.org/oai"
 #: The licenses under which a paper's own pages may be shown in the demos, which are
@@ -343,7 +353,7 @@ EMAIL = re.compile(r"[\w.+-]+\s*@\s*[\w-]+(?:\.[\w-]+)+")
 
 
 def fetch(url: str) -> bytes | None:
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    request = urllib.request.Request(url, headers={"User-Agent": user_agent()})
     try:
         with urllib.request.urlopen(request, timeout=120) as response:
             return response.read()
