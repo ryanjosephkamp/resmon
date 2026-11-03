@@ -240,7 +240,6 @@
      plate, and its index. */
   --plate-fit: calc(100svh - 24.5rem);
   --plate-min: 25rem;
-  --index-cap: 70svh;
   --badge: 1.375rem;
   /* The live plate's zoom buttons, and the tip that names the paper under the pointer (the app's sizes). */
   --tools-inset: 2.75rem;

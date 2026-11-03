@@ -223,7 +223,7 @@ function main(): void {
     return { slug: d.slug, title: d.title, line: d.line, start: Math.round(start * 10) / 10 };
   });
   const chaptersFile = tour.replace(/\.mp4$/, '.json');
-  fs.writeFileSync(chaptersFile, `${JSON.stringify({ seconds: Math.round(seconds(tour) * 10) / 10, chapters }, null, 1)}\n`);
+  fs.writeFileSync(chaptersFile, `${JSON.stringify({ seconds: Math.round(seconds(tour) * 100) / 100, chapters }, null, 1)}\n`);
   console.log(`chapters → ${chaptersFile}`);
 }
 

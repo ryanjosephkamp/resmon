@@ -153,7 +153,7 @@ function isImage(markdown: string, closeAt: number): boolean {
  * visible to the same pass — the label keeps the repository path, which is what
  * a reader looking at a checkout wants, while the href goes to the site.
  *
- * Anything this does not recognise is left alone. A link left pointing at the
+ * Anything this does not recognize is left alone. A link left pointing at the
  * repository is a worse page; a link rewritten to a URL that does not exist is
  * a lie about where something is.
  *

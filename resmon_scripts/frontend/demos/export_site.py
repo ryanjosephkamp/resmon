@@ -130,11 +130,10 @@ def main() -> None:
     day = spoken_day(today["now"])
     write("plate.json", {
         "provenance": (
-            f"Drawn from the engine's own map and Today, exported unedited from a collection of "
-            f"{len(plate['points']['id']):,} papers built on {day}: {words(len(WATCHES))} watches' papers from "
-            f"arXiv, and {words(len(SEARCHES))} searches' from the sources they asked. The papers are real, and so are the day's runs that found "
-            "the new ones; when the watches' earlier papers were collected is laid out from each paper's "
-            "publication date."
+            f"Drawn from the engine's own map and Today, exported unedited from a collection built on {day}: "
+            f"{words(len(WATCHES))} watches' papers from arXiv, and {words(len(SEARCHES))} searches' from the "
+            "sources they asked. The papers and the day's runs are real. For the watches' earlier papers, the day "
+            "each was collected, and so how bright it is drawn, is set from its publication date."
         ),
         "map": plate,
         "today": today,

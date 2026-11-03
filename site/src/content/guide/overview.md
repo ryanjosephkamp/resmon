@@ -10,7 +10,7 @@ There is no account, no resmon server, and no telemetry. The app is an Electron 
 ## What it does
 
 - **Asks the sources.** A **Deep Dive** asks one source in depth. A **Deep Sweep** asks several at once. Before you ask, resmon lists each source's limits: how it combines your terms, how finely it can date a paper, how fast resmon may ask, and whether it needs a key. See [Search](/resmon/guide/search/).
-- **Watches.** A watch is a search resmon runs on a schedule and keeps the papers of. It can follow words, a person's new papers, or retractions and corrections on a person's papers. See [Watches and people](/resmon/guide/watches/).
+- **Watches.** A watch is a search resmon runs on a schedule, keeping every paper it finds. It can follow words, a person's new papers, or retractions and corrections on a person's papers. See [Watches and people](/resmon/guide/watches/).
 - **Shows what is new.** **Today** draws your whole collection as a map and rings the papers collected since you last marked them read. See [Today](/resmon/guide/today/).
 - **Shows what broke.** **Health** has the **Source wall** (what every source did on each recent run), the **Watchdog** (what resmon can say is wrong with its watching), analytics, and a check for retractions and newer versions of papers you already hold. See [Health](/resmon/guide/health/).
 - **Keeps your reading.** **Library** holds a reading queue, copies of PDF, TXT, and MD files in a folder you choose, and **Evidence** projects where you pin exact passages and ask questions of excerpts you pick. See [The Library](/resmon/guide/library/) and [Evidence](/resmon/guide/projects/).

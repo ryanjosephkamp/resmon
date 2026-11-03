@@ -45,7 +45,7 @@ const parts = [
   },
   {
     name: 'Watches',
-    line: 'A search resmon runs on a schedule and keeps the papers of.',
+    line: 'A search resmon runs on a schedule, keeping every paper it finds.',
     detail:
       'A watch can follow words, a person’s new papers, or retractions and corrections on a person’s papers. The Calendar shows when each is due, and says so when nothing will run it.',
   },
@@ -129,6 +129,9 @@ const platforms = [
       for the rest.
     </p>
 
+    <p class="catalog-head" aria-hidden="true">
+      <span class="catalog-labels"><span>API key</span><span>Rate</span><span>Terms</span><span>Finest dates</span></span>
+    </p>
     <ul class="catalog">
       {
         SOURCES.map((source) => (
@@ -201,7 +204,7 @@ const platforms = [
   <section id="tour" class="band" aria-labelledby="tour-title">
     <header class="band-head">
       <h2 id="tour-title">The tour</h2>
-      <p class="band-count">{Math.round(tour.seconds)} seconds</p>
+      <p class="band-count">{Math.floor(tour.seconds / 60)} min {Math.floor(tour.seconds % 60)} s</p>
     </header>
     <div class="tour" data-tour>
       <video class="tour-video" controls muted playsinline preload="metadata"
@@ -224,7 +227,7 @@ const platforms = [
     </div>
     <p class="band-note">
       Recorded on November 3, 2026, in a copy of the collection drawn above. The searches in it asked the public
-      sources for real; the clicks are scripted, at a person's pace.
+      sources for real; the clicks are scripted, at a person’s pace.
     </p>
   </section>
 
@@ -436,6 +439,10 @@ const platforms = [
     border-top: var(--border-width) solid var(--color-border-strong);
   }
 
+  .catalog-head {
+    display: none;
+  }
+
   .catalog li {
     margin: 0;
     border-bottom: var(--border-width) solid var(--color-border);
@@ -454,15 +461,13 @@ const platforms = [
   }
 
   .source-name {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
     font-size: var(--text-md);
     font-weight: var(--weight-semibold);
   }
 
   .chevron {
-    flex-shrink: 0;
+    margin-inline-start: var(--space-2);
+    vertical-align: middle;
     fill: none;
     stroke: var(--color-text-faint);
     stroke-width: 1.5;
@@ -658,12 +663,24 @@ const platforms = [
       grid-template-columns: var(--date-column) minmax(0, 1fr) minmax(0, 1.1fr);
     }
 
-    .source-facts {
+    .source-facts,
+    .catalog-labels {
       grid-column: 3;
       display: grid;
       grid-template-columns: var(--fact-key) var(--fact-rate) minmax(0, 1fr) var(--fact-dates);
       gap: var(--space-1) var(--space-4);
       align-items: baseline;
+    }
+
+    .catalog-head {
+      display: grid;
+      grid-template-columns: var(--date-column) minmax(0, 1fr) minmax(0, 1.1fr);
+      column-gap: var(--space-5);
+      margin: 0;
+      padding-bottom: var(--space-2);
+      font-size: var(--text-xs);
+      font-weight: var(--weight-medium);
+      color: var(--color-text-muted);
     }
 
     .source-facts span + span::before {

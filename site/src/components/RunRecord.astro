@@ -193,6 +193,9 @@ const legend = wall.state_legend.map((entry) => ({ ...entry, mark: markOf(entry.
         </tbody>
       </table>
     </div>
+    <p class="wall-more" data-wall-more hidden>
+      Scroll the grid sideways for the later runs, and for when each source was last asked.
+    </p>
 
     <div class="wall-side">
       {opened.c && openedRun && (
@@ -272,6 +275,15 @@ const legend = wall.state_legend.map((entry) => ({ ...entry, mark: markOf(entry.
     const columns = heads.length;
     const hint = part('hint');
     if (hint) hint.hidden = false;
+
+    // Where the grid is wider than the page, as on a phone, a line under it says it scrolls.
+    const scroller = record.querySelector<HTMLElement>('.wall-scroll');
+    const more = record.querySelector<HTMLElement>('[data-wall-more]');
+    if (scroller && more) {
+      const check = () => { more.hidden = scroller.scrollWidth <= scroller.clientWidth + 1; };
+      check();
+      new ResizeObserver(check).observe(scroller);
+    }
 
     const mark = (button: HTMLButtonElement) => {
       const svg = button.querySelector('svg')?.cloneNode(true);
@@ -396,6 +408,17 @@ const legend = wall.state_legend.map((entry) => ({ ...entry, mark: markOf(entry.
     outline: none;
   }
 
+  .wall-more {
+    flex-basis: 100%;
+    margin: calc(-1 * var(--space-4)) 0 0;
+    color: var(--color-text-muted);
+    font-size: var(--text-xs);
+  }
+
+  .wall-more[hidden] {
+    display: none;
+  }
+
   .wall-side {
     flex: 1 1 var(--wall-side-min);
     max-width: var(--wall-side-max);
@@ -465,6 +488,15 @@ const legend = wall.state_legend.map((entry) => ({ ...entry, mark: markOf(entry.
 
   .run-head[data-hot] .run-n {
     color: var(--color-accent-text);
+  }
+
+  /* The names stay in view while the grid scrolls under them. */
+  .corner,
+  .source {
+    position: sticky;
+    inset-inline-start: 0;
+    z-index: 1;
+    background: var(--color-canvas);
   }
 
   .source {

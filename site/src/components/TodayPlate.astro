@@ -29,6 +29,10 @@ import { url } from '../lib/urls';
 
 const { SIZE, frame, grid, margins, stars, shading, outlines, constellations, regionLabels, watchNames, rings, lightAt } = plate;
 const inner = frame.inner;
+// Under the plate, the index shows its first entries and offers the rest (`index-fold.ts`).
+const FIRST = 5;
+const place = new Map(plate.groups.flatMap((group) => group.papers).map((paper, k) => [paper.id, k]));
+const later = (id: number) => (place.get(id) ?? 0) >= FIRST;
 const paired = rings
   .map(({ n }) =>
     [
@@ -142,7 +146,8 @@ const paired = rings
     <div class="index-scroll" tabindex="0" role="region" aria-labelledby="index-title">
       {
         plate.groups.map((group) => (
-          <section class="group" aria-label={group.name} data-watch={group.id}>
+          <section class="group" aria-label={group.name} data-watch={group.id}
+            data-later={group.papers[0] && later(group.papers[0].id) ? '' : undefined}>
             <div class="ghead">
               <h3 class="name">{group.name}</h3>
               <span class="gcount">{group.total}</span>
@@ -150,7 +155,8 @@ const paired = rings
             <p class="gsub">{group.run}</p>
             <ol class="entries">
               {group.papers.map((paper) => (
-                <li class="entry" data-entry={paper.n} data-paper={paper.id} style={`--at: ${lightAt.get(paper.id) ?? 0}`}>
+                <li class="entry" data-entry={paper.n} data-paper={paper.id} data-later={later(paper.id) ? '' : undefined}
+                  style={`--at: ${lightAt.get(paper.id) ?? 0}`}>
                   <span class="badge" aria-label={`Number ${paper.n}`}>{paper.n}</span>
                   <div class="entry-body">
                     <h4>
@@ -179,7 +185,7 @@ const paired = rings
       }
       {
         plate.quiet.length > 0 && (
-          <section class="group quiet" aria-label="Watches with nothing new">
+          <section class="group quiet" aria-label="Watches with nothing new" data-later={place.size > FIRST ? '' : undefined}>
             <div class="ghead"><h3>Nothing new from</h3></div>
             {plate.quiet.map((watch) => (
               <div class="quiet-watch">
@@ -212,6 +218,9 @@ const paired = rings
         )
       }
     </div>
+    {place.size > FIRST && (
+      <button type="button" class="index-more" data-index-more>Show all {plate.total} new papers</button>
+    )}
   </section>
 </section>
 
@@ -219,6 +228,7 @@ const paired = rings
 
 <script>
   import '../islands/today.tsx';
+  import '../scripts/index-fold.ts';
 </script>
 
 <style is:global>
@@ -550,7 +560,6 @@ const paired = rings
   }
 
   .today .index-scroll {
-    max-height: var(--index-cap);
     overflow-y: auto;
     overscroll-behavior: auto;
   }
@@ -1316,7 +1325,8 @@ const paired = rings
   }
 
   .today .paper-back,
-  .today .paper-show {
+  .today .paper-show,
+  .today .index-more {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
@@ -1332,7 +1342,8 @@ const paired = rings
   }
 
   .today .paper-back:hover,
-  .today .paper-show:hover {
+  .today .paper-show:hover,
+  .today .index-more:hover {
     border-color: var(--color-accent-mark);
   }
 
@@ -1384,6 +1395,30 @@ const paired = rings
   .today .paper-wait {
     margin: var(--space-4) 0 0;
     color: var(--color-text-muted);
+  }
+
+  /* ---- Under the plate: the index's first entries, and the rest on request -- */
+
+  .today .index-more {
+    display: none;
+    align-self: flex-start;
+    margin-top: var(--space-4);
+  }
+
+  /* Without scripts, every entry shows; with them, the rest wait for the button. Beside the plate, the index scrolls. */
+  @media (max-width: 63.99rem) {
+    .scripted .today .index:not([data-open]) [data-later] {
+      display: none;
+    }
+
+    .scripted .today .index:not([data-open]):not(.showing-paper) .index-more {
+      display: inline-flex;
+    }
+
+    .today .sum {
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
   }
 
   /* ---- A phone: the plate alone, its title block under it --------------- */
