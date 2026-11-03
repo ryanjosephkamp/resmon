@@ -1,6 +1,6 @@
 ---
 title: "Health"
-summary: "The Source wall, the Watchdog, the check for retractions and newer versions, analytics, and which engine a window is using."
+summary: "The Source wall, the Watchdog, retraction checks, analytics, and which engine a window uses."
 order: 7
 readmeLines: []
 ---

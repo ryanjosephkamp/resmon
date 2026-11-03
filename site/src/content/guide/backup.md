@@ -1,6 +1,6 @@
 ---
 title: "Backup and restore"
-summary: "What a backup holds and leaves out, where it goes, restoring it on this computer or another, and keeping a copy in Google Drive."
+summary: "What a backup holds and leaves out, where it goes, restoring it, and keeping a copy in Google Drive."
 order: 13
 readmeLines: []
 ---

@@ -1,6 +1,6 @@
 ---
 title: "Watches and people"
-summary: "Making a watch, how it is scheduled and what dates it asks for, where its reports go, how its coverage is audited, and watching for a person."
+summary: "Making a watch, its schedule and dates, where reports go, the coverage audit, and watching for a person."
 order: 6
 readmeLines: []
 ---

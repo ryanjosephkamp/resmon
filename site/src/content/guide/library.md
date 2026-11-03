@@ -1,6 +1,6 @@
 ---
 title: "The Library"
-summary: "The reading queue, and copies of PDF, TXT, and MD files kept in a folder you choose, linked to papers by your own association."
+summary: "The reading queue, and copies of PDF, TXT, and MD files kept in a folder you choose."
 order: 8
 readmeLines: []
 ---

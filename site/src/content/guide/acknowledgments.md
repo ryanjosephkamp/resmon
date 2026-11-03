@@ -1,17 +1,14 @@
 ---
 title: "Acknowledgments"
-summary: "The open-access repository providers, the open-source foundations and the standards bodies resmon is built on."
-order: 16
-readmeLines:
-  - "1567-1609"
+summary: "The open-access providers, the open-source projects, and the standards resmon is built on."
+order: 20
+readmeLines: []
 ---
-## Acknowledgments
+resmon is built on a broad ecosystem of open scholarly infrastructure and open-source software. The project gratefully acknowledges:
 
-resmon is built on top of a broad ecosystem of open-access scholarly repositories and open-source software. The project gratefully acknowledges:
+## Open-access repository providers
 
-### Open-Access Repository Providers
-
-The scholarly sources registered in the repository catalog, whose public APIs make automated literature surveillance possible:
+The scholarly sources resmon asks, whose public APIs make automated literature monitoring possible:
 
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
@@ -39,10 +36,12 @@ The scholarly sources registered in the repository catalog, whose public APIs ma
 - **Springer Nature** — Springer Nature, for the Meta API covering STM, humanities, and social-sciences content.
 - **Zenodo** — CERN and OpenAIRE, for the multi-disciplinary research-output records API.
 
-### Open-Source Foundations
+Where a provider's license requires a credit, **Settings › Sources** shows it. See [Sources and their terms](/resmon/guide/sources/).
 
-resmon depends on and is grateful for the following open-source projects (non-exhaustive): **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **BeautifulSoup**, **SQLAlchemy**, **APScheduler**, **cryptography**, **keyring**, **NLTK**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TypeScript**, **Vite**, **electron-builder**, and **ollama**. The maintainers and contributors of these projects make a desktop-class literature surveillance tool buildable by a single developer.
+## Open-source projects
 
-### Standards and Identifiers
+resmon depends on, and is grateful for, these projects, among many others: **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **Beautiful Soup**, **SQLAlchemy**, **APScheduler**, **SQLite** and **sqlite-vec**, **NumPy**, **pypdf**, **cryptography**, **keyring**, **NLTK**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TanStack Query**, **TypeScript**, **Vite**, **Playwright**, **PDF.js**, **electron-builder**, and **python-build-standalone**. The interface is set in the **Geist**, **Geist Mono**, and **Spectral** typefaces. **Ollama** makes it possible to run models on your own computer.
 
-resmon relies on the **DOI** system administered by the International DOI Foundation and the **ORCID** identifier system — both of which underpin the deduplication and citation-graphing pipeline.
+## Standards and identifiers
+
+resmon relies on the **DOI** system administered by the International DOI Foundation, and on the **ORCID** identifier system. Both underpin how it recognizes the same work and the same person across sources. Retraction notices come from **Crossref**, which has distributed the **Retraction Watch** database openly.

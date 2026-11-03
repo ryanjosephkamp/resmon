@@ -1,6 +1,6 @@
 ---
 title: "Search"
-summary: "Searching what you hold, asking the sources for more, runs and what each records, saved searches, and abstracts that share wording."
+summary: "Searching what you hold, asking the sources for more, runs, saved searches, and shared wording."
 order: 5
 readmeLines: []
 ---

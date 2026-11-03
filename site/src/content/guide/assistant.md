@@ -1,6 +1,6 @@
 ---
 title: "Ask and the MCP server"
-summary: "The assistant and the conversations kept with it, what it can and cannot do, and driving resmon from another program over MCP."
+summary: "The assistant, what it can and cannot do, and driving resmon from another program over MCP."
 order: 10
 readmeLines: []
 ---

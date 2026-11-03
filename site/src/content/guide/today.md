@@ -1,6 +1,6 @@
 ---
 title: "Today"
-summary: "The collection drawn as a map, the papers collected since you last marked all read, and what the screen does and does not say about them."
+summary: "The collection as a map, and the papers collected since you last marked all read."
 order: 4
 readmeLines: []
 ---

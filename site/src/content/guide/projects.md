@@ -1,6 +1,6 @@
 ---
 title: "Evidence"
-summary: "Projects of exact file versions, passages pinned to the text of a page, and cited answers from excerpts you choose."
+summary: "Projects of exact file versions, pinned passages, and cited answers from excerpts you choose."
 order: 9
 readmeLines: []
 ---

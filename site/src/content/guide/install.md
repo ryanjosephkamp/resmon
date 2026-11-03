@@ -1,6 +1,6 @@
 ---
 title: "Install and launch"
-summary: "The four downloads and how far each has been tested, the first launch on macOS, updates, the resmon command, the background service, and running from source."
+summary: "The downloads and their status, the first launch, updates, the resmon command, the background service, and running from source."
 order: 3
 readmeLines: []
 ---

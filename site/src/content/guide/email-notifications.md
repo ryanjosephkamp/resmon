@@ -1,6 +1,6 @@
 ---
 title: "Email, delivery, and notifications"
-summary: "Setting up email, sending a watch's reports to a folder, a feed, or a webhook, how a delivery is recorded, and desktop notifications."
+summary: "Email, folder, feed, and webhook delivery, how a delivery is recorded, and desktop notifications."
 order: 12
 readmeLines: []
 ---

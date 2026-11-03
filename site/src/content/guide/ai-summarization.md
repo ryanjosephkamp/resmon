@@ -1,6 +1,6 @@
 ---
 title: "AI settings"
-summary: "The three things in resmon that use a model: summaries, Ask, and embeddings. Connections, fallbacks, your own plan, and what each one sends."
+summary: "Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends."
 order: 11
 readmeLines: []
 ---
