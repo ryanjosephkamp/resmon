@@ -149,6 +149,13 @@ const CONTRAST_PAIRS = [
   ['--color-link', '--color-canvas', 4.5],
   ['--color-link', '--color-surface', 4.5],
   ['--color-code-text', '--color-code-bg', 4.5],
+  ['--color-accent-text', '--color-canvas', 4.5],
+  ['--color-accent-text', '--color-surface', 4.5],
+  ['--color-action-text', '--color-action', 4.5],
+  ['--color-action-hover-text', '--color-action-hover', 4.5],
+  ['--color-fault', '--color-canvas', 4.5],
+  ['--color-fault', '--color-surface', 4.5],
+  ['--color-mast-muted', '--color-mast', 4.5],
 ];
 
 let contrastChecked = 0;

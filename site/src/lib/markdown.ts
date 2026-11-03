@@ -33,16 +33,6 @@ const REPO_RAW = 'https://raw.githubusercontent.com/ryanjosephkamp/resmon/main';
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 /**
- * Anchors that point at a heading in the root ``README.md`` and are served by
- * a different page here. Listed one by one, because a guess at where a
- * fragment resolves is a broken link that looks like a working one.
- */
-const README_ANCHORS: Record<string, string> = {
-  '#configuration': `${BASE}/guide/configuration/`,
-  '#google-drive-backup': `${BASE}/guide/backup/#google-drive-backup`,
-};
-
-/**
  * Where a document's own links are written from.
  *
  * A Markdown link inside `docs/api-contract/README.md` reads `http.md`,
@@ -59,8 +49,6 @@ export type SourceDirectory = '.' | 'docs' | 'docs/api-contract';
 export interface RewriteOptions {
   /** The document's directory in the repository. */
   from?: SourceDirectory;
-  /** The document is a slice of the root README, which had its own anchors. */
-  fromReadme?: boolean;
 }
 
 /** Collapse `a/b/../c` to `a/c`. Returns null if the path climbs out of the repository. */
@@ -194,20 +182,6 @@ export function rewriteLinks(markdown: string, options: RewriteOptions = {}): st
       return site === null ? whole : `](${site}${fragment}${title})`;
     },
   );
-
-  return applyReadmeRewrites(out, options);
-}
-
-function applyReadmeRewrites(markdown: string, options: RewriteOptions): string {
-  let out = markdown;
-
-  if (options.fromReadme) {
-    for (const [anchor, target] of Object.entries(README_ANCHORS)) {
-      out = out.split(`](${anchor})`).join(`](${target})`);
-    }
-    // The banner is committed in the repository, not on the site.
-    out = out.replace(/src="resmon_reports\//g, `src="${REPO_RAW}/resmon_reports/`);
-  }
 
   return out;
 }

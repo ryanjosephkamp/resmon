@@ -12,6 +12,7 @@ import { getCollection, type CollectionEntry } from 'astro:content';
 import Document from '../layouts/Document.astro';
 import { renderMarkdown } from '../lib/markdown';
 import { readDocument } from '../lib/documents';
+import { referenceRail } from '../lib/rails';
 
 export async function getStaticPaths() {
   const docs = await getCollection('docs');
@@ -31,9 +32,9 @@ const { html, headings } = await renderMarkdown(head.body, { from: 'docs' });
   title={head.title}
   description={head.description}
   path={`/${entry.id}/`}
-  eyebrow="Reference"
+  section="Reference"
+  rail={await referenceRail()}
   meta={`docs/${entry.id}.md`}
   html={html}
   headings={headings}
-  width="wide"
 />

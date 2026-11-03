@@ -6,6 +6,7 @@ import { getEntry } from 'astro:content';
 import Document from '../../layouts/Document.astro';
 import { renderMarkdown } from '../../lib/markdown';
 import { readDocument } from '../../lib/documents';
+import { contractRail } from '../../lib/rails';
 
 const entry = await getEntry('apiContract', 'README');
 if (!entry) throw new Error('docs/api-contract/README.md is missing');
@@ -18,9 +19,9 @@ const { html, headings } = await renderMarkdown(head.body, { from: 'docs/api-con
   title={head.title}
   description={head.description}
   path="/api-contract/"
-  eyebrow="Contract"
+  section="Contract"
+  rail={await contractRail()}
   meta="docs/api-contract/README.md"
   html={html}
   headings={headings}
-  width="wide"
 />

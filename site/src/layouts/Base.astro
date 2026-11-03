@@ -1,25 +1,23 @@
 ---
 /**
- * The page shell: head, masthead, navigation, footer.
+ * The page shell: head, the top bar, the footer.
  *
- * Ships no client JavaScript. There is no script tag on any content page and
- * no theme toggle writing to localStorage; the color scheme follows
- * `prefers-color-scheme`. The two typefaces are files on this site, bundled
- * from `@fontsource`, so a page here makes no request to anywhere but GitHub.
+ * Set as the app's own top bar: the "research monitor" lockup, the sections,
+ * and the one action at the far end. Ships no client JavaScript; the color
+ * scheme follows `prefers-color-scheme`, as the app follows the system's when it
+ * is set to. The three faces are files on this site, bundled from
+ * `@fontsource`, so a page here makes no request to anywhere but GitHub.
  */
-import '@fontsource/atkinson-hyperlegible-next/400.css';
-import '@fontsource/atkinson-hyperlegible-next/400-italic.css';
-import '@fontsource/atkinson-hyperlegible-next/700.css';
-import '@fontsource/atkinson-hyperlegible-next/800.css';
-import '@fontsource/atkinson-hyperlegible-mono/400.css';
-import '@fontsource/atkinson-hyperlegible-mono/600.css';
-import textFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-400-normal.woff2?url';
-import displayFont from '@fontsource/atkinson-hyperlegible-next/files/atkinson-hyperlegible-next-latin-800-normal.woff2?url';
+import '@fontsource-variable/geist/wght.css';
+import '@fontsource-variable/geist-mono/wght.css';
+import '@fontsource/spectral/400-italic.css';
+import '@fontsource/spectral/500-italic.css';
+import textFont from '@fontsource-variable/geist/files/geist-latin-wght-normal.woff2?url';
 import '../styles/tokens.css';
 import '../styles/base.css';
 import Mark from '../components/Mark.astro';
 import Credit from '../components/Credit.astro';
-import { url, absoluteUrl, GITHUB_REPO } from '../lib/urls';
+import { url, absoluteUrl, GITHUB_REPO, GITHUB_RELEASES } from '../lib/urls';
 
 interface Props {
   title: string;
@@ -59,10 +57,9 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     <title>{fullTitle}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={absoluteUrl(path)} />
-    <link rel="icon" href={url('/favicon.svg')} type="image/svg+xml" />
+    <link rel="icon" href={url('/favicon.png')} type="image/png" sizes="64x64" />
     <link rel="apple-touch-icon" href={url('/apple-touch-icon.png')} />
     <link rel="preload" href={textFont} as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content={SITE_NAME} />
     <meta property="og:title" content={fullTitle} />
@@ -76,9 +73,9 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
 
     <header class="masthead">
       <div class="shell masthead-inner">
-        <a class="wordmark" href={url('/')}>
+        <a class="lockup" href={url('/')} aria-label="resmon, research monitor: home">
           <Mark />
-          <span>resmon</span>
+          <span class="lockup-words" aria-hidden="true"><b>res</b>earch <b>mon</b>itor</span>
         </a>
         <nav aria-label="Primary">
           <ul class="nav">
@@ -96,6 +93,7 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
             </li>
           </ul>
         </nav>
+        <a class="mast-action" href={GITHUB_RELEASES}>Download</a>
       </div>
     </header>
 
@@ -140,41 +138,59 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
   .masthead {
     background: var(--color-mast);
     color: var(--color-mast-text);
+    border-bottom: var(--border-width) solid var(--color-border);
   }
 
   .masthead-inner {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2) var(--space-5);
     min-height: var(--masthead-height);
-    padding-block: var(--space-2);
   }
 
-  .wordmark {
+  .lockup {
     display: inline-flex;
     align-items: center;
     gap: var(--space-2);
-    font-weight: var(--weight-heavy);
-    font-size: var(--text-lg);
+    font-size: var(--text-base);
     letter-spacing: var(--tracking-tight);
-    color: var(--color-mast-text);
+    color: var(--color-mast-muted);
     text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--duration-fast) var(--ease);
   }
 
-  .wordmark:hover {
+  .lockup b {
+    font-weight: var(--weight-bold);
     color: var(--color-mast-text);
+  }
+
+  .lockup:hover {
+    color: var(--color-text-muted);
+  }
+
+  .lockup-words {
+    display: none;
+  }
+
+  nav {
+    align-self: stretch;
+    display: flex;
   }
 
   .nav {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1) var(--space-3);
+    align-items: stretch;
+    gap: var(--space-1);
     margin: 0;
     padding: 0;
     list-style: none;
     font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+  }
+
+  .nav li {
+    display: flex;
   }
 
   .nav li + li {
@@ -186,23 +202,51 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
   }
 
   .nav a {
-    display: inline-block;
-    padding-block: var(--space-1);
-    color: var(--color-mast-muted);
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding-inline: var(--space-2);
+    color: var(--color-text-muted);
     text-decoration: none;
+    transition: color var(--duration-fast) var(--ease);
   }
 
-  .nav a:hover {
-    color: var(--color-mast-text);
-  }
-
+  .nav a:hover,
   .nav a[aria-current='page'] {
     color: var(--color-mast-text);
-    font-weight: var(--weight-bold);
-    text-decoration: underline;
-    text-decoration-thickness: var(--border-width-heavy);
-    text-underline-offset: var(--underline-offset);
-    text-decoration-color: var(--color-mast-text);
+  }
+
+  .nav a[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    inset-inline: var(--space-2);
+    inset-block-end: calc(-1 * var(--border-width));
+    height: var(--border-width-heavy);
+    background: var(--color-accent-mark);
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  }
+
+  .mast-action {
+    margin-inline-start: auto;
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--space-6);
+    padding-inline: var(--space-3);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-mast-text);
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      border-color var(--duration-fast) var(--ease),
+      color var(--duration-fast) var(--ease);
+  }
+
+  .mast-action:hover {
+    border-color: var(--color-accent-mark);
+    color: var(--color-accent-text);
   }
 
   /*
@@ -228,7 +272,7 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
   }
 
   .footer {
-    border-top: var(--border-width-heavy) solid var(--color-rule-heavy);
+    border-top: var(--border-width) solid var(--color-border);
     color: var(--color-text-muted);
     font-size: var(--text-sm);
     padding-block: var(--space-5) var(--space-6);
@@ -266,7 +310,15 @@ const isCurrent = (href: string) => !href.includes('#') && current.startsWith(ur
     }
 
     .nav-wide {
-      display: list-item;
+      display: flex;
+    }
+
+    .lockup-words {
+      display: inline;
+    }
+
+    .nav {
+      gap: var(--space-2);
     }
   }
 </style>

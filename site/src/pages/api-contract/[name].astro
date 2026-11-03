@@ -10,6 +10,7 @@ import { getCollection, type CollectionEntry } from 'astro:content';
 import Document from '../../layouts/Document.astro';
 import { renderMarkdown } from '../../lib/markdown';
 import { readDocument } from '../../lib/documents';
+import { contractRail } from '../../lib/rails';
 
 export async function getStaticPaths() {
   const entries = await getCollection('apiContract');
@@ -31,9 +32,9 @@ const { html, headings } = await renderMarkdown(head.body, { from: 'docs/api-con
   title={head.title}
   description={head.description}
   path={`/api-contract/${entry.id}/`}
-  eyebrow="Contract"
+  section="Contract"
+  rail={await contractRail()}
   meta={`docs/api-contract/${entry.id}.md`}
   html={html}
   headings={headings}
-  width="wide"
 />

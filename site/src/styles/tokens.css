@@ -1,5 +1,5 @@
 /*
- * Design tokens — the only file in this site that contains a literal color.
+ * Design tokens: the only file in this site that contains a literal color.
  *
  * Every color, space, size and duration a component uses is named here, and
  * `scripts/check-tokens.mjs` fails the build if a hex literal, a color function
@@ -7,33 +7,38 @@
  * script reads the text-on-surface pairs below and fails on any that falls
  * under WCAG AA, in both schemes.
  *
- * The site is set as a listing: white paper, near-black listing ink, hairline
- * rules between entries and a heavier rule under each section head. One
- * ultramarine, the app icon's, is kept for the one thing a visitor came to do,
- * Download, and for keyboard focus. Links are ink with an offset underline
- * rather than blue, so that the action is the only colored thing on a page.
+ * The site is set in the app's own world, the star atlas: by day a printed
+ * atlas, black ink on white paper; by night the night chart, chalk ink on true
+ * black. The values are Atlas's. One amber, the app's default accent, is kept
+ * for the action, the focus ring, and what is new; one red, fixed, means a
+ * source that did not answer and nothing else. Links are ink with an offset
+ * underline, so the action stays the only colored control on a page.
  */
 
 :root {
-  /* ---- Paper and ink (light) -------------------------------------------- */
+  /* ---- The printed atlas (light) ---------------------------------------- */
   --paper: #ffffff;
-  --paper-2: #f4f5f7;
-  --paper-3: #e9ebef;
-  --rule: #dcdfe5;
-  --rule-strong: #b9bec8;
-  --ink-faint: #5f6673;
-  --ink-muted: #474d58;
-  --ink: #14161a;
+  --paper-2: #f7f6f3;
+  --paper-3: #efeee9;
+  --rule: #e3e1dc;
+  --rule-strong: #cfccc5;
+  --ink-faint: #69665f;
+  --ink-muted: #45433e;
+  --ink: #141413;
+  --grid-line: #ecebe6;
+  --grid-minor: #f4f3f0;
+  --frame-line: #8c897f;
+  --dim-star: #928e86;
 
-  /* ---- The one color ---------------------------------------------------- */
-  --ultra: #2f3fe0;
-  --ultra-deep: #2231c2;
-  --ultra-ink: #ffffff;
-  --ultra-wash: #eceefd;
+  /* ---- The one color: amber, deepened on paper to hold its contrast ----- */
+  --amber-ink: #b94900;
+  --amber-mark: #e95c00;
+  --amber-fill: #e95c00;
+  --amber-on: #141413;
+  --amber-wash: #fdf0e7;
 
-  /* ---- Notice ----------------------------------------------------------- */
-  --warn: #8a5a00;
-  --warn-soft: #fbf1dd;
+  /* ---- The fault: a source that did not answer -------------------------- */
+  --fault: #c22b1d;
 
   /* ---- Semantic surfaces ------------------------------------------------ */
   --color-canvas: var(--paper);
@@ -42,6 +47,9 @@
   --color-border: var(--rule);
   --color-border-strong: var(--rule-strong);
   --color-rule-heavy: var(--ink);
+  --color-grid: var(--grid-line);
+  --color-grid-minor: var(--grid-minor);
+  --color-frame: var(--frame-line);
 
   /* ---- Semantic text ---------------------------------------------------- */
   --color-text: var(--ink);
@@ -53,19 +61,28 @@
   --color-link: var(--ink);
   --color-link-hover: var(--ink);
   --color-link-underline: var(--rule-strong);
-  --color-link-underline-hover: var(--ink);
-  --color-accent-surface: var(--ultra-wash);
-  --color-action: var(--ultra);
-  --color-action-hover: var(--ultra-deep);
-  --color-action-text: var(--ultra-ink);
-  --color-focus: var(--ultra);
+  --color-link-underline-hover: var(--amber-mark);
+  --color-accent-text: var(--amber-ink);
+  --color-accent-mark: var(--amber-mark);
+  --color-accent-surface: var(--amber-wash);
+  --color-action: var(--amber-fill);
+  --color-action-hover: var(--amber-ink);
+  --color-action-text: var(--amber-on);
+  --color-action-hover-text: var(--paper);
+  --color-focus: var(--amber-mark);
+  --color-fault: var(--fault);
 
-  /* ---- Masthead --------------------------------------------------------- */
-  --color-mast: var(--ink);
-  --color-mast-text: var(--paper);
-  --color-mast-muted: #c9ccd3;
-  --color-mark-ground: var(--ultra);
-  --color-mark-dot: #ffffff;
+  /* ---- Masthead: the app's top bar -------------------------------------- */
+  --color-mast: var(--paper);
+  --color-mast-text: var(--ink);
+  --color-mast-muted: var(--ink-faint);
+  --color-mark-ground: var(--ink);
+  --color-mark-dot: var(--paper);
+
+  /* ---- The chart: points, rings, and what the filters leave out --------- */
+  --color-star: var(--ink);
+  --color-star-dim: var(--dim-star);
+  --color-ring: var(--amber-mark);
 
   /* ---- Source-state marks: drawn by shape, never told apart by color ---- */
   --color-mark-ink: var(--ink);
@@ -76,8 +93,8 @@
     transparent 0.09rem 0.22rem
   );
   --mark-cross:
-    linear-gradient(45deg, transparent 43%, var(--color-mark-ink) 43% 57%, transparent 57%),
-    linear-gradient(-45deg, transparent 43%, var(--color-mark-ink) 43% 57%, transparent 57%);
+    linear-gradient(45deg, transparent 43%, var(--color-fault) 43% 57%, transparent 57%),
+    linear-gradient(-45deg, transparent 43%, var(--color-fault) 43% 57%, transparent 57%);
 
   /* ---- Code ------------------------------------------------------------- */
   --color-code-bg: var(--paper-3);
@@ -85,39 +102,37 @@
   --color-codeblock-bg: var(--paper-2);
 
   /* ---- Notice ----------------------------------------------------------- */
-  --color-notice-bg: var(--warn-soft);
-  --color-notice-border: var(--warn);
+  --color-notice-bg: var(--amber-wash);
+  --color-notice-border: var(--amber-mark);
   --color-notice-text: var(--ink);
 
   /* ---- Type ------------------------------------------------------------- */
   /*
-   * Atkinson Hyperlegible was drawn for the Braille Institute so that letters
-   * which are usually confused (I l 1, 0 O, rn m) cannot be. A site whose
-   * product is telling one kind of fact from another reads in a face built to
-   * tell one letter from another. The Mono carries every identifier, count,
-   * rate and time, in tabular figures, so columns of numbers line up.
-   * Both are served from this site (`@fontsource`), never from a font CDN.
+   * The app's three faces. Geist carries the interface and everything read.
+   * Spectral, in italic, is kept for names, as the app sets a watch's or a
+   * region's name on the chart. Geist Mono is for the command line and code.
+   * Figures are tabular wherever they sit in columns. All three are served
+   * from this site, never from a font CDN.
    */
-  --font-sans:
-    "Atkinson Hyperlegible Next", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
-    Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-mono:
-    "Atkinson Hyperlegible Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-    "Liberation Mono", monospace;
+  --font-sans: "Geist Variable", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-serif: "Spectral", "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   --text-2xs: 0.75rem;
   --text-xs: 0.8125rem;
-  --text-sm: 0.9rem;
+  --text-sm: 0.875rem;
   --text-base: 1rem;
   --text-md: 1.0625rem;
   --text-lg: 1.25rem;
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
-  --text-3xl: 2.375rem;
-  --text-display: clamp(2.35rem, 1.2rem + 3.9vw, 4.6rem);
+  --text-3xl: 2.5rem;
+  --text-display: clamp(2.5rem, 1.25rem + 4.1vw, 5rem);
   --text-entry: 1.3125rem;
+  /* Code inside running text, a touch under the line it sits in. */
+  --text-code: 0.92em;
 
-  --leading-display: 1.02;
+  --leading-display: 1;
   --leading-tight: 1.15;
   --leading-snug: 1.35;
   --leading-normal: 1.6;
@@ -125,12 +140,12 @@
   --weight-normal: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
-  --weight-bold: 700;
-  --weight-heavy: 800;
+  --weight-bold: 650;
+  --weight-heavy: 700;
 
-  --tracking-display: -0.032em;
-  --tracking-tight: -0.012em;
-  --tracking-wide: 0.04em;
+  --tracking-display: -0.035em;
+  --tracking-tight: -0.015em;
+  --tracking-wide: 0.06em;
 
   /* ---- Space (a 4px base, in rem so it scales with the root) ------------ */
   --space-0: 0;
@@ -144,20 +159,21 @@
   --space-8: 4rem;
   --space-9: 6rem;
 
-  /* ---- Shape ------------------------------------------------------------ */
-  --radius-sm: 0.125rem;
-  --radius-md: 0.125rem;
-  --radius-lg: 0.1875rem;
+  /* ---- Shape: the app's radii ------------------------------------------- */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.4375rem;
+  --radius-lg: 0.625rem;
   --border-width: 1px;
   --border-width-heavy: 2px;
   --border-width-thick: 3px;
-  --underline-offset: 0.22em;
+  --underline-offset: 0.24em;
+  --tick: 0.5rem;
 
   /* ---- Marks ------------------------------------------------------------ */
   --mark-size: 0.78rem;
   --mark-stroke: 0.14rem;
   --mark-cell: 2.25rem;
-  --brand-mark: 1.5rem;
+  --brand-mark: 1.625rem;
 
   /* ---- Icons ------------------------------------------------------------ */
   /*
@@ -171,7 +187,8 @@
   /* ---- Layout ----------------------------------------------------------- */
   --measure: 42rem;
   --measure-wide: 64rem;
-  --shell: 78rem;
+  --shell: 80rem;
+  --rail: 15rem;
   --page-min-height: 100dvh;
   --gutter: var(--space-4);
   --gutter-wide: var(--space-7);
@@ -179,47 +196,49 @@
   --entry-number: 3rem;
   --entry-label: 8rem;
   --date-column: 12rem;
-  --post-number: 6rem;
-  --measure-display: 17ch;
+  --measure-display: 16ch;
 
-  /* ---- Motion ----------------------------------------------------------- */
-  --duration-fast: 120ms;
+  /* ---- Motion: the app's ease and its one duration ---------------------- */
+  --duration-fast: 180ms;
   --duration-fill: 480ms;
-  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --duration-settle: 1600ms;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   color-scheme: light dark;
 }
 
 /*
- * The listing at night: rebuilt rather than inverted. The paper goes to a
- * blue-black, the ink to an off-white, and the one color is lifted so the
- * Download block still carries dark text at AA.
+ * The night chart: true black and chalk ink, Atlas's dark theme. The amber
+ * holds its full strength here, and the Download block carries black text.
  */
 @media (prefers-color-scheme: dark) {
   :root {
-    --paper: #101115;
-    --paper-2: #17191e;
-    --paper-3: #20232a;
-    --rule: #2b2e37;
-    --rule-strong: #4a4f5c;
-    --ink-faint: #969cab;
-    --ink-muted: #b3b8c4;
-    --ink: #eceef2;
+    --paper: #0a0a0b;
+    --paper-2: #111112;
+    --paper-3: #18181a;
+    --rule: #232322;
+    --rule-strong: #34332f;
+    --ink-faint: #8f8b82;
+    --ink-muted: #bfbab0;
+    --ink: #f1eee6;
+    --grid-line: #1a1a1b;
+    --grid-minor: #141415;
+    --frame-line: #4a4842;
+    --dim-star: #68655f;
 
-    --ultra: #8f9bff;
-    --ultra-deep: #a9b2ff;
-    --ultra-ink: #101115;
-    --ultra-wash: #1c2040;
+    --amber-ink: #ff8a3d;
+    --amber-mark: #ff8a3d;
+    --amber-fill: #ff8a3d;
+    --amber-on: #0a0a0b;
+    --amber-wash: #2a1a10;
 
-    --warn: #e0b057;
-    --warn-soft: #2a2213;
+    --fault: #ff6253;
 
     --color-surface-raised: var(--paper-2);
-    --color-mast: #22252d;
-    --color-mast-text: #eceef2;
-    --color-mast-muted: #a3a8b4;
-    --color-mark-ground: #2f3fe0;
+    --color-mast: #0c0c0d;
+    --color-action-hover: #ffa366;
+    --color-action-hover-text: #0a0a0b;
     --color-code-bg: var(--paper-3);
     --color-codeblock-bg: var(--paper-2);
   }
@@ -229,5 +248,6 @@
   :root {
     --duration-fast: 0ms;
     --duration-fill: 0ms;
+    --duration-settle: 0ms;
   }
 }
