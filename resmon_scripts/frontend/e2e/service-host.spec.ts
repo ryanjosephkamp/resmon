@@ -191,3 +191,35 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+test('a unit that starts the app passes the port and the state folders, and the engine uses them', async () => {
+  test.setTimeout(180_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-service-flags-'));
+  const port = await freePort();
+  expect(port).not.toBe(8742);
+  const database = path.join(stateDir, 'unit-state', 'from-the-unit.db');
+  const reports = path.join(stateDir, 'unit-state', 'unit-reports');
+  fs.mkdirSync(path.dirname(database), { recursive: true });
+  const env = atlasEnv(launchEnv(stateDir, true));
+  // The arguments, as a unit gives them, are what must win. The environment names a port
+  // nothing can bind, so an argument that went unread fails here instead of reaching 8742.
+  env.RESMON_DAEMON_PORT = '1';
+  delete env.RESMON_DISABLE_SCHEDULER;
+  const args = ['.', '--service', `--port=${port}`, `--db-path=${database}`, `--reports-dir=${reports}`,
+    `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`];
+  const app = await electron.launch({ args, cwd: FRONTEND_ROOT, env, timeout: 180_000 });
+  try {
+    const tokenFile = path.join(stateDir, `api-token-${port}`);
+    await expect.poll(() => fs.existsSync(tokenFile), { timeout: 120_000 }).toBe(true);
+    await expect.poll(async () => (await e2eFetch(`http://127.0.0.1:${port}/api/health`).catch(() => null))?.status ?? 0,
+      { timeout: 60_000 }).toBe(200);
+    const lock = JSON.parse(fs.readFileSync(path.join(stateDir, 'daemon.lock'), 'utf8')) as { port: number };
+    expect(lock.port).toBe(port);
+    // The database the unit named is the one the engine opened, not the environment's.
+    expect(fs.existsSync(database)).toBe(true);
+    expect(fs.existsSync(path.join(stateDir, 'resmon.db'))).toBe(false);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});

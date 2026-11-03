@@ -14731,8 +14731,12 @@
       },
       "ServiceStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/service/status`` — whether the unit file is installed.\n\n``installed`` is the file's presence at ``unit_path`` and nothing more: an\ninstalled unit says nothing about whether a service is running, which is\n``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.",
+        "description": "``GET /api/service/status`` — whether the unit file is installed.\n\n``installed`` is the file's presence at ``unit_path`` and nothing more: an\ninstalled unit says nothing about whether a service is running, which is\n``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.\n``runs`` is what the installed unit starts, read from the file: ``app`` (the\nresmon app, which posts notifications as resmon), ``engine`` (the bare\nengine), or ``null`` when there is no unit or it names neither.\n``app_available`` is true when this engine was started by the packaged app, so\na unit written now would run the app.",
         "properties": {
+          "app_available": {
+            "title": "App Available",
+            "type": "boolean"
+          },
           "installed": {
             "title": "Installed",
             "type": "boolean"
@@ -14740,6 +14744,21 @@
           "platform": {
             "title": "Platform",
             "type": "string"
+          },
+          "runs": {
+            "anyOf": [
+              {
+                "enum": [
+                  "app",
+                  "engine"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Runs"
           },
           "unit_path": {
             "title": "Unit Path",
@@ -14749,7 +14768,9 @@
         "required": [
           "installed",
           "unit_path",
-          "platform"
+          "platform",
+          "runs",
+          "app_available"
         ],
         "title": "ServiceStatus",
         "type": "object"

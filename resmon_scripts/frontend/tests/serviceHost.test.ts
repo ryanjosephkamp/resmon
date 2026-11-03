@@ -11,7 +11,7 @@
 import * as http from 'http';
 
 import {
-  isServiceLaunch, parseNotice, routeForNotice, servicePort, startNoticeListener,
+  appExecutable, engineFlags, isServiceLaunch, parseNotice, routeForNotice, servicePort, startNoticeListener,
   type Notice, type NoticeListener,
 } from '../electron/host';
 
@@ -109,5 +109,48 @@ describe('a service start', () => {
     for (const raw of ['abc', '0', '70000', '80 80', '-1']) {
       expect(() => servicePort({ RESMON_DAEMON_PORT: raw })).toThrow(/not a port/);
     }
+  });
+});
+
+describe('the app run by a service unit', () => {
+  it('takes its port from --port, ahead of the environment, and refuses one that is not a port', () => {
+    expect(servicePort({}, ['resmon', '--service', '--port=51336'])).toBe(51336);
+    expect(servicePort({ RESMON_DAEMON_PORT: '51335' }, ['resmon', '--service', '--port=51336'])).toBe(51336);
+    expect(servicePort({ RESMON_DAEMON_PORT: '51335' }, ['resmon', '--service'])).toBe(51335);
+    expect(() => servicePort({}, ['resmon', '--service', '--port=abc'])).toThrow(/--port is set to "abc"/);
+  });
+
+  it('hands the unit\'s state flags on to the engine, and nothing else', () => {
+    const argv = [
+      '/Applications/resmon.app/Contents/MacOS/resmon', '--service', '--port=8742',
+      '--db-path=/Users/ada/Library/Application Support/resmon/resmon.db',
+      '--reports-dir=/Users/ada/Library/Application Support/resmon/resmon_reports',
+      '--log-dir=C:\\logs', '--user-data-dir=/tmp/x', '--db-path=',
+    ];
+    expect(engineFlags(argv)).toEqual([
+      '--db-path=/Users/ada/Library/Application Support/resmon/resmon.db',
+      '--reports-dir=/Users/ada/Library/Application Support/resmon/resmon_reports',
+      '--log-dir=C:\\logs',
+    ]);
+    expect(engineFlags(['resmon', '--service'])).toEqual([]);
+  });
+
+  describe('the executable a unit should start', () => {
+    it('is the app on macOS and Windows when packaged', () => {
+      expect(appExecutable('darwin', '/Applications/resmon.app/Contents/MacOS/resmon', {}, true))
+        .toBe('/Applications/resmon.app/Contents/MacOS/resmon');
+      expect(appExecutable('win32', 'C:\\resmon\\resmon.exe', {}, true)).toBe('C:\\resmon\\resmon.exe');
+    });
+
+    it('is the AppImage file on Linux, never the path it is mounted at', () => {
+      const env = { APPIMAGE: '/home/ada/Apps/resmon-1.0.0-x86_64.AppImage' };
+      expect(appExecutable('linux', '/tmp/.mount_resmonAbC/resmon', env, true)).toBe(env.APPIMAGE);
+    });
+
+    it('is nothing from a source checkout, or the extracted Linux folder', () => {
+      expect(appExecutable('darwin', '/x/electron', {}, false)).toBeNull();
+      expect(appExecutable('linux', '/x/electron', { APPIMAGE: '/a.AppImage' }, false)).toBeNull();
+      expect(appExecutable('linux', '/x/linux-unpacked/resmon', {}, true)).toBeNull();
+    });
   });
 });

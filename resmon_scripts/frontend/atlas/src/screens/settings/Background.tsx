@@ -51,10 +51,30 @@ export function Background() {
     },
   });
 
+  // Taking the unit out and putting it back is what the switch does in two clicks;
+  // the new unit runs the app when this engine was started by the packaged app.
+  const again = useMutation({
+    mutationFn: async () => {
+      await answer(engine().POST('/api/service/uninstall', { body: { register: true } }));
+      return answer(engine().POST('/api/service/install', { body: { register: true } }));
+    },
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: ['service-status'] });
+      void client.invalidateQueries({ queryKey: ['daemon-status'] });
+    },
+  });
+
   const installed = service.data?.installed ?? false;
+  const runsBareEngine = installed && service.data?.runs === 'engine' && service.data.app_available;
   const unit = unitKind(service.data?.platform);
   const state = daemon.data ? daemonState(daemon.data, health.data?.pid ?? null) : null;
   const since = daemon.data?.started_at ? clock(daemon.data.started_at) : null;
+
+  const reinstall = () => {
+    if (again.isPending) return;
+    if (window.confirm('Install the background service again? resmon will replace the unit and register it again, '
+      + 'so it starts the resmon app, which runs your watches and posts their notifications.')) again.mutate();
+  };
 
   const flip = () => {
     if (!service.data || toggle.isPending) return;
@@ -132,6 +152,21 @@ export function Background() {
               </dd>
             </div>
           </dl>
+
+          {runsBareEngine && (
+            <p className="field-lede" data-service="bare-engine">
+              The installed service starts the engine on its own, not the resmon app, so its notifications do not come from resmon.
+              {' '}
+              <button type="button" className="btn quiet sm" data-service="install-again" disabled={again.isPending} onClick={reinstall}>
+                Install it again
+              </button>
+            </p>
+          )}
+          {again.error && (
+            <p className="field-error" role="alert">
+              {again.error instanceof EngineError && again.error.detail ? again.error.detail : again.error.message}
+            </p>
+          )}
         </>
       )}
 

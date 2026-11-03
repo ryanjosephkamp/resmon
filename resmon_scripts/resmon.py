@@ -7140,6 +7140,8 @@ def service_status():
         "installed": _service_manager.is_installed(),
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
+        "runs": _service_manager.unit_runs(),
+        "app_available": _service_manager.default_app_executable() is not None,
     }
 
 

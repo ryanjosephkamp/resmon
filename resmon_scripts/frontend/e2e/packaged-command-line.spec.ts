@@ -143,11 +143,26 @@ test('the command line in the packaged app answers from the instance, and no con
         async () => (await engine<{ state: string }>(win, `${route}?expected_vault_id=${vault}&expected_version_id=${versionId}`)).state,
         { timeout: 120_000, intervals: [500] },
       ).toBe('done');
+
+      // 6. A unit written by this engine, which the packaged app started, runs the app. (Written
+      // to this instance's own unit folder and never registered. On Linux it runs the app only
+      // as an AppImage, which this unpacked folder is not.)
+      const unit = await engine<{ unit_path: string }>(win, '/api/service/install',
+        { method: 'POST', json: { register: false } });
+      expect(unit.unit_path.startsWith(stateDir)).toBe(true);
+      const unitText = fs.readFileSync(unit.unit_path, 'utf8');
+      if (process.platform === 'linux') {
+        expect(unitText).toContain('implementation_scripts.daemon');
+      } else {
+        expect(unitText).toContain(exe as string);
+        expect(unitText).toContain('--service');
+        expect(unitText).not.toContain('implementation_scripts.daemon');
+      }
     } finally {
       await app.close().catch(() => { /* already gone */ });
     }
 
-    // 6. No console window at any point, and nothing written into the app.
+    // 7. No console window at any point, and nothing written into the app.
     if (watch) {
       const seen = await watch.stop();
       watch = null;
@@ -228,7 +243,7 @@ test('Install and Uninstall "resmon" Command write a launcher that runs the app\
       process.platform === 'darwin'
         ? `resmon ${CHECKOUT_VERSION} (the command line inside the resmon app: ${folder})`
         // On Linux the launcher runs the copy kept in the user's data folder.
-        : `resmon ${CHECKOUT_VERSION} (the command line inside the resmon app: ${path.join(root, '.local', 'share', 'resmon', 'resmon.pyz')})`,
+        : `resmon ${CHECKOUT_VERSION} (the resmon app's command line: ${path.join(root, '.local', 'share', 'resmon', 'resmon.pyz')})`,
     );
 
     await click('uninstall-command');

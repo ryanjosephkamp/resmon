@@ -7,8 +7,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>{{PYTHON}}</string>
-        <string>-m</string>
-        <string>implementation_scripts.daemon</string>
+        {{LAUNCH_ARGS}}
         <string>{{PORT}}</string>{{STATE_ARGS}}
     </array>
     <key>WorkingDirectory</key>

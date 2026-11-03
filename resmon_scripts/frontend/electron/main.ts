@@ -4,7 +4,8 @@ import {
   installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
 } from './commandLineInstall';
 import {
-  isServiceLaunch, routeForNotice, servicePort, startNoticeListener, type Notice, type NoticeListener,
+  appExecutable, engineFlags, isServiceLaunch, routeForNotice, servicePort, startNoticeListener,
+  type Notice, type NoticeListener,
 } from './host';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, spawn } from 'child_process';
@@ -90,7 +91,7 @@ function isHiddenWindow(): boolean {
 //
 // So `accessory` on its own changes nothing about focus. It earns its place for
 // the second half of the problem rather than the first: a suite run does not
-// put an icon in the Dock or takes over the menu bar, which is what made a run
+// put an icon in the Dock or take over the menu bar, which is what made a run
 // feel like another app had opened even when it had not stolen the keyboard.
 //
 // Applied at module scope rather than inside `app.whenReady()`, and that is a
@@ -269,8 +270,9 @@ function fetchHealth(port: number, token: string, timeoutMs: number = 3000): Pro
  *
  * The daemon starts under launchd before any window exists, so unlike a backend
  * this process spawns it cannot be told the origin in its environment — and
- * "any loopback origin" is not trusted by the Library guard. Sent from here, with the token and without an Origin
- * header, which is the only way the backend accepts it.
+ * "any loopback origin" is not trusted by the Library guard. Sent from here,
+ * with the token and without an Origin header, which is the only way the
+ * backend accepts it.
  */
 function registerRendererOrigin(port: number, token: string, origin: string, timeoutMs = 3000): Promise<boolean> {
   return new Promise((resolve) => {
@@ -417,6 +419,13 @@ function stopOwnBackend(): Promise<void> {
   });
 }
 
+/** Tell an engine this app starts which executable runs this app, or that none does. */
+function setAppExecutable(env: NodeJS.ProcessEnv): void {
+  const executable = appExecutable(process.platform, process.execPath, process.env, app.isPackaged);
+  if (executable) env.RESMON_APP_EXECUTABLE = executable;
+  else delete env.RESMON_APP_EXECUTABLE;
+}
+
 /** Spawn the Python backend and return the child process. */
 function startBackend(port: number, token: string, rendererOrigin: string): ChildProcess {
   const { scriptDir, pythonPath } = backendLocation();
@@ -449,6 +458,10 @@ function startBackend(port: number, token: string, rendererOrigin: string): Chil
     // it would edit the app, which breaks its signature once it is signed.
     backendEnv.PYTHONDONTWRITEBYTECODE = '1';
   }
+  // A service unit that this engine installs runs the app, so the engine is
+  // told which executable that is. Never inherited from the shell that started
+  // this app: only this app knows its own path.
+  setAppExecutable(backendEnv);
 
   // The app posts this backend's notifications as resmon, as it does the
   // service's (`postNotice`), rather than the backend posting them through a
@@ -544,11 +557,13 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
     // See `startBackend`: the packaged bundle is never written to.
     env.PYTHONDONTWRITEBYTECODE = '1';
   }
+  setAppExecutable(env);
   if (noticeListener) {
     env.RESMON_HOST_NOTIFY_URL = noticeListener.url;
     env.RESMON_HOST_NOTIFY_TOKEN = noticeListener.token;
   }
-  const child = spawn(pythonPath, ['-m', 'implementation_scripts.daemon', String(port)], {
+  const daemonArgs = ['-m', 'implementation_scripts.daemon', String(port), ...engineFlags(process.argv)];
+  const child = spawn(pythonPath, daemonArgs, {
     cwd: scriptDir,
     stdio: ['ignore', 'inherit', 'inherit'],
     env,
@@ -1268,7 +1283,7 @@ app.whenReady().then(async () => {
     noticeListener = await startNoticeListener(postNotice);
 
     if (SERVICE) {
-      backendPort = servicePort(process.env);
+      backendPort = servicePort(process.env, process.argv);
       backendToken = mintToken();
       console.log(`[main] Starting the service's engine on port ${backendPort}`);
       backendProcess = startServiceEngine(backendPort, backendToken, rendererOrigin);

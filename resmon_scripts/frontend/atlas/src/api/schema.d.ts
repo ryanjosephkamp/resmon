@@ -10291,12 +10291,21 @@ export interface components {
          *     ``installed`` is the file's presence at ``unit_path`` and nothing more: an
          *     installed unit says nothing about whether a service is running, which is
          *     ``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.
+         *     ``runs`` is what the installed unit starts, read from the file: ``app`` (the
+         *     resmon app, which posts notifications as resmon), ``engine`` (the bare
+         *     engine), or ``null`` when there is no unit or it names neither.
+         *     ``app_available`` is true when this engine was started by the packaged app, so
+         *     a unit written now would run the app.
          */
         ServiceStatus: {
+            /** App Available */
+            app_available: boolean;
             /** Installed */
             installed: boolean;
             /** Platform */
             platform: string;
+            /** Runs */
+            runs: ("app" | "engine") | null;
             /** Unit Path */
             unit_path: string;
         } & {
