@@ -379,7 +379,7 @@ def _verdict(
         return (
             "no_local_evidence",
             f"{name} is filtered by resmon itself, so a paper with no matching "
-            "term is unexpected here. It may predate a change to this routine's "
+            "term is unexpected here. It may predate a change to this watch's "
             "keywords.",
         )
 

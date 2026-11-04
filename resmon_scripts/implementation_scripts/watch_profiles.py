@@ -383,8 +383,8 @@ def validate_entity_parameters(conn: sqlite3.Connection, entity: Any) -> dict:
     profile = get_profile(conn, profile_id)
     if profile is None:
         raise ProfileError(
-            f"There is no watch profile with id {profile_id}. Create the "
-            f"profile first, then point the routine at it.")
+            f"There is no person with id {profile_id}. Add them under People "
+            f"first, then point the watch at them.")
 
     mode = str(entity.get("mode") or "").strip()
     if not mode:

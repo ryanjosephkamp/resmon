@@ -67,7 +67,7 @@ Run the checks for what you changed. A change that touches a route runs all of t
 # Backend, from the root of the clone. The default run is hermetic: any test that
 # reaches the network is marked live_network and is left out.
 .venv/bin/python -m pytest -q
-.venv/bin/python -m pytest -m live_network -q    # real sources; CI runs the half that needs no signed-in command, weekly
+.venv/bin/python -m pytest -m live_network -q    # real sources; Actions › Live network runs the half that needs no signed-in command, when started by hand
 
 # Interface, from resmon_scripts/frontend
 npm run typecheck && npm run lint && npm test    # TypeScript, ESLint, and the Jest suites

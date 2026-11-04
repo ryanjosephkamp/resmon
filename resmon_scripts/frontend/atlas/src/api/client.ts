@@ -16,7 +16,7 @@ export type Engine = ReturnType<typeof createClient<paths>>;
 export class EngineError extends Error {
   /**
    * The engine's own sentence, where it refused with one (FastAPI's string
-   * `detail`): "This watch is already running as execution 12…". A screen
+   * `detail`): "This watch is already running as run 12…". A screen
    * shows this rather than the route and status, which say only that it failed.
    */
   readonly detail: string | null;

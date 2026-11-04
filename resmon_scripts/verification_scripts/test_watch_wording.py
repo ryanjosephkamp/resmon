@@ -76,7 +76,7 @@ def test_the_watchdog_names_an_unnamed_watch_as_a_watch():
 
 
 @pytest.mark.parametrize("error,expected", [
-    (RoutineAlreadyRunning(12, 40), "Watch 12 is already running as execution 40."),
+    (RoutineAlreadyRunning(12, 40), "Watch 12 is already running as run 40."),
     (RoutineAlreadyRunning(12, None), "Watch 12 is already running."),
     (RoutineFireWaiting(12, "queued"), "Watch 12 was queued, not started."),
 ])

@@ -1,15 +1,7 @@
 name: Voice packaging probe
 
+# Runs when started by hand (Actions › Voice packaging probe › Run workflow).
 on:
-  push:
-    branches: ['codex/voice-spike']
-    paths:
-      - '.github/workflows/voice-probe.yml'
-      - 'resmon_scripts/verification_scripts/probe_transcriber.py'
-  pull_request:
-    paths:
-      - '.github/workflows/voice-probe.yml'
-      - 'resmon_scripts/verification_scripts/probe_transcriber.py'
   workflow_dispatch:
 
 permissions:

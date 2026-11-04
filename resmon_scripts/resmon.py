@@ -2321,7 +2321,7 @@ def run_routine_now(routine_id: int, response: Response):
             # to branch on the reason does not have to parse English.
             raise HTTPException(
                 409,
-                (f"This watch is already running as execution "
+                (f"This watch is already running as run "
                  f"{conflict.execution_id}. Wait for that run to finish, or "
                  "cancel it, before starting another."
                  if conflict.execution_id is not None else
