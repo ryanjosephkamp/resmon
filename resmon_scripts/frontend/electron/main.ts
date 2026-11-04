@@ -8,7 +8,8 @@ import {
   type Notice, type NoticeListener,
 } from './host';
 import {
-  disabledIn, ensureService, pidFromPrint, temporaryPlace, unitFromPlist, type Facts, type Running, type Unit, type World,
+  START_WAIT_MS, disabledIn, ensureService, pidFromPrint, temporaryPlace, unitFromPlist,
+  type Facts, type Running, type Unit, type World,
 } from './service';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, execFile, execFileSync, spawn } from 'child_process';
@@ -697,7 +698,7 @@ async function showWindow(route: string | null): Promise<void> {
  * 15 seconds once allowed ran out in the middle of that, and the engine was
  * stopped there.
  */
-const ENGINE_START_LIMIT_MS = 10 * 60_000;
+const ENGINE_START_LIMIT_MS = START_WAIT_MS;
 
 /** Wait for an engine this app started to answer health, for as long as it runs, up to `limitMs`. */
 async function waitForEngine(child: ChildProcess, port: number, token: string, limitMs = ENGINE_START_LIMIT_MS): Promise<void> {
@@ -1403,6 +1404,7 @@ function serviceWorld(): World {
       return response === 0;
     },
     releaseLock: () => app.releaseSingleInstanceLock(),
+    holdsLock: () => app.hasSingleInstanceLock(),
     sleep,
     log: (line: string) => console.log(`[service] ${line}`),
   };

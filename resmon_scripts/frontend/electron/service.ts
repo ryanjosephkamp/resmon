@@ -113,6 +113,8 @@ export interface World {
   askToRestart(active: number): Promise<boolean>;
   /** Let go of the single-instance lock, so the service can take it. */
   releaseLock(): void;
+  /** Whether this launch holds the single-instance lock; when it does not, the resmon that does opens the window. */
+  holdsLock(): boolean;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
 }
@@ -127,8 +129,12 @@ export type Outcome =
   | { done: 'blocked' }
   | { done: 'failed'; why: string };
 
-/** How long a service that is starting is given to answer: a migration after an update can take minutes. */
-export const START_WAIT_MS = 180_000;
+/**
+ * How long a service that is starting is given to answer, the same as an
+ * engine this app starts itself (`main.ts`): a migration after an update can
+ * take minutes. A service still starting after it is left alone, never stopped.
+ */
+export const START_WAIT_MS = 10 * 60_000;
 /** How long a service with no process is left to launchd before it is started at once. */
 const POLL_MS = 500;
 
@@ -141,11 +147,19 @@ export async function ensureService(world: World, me: Me, startWait = START_WAIT
   let facts = await world.facts();
   let decision = decide(facts, me);
   if (decision.act === 'wait') {
+    // A service with a process that does not answer yet is starting (a
+    // migration after an update can take minutes) or busy, and is never
+    // stopped for it. The resmon holding the lock opens the window once it
+    // answers; a launch holding it lets it go, so the service can take it, and
+    // waits.
+    if (!world.holdsLock()) return { done: 'nothing', why: 'starting' };
     world.log('The background service is starting; waiting for it to answer.');
+    letGo(world);
     facts = await settle(world, startWait, (f) => decide(f, me).act !== 'wait');
     decision = decide(facts, me);
-    // Still starting, past the wait: started once more from the top.
-    if (decision.act === 'wait') decision = { act: 'replace', rewrite: false, active: null };
+    if (decision.act === 'wait') return { done: 'nothing', why: 'starting' };
+    // It answered, as this build: hand over to it.
+    if (decision.act === 'none' && decision.why === 'ours') return { done: 'started' };
   }
   switch (decision.act) {
     case 'none':
@@ -154,12 +168,12 @@ export async function ensureService(world: World, me: Me, startWait = START_WAIT
       world.log('macOS has turned resmon off in the background; the service cannot start.');
       return { done: 'blocked' };
     case 'kick': {
-      world.releaseLock();
+      letGo(world);
       if (!(await world.kickstart())) return { done: 'failed', why: 'launchctl kickstart failed' };
       return answered(world, me, startWait);
     }
     case 'start': {
-      world.releaseLock();
+      letGo(world);
       if (decision.rewrite && !(await world.rewrite(facts.unit?.port ?? null))) {
         return { done: 'failed', why: 'the unit could not be written again' };
       }
@@ -167,7 +181,7 @@ export async function ensureService(world: World, me: Me, startWait = START_WAIT
     }
     case 'replace': {
       if (decision.active && !(await world.askToRestart(decision.active))) return { done: 'kept' };
-      world.releaseLock();
+      letGo(world);
       if (!(await world.bootout())) return { done: 'failed', why: 'launchd did not stop the service' };
       if (decision.rewrite && !(await world.rewrite(facts.unit?.port ?? null))) {
         return { done: 'failed', why: 'the unit could not be written again' };
@@ -177,6 +191,11 @@ export async function ensureService(world: World, me: Me, startWait = START_WAIT
     default:
       return { done: 'nothing', why: 'unknown' };
   }
+}
+
+/** Let go of the lock, if this launch holds it, so the service can take it. */
+function letGo(world: World): void {
+  if (world.holdsLock()) world.releaseLock();
 }
 
 async function started(world: World, me: Me, startWait: number): Promise<Outcome> {

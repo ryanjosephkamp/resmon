@@ -96,11 +96,19 @@ class FakeWorld implements World {
   /** Polls before a starting service answers. */
   slowStart = 0;
   private pendingStart = 0;
+  /** Whether this launch holds the single-instance lock. */
+  holding = true;
+  /** The build a service already starting answers as, before anything restarts it. */
+  private answersAs: string | null = null;
 
   async facts(): Promise<Facts> {
     if (this.pendingStart > 0) {
       this.pendingStart -= 1;
-      if (this.pendingStart === 0 && this.startsBuild) this.running = { build: this.startsBuild, version: '1.0.0', active: 0 };
+      if (this.pendingStart === 0) {
+        const build = this.answersAs ?? this.startsBuild;
+        this.answersAs = null;
+        if (build) this.running = { build, version: '1.0.0', active: 0 };
+      }
     }
     return { unit: this.unit, job: { ...this.job }, running: this.running && { ...this.running }, programExists: true };
   }
@@ -143,7 +151,15 @@ class FakeWorld implements World {
     return this.answers;
   }
 
-  releaseLock(): void { this.calls.push('release'); }
+  releaseLock(): void { this.calls.push('release'); this.holding = false; }
+  holdsLock(): boolean { return this.holding; }
+  /** A service already starting, whose process answers as `build` after `polls` polls; never, with null. */
+  startingAs(build: string | null, polls: number): void {
+    this.job = { loaded: true, pid: 300, disabled: false };
+    this.running = null;
+    this.answersAs = build;
+    this.pendingStart = build === null ? 0 : polls;
+  }
   async sleep(): Promise<void> { /* no time passes */ }
   log(line: string): void { this.lines.push(line); }
 }
@@ -185,6 +201,36 @@ describe('the steps taken, once per launch', () => {
     world.running = null;
     expect(await ensureService(world, ME)).toEqual({ done: 'started' });
     expect(world.calls).toEqual(['release', 'kickstart']);
+  });
+
+  test('a service with a process that never answers is never stopped, however long it is waited for', async () => {
+    const world = new FakeWorld();
+    world.startingAs(null, 0);
+    expect(await ensureService(world, ME, 5_000)).toEqual({ done: 'nothing', why: 'starting' });
+    // The lock let go so the service could take it, and nothing more: no bootout, no kickstart.
+    expect(world.calls).toEqual(['release']);
+  });
+
+  test('a service still starting while another resmon holds the lock: left to it, which opens the window', async () => {
+    const world = new FakeWorld();
+    world.startingAs(null, 0);
+    world.holding = false;
+    expect(await ensureService(world, ME)).toEqual({ done: 'nothing', why: 'starting' });
+    expect(world.calls).toEqual([]);
+  });
+
+  test('a slow first start (a migration) that answers as this build: handed over, nothing stopped', async () => {
+    const world = new FakeWorld();
+    world.startingAs('b-new', 400); // over three minutes at half a second a poll
+    expect(await ensureService(world, ME)).toEqual({ done: 'started' });
+    expect(world.calls).toEqual(['release']);
+  });
+
+  test('a start that answers as another build: then asked about, as any other build is', async () => {
+    const world = new FakeWorld();
+    world.startingAs('b-old', 3);
+    expect(await ensureService(world, ME)).toEqual({ done: 'started' });
+    expect(world.calls).toEqual(['release', 'bootout', 'bootstrap']);
   });
 
   test('a stop launchd does not carry out: said, and nothing more is tried', async () => {
