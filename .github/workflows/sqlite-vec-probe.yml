@@ -1,17 +1,7 @@
 name: sqlite-vec packaging probe
 
+# Runs when started by hand (Actions › sqlite-vec packaging probe › Run workflow).
 on:
-  push:
-    branches: ['codex/sqlite-vec-spike']
-  pull_request:
-    paths:
-      - '.github/workflows/sqlite-vec-probe.yml'
-      - '.github/workflows/release.yml'
-      - 'resmon_scripts/verification_scripts/probe_sqlite_vec.py'
-      - 'resmon_scripts/frontend/scripts/prepare-backend.js'
-      - 'resmon_scripts/frontend/package*.json'
-      - 'resmon_scripts/frontend/build-resources/entitlements.mac.plist'
-      - 'requirements.txt'
   workflow_dispatch:
 
 permissions:

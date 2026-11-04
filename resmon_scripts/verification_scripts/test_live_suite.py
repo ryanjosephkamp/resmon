@@ -141,17 +141,11 @@ def test_workflow_preserves_pytest_status_and_publishes_durable_evidence():
         assert name in text
 
 
-def test_workflow_keeps_the_existing_triggers_and_runtime_bounds():
+def test_workflow_runs_only_when_started_by_hand_within_its_runtime_bounds():
     text = WORKFLOW.read_text(encoding="utf-8")
-    path_block = text.split("paths:", 1)[1].split("\n\npermissions:", 1)[0]
-    assert re.findall(r"- '([^']+)'", path_block) == [
-        ".github/workflows/live-network.yml",
-        "resmon_scripts/verification_scripts/live_suite.py",
-        "resmon_scripts/verification_scripts/test_live_suite.py",
-        "pytest.ini",
-    ]
-    assert "- cron: '17 6 * * 1'" in text
-    assert "workflow_dispatch:" in text
+    triggers = text.split("\non:\n", 1)[1].split("\n\n", 1)[0]
+    assert triggers.strip() == "workflow_dispatch:"
+    assert "schedule:" not in text
     assert "timeout-minutes: 45" in text
     assert "cancel-in-progress: false" in text
 
