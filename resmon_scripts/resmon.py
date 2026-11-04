@@ -4054,9 +4054,12 @@ _selected_lane_lock = threading.RLock()
 
 
 def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
+    # The port this process serves, the service's included: an answer records
+    # it with the process, so a later start can tell its own answer from
+    # another engine's.
     port = serving_port()
-    if type(port) is not int or not 1 <= port <= 65535 or port == 8742:
-        evidence.refuse('invalid_port', 'Selected answers require an explicit non-default serving port.', 409)
+    if type(port) is not int or not 1 <= port <= 65535:
+        evidence.refuse('invalid_port', 'Selected answers need the port this engine serves, and it is not known.', 409)
     db_path = conn.execute('PRAGMA database_list').fetchone()[2]
     owner = runtime_identity.current_runtime_id()
     with _selected_lane_lock:
@@ -4069,7 +4072,7 @@ def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
 def _selected_startup() -> None:
     # Embedded tests without a serving identity do not start this optional lane.
     port = serving_port()
-    if type(port) is int and 1 <= port <= 65535 and port != 8742:
+    if type(port) is int and 1 <= port <= 65535:
         _selected_lane(_get_db())
 
 
@@ -9198,12 +9201,24 @@ def dismiss_onboarding():
 _serving_port: Optional[int] = None
 
 
+def set_serving_port(port: int) -> None:
+    """Record the port this process serves, for a backend not started by ``main()``.
+
+    The background service (``daemon.run``) serves this app on its own port.
+    Without this it fell back to the port file, which names whichever window's
+    engine last wrote it, so Evidence's answers were bound to a stale port.
+    """
+    global _serving_port
+    _serving_port = port
+
+
 def serving_port() -> Optional[int]:
     """The port this backend is actually answering on.
 
-    Set by ``main()``. The fallbacks exist for a backend started by a test or by
-    an embedder rather than by ``main`` — and they are read in the same order the
-    MCP server uses, so the two cannot disagree about which resmon is meant.
+    Set by ``main()``, and by the service through ``set_serving_port``. The
+    fallbacks exist for a backend started by a test or by an embedder — and they
+    are read in the same order the MCP server uses, so the two cannot disagree
+    about which resmon is meant.
     """
     if _serving_port is not None:
         return _serving_port

@@ -55,9 +55,10 @@ export function readerBusy(error: unknown): boolean {
 function endpoint(): { base: string; token: string | null } {
   const link = bridge();
   const port = link?.getBackendPort() ?? '';
-  // Evidence never falls back to a default instance, and never to the daemon's port.
-  if (!/^[1-9][0-9]{0,4}$/.test(port) || Number(port) > 65535 || port === '8742') {
-    throw new EngineError(0, 'Evidence needs this window’s own engine, and it has none yet.');
+  // The engine this window talks to, the background service's included. Evidence never guesses a port:
+  // with none from the window, it says so rather than ask a default one.
+  if (!/^[1-9][0-9]{0,4}$/.test(port) || Number(port) > 65535) {
+    throw new EngineError(0, 'Evidence cannot reach resmon’s engine yet.');
   }
   return { base: `http://127.0.0.1:${port}/api/evidence`, token: link?.getApiToken() ?? null };
 }

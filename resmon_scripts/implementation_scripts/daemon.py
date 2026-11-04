@@ -425,7 +425,7 @@ def run(argv: Optional[list[str]] = None) -> int:
         sys.path.insert(0, str(pkg_parent))
 
     import uvicorn  # local import — daemon may be imported from tests without uvicorn configured
-    from resmon import create_app  # type: ignore
+    from resmon import create_app, set_serving_port  # type: ignore
     from implementation_scripts.config import APP_NAME, APP_VERSION  # type: ignore
 
     from implementation_scripts import api_auth  # type: ignore
@@ -444,6 +444,8 @@ def run(argv: Optional[list[str]] = None) -> int:
             from implementation_scripts import desktop_notifier  # type: ignore
             desktop_notifier.configure_host_from_environment()
             try:
+                # Before the app starts: its startup binds Evidence's answers to the port it serves.
+                set_serving_port(port)
                 app = create_app()
                 install_signal_handlers()
                 logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",

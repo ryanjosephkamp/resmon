@@ -66,8 +66,6 @@ class Lane:
     def __init__(self, db_path: str, runtime_id: str, port: int,
                  settings: Callable[[sqlite3.Connection], dict]) -> None:
         ev.identity(runtime_id); ev.integer(port, 1, 65535)
-        if port == 8742:
-            se.fail('Selected evidence requires an explicit isolated serving port.', 'invalid_port', 409)
         self.db_path = db_path
         self.runtime_id = runtime_id
         self.port = port
