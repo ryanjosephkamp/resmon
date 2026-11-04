@@ -520,6 +520,11 @@ def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
             "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
 
 
+def _daemon_build_id() -> Optional[str]:
+    from implementation_scripts.daemon import build_id
+    return build_id()
+
+
 @app.get("/api/health", response_model=response_models.Health,
          response_model_exclude_unset=True)
 def health(expected_runtime_id: Optional[str] = None):
@@ -553,6 +558,7 @@ def health(expected_runtime_id: Optional[str] = None):
         "pid": os.getpid(),
         "started_at": _STARTED_AT,
         "version": APP_VERSION,
+        "build": _daemon_build_id(),
         "embeddings": embeddings,
     }
 
@@ -7162,14 +7168,19 @@ class ServiceInstallBody(BaseModel):
 @app.get("/api/service/status", response_model=response_models.ServiceStatus,
          response_model_exclude_unset=True)
 def service_status():
-    """Return whether the daemon unit file is installed and its path."""
-    return {
+    """Return whether the daemon unit file is installed and its path, and on macOS what launchd holds."""
+    body = {
         "installed": _service_manager.is_installed(),
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
         "runs": _service_manager.unit_runs(),
         "app_available": _service_manager.default_app_executable() is not None,
     }
+    if _service_manager.uses_launchd():
+        job = _service_manager.launchd_job()
+        body["loaded"] = job.loaded
+        body["blocked"] = job.disabled
+    return body
 
 
 def _probe_daemon() -> tuple[dict, str]:
@@ -7311,23 +7322,29 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     unit at login (launchctl / systemctl / schtasks).
     """
     try:
-        path = _service_manager.install(port=body.port, register=body.register_service)
-    except _service_manager.TemporaryPlaceError as exc:
+        done = _service_manager.install_unit(port=body.port, register=body.register_service)
+    except (_service_manager.TemporaryPlaceError, _service_manager.ServiceBlockedError) as exc:
         raise HTTPException(409, str(exc))
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
-    return {"installed": True, "unit_path": str(path)}
+    answer = {"installed": True, "unit_path": str(done.path)}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 @app.post("/api/service/uninstall", response_model=response_models.ServiceUninstalled,
           response_model_exclude_unset=True)
 def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
-    """Remove the unit file; optionally deregister with the OS first."""
+    """Remove the unit file; optionally deregister with the OS first, keeping the file if that fails."""
     try:
-        removed = _service_manager.uninstall(deregister=body.register_service)
+        done = _service_manager.uninstall_unit(deregister=body.register_service)
     except Exception as exc:
         raise HTTPException(500, f"Service uninstall failed: {exc}")
-    return {"installed": False, "unit_path": str(_service_manager.unit_path()), "removed": removed}
+    answer = {"installed": False, "unit_path": str(done.path), "removed": done.removed}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 # ---------------------------------------------------------------------------
@@ -7919,8 +7936,8 @@ def _restart_instructions() -> tuple[str, str]:
     """``(restart, stop)``: how to restart, and how to stop, the background service here."""
     if sys.platform == "darwin":
         return (
-            "log out of your Mac and back in, or run "
-            "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
+            "turn Run resmon in the background off and on again in Settings › In the background, "
+            "or log out of your Mac and back in",
             "turn off Run resmon in the background in Settings › In the background",
         )
     if sys.platform == "win32":

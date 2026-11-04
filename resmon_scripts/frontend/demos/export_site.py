@@ -101,6 +101,8 @@ def main() -> None:
             "RESMON_REPORTS_DIR": str(state / "reports"),
             "RESMON_PORT_FILE": str(state / "resmon.port"),
             "RESMON_SERVICE_UNIT_DIR": str(state / "service-units"),
+            "RESMON_SERVICE_LABEL": "com.resmon.demo",
+            "RESMON_LAUNCHCTL": str(Path(__file__).resolve().parents[2] / "verification_scripts" / "fixtures" / "fake_launchctl.py"),
             "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
             "RESMON_AI_CLI_DISCOVERY": "configured-only",
             "RESMON_DISABLE_SCHEDULER": "1",

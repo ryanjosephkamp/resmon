@@ -128,6 +128,8 @@ def isolate(root: Path) -> dict[str, str]:
         "RESMON_REPORTS_DIR": str(state / "reports"),
         "RESMON_PORT_FILE": str(state / "resmon.port"),
         "RESMON_SERVICE_UNIT_DIR": str(state / "service-units"),
+        "RESMON_SERVICE_LABEL": "com.resmon.demo",
+        "RESMON_LAUNCHCTL": str(Path(__file__).resolve().parents[2] / "verification_scripts" / "fixtures" / "fake_launchctl.py"),
         # Nothing is read from or written to the keychain, so no source has a key.
         "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
         # No AI command is looked for, so none can run.

@@ -7,8 +7,11 @@ import {
   appExecutable, engineFlags, isServiceLaunch, opensWindowFor, routeForNotice, servicePort, startNoticeListener,
   type Notice, type NoticeListener,
 } from './host';
+import {
+  disabledIn, ensureService, pidFromPrint, temporaryPlace, unitFromPlist, type Facts, type Running, type Unit, type World,
+} from './service';
 import { autoUpdater } from 'electron-updater';
-import { ChildProcess, spawn } from 'child_process';
+import { ChildProcess, execFile, execFileSync, spawn } from 'child_process';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as http from 'http';
@@ -111,6 +114,31 @@ if (isBackgroundWindow() && process.platform === 'darwin') {
  */
 const SERVICE = isServiceLaunch(process.argv, process.env);
 
+/**
+ * Which build this is. Every build of a version gives the same version, so a
+ * build is named by what the packager recorded of the app's code: on a Mac the
+ * hash of app.asar that electron-builder writes into Info.plist
+ * (`ElectronAsarIntegrity`), elsewhere app.asar's size and time. The engines
+ * this app starts carry it in their lock and health (`setAppExecutable`), which
+ * is how a launch tells this build's service from another's (`service.ts`).
+ */
+function buildId(): string {
+  const version = app.getVersion();
+  if (!app.isPackaged) return `${version}+checkout`;
+  try {
+    if (process.platform === 'darwin') {
+      const plist = fs.readFileSync(path.join(process.resourcesPath, '..', 'Info.plist'), 'utf8');
+      const found = /<key>ElectronAsarIntegrity<\/key>[\s\S]*?<key>hash<\/key>\s*<string>([0-9a-f]{16,})<\/string>/.exec(plist);
+      if (found?.[1]) return `${version}+${found[1].slice(0, 20)}`;
+    }
+    const asar = fs.statSync(path.join(process.resourcesPath, 'app.asar'));
+    return `${version}+${asar.size.toString(36)}.${Math.round(asar.mtimeMs).toString(36)}`;
+  } catch {
+    return `${version}+unknown`;
+  }
+}
+const BUILD_ID = buildId();
+
 // The service has no window until one is asked for, so no Dock icon and no
 // menu bar either; opening a window gives it both (`showWindow`). Module
 // scope for the reason given above for background windows: from `whenReady`
@@ -135,7 +163,19 @@ if (process.env.RESMON_STATE_DIR && !process.argv.some((a) => a.startsWith('--us
   app.setPath('userData', path.join(process.env.RESMON_STATE_DIR, 'electron-user-data'));
 }
 const SOLE_INSTANCE = app.requestSingleInstanceLock();
-if (!SOLE_INSTANCE) {
+
+/**
+ * Whether this launch makes sure of the background service before it opens
+ * (`service.ts`): a window launch of the packaged app on a Mac, once. A launch
+ * the check started again to hand over (`RESMON_SERVICE_CHECKED`) does not
+ * check again. `RESMON_SERVICE_AT_LAUNCH=1` turns it on for a checkout, which
+ * a test does with a label and a launchctl of its own.
+ */
+const CHECKS_SERVICE = !SERVICE && process.platform === 'darwin'
+  && (app.isPackaged || process.env.RESMON_SERVICE_AT_LAUNCH === '1')
+  && process.env.RESMON_SERVICE_CHECKED !== '1';
+
+if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
   // `quit`, the pattern Electron documents for a launch that did not get the
   // lock: the app's normal quit path, which exits 0.
   app.quit();
@@ -219,6 +259,7 @@ interface LockPayload {
   pid: number;
   port: number;
   version: string;
+  build?: string | null;
   started_at?: string;
 }
 
@@ -238,6 +279,7 @@ function readLockFile(): LockPayload | null {
 interface HealthPayload {
   status?: string;
   version?: string;
+  build?: string | null;
   pid?: number;
 }
 
@@ -422,11 +464,16 @@ function stopOwnBackend(): Promise<void> {
   });
 }
 
-/** Tell an engine this app starts which executable runs this app, or that none does. */
+/**
+ * Tell an engine this app starts which executable runs this app, or that none
+ * does, and which build this is, which the engine puts in its lock and health
+ * so a launch can tell this build's service from another's.
+ */
 function setAppExecutable(env: NodeJS.ProcessEnv): void {
   const executable = appExecutable(process.platform, process.execPath, app.isPackaged);
   if (executable) env.RESMON_APP_EXECUTABLE = executable;
   else delete env.RESMON_APP_EXECUTABLE;
+  env.RESMON_BUILD_ID = BUILD_ID;
 }
 
 /** Spawn the Python backend and return the child process. */
@@ -644,33 +691,31 @@ async function showWindow(route: string | null): Promise<void> {
   if (mainWindow) installDownloads(mainWindow);
 }
 
-/** Poll GET /api/health until the backend responds with 200. */
-function waitForBackend(port: number, token: string, retries = 30, delay = 500): Promise<void> {
-  return new Promise((resolve, reject) => {
-    let attempts = 0;
-    const check = () => {
-      attempts++;
-      const req = http.get({ host: '127.0.0.1', port, path: '/api/health', headers: bearer(token) }, (res) => {
-        res.resume();
-        if (res.statusCode === 200) {
-          resolve();
-        } else if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error(`Backend health check failed after ${retries} attempts`));
-        }
-      });
-      req.on('error', () => {
-        if (attempts < retries) {
-          setTimeout(check, delay);
-        } else {
-          reject(new Error(`Backend not reachable after ${retries} attempts`));
-        }
-      });
-      req.end();
-    };
-    check();
-  });
+/**
+ * How long an engine this app started is given to answer, while it runs. A
+ * first start after an update migrates the database before it answers; the
+ * 15 seconds once allowed ran out in the middle of that, and the engine was
+ * stopped there.
+ */
+const ENGINE_START_LIMIT_MS = 10 * 60_000;
+
+/** Wait for an engine this app started to answer health, for as long as it runs, up to `limitMs`. */
+async function waitForEngine(child: ChildProcess, port: number, token: string, limitMs = ENGINE_START_LIMIT_MS): Promise<void> {
+  const started = Date.now();
+  let said = false;
+  for (;;) {
+    if (await fetchHealth(port, token, 2_000)) return;
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`The engine stopped (${child.exitCode ?? child.signalCode}) before it answered`);
+    }
+    const waited = Date.now() - started;
+    if (waited > limitMs) throw new Error(`The engine did not answer within ${Math.round(limitMs / 1000)} s`);
+    if (!said && waited > 15_000) {
+      said = true;
+      console.log('[main] The engine is still starting; a first start after an update brings the database up to date first.');
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
 function contentTypeFor(filePath: string): string {
@@ -1226,6 +1271,187 @@ function installApplicationMenu(): void {
 // never surfaced — a laptop being offline is not an event.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// The background service at launch (`service.ts`)
+// ---------------------------------------------------------------------------
+
+function launchctl(args: string[]): Promise<{ code: number; out: string; err: string }> {
+  return new Promise((resolve) => {
+    execFile(process.env.RESMON_LAUNCHCTL || 'launchctl', args, { timeout: 30_000 }, (error, stdout, stderr) => {
+      const status = error && typeof (error as { code?: unknown }).code === 'number' ? (error as { code: number }).code : 1;
+      resolve({ code: error ? status : 0, out: String(stdout), err: String(stderr) });
+    });
+  });
+}
+
+/** Runs in progress on an engine, or null when it does not say. */
+function activeRuns(port: number, token: string): Promise<number | null> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: '/api/executions/active', timeout: 2_000, headers: bearer(token) },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            const ids = (JSON.parse(body) as { active_ids?: unknown }).active_ids;
+            resolve(res.statusCode === 200 && Array.isArray(ids) ? ids.length : null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
+}
+
+/** The service's engine as its lock and health say, or null when none answers. */
+async function runningService(): Promise<Running | null> {
+  const lock = readLockFile();
+  const token = lock ? readTokenFile(lock.port) : null;
+  if (!lock || !token) return null;
+  const health = await fetchHealth(lock.port, token, 1_500);
+  if (!health) return null;
+  return { build: health.build ?? null, version: health.version ?? null, active: await activeRuns(lock.port, token) };
+}
+
+/** Write the unit again to start this copy, keeping its port, through the engine's own `service_manager`. */
+function rewriteUnit(port: number | null): Promise<boolean> {
+  const { scriptDir, pythonPath } = backendLocation();
+  const env: NodeJS.ProcessEnv = { ...process.env, RESMON_APP_EXECUTABLE: process.execPath };
+  if (port !== null) env.RESMON_DAEMON_PORT = String(port);
+  if (app.isPackaged) {
+    // The same state the service's engine is given (`startServiceEngine`).
+    const state = stateDir();
+    env.RESMON_DB_PATH = env.RESMON_DB_PATH || path.join(state, 'resmon.db');
+    env.RESMON_REPORTS_DIR = env.RESMON_REPORTS_DIR || path.join(state, 'resmon_reports');
+  }
+  const write = 'import sys; sys.path.insert(0, sys.argv[1]); '
+    + 'from implementation_scripts import service_manager as m; m.install(register=False)';
+  return new Promise((resolve) => {
+    execFile(pythonPath, ['-I', '-c', write, scriptDir], { env, timeout: 60_000 }, (error, _out, stderr) => {
+      if (error) console.error(`[service] The unit could not be written again: ${String(stderr).trim() || error.message}`);
+      resolve(!error);
+    });
+  });
+}
+
+function serviceWorld(): World {
+  const label = process.env.RESMON_SERVICE_LABEL || 'com.resmon.daemon';
+  const domain = `gui/${os.userInfo().uid}`;
+  const target = `${domain}/${label}`;
+  const unitFile = path.join(
+    process.env.RESMON_SERVICE_UNIT_DIR || path.join(os.homedir(), 'Library', 'LaunchAgents'), `${label}.plist`);
+  const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  return {
+    async facts(): Promise<Facts> {
+      // No unit, no service: launchd is not asked at all.
+      if (!fs.existsSync(unitFile)) {
+        return { unit: null, job: { loaded: false, pid: null, disabled: false }, running: null, programExists: false };
+      }
+      let unit: Unit | null;
+      try {
+        unit = unitFromPlist(JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', unitFile],
+          { encoding: 'utf8', timeout: 10_000 })));
+      } catch {
+        unit = { program: null, runsApp: false, port: null };
+      }
+      const shown = await launchctl(['print', target]);
+      const listed = await launchctl(['print-disabled', domain]);
+      return {
+        unit,
+        job: {
+          loaded: shown.code === 0,
+          pid: shown.code === 0 ? pidFromPrint(shown.out) : null,
+          disabled: disabledIn(listed.out, label),
+        },
+        running: await runningService(),
+        programExists: !!unit?.program && fs.existsSync(unit.program),
+      };
+    },
+    async bootout(): Promise<boolean> {
+      await launchctl(['bootout', target]);
+      // The service quits its engine first, which gives a running search 20 s to stop.
+      for (let i = 0; i < 120; i++) {
+        if ((await launchctl(['print', target])).code !== 0) return true;
+        await sleep(250);
+      }
+      return false;
+    },
+    async bootstrap() {
+      const started = await launchctl(['bootstrap', domain, unitFile]);
+      return { ok: started.code === 0, said: (started.err || started.out).trim() };
+    },
+    async kickstart() {
+      return (await launchctl(['kickstart', '-k', target])).code === 0;
+    },
+    rewrite: rewriteUnit,
+    async askToRestart(active: number): Promise<boolean> {
+      const runs = active === 1 ? 'a run' : `${active} runs`;
+      const { response } = await dialog.showMessageBox({
+        type: 'question',
+        message: 'Restart the background service on this version of resmon?',
+        detail: `The background service is running ${runs} on another build of resmon. Restarting it stops `
+          + `${active === 1 ? 'that run' : 'those runs'}, and Restart on a run’s page starts one again. `
+          + 'Kept, the service goes on running its own build, and this window opens on it.',
+        buttons: ['Restart the service', 'Keep it running'],
+        defaultId: 0,
+        cancelId: 1,
+      });
+      return response === 0;
+    },
+    releaseLock: () => app.releaseSingleInstanceLock(),
+    sleep,
+    log: (line: string) => console.log(`[service] ${line}`),
+  };
+}
+
+/**
+ * Open again, with the check done, so this launch hands over to whichever
+ * resmon holds the profile now: the service just started, which opens the
+ * window on its own engine.
+ */
+function handOver(): void {
+  process.env.RESMON_SERVICE_CHECKED = '1';
+  app.relaunch();
+  app.exit(0);
+}
+
+/**
+ * Make sure of the background service before this launch opens anything
+ * (`service.ts`). True when this process is done: it handed over, or another
+ * resmon has the window.
+ */
+async function checkServiceAtLaunch(): Promise<boolean> {
+  let outcome: Awaited<ReturnType<typeof ensureService>>;
+  try {
+    outcome = await ensureService(serviceWorld(), {
+      exe: process.execPath, build: BUILD_ID, temporary: temporaryPlace(process.execPath),
+    });
+  } catch (err) {
+    outcome = { done: 'failed', why: err instanceof Error ? err.message : String(err) };
+  }
+  console.log(`[service] At launch: ${JSON.stringify(outcome)}`);
+  if (outcome.done === 'started') {
+    handOver();
+    return true;
+  }
+  // Another resmon holds the profile, and opened the window when this launch asked for it.
+  if (!SOLE_INSTANCE) {
+    app.quit();
+    return true;
+  }
+  // The lock was let go for a service that did not come up: taken back, or, if
+  // something took it meanwhile, handed over to that.
+  if (!app.hasSingleInstanceLock() && !app.requestSingleInstanceLock()) {
+    handOver();
+    return true;
+  }
+  return false;
+}
+
 function initAutoUpdater(): void {
   if (!app.isPackaged) return;
   // The packaged-app run under the e2e suite must not reach out to the GitHub
@@ -1273,6 +1499,8 @@ function initAutoUpdater(): void {
 }
 
 app.whenReady().then(async () => {
+  // Before anything else: this launch may hand over to the service it starts.
+  if (CHECKS_SERVICE && await checkServiceAtLaunch()) return;
   // A second instance has handed over and is exiting (`SOLE_INSTANCE`).
   if (!SOLE_INSTANCE) return;
   try {
@@ -1292,8 +1520,8 @@ app.whenReady().then(async () => {
       backendProcess = startServiceEngine(backendPort, backendToken, rendererOrigin);
       // The engine takes the daemon lock and imports the whole app before it
       // answers; a cold start of the packaged engine was measured at a few
-      // seconds, and the health wait allows 15.
-      await waitForBackend(backendPort, backendToken);
+      // seconds, and one that migrates the database takes longer.
+      await waitForEngine(backendProcess, backendPort, backendToken);
       console.log('[main] The service is running');
     }
 
@@ -1314,7 +1542,7 @@ app.whenReady().then(async () => {
       backendToken = mintToken();
       console.log(`[main] Starting backend on port ${backendPort}`);
       backendProcess = startBackend(backendPort, backendToken, rendererOrigin);
-      await waitForBackend(backendPort, backendToken);
+      await waitForEngine(backendProcess, backendPort, backendToken);
       console.log('[main] Backend is ready');
     }
 

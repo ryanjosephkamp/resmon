@@ -67,7 +67,8 @@ def test_render_resolves_all_placeholders_current_platform():
 
 
 @pytest.mark.parametrize("template_name,expected_markers", [
-    ("com.resmon.daemon.plist", ["com.resmon.daemon", "RunAtLoad"]),
+    # The label is the suite's own (conftest.py); a person's install is com.resmon.daemon.
+    ("com.resmon.daemon.plist", ["<string>com.resmon.verification</string>", "RunAtLoad"]),
     ("resmon-daemon.service", ["[Service]", "ExecStart=", "WantedBy="]),
     ("resmon-daemon.task.xml", ["<Task", "implementation_scripts.daemon"]),
 ])
@@ -507,3 +508,10 @@ def test_the_install_route_says_so_in_one_sentence_and_writes_nothing(unit_dir, 
     detail = response.json()["detail"]
     assert "move resmon to Applications" in detail and detail.count(". ") == 0
     assert not service_manager.is_installed()
+
+
+def test_the_service_label_is_com_resmon_daemon_unless_one_is_named(monkeypatch):
+    monkeypatch.delenv("RESMON_SERVICE_LABEL", raising=False)
+    assert service_manager.service_label() == "com.resmon.daemon"
+    monkeypatch.setenv("RESMON_SERVICE_LABEL", "com.resmon.someone-else")
+    assert service_manager.service_label() == "com.resmon.someone-else"

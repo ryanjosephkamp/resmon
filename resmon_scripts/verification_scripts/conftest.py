@@ -382,6 +382,14 @@ import tempfile  # noqa: E402
 
 os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-")
 
+# The background service, likewise: a label of the suite's own, and a stand-in
+# for launchctl that holds nothing and starts nothing unless a test gives it a
+# state file. Settings asks launchd about the service's label, so without these
+# the suite would ask about the service the person running it has installed.
+os.environ["RESMON_SERVICE_LABEL"] = "com.resmon.verification"
+os.environ["RESMON_LAUNCHCTL"] = str(Path(__file__).resolve().parent / "fixtures" / "fake_launchctl.py")
+os.environ.pop("FAKE_LAUNCHCTL_STATE", None)
+
 TEST_API_TOKEN = api_auth.mint_token()
 TEST_API_PORT = 18743
 TEST_RENDERER_ORIGIN = "http://127.0.0.1:12345"

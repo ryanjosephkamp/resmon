@@ -51,13 +51,11 @@ export function Background() {
     },
   });
 
-  // Taking the unit out and putting it back is what the switch does in two clicks;
-  // the new unit runs the app when this engine was started by the packaged app.
+  // One install: the engine stops a loaded service and starts it from the new unit, which runs the app
+  // when this engine was started by the packaged app. Taking the unit out first stopped the very service a
+  // window may be using, before the install could be asked for.
   const again = useMutation({
-    mutationFn: async () => {
-      await answer(engine().POST('/api/service/uninstall', { body: { register: true } }));
-      return answer(engine().POST('/api/service/install', { body: { register: true } }));
-    },
+    mutationFn: () => answer(engine().POST('/api/service/install', { body: { register: true } })),
     onSettled: () => {
       void client.invalidateQueries({ queryKey: ['service-status'] });
       void client.invalidateQueries({ queryKey: ['daemon-status'] });
@@ -66,14 +64,18 @@ export function Background() {
 
   const installed = service.data?.installed ?? false;
   const runsBareEngine = installed && service.data?.runs === 'engine' && service.data.app_available;
+  const blocked = service.data?.blocked === true;
+  // Installed, and launchd holds nothing under its label: the app was replaced, say, and nothing started it.
+  const notLoaded = installed && service.data?.loaded === false && !blocked;
   const unit = unitKind(service.data?.platform);
   const state = daemon.data ? daemonState(daemon.data, health.data?.pid ?? null) : null;
   const since = daemon.data?.started_at ? clock(daemon.data.started_at) : null;
 
   const reinstall = () => {
     if (again.isPending) return;
-    if (window.confirm('Install the background service again? resmon will replace the unit and register it again, '
-      + 'so it starts the resmon app, which runs your watches and posts their notifications.')) again.mutate();
+    if (window.confirm('Install the background service again? resmon will write the unit again and start the service '
+      + 'from it, so it starts the resmon app, which runs your watches and posts their notifications. If this window '
+      + 'uses the service, it closes and opens again on the new one.')) again.mutate();
   };
 
   const flip = () => {
@@ -153,13 +155,29 @@ export function Background() {
             </div>
           </dl>
 
-          {runsBareEngine && (
-            <p className="field-lede" data-service="bare-engine">
-              The installed service starts the engine on its own, not the resmon app, so its notifications do not come from resmon.
+          {blocked && (
+            <p className="field-error" role="status" data-service="blocked">
+              macOS has turned resmon off in the background, so the service cannot start and your watches do not run
+              on schedule. Turn resmon on in System Settings › General › Login Items &amp; Extensions, under Allow in
+              the Background.
+            </p>
+          )}
+          {(runsBareEngine || notLoaded) && (
+            <p className="field-lede" data-service={runsBareEngine ? 'bare-engine' : 'not-loaded'}>
+              {runsBareEngine
+                ? 'The installed service starts the engine on its own, not the resmon app, so its notifications do not come from resmon.'
+                : 'The service is installed, and macOS is not running it, so your watches do not run on schedule.'}
               {' '}
               <button type="button" className="btn quiet sm" data-service="install-again" disabled={again.isPending} onClick={reinstall}>
-                Install it again
+                {runsBareEngine ? 'Install it again' : 'Start it'}
               </button>
+            </p>
+          )}
+          {again.isSuccess && (
+            <p className="settings-said" role="status" data-service="installed-again">
+              {again.data.restarting
+                ? 'The service is restarting from the new unit. This window closes, and resmon opens again on it.'
+                : 'Installed again. “Running now” changes when the service starts.'}
             </p>
           )}
           {again.error && (
@@ -172,9 +190,13 @@ export function Background() {
 
       {toggle.isSuccess && (
         <p className="settings-said" role="status">
-          {toggle.data.installed
-            ? 'Installed. “Running now” changes when the service starts.'
-            : 'Removed. Nothing runs your watches on schedule now; Run now on a watch still runs it once.'}
+          {toggle.data.restarting
+            ? (toggle.data.installed
+              ? 'The service is restarting from the new unit. This window closes, and resmon opens again on it.'
+              : 'The service is stopping, and then its unit is removed. This window closes, and resmon opens again on its own engine.')
+            : toggle.data.installed
+              ? 'Installed. “Running now” changes when the service starts.'
+              : 'Removed. Nothing runs your watches on schedule now; Run now on a watch still runs it once.'}
         </p>
       )}
       {toggle.error && (

@@ -41,6 +41,17 @@ APP_DIR_NAME = "resmon"
 LOCK_FILE_NAME = "daemon.lock"
 
 
+def build_id() -> Optional[str]:
+    """The build of the app that started this engine, as the app names it (``RESMON_BUILD_ID``), or None.
+
+    Two builds of one version both call themselves 1.0.0, so a version alone
+    cannot tell the app whether the service running is its own build. The app
+    passes its id to every engine it starts; an engine started otherwise has none.
+    """
+    value = (os.environ.get("RESMON_BUILD_ID") or "").strip()
+    return value[:128] or None
+
+
 def state_dir() -> Path:
     """Return the OS-appropriate per-user state directory for resmon.
 
@@ -106,6 +117,9 @@ class DaemonLock:
             "pid": int(pid),
             "port": int(port),
             "version": str(version),
+            # Which build of that version: every 1.0.0 says 1.0.0, so the app
+            # tells its own service from another build's by this.
+            "build": build_id(),
             "started_at": datetime.now(timezone.utc).isoformat(),
         }
         fh.write(json.dumps(payload))
