@@ -159,9 +159,9 @@ the source returns nothing. Say so in the catalog note. ERIC’s entry is the mo
 no field to filter on, so resmon reports zero results rather than widening the window you
 asked for.</p>
 </blockquote>
-<p>Where the upstream can only filter one end of a range — NIST’s API takes a lower bound and no
-upper — the client applies the other end <strong>locally</strong>, and the catalog entry says so rather
-than implying the upstream filtered something it did not.</p>
+<p>Where the upstream can only filter one end of a range — NIST RMM’s API (since withdrawn) took
+a lower bound and no upper — the client applies the other end <strong>locally</strong>, and the catalog
+entry says so rather than implying the upstream filtered something it did not.</p>
 <p><code>date_granularity</code> on the catalog entry carries the same fact in a form the app can read:
 <code>"day"</code> (the default), <code>"month"</code>, or <code>"year"</code>. It says the finest precision <strong>resmon’s own
 query to this source can express</strong>, read from your client’s date-filter code — not a claim

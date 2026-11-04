@@ -383,10 +383,6 @@ def _eric(name: str) -> tuple[int, str]:
                 {"search": f'author:"{name}"', "format": "json", "rows": 5})
 
 
-def _nist(name: str) -> tuple[int, str]:
-    return _get("https://data.nist.gov/rmm/papers", {"author": name})
-
-
 def _biorxiv(name: str) -> tuple[int, str]:
     return 0, ("__error__ the details endpoint takes a date window and a cursor "
                "and has no query of any kind")
@@ -536,9 +532,9 @@ PROBES: list[Probe] = [
     Probe("medrxiv", "Eric Topol", run=_biorxiv),
     Probe("nasa_ads", "Sara Seager", run=_nasa_ads),
     Probe("ndl_search", "Haruki Murakami", run=_ndl, bare=_ndl_bare, other_field=_ndl_title),
-    Probe("nist_rmm", "John Smith", run=_nist),
-    # OAPEN is withdrawn because its search API answers HTTP 403. A retired
-    # source is not probed: see api_registry.RETIRED_REPOSITORIES.
+    # NIST RMM is withdrawn because its papers API answers HTTP 500, and OAPEN
+    # because its search API answers HTTP 403. A retired source is not probed:
+    # see api_registry.RETIRED_REPOSITORIES.
     Probe("openaire", "Yoshua Bengio", run=_openaire),
     Probe("openalex", "Yoshua Bengio", orcid="0000-0002-9322-3515", run=_openalex),
     Probe("openlibrary", "Ursula K. Le Guin", run=_openlibrary),

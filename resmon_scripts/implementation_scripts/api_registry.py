@@ -21,6 +21,12 @@ RETIRED_REPOSITORIES: dict[str, str] = {
         "without putting the account holder in breach of the terms they "
         "accepted at registration."
     ),
+    "nist_rmm": (
+        "NIST RMM was withdrawn in November 2026. Its papers API has answered "
+        "HTTP 500 to every search since the source was added in August 2026, "
+        "last checked November 4, 2026. The source can return if NIST's API "
+        "answers again."
+    ),
     "oapen": (
         "OAPEN Library was withdrawn in October 2026. Its search API answers "
         "resmon's requests with HTTP 403 and a message saying the caller's "
@@ -43,6 +49,7 @@ RETIRED_REPOSITORIES: dict[str, str] = {
 #: that names the source by "ieee" reads as a key rather than as IEEE Xplore.
 RETIRED_NAMES: dict[str, str] = {
     "ieee": "IEEE Xplore",
+    "nist_rmm": "NIST Resource Metadata Management",
     "oapen": "OAPEN Library",
     "repec": "RePEc/IDEAS",
     "ssrn": "SSRN",
@@ -116,7 +123,6 @@ def _ensure_loaded():
         "api_inspire_hep",
         "api_nasa_ads",
         "api_ndl_search",
-        "api_nist_rmm",
         "api_openaire",
         "api_openalex",
         "api_openlibrary",
@@ -126,8 +132,9 @@ def _ensure_loaded():
         "api_semantic_scholar",
         "api_springer",
         "api_zenodo",
-        # NOTE: api_ieee, api_oapen, api_repec and api_ssrn are intentionally
-        # excluded from the active registry, for three different reasons.
+        # NOTE: api_ieee, api_nist_rmm, api_oapen, api_repec and api_ssrn are
+        # intentionally excluded from the active registry, for four different
+        # reasons.
         #
         # RePEc and SSRN block programmatic access (SSRN via Cloudflare
         # bot-challenge 403s; RePEc/IDEAS htsearch CGI is no longer publicly
@@ -145,7 +152,13 @@ def _ensure_loaded():
         # Unlike RePEc and SSRN it did work, and unlike IEEE Xplore its terms
         # are not the problem. The client itself is unchanged.
         #
-        # All four client modules are retained on disk for reference but are
+        # NIST RMM never answered: its papers API has returned HTTP 500 to
+        # every search since the source was added in August 2026. It was
+        # withdrawn in November 2026, after the same 500 on November 4. Its
+        # record mapping was written from the OpenAPI envelope and has never
+        # been checked against a live response.
+        #
+        # All five client modules are retained on disk for reference but are
         # not loaded. See docs/source-landscape.md for the full rationale.
     ]
     for mod_name in _CLIENT_MODULES:

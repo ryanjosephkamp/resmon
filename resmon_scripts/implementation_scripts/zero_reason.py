@@ -57,7 +57,7 @@ DID_NOT_ANSWER = frozenset({
     # 2.1. A source that cannot be asked about a person did not answer the
     # question, and a watch routine that listed it as searched would be
     # overstating its coverage in exactly the way this set exists to prevent.
-    # It is not a failure either — seven of twenty-seven sources simply have no
+    # It is not a failure either — six of twenty-five sources simply have no
     # author query, which the catalog records with its evidence.
     "entity_unsupported",
 })

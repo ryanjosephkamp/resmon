@@ -22,7 +22,7 @@ each client is written, where a repair applied to the one client that happened
 to fail in a live run leaves the rest exposed. The sibling file ``test_client_failure_conformance.py`` is the first
 row and the shape all of them follow: the denominator is read from
 ``api_registry.list_repositories()`` rather than written here, so a
-twenty-seventh source is covered on the day it is registered;
+twenty-sixth source is covered on the day it is registered;
 ``test_client_pagination_conformance.py`` is the third.
 
 **Every client is given a placeholder credential.** Four clients -- ``core``,
@@ -31,9 +31,9 @@ making any request when their key is absent, which is correct behavior and
 also makes them unable to say anything about a 503. Asking "what does this
 client record when the source fails?" of a client that never asked the source
 is not a measurement, so ``credential_manager.get_credential_for`` is patched
-to hand out one obviously fake string and all twenty-six reach the
-transport. That is why these rows carry a denominator of 26 where the sibling
-row carries 22 asserting and 4 silent.
+to hand out one obviously fake string and all twenty-five reach the
+transport. That is why these rows carry a denominator of 25 where the sibling
+row carries 21 asserting and 4 silent.
 
 **What this does not establish.** Every request of the search fails the same
 way, so neither row says anything about a client that fails on its *second*
@@ -349,10 +349,10 @@ def test_a_json_body_with_no_known_container_splits_the_clients():
     one set to the other is a decision; failing this assertion is how it gets
     made deliberately.
 
-    Note the shape of the finding. Two of the ten that call this body
+    Note the shape of the finding. Two of the nine that call this body
     unreadable -- ``arxiv`` and ``ndl_search`` -- do so by accident of format:
-    an XML parser cannot read a JSON object whatever its root. The other eight
-    checked the shape and said so. The seventeen in the other set are not a
+    an XML parser cannot read a JSON object whatever its root. The other seven
+    checked the shape and said so. The sixteen in the other set are not a
     uniform group either: ten of them reach ``answered_empty`` only because
     the container they look for is missing from a body that did decode, which
     is the reading ``api_openalex`` makes and this census declines to call
@@ -393,7 +393,7 @@ def test_a_json_body_with_no_known_container_splits_the_clients():
     }, f"the set calling a wrong-rooted JSON body unreadable changed: {sorted(unreadable)}"
     assert empty_answer == {
         "core", "crossref", "datacite", "doaj", "dryad", "europepmc",
-        "inspire_hep", "nasa_ads", "nist_rmm", "openaire", "openalex",
+        "inspire_hep", "nasa_ads", "openaire", "openalex",
         "openlibrary", "osti", "plos", "pubmed", "semantic_scholar",
         "springer",
     }, f"the set calling a wrong-rooted JSON body an empty answer changed: {sorted(empty_answer)}"
@@ -406,7 +406,7 @@ def test_the_denominator_is_the_registry_and_the_exclusions_are_named():
     this project bans without a denominator beside it.
     """
     assert SLUGS == api_registry.list_repositories()
-    assert len(SLUGS) >= 26, "the registry shrank; a source was retired silently"
+    assert len(SLUGS) >= 25, "the registry shrank; a source was retired silently"
 
     # Row 1 asserts on every registered slug with nothing excluded: the
     # placeholder credential is what makes that true, and it is worth failing

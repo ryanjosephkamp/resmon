@@ -1,4 +1,19 @@
-"""NIST Resource Metadata Management paper-search client."""
+"""NIST Resource Metadata Management paper-search client — RETIRED.
+
+**This module is not loaded.** It was removed from
+``api_registry._CLIENT_MODULES`` and from the repository catalog in November
+2026, and importing it registers nothing that a sweep can reach.
+
+The reason is the provider's endpoint, not its terms. NIST's papers API has
+answered HTTP 500 to every search since the source was added in August 2026,
+last checked November 4, 2026, when
+``https://data.nist.gov/rmm/papers?searchphrase=graphene&size=1`` returned 500.
+``api_registry.RETIRED_REPOSITORIES`` holds the sentence a user is shown.
+
+Kept on disk with its offline tests: if NIST's API answers again, the source
+can return with ``NistRmmClient``. Its record mapping has never been checked
+against a live response, so a revival starts by checking it.
+"""
 
 import datetime as dt
 import json
@@ -274,9 +289,22 @@ class NistRmmClient(BaseAPIClient):
         )
 
 
-def _register() -> None:
-    from .api_registry import register_client
-    register_client("nist_rmm", NistRmmClient)
-
-
-_register()
+# ---------------------------------------------------------------------------
+# Registry auto-registration
+# ---------------------------------------------------------------------------
+# Deliberately does not self-register. This source is retired
+# (api_registry.RETIRED_REPOSITORIES says why), and every other api_*.py calls
+# register_client() at import time. Leaving that call here would mean any
+# import of this module — a test, a debug session — silently put the source
+# back into the process-wide registry where a sweep could reach it. The
+# registry refuses a retired slug as well; this is the other half of that.
+#
+# To revive the source: drop its entry from RETIRED_REPOSITORIES and
+# RETIRED_NAMES, restore the module to _CLIENT_MODULES and its entry to
+# repo_catalog.REPOSITORY_CATALOG, and restore the call below.
+#
+#     def _register() -> None:
+#         from .api_registry import register_client
+#         register_client("nist_rmm", NistRmmClient)
+#
+#     _register()

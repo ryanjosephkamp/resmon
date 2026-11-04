@@ -1,5 +1,5 @@
 {
-  "count": 26,
+  "count": 25,
   "sources": [
     {
       "slug": "arxiv",
@@ -224,20 +224,6 @@
       "attribution": "Powered by NDL Search API. Metadata provided by the National Diet Library and its contributing databases and institutions.",
       "attribution_requirement": "required",
       "author_search": "field"
-    },
-    {
-      "slug": "nist_rmm",
-      "name": "NIST Resource Metadata Management",
-      "description": "NIST papers and technical-report metadata",
-      "subject_coverage": "Engineering / Government technical publications",
-      "website": "https://data.nist.gov/rmm/",
-      "api_key_requirement": "none",
-      "rate_limit": "0.5 req/s (conservative; no published API limit)",
-      "keyword_combination": "Undocumented",
-      "date_granularity": "day",
-      "attribution": "Data created by NIST (National Institute of Standards and Technology).",
-      "attribution_requirement": "required",
-      "author_search": "unknown"
     },
     {
       "slug": "openaire",

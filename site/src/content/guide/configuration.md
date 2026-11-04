@@ -56,7 +56,7 @@ The switch **Run resmon in the background** installs or removes the background s
 
 ### Sources
 
-**Settings › Sources** lists all 26, with their limits as each states them. Choose a source's name for its details: its description, resmon's pace, the source's published policy, how it dates papers, how it combines terms, its endpoint, and its website. A source that takes a key has a field to **Store** one, and a stored key is shown as a fixed 12-character mask whatever its length. See [Sources and their terms](/resmon/guide/sources/).
+**Settings › Sources** lists all 25, with their limits as each states them. Choose a source's name for its details: its description, resmon's pace, the source's published policy, how it dates papers, how it combines terms, its endpoint, and its website. A source that takes a key has a field to **Store** one, and a stored key is shown as a fixed 12-character mask whatever its length. See [Sources and their terms](/resmon/guide/sources/).
 
 ### The Danger zone
 

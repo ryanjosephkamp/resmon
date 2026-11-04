@@ -107,8 +107,7 @@ ResultOrder = Literal["newest_first", "relevance", "unstated"]
 #   them to nothing, leaving their verdicts to A and B alone.
 #
 # ``unknown`` is a real answer and is used rather than a guess: four sources
-# need a key this machine does not hold and one has been answering HTTP 500
-# since it was added. Nothing about them is claimed.
+# need a key this machine does not hold. Nothing about them is claimed.
 EntityQuery = Literal["none", "field", "param", "endpoint", "unknown"]
 EntityIdentifier = Literal["none", "orcid", "native", "unknown"]
 
@@ -273,10 +272,13 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 # upstream date bound at all and filters every record locally, which is the
 # case where "a run can come back with fewer in-window records than the cap
 # you set" is most true -- and the approximation would hide it there. The
-# near-enough state is the trap, not the missing one.
+# near-enough state is the trap, not the missing one. NIST RMM was withdrawn
+# in November 2026 (``api_registry.RETIRED_REPOSITORIES``) and has no entry
+# below, so no row uses this scope today; it stays because the rule it applies
+# still holds, and a revived NIST RMM would need it.
 #
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
-# than read off it: two of the fifteen window-scoped notices are record
+# than read off it: two of the thirteen window-scoped notices are record
 # filters rather than date-window notices, and relabelling them to get the
 # display right would make ``kind`` lie about what they are. Both counts are
 # asserted in ``test_source_constraints.py``, because a number written into
@@ -520,8 +522,8 @@ def _entry(
         # omitted default has an empty citation, so a source added without an
         # answer fails the guard instead of quietly claiming it constrains
         # nothing. "This source constrains nothing" is a real answer and 11 of
-        # the 26 rows below give it — but it is written down, not defaulted.
-        # Of the other 15, five say only that the window means a date other
+        # the 25 rows below give it — but it is written down, not defaulted.
+        # Of the other 14, five say only that the window means a date other
         # than the publication date, which is a sentence worth one line to
         # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
@@ -529,7 +531,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 27 active repositories.
+# Catalog — 25 active repositories.
 # ---------------------------------------------------------------------------
 
 REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
@@ -1518,89 +1520,6 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
                 f"{ENTITY_PROBED_ON}: SRU `creator=\"Haruki Murakami\"` returned 5 records and the nonsense "
                 "author 0; the `anywhere=` and `title=` controls returned different "
                 "identifier sets. No ORCID or affiliation in the dcndl record."),
-        ),
-    ),
-    _entry(
-        slug="nist_rmm",
-        name="NIST Resource Metadata Management",
-        description="NIST papers and technical-report metadata",
-        subject_coverage="Engineering / Government technical publications",
-        endpoint="https://data.nist.gov/rmm/papers",
-        query_method="GET with searchphrase, lower-bound-only from_date, skip, and limit; date_to is filtered locally",
-        rate_limit="0.5 req/s (conservative; no published API limit)",
-        client_module="api_nist_rmm.py",
-        requirement="none",
-        credential_name=None,
-        website="https://data.nist.gov/rmm/",
-        registration_url=None,
-        upstream_policy="No authentication or numeric rate limit is documented in the RMM OpenAPI; resmon uses a conservative shared ceiling",
-        parallel_safe="Yes",
-        notes=(
-            "The documented RMM papers API has no upstream upper date bound; "
-            "resmon sends from_date only and applies date_to locally. "
-            "The mapping from a record to a title, identifier and date is provisional: "
-            "NIST's OpenAPI documents the response envelope but not the fields inside a "
-            "record, and the endpoint has been returning HTTP 500 since this source was "
-            "added, so the mapping has never been checked against a live response. A "
-            "record resmon cannot map is skipped and logged rather than stored, so the "
-            "failure you would see is no results rather than wrong ones. "
-            "Permission to use this data is contingent upon your acceptance of the terms "
-            "of this agreement and upon your providing appropriate acknowledgments of "
-            "NIST’s creation of the data/work. "
-            "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications"
-        ),
-        keyword_combination="Undocumented",
-        keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
-        result_order="unstated",
-        result_order_established=(
-            "`api_nist_rmm.py`: `search()` sends no sort, and nothing "
-            "establishes NIST RMM's default order."
-        ),
-        attribution='Data created by NIST (National Institute of Standards and Technology).',
-        attribution_requirement="required",
-        attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
-        constraints=_constraints(
-            established=(
-                "`api_nist_rmm.py`: `_request_date` validates day-granular "
-                "bounds, and `search()` sends `from_date` only."),
-            notices=(
-                _notice(
-                    "date_window",
-                    "The NIST RMM API documents a start date and no end date, "
-                    "so resmon applies your end date to the records after "
-                    "they arrive rather than asking for it. A run can come "
-                    "back with fewer in-window records than the cap you set, "
-                    "and with no start date either, nothing bounds the "
-                    "request upstream at all.",
-                    # with_end_date, not with_both_dates: `search()` sets
-                    # from_date only `if lower_bound`, while `_inside_window`
-                    # applies the upper bound whenever it is set. So the
-                    # end-date half is what makes this true, and an end date
-                    # on its own is the strongest case rather than an
-                    # excluded one.
-                    "`api_nist_rmm.py`: `search()` sets `from_date` only when "
-                    "there is a lower bound, and `_inside_window` applies the "
-                    "upper bound to each record after it arrives.",
-                    applies_when="with_end_date",
-                ),
-                _notice(
-                    "date_window",
-                    "NIST RMM accepts only whole-day dates written YYYY-MM-DD. "
-                    "A year or a year and month is refused rather than "
-                    "expanded.",
-                    "`api_nist_rmm.py`: `_REQUEST_DATE` and `_request_date` "
-                    "accept a whole day and nothing coarser.",
-                    applies_when="with_date_window",
-                ),
-            ),
-        ),
-        entity_search=_entity(
-            "unknown",
-            established=(
-                f"{ENTITY_PROBED_ON}: not established, and not for want of asking — the endpoint answered "
-                "`{{\"message\":\"Certificate file not found\",\"httpStatus\":\"500\"}}`, "
-                "which is the same outage its catalog note has recorded since the source "
-                "was added."),
         ),
     ),
     _entry(

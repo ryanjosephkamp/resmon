@@ -245,7 +245,7 @@ def test_a_recovered_retry_ladder_is_not_a_partial_answer(wire):
     Four clients run their documented "retry once" ladder *outside*
     ``safe_request``, calling it again with ``max_retries=0``: ``api_eric``,
     ``api_dblp``, ``api_biorxiv`` (which serves both bioRxiv and medRxiv) and
-    ``api_inspire_hep``, so 4 of 26 active modules and 5 of 27 slugs. Each attempt is a separate
+    ``api_inspire_hep``, so 4 of 24 active modules and 5 of 25 slugs. Each attempt is a separate
     invocation, so a first-attempt 503 leaves ``failures`` at 1 and the second
     attempt's success clears ``last_call_failed`` -- the one snapshot shape a
     rule reading ``failures`` alone would call partial.

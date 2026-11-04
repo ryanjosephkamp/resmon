@@ -152,6 +152,7 @@ export const SEVERITY_MEANING: Record<string, string> = {
  */
 export const RETIRED_NAMES: Readonly<Record<string, string>> = {
   ieee: 'IEEE Xplore',
+  nist_rmm: 'NIST Resource Metadata Management',
   oapen: 'OAPEN Library',
   repec: 'RePEc/IDEAS',
   ssrn: 'SSRN',
