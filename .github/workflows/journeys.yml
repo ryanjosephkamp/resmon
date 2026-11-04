@@ -7,9 +7,9 @@ name: Journeys
 # each journey rather than in the renderer's markup.
 #
 #   candidate  Build this checkout and run the suite against it through the
-#              Atlas driver. Every push, every pull request, and Monday
-#              mornings, under xvfb-run, the same recipe as ui-smoke.yml's
-#              `smoke` job.
+#              Atlas driver, under xvfb-run, the same recipe as ui-smoke.yml's
+#              `smoke` job. It runs when started by hand (Actions › Journeys ›
+#              Run workflow), on any branch.
 #
 # It takes a `break_row` input that fails one named register row on purpose.
 # A new CI job is trusted once it has been made to go red, and a job that
@@ -19,12 +19,6 @@ name: Journeys
 # suite both rewrite every file.
 
 on:
-  push:
-    branches: ['**']
-  pull_request:
-  schedule:
-    # Monday morning, after the weekly live-network job has had the night.
-    - cron: '0 7 * * 1'
   workflow_dispatch:
     inputs:
       break_row:
@@ -34,18 +28,11 @@ on:
         required: false
         default: ''
 
-# A manual run is not a newer answer to the same question.
-#
-# With one group per ref, dispatching `break_row` on a branch cancelled that
-# branch's own push run — so the evidence that the job *can* go red arrived by
-# destroying the evidence that it was green, and the PR was left with a
-# cancelled check nobody had asked to cancel. A dispatch therefore gets a group
-# of its own. Push and pull_request keep sharing theirs, which is the case
-# `cancel-in-progress` was put here for: a second push to a branch really does
-# supersede the first.
+# Runs on one branch queue rather than cancel each other: each one, a
+# `break_row` run included, is an answer someone asked for.
 concurrency:
-  group: journeys-${{ github.ref }}${{ github.event_name == 'workflow_dispatch' && '-dispatch' || '' }}
-  cancel-in-progress: true
+  group: journeys-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   # No OS keyring on a runner; every credential read would otherwise pay a
