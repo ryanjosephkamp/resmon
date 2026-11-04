@@ -28,7 +28,7 @@ import {
   creditLabel,
 } from '../lib/sources';
 
-const NAMED = ['arXiv', 'PubMed', 'OpenAlex', 'CrossRef'].filter((name) => SOURCES.some((s) => s.name === name));
+const NAMED = ['arXiv', 'PubMed', 'OpenAlex', 'Crossref'].filter((name) => SOURCES.some((s) => s.name === name));
 const named = `${NAMED.join(', ')}, and ${SOURCE_COUNT - NAMED.length} more`;
 
 const description =

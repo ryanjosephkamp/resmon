@@ -10,8 +10,10 @@ logger = logging.getLogger(__name__)
 
 _PLOS_API_URL = "https://api.plos.org/search"
 
-# PLOS rate limit: 10 req/s max for unauthenticated; use 5 req/s politely
-_RATE_LIMITER = RateLimiter(requests_per_second=5.0)
+# PLOS asks for at most 10 requests a minute, 300 an hour, and 7,200 a day, and
+# locks out an address that asks for more (https://api.plos.org/solr/faq/,
+# read November 4, 2026). One request every 12 seconds keeps within all three.
+_RATE_LIMITER = RateLimiter(requests_per_second=1 / 12)
 
 
 def _publication_date_range(date_from: str | None, date_to: str | None) -> str:

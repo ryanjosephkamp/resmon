@@ -109,14 +109,14 @@ describe('what a count means, said where it is shown', () => {
 });
 
 describe('each filter named, and how it comes off', () => {
-  const names = (slug: string) => ({ arxiv: 'arXiv', crossref: 'CrossRef' }[slug] ?? slug);
+  const names = (slug: string) => ({ arxiv: 'arXiv', crossref: 'Crossref' }[slug] ?? slug);
 
   test('one value in a group widens to the whole group; one of several drops only itself', () => {
     expect(chips(read('source=crossref'), names)).toEqual([
-      { key: 'source', value: 'crossref', text: 'From CrossRef', remove: 'Show papers from every source, not only CrossRef' },
+      { key: 'source', value: 'crossref', text: 'From Crossref', remove: 'Show papers from every source, not only Crossref' },
     ]);
     expect(chips(read('source=arxiv&source=crossref'), names).map((c) => c.remove))
-      .toEqual(['Stop showing papers from arXiv', 'Stop showing papers from CrossRef']);
+      .toEqual(['Stop showing papers from arXiv', 'Stop showing papers from Crossref']);
   });
 
   test('dates are said as US dates, whatever the time zone', () => {

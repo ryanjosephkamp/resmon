@@ -76,8 +76,8 @@ export function LifecycleCheck() {
       <PlaceHelp summary="What the check asks, and of whom">
         <p>
           Your papers are asked about by their identifiers. Each paper with a DOI is asked of Crossref,
-          {' '}{CHECK_FACTS.crossrefBatch} DOIs to a request at no more than {CHECK_FACTS.crossrefPerSecond} requests a
-          second. Each arXiv paper held at a version number, such as 2301.00001v2, is asked of arXiv,
+          {' '}{CHECK_FACTS.crossrefBatch} DOIs to a request at no more than
+          {' '}{CHECK_FACTS.crossrefPerSecond === 1 ? 'one request' : `${CHECK_FACTS.crossrefPerSecond} requests`} a second. Each arXiv paper held at a version number, such as 2301.00001v2, is asked of arXiv,
           {' '}{CHECK_FACTS.arxivBatch} to a request. Each bioRxiv preprint is asked of bioRxiv, one request each, at no
           more than {CHECK_FACTS.biorxivPerSecond} a second. Asking tells those services which papers you hold, so the
           check runs only when asked: from here, or by a watch set to look for a person&rsquo;s retractions.

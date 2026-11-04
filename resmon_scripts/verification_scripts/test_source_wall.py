@@ -697,5 +697,5 @@ def test_the_dropped_sources_line_takes_the_serial_comma(conn):
 
     detail = source_wall.build(conn)["verdict"]["detail"]
 
-    assert any(line.startswith("CrossRef, HAL, and OpenAlex answered when last asked") for line in detail), detail
+    assert any(line.startswith("Crossref, HAL, and OpenAlex answered when last asked") for line in detail), detail
 

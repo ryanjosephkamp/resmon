@@ -87,7 +87,7 @@ def test_catalog_as_dicts_shape():
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
         "credential_name", "website", "registration_url", "placeholder",
-        "upstream_policy", "parallel_safe", "notes",
+        "upstream_policy", "parallel_safe", "notes", "service_notice",
         "keyword_combination", "keyword_combination_notes",
         "attribution", "attribution_requirement", "attribution_source",
         "date_granularity",
@@ -285,3 +285,10 @@ def test_unknown_is_used_where_nothing_was_asked():
     for slug, capability in unknown.items():
         assert "not established" in capability.established, slug
         assert not capability.supported
+
+
+def test_openaire_carries_its_notice_and_no_other_source_has_one():
+    """OpenAIRE has announced its API's end; it is kept, with a notice shown wherever it is chosen."""
+    notices = {e.slug: e.service_notice for e in REPOSITORY_CATALOG if e.service_notice}
+    assert set(notices) == {"openaire"}
+    assert "announced the end" in notices["openaire"]

@@ -429,7 +429,7 @@ def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_cance
     assert "A paper from arxiv, number 1" in report
     assert _section(report, "## Sources that answered") == "\n\n- **arXiv**: returned 1 record.\n"
     interrupted = _section(report, "## Sources the cancellation interrupted")
-    assert "**CrossRef**" in interrupted and "**DBLP**" in interrupted
+    assert "**Crossref**" in interrupted and "**DBLP**" in interrupted
     assert "**DOAJ**" in _section(report, "## Sources not asked before the run was cancelled")
     assert "## Sources that answered with nothing to keep" not in report
     connection.close()

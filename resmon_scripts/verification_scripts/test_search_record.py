@@ -528,7 +528,7 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "http_503", "status": 503, "attempts": 2}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "1 of the 2 recorded sources did not answer, so there is nothing to count (CrossRef). "
+        "1 of the 2 recorded sources did not answer, so there is nothing to count (Crossref). "
         "Its note below says why. It did not contribute to this search."
     ) in caveats
     assert not any("nothing to find (crossref)" in c for c in caveats)
@@ -537,7 +537,7 @@ def test_a_source_that_did_not_answer_is_said_to_have_nothing_to_count(conn):
                             zero_detail=json.dumps({"detail": "parse_error"}))
     caveats = search_record.build(conn, exec_id)["caveats"]
     assert (
-        "2 of the 3 recorded sources did not answer, so there is nothing to count (CrossRef, DOAJ). "
+        "2 of the 3 recorded sources did not answer, so there is nothing to count (Crossref, DOAJ). "
         "Their notes below say why. They did not contribute to this search."
     ) in caveats
 

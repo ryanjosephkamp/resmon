@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 207 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 209 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -306,6 +306,8 @@ A credential's value is never returned. The engine reports only whether one is s
 | `PUT` | `/api/settings/notifications` | Store it. |
 | `GET` | `/api/settings/storage` | The export folder, where backups go. |
 | `PUT` | `/api/settings/storage` | Store it. |
+| `GET` | `/api/settings/sources` | The contact address resmon gives Crossref and OpenAlex, if you set one, and the sources it goes to. |
+| `PUT` | `/api/settings/sources` | Store it, or clear it with `null`; with none, nothing is sent. |
 | `GET` | `/api/settings/execution` | How many runs go at once, and how many watch runs may wait. |
 | `PUT` | `/api/settings/execution` | Store them. |
 | `GET` | `/api/credentials` | Per credential name: `present`, `absent`, or `unreadable`. |

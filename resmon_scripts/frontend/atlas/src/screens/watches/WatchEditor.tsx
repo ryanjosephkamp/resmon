@@ -637,6 +637,9 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           {notices.map((notice) => (
             <p key={`${notice.slug}:${notice.effect}`} className="will-warn" data-will="notice">{notice.effect}</p>
           ))}
+          {picked.filter((entry) => entry.service_notice).map((entry) => (
+            <p key={`service:${entry.slug}`} className="will-warn" data-will="service-notice">{entry.service_notice}</p>
+          ))}
           {newest.length > 0 && (
             <p className="will-quiet" data-will="newest-first">
               {listed(newest.map((e) => e.name))} {newest.length === 1 ? 'puts its' : 'put their'} newest papers first.

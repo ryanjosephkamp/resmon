@@ -120,7 +120,7 @@ test('Analytics draws the engine\'s numbers, and a chart opens the collection na
     expect(await win.evaluate(() => window.location.hash)).toBe('#/search?source=crossref');
     const crossrefTotal = served.source_contribution.sources.find((s) => s.source === 'crossref')?.total ?? -1;
     await expect(win.locator('.count-sentence')).toHaveText(`${crossrefTotal} papers matching your filters`, { timeout: 30_000 });
-    await expect(win.locator('[data-filter="source"]')).toContainText('From CrossRef');
+    await expect(win.locator('[data-filter="source"]')).toContainText('From Crossref');
     await expect(win.locator('.result')).toHaveCount(crossrefTotal);
     await win.locator('[data-filter="source"] button').click();
     await expect(win.locator('.count-sentence')).toHaveText(`${served.summary.documents} papers in your collection`, { timeout: 30_000 });

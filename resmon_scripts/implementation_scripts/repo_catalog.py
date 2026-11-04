@@ -432,6 +432,10 @@ class RepoCatalogEntry:
     upstream_policy: str
     parallel_safe: str
     notes: str
+    #: A sentence about the service itself that a person should read before
+    #: asking it (one that has announced its own end, say), or empty. Shown
+    #: wherever the source is chosen, not only in its details.
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str
@@ -474,6 +478,7 @@ def _entry(
     upstream_policy: str = "",
     parallel_safe: str = "",
     notes: str = "",
+    service_notice: str = "",
     keyword_combination: str = "",
     keyword_combination_notes: str = "",
     attribution: str = "",
@@ -502,6 +507,7 @@ def _entry(
         upstream_policy=upstream_policy,
         parallel_safe=parallel_safe,
         notes=notes,
+        service_notice=service_notice,
         keyword_combination=keyword_combination,
         keyword_combination_notes=keyword_combination_notes,
         attribution=attribution,
@@ -752,23 +758,27 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     ),
     _entry(
         slug="crossref",
-        name="CrossRef",
+        name="Crossref",
         description="DOI registration agency metadata across all scholarly works",
         subject_coverage="All disciplines (DOI-indexed)",
         endpoint="https://api.crossref.org/works",
         query_method="GET /works?query={q} with optional date filters",
-        rate_limit="10.0 req/s (polite pool recommended)",
+        rate_limit="1.0 req/s (the public pool's limit for searches)",
         client_module="api_crossref.py",
         requirement="none",
         credential_name=None,
         website="https://www.crossref.org",
         registration_url=None,
-        upstream_policy="Polite pool when User-Agent contains mailto:; shared pool otherwise (~50 req/s soft cap)",
+        upstream_policy=(
+            "Since July 21, 2026: searches and filters 1 request a second from the public pool, 3 from the polite "
+            "pool (a request that names a contact address); single records 5 and 10."),
         parallel_safe="Yes",
-        notes="Set a contact email in the UA for priority.",
+        notes=(
+            "resmon sends a contact address only if you set one in Settings › Sources, which puts its requests in "
+            "the polite pool; its pace stays within the public pool's either way."),
         keyword_combination="Relevance-ranked",
         keyword_combination_notes=(
-            "CrossRef ranks by relevance, not strict boolean; documents containing "
+            "Crossref ranks by relevance, not strict boolean; documents containing "
             "more of the words rank higher but single-term matches can still "
             "surface. Measured October 30, 2026: `climate model`, `climate AND model` and "
             "`climate OR model` each matched 3,793,797 works, more than `model` "
@@ -1538,6 +1548,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Unauthenticated limit: 60 requests/hour in a one-hour sliding window",
         parallel_safe="Yes",
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
+        service_notice=(
+            "OpenAIRE has announced the end of the API resmon asks it through, and it still answered on November 4, "
+            "2026. resmon asks it while it answers; a run records it as not answering once it stops."),
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes=(
             "OpenAIRE documents keywords only as a whitespace-separated list and "
@@ -1741,15 +1754,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         subject_coverage="Biology / Medicine / Natural sciences (PLOS journals only)",
         endpoint="https://api.plos.org/search",
         query_method="GET Solr with q wt=json start rows",
-        rate_limit="5.0 req/s",
+        rate_limit="0.083 req/s (1 per 12 s)",
         client_module="api_plos.py",
         requirement="none",
         credential_name=None,
         website="https://plos.org",
         registration_url=None,
-        upstream_policy="10 req/min soft guidance (resmon is faster)",
+        upstream_policy="10 requests a minute, 300 an hour, and 7,200 a day; an address that asks for more is locked out",
         parallel_safe="Yes",
-        notes="If you see 429s lower the limiter to 0.2 req/s.",
+        notes="One request every 12 seconds keeps within all three of PLOS's limits.",
         keyword_combination="Implicit AND",
         keyword_combination_notes=(
             "PLOS requires every word, which its documentation does not state, so "

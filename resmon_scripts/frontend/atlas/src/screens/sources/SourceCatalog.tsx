@@ -133,6 +133,9 @@ export function SourceCatalog({ legend, count, sources, chosen, multiple, keyMis
               <span className="source-name">
                 {entry.name}
                 {missing && <span className="source-key">needs an API key</span>}
+                {entry.service_notice && (
+                  <span className="source-key source-notice" data-notice="service" title={entry.service_notice}>end announced</span>
+                )}
                 <span className="source-key" data-author-query={entry.entity_search.author_query}>
                   {authorWords(entry.entity_search.author_query)}
                 </span>

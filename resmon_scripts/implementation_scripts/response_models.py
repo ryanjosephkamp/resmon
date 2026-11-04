@@ -664,6 +664,18 @@ class ExecutionSettings(LosslessModel):
     routine_fire_queue_limit: int
 
 
+class SourceSettings(LosslessModel):
+    """``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.
+
+    ``contact_email`` is null when none is set, and then nothing is sent.
+    ``sent_to`` names the sources it goes to, and no other source is sent it
+    (``source_contact``).
+    """
+
+    contact_email: Optional[str]
+    sent_to: list[str]
+
+
 class SettingsSaved(LosslessModel):
     """What the six plain settings PUTs answer: ``{"success": true}``.
 
@@ -1535,6 +1547,7 @@ class RepositoryCatalogEntry(LosslessModel):
     upstream_policy: str
     parallel_safe: str
     notes: str
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str

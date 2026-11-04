@@ -50,7 +50,7 @@ export const PROFILE_LIFECYCLE = 'profile-lifecycle';
 export const CHECK_FACTS = {
   perCheck: 1000,
   crossrefBatch: 40,
-  crossrefPerSecond: 10,
+  crossrefPerSecond: 1,
   arxivBatch: 50,
   biorxivPerSecond: 2,
   recheckDays: 30,

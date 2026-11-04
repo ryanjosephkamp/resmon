@@ -109,7 +109,7 @@ from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, response_models, search_record, source_coverage,
+    reading_queue, reference_export, response_models, search_record, source_contact, source_coverage,
     source_wall, vector_index, watch_profiles,
     watchdog,
 )
@@ -6989,6 +6989,41 @@ def scheduler_status():
         "service_version": service_version,
         "routines": routines,
     }
+
+
+class SourceSettingsBody(BaseModel):
+    contact_email: Optional[str] = None
+
+
+def _source_settings(conn) -> dict:
+    return {"contact_email": source_contact.read(conn), "sent_to": list(source_contact.SOURCES)}
+
+
+@app.get("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def get_source_settings():
+    """The contact address resmon gives Crossref and OpenAlex, and the sources it goes to."""
+    conn = _get_db()
+    try:
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def update_source_settings(body: SourceSettingsBody):
+    """Set the contact address, or clear it with null or an empty string, after which nothing is sent."""
+    try:
+        address = source_contact.normalized(body.contact_email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    conn = _get_db()
+    try:
+        set_setting(conn, source_contact.SETTING, address or "")
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
 
 
 @app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,

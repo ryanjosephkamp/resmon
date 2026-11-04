@@ -170,7 +170,7 @@ test('the collection narrowed through its filters, counted, exported, and opened
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-collection-filters.png') });
     await win.keyboard.press('Escape');
-    await expect(win.locator('[data-collection="filters"] .term')).toHaveText(['From arXiv', 'From CrossRef', 'In physics.app-ph']);
+    await expect(win.locator('[data-collection="filters"] .term')).toHaveText(['From arXiv', 'From Crossref', 'In physics.app-ph']);
 
     // — the export: every paper the count counts, through the save dialog ---------
     const exports = win.locator('[data-collection="export"]');
@@ -227,7 +227,7 @@ test('the collection narrowed through its filters, counted, exported, and opened
     await win.locator('[data-analytics="sources"] .bar-row[data-source="crossref"] a.bar-name').click({ timeout: 60_000 });
     await expect(win.getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 30_000 });
     expect(await win.evaluate(() => window.location.hash)).toBe('#/search?source=crossref');
-    await expect(win.locator('[data-filter="source"]')).toHaveText('From CrossRef');
+    await expect(win.locator('[data-filter="source"]')).toHaveText('From Crossref');
     await expectList(win, { sources: ['crossref'] }, '3 papers matching your filters');
     // The same state as ticking it: the menu shows it ticked, and another can join it.
     menu = await openMenu(win, 'source');

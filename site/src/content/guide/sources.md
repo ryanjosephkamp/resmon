@@ -14,7 +14,7 @@ resmon asks 25 open scholarly sources. Every statement on this page comes from t
 | arXiv | Physics / Math / CS / Quant-bio / Stats / EE / Econ | Not required | 0.33 req/s (1 per 3 s) |
 | bioRxiv | Life sciences preprints | Not required | 2.0 req/s (conservative; no published API limit) |
 | CORE | Multi-disciplinary OA | Required | 0.167 req/s (1 per 6 s) |
-| CrossRef | All disciplines (DOI-indexed) | Not required | 10.0 req/s (polite pool recommended) |
+| Crossref | All disciplines (DOI-indexed) | Not required | 1.0 req/s (the public pool's limit for searches) |
 | DataCite | All disciplines / Data / Software / Dissertations / Other DOI outputs | Not required | 1.5 req/s (below 500 requests/5 min unidentified) |
 | DBLP | Computer science | Not required | 0.5 req/s (shared; at least 2 seconds between requests) |
 | DOAJ | All disciplines (OA journals) | Not required | 5.0 req/s |
@@ -31,7 +31,7 @@ resmon asks 25 open scholarly sources. Every statement on this page comes from t
 | OpenAlex | All disciplines | Not required | 10.0 req/s (100k/day provider ceiling) |
 | Open Library | Books / Humanities / General bibliography | Not required | 1.0 req/s (unidentified-client ceiling) |
 | OSTI.GOV | Energy / Physical sciences / DOE-funded research / Technical reports | Not required | 0.5 req/s (conservative; no published API limit) |
-| PLOS | Biology / Medicine / Natural sciences (PLOS journals only) | Not required | 5.0 req/s |
+| PLOS | Biology / Medicine / Natural sciences (PLOS journals only) | Not required | 0.083 req/s (1 per 12 s) |
 | PubMed | Biomedicine | Optional | 3.0 req/s (matches keyless; 10/s with key) |
 | Semantic Scholar | All disciplines (strong CS and biomed) | Recommended | 0.33 req/s (1 per 3 s) |
 | Springer Nature | STM / Humanities / Social sciences | Required | 5.0 req/s (per-key daily cap ~5000/day on free tier) |
@@ -46,7 +46,7 @@ The terms you type go to every source together, and each source combines them it
 | arXiv | Implicit AND (added by resmon) | Exact dates | Newest first |
 | bioRxiv | Explicit OR | Exact dates | Newest first |
 | CORE | Relevance-ranked (Lucene OR default) | Exact dates | Relevance |
-| CrossRef | Relevance-ranked | Exact dates | Relevance |
+| Crossref | Relevance-ranked | Exact dates | Relevance |
 | DataCite | Implicit AND | Whole years | Relevance |
 | DBLP | Relevance-ranked (upstream-default, unverified) | Whole years | Not stated |
 | DOAJ | Implicit AND | Whole years | Relevance |

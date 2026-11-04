@@ -12,7 +12,6 @@ _OPENALEX_API_URL = "https://api.openalex.org/works"
 
 # Polite pool: 10 req/s with mailto
 _RATE_LIMITER = RateLimiter(requests_per_second=10.0)
-_MAILTO = "resmon@example.com"
 
 
 class OpenAlexClient(BaseAPIClient):
@@ -21,7 +20,8 @@ class OpenAlexClient(BaseAPIClient):
     describe_request = staticmethod(sent_params("search", "filter"))
 
     def __init__(self, mailto: str | None = None):
-        self._mailto = mailto or _MAILTO
+        # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
+        self._mailto = mailto
 
     def get_name(self) -> str:
         return "OpenAlex"
@@ -86,7 +86,7 @@ class OpenAlexClient(BaseAPIClient):
                 "search": query,
                 "page": page,
                 "per-page": per_page,
-                "mailto": self._mailto,
+                **({"mailto": self._mailto} if self._mailto else {}),
             }
 
             # 2.1 — OpenAlex is the only source with a real **identifier**

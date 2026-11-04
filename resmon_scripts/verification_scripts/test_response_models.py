@@ -128,6 +128,8 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/settings/execution"),
         ("GET", "/api/settings/notifications"),
         ("PUT", "/api/settings/notifications"),
+        ("GET", "/api/settings/sources"),
+        ("PUT", "/api/settings/sources"),
         ("GET", "/api/settings/storage"),
         ("PUT", "/api/settings/storage"),
     ),
@@ -1797,6 +1799,12 @@ def _drive_settings(drive: Drive) -> None:
           json={"settings": {"notify_manual": False,
                              "notify_automatic_mode": "selected"}})
     drive("GET", "/api/settings/notifications")
+
+    # sources: the contact address, set, read, and cleared.
+    drive("GET", "/api/settings/sources")
+    drive("PUT", "/api/settings/sources", json={"contact_email": "ada@example.org"})
+    drive("GET", "/api/settings/sources")
+    drive("PUT", "/api/settings/sources", json={"contact_email": None})
 
     # execution: integers, and a PUT that echoes what it stored.
     drive("GET", "/api/settings/execution")

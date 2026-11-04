@@ -12,7 +12,7 @@ The scholarly sources resmon asks, whose public APIs make automated literature m
 - **arXiv** — Cornell University / arXiv.org, for the Atom XML API and the decades-long commitment to open preprint distribution in physics, mathematics, computer science, quantitative biology, statistics, electrical engineering, and economics.
 - **bioRxiv** and **medRxiv** — openRxiv, for the date-range JSON API serving the life- and health-sciences communities.
 - **CORE** — The Open University / Jisc, for the aggregated open-access JSON API spanning tens of thousands of repositories worldwide.
-- **CrossRef** — Crossref, for the DOI-indexed REST API and the "polite pool" that rewards well-behaved clients with priority rate limits.
+- **Crossref**, for the DOI-indexed REST API and the polite pool it serves to clients that name a contact address.
 - **DataCite** — DataCite, for the public DOI metadata REST API. Metadata from DataCite.
 - **DBLP** — Schloss Dagstuhl / University of Trier, for the computer-science bibliography REST API.
 - **Dryad** — Dryad, for the dataset search API and its ORCID-bearing author records.

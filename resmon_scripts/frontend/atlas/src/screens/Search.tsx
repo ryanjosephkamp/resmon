@@ -432,6 +432,9 @@ export function Search() {
             {picked.filter(keyMissing).map((entry) => (
               <p key={entry.slug}>{entry.name} has no API key here, so it will be recorded as not queried.</p>
             ))}
+            {picked.filter((entry) => entry.service_notice).map((entry) => (
+              <p key={`service:${entry.slug}`} data-ask="service-notice">{entry.service_notice}</p>
+            ))}
             {unknown.length > 0 && (
               <p data-saved="unknown-sources">
                 {unknown.join(', ')} {unknown.length === 1 ? 'is' : 'are'} in this saved search but {unknown.length === 1 ? 'is not a source' : 'are not sources'}
