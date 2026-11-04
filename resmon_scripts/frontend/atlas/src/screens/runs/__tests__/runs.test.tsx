@@ -18,6 +18,7 @@ import {
 } from '../model';
 import { runsCountWords } from '../RunLog';
 import { Metadata } from '../RunTabs';
+import { runSkyCaption } from '../RunSky';
 
 describe("a source's outcome from its count and reason", () => {
   test.each([
@@ -431,4 +432,23 @@ test('the Metadata tab says a run\'s dates in words, as the rest of the run page
   expect(container.textContent).toContain('Date fromOctober 1, 2026');
   expect(container.textContent).toContain('Date toOctober 31, 2026');
   expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+});
+
+describe("the sentence under a run's map", () => {
+  const empty = { placed: null, total: 0, ready: true, basis: 'words' } as const;
+
+  it('says when papers arrive while the run is going, not that there are none', () => {
+    expect(runSkyCaption(empty, true)).toBe('Papers appear here once the run has stored them.');
+    expect(runSkyCaption(empty, true)).not.toMatch(/stored no papers/);
+  });
+
+  it('says the run stored no papers only once it has ended', () => {
+    expect(runSkyCaption(empty, false)).toBe('This run stored no papers.');
+  });
+
+  it('counts the papers a run has stored the same way while it runs and after', () => {
+    const some = { placed: 2, total: 3, ready: true, basis: 'words' } as const;
+    expect(runSkyCaption(some, true)).toBe(runSkyCaption(some, false));
+    expect(runSkyCaption(some, false)).toMatch(/^2 of 3 papers from this run are on the map/);
+  });
 });

@@ -415,7 +415,7 @@ export function Run() {
             </>
           )}
         </section>
-        <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null}
+        <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null} running={running}
           onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined}
           chosen={onMap?.id ?? null} onChoose={(next) => setOpened(next ? { runId: id, choice: next } : null)}
           sourceName={(slug) => names.get(slug) ?? slug} />
