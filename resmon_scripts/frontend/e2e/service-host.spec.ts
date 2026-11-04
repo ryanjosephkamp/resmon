@@ -148,7 +148,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(notices).toHaveLength(1);
     expect(notices[0].executionId).toBe(executionId);
     // The OS shows the app's name beside every notification the app posts.
-    expect(notices[0].title).toBe('Execution Completed');
+    expect(notices[0].title).toBe('Deep Dive finished');
 
     // A second launch of resmon hands over and exits; the service opens the window.
     // Launched as Playwright launched the first: on Linux it passes

@@ -37,10 +37,10 @@ def test_the_source_wall_labels_a_watch_runs_column_with_the_watch_name():
 
 
 def test_a_notification_for_a_watch_run_without_a_name_says_watch():
-    body = resmon_mod._desktop_notification_body(
+    title, _body = resmon_mod._desktop_notification_words(
         sqlite3.connect(":memory:"),
         {"id": 1, "execution_type": "automated_sweep", "status": "failed"}, None)
-    assert body.startswith("Watch failed;")
+    assert title == "resmon: Watch run failed"
 
 
 def test_an_email_for_a_watch_says_watch_and_names_an_unnamed_one_as_unknown():
