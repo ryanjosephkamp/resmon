@@ -39,7 +39,7 @@ const ACTIONS: readonly Action[] = [
     warning: `Every saved search is deleted, and so is every watch whose copy is in Search › Saved: their scheduled runs stop. Runs that already happened are kept, without the link to what they came from. ${KEPT}`,
   },
   {
-    id: 'executions', label: 'Erase execution history', route: '/api/admin/erase-executions', typed: true,
+    id: 'executions', label: 'Erase run history', route: '/api/admin/erase-executions', typed: true,
     removes: 'Every run, and the run counter. The papers they found are kept.',
     warning: `Every run is deleted from the run log and the run counter starts again at 1. Reports and logs on disk are no longer reachable from resmon. The papers those runs found stay in your collection. ${KEPT}`,
   },
@@ -52,8 +52,8 @@ const ACTIONS: readonly Action[] = [
       + 'the deleted papers are removed.',
   },
   {
-    id: 'execution_data', label: 'Erase all execution data', route: '/api/admin/erase-execution-data', typed: true,
-    removes: 'Erase all saved searches and Erase execution history together. Papers, settings, and keys are kept.',
+    id: 'execution_data', label: 'Erase all run data', route: '/api/admin/erase-execution-data', typed: true,
+    removes: 'Erase all saved searches and Erase run history together. Papers, settings, and keys are kept.',
     warning: `Every saved search, every watch linked to one, and every run are deleted, and the run counter starts again. Keys, settings, and your collected papers stay. ${KEPT}`,
   },
   {
@@ -79,7 +79,7 @@ const ACTIONS: readonly Action[] = [
 /** Each count the engine answers, by the names this screen gives one of the thing and more than one. */
 const COUNTED: Record<string, readonly [string, string]> = {
   ai_keys: ['AI key', 'AI keys'], repo_keys: ['source key', 'source keys'], smtp_credentials: ['email password', 'email passwords'],
-  configs: ['saved configuration', 'saved configurations'], executions: ['run', 'runs'], documents: ['paper', 'papers'],
+  configs: ['saved search', 'saved searches'], executions: ['run', 'runs'], documents: ['paper', 'papers'],
 };
 
 /** The counts of what the keychain held: the engine counts a key only when one was stored and is now gone. */

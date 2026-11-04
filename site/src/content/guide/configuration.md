@@ -64,14 +64,14 @@ Each erasure opens a warning that says what it removes and what it does not. The
 
 | Action | What it removes |
 |---|---|
-| **Erase all AI API keys** | Every AI provider key saved in your keychain |
-| **Erase all repo API keys** | Every source key saved in your keychain |
-| **Erase all configs** | Every saved search, and every watch linked to a saved configuration. Runs that already happened are kept, without the link |
-| **Erase execution history** | Every run, and the run counter. The papers they found are kept |
+| **Erase all AI API keys** | Every AI provider key saved in this computer's keychain |
+| **Erase all source API keys** | Every source key saved in this computer's keychain |
+| **Erase all saved searches** | Every saved search, and every watch whose copy is in Search › Saved |
+| **Erase run history** | Every run, and the run counter. The papers they found are kept |
 | **Erase the paper corpus** | Every paper resmon has collected, with its retraction and version records. Runs, watches, settings, and keys are kept |
-| **Erase all execution data** | **Erase all configs** and **Erase execution history** together. Papers, settings, and keys are kept |
+| **Erase all run data** | **Erase all saved searches** and **Erase run history** together. Papers, settings, and keys are kept |
 | **Erase all app data** | Every key, saved search, run, and paper. Settings other than AI are kept |
 | **Reset all settings** | Every setting back to its default, and every key and the email password erased. Runs and saved searches are kept |
-| **Factory reset** | Every key, saved search, run, paper, and setting. The Library is kept |
+| **Factory reset** | Every key, saved search, run, paper, and setting on this computer. The Library is kept |
 
 Erasures cannot be undone from inside resmon. A backup made before one can bring back what the backup holds, which never includes keys or passwords. See [Backup and restore](/resmon/guide/backup/).
