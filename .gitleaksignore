@@ -1,0 +1,5 @@
+# DBLP record keys in test fixtures, such as journals/test/Record24, which gitleaks reads as API keys.
+resmon_scripts/verification_scripts/test_dblp_reliability.py:generic-api-key:159
+resmon_scripts/verification_scripts/test_dblp_reliability.py:generic-api-key:280
+resmon_scripts/verification_scripts/test_dblp_reliability.py:generic-api-key:300
+resmon_scripts/verification_scripts/test_source_response_reliability.py:generic-api-key:101
