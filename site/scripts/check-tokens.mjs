@@ -186,7 +186,6 @@ const CONTRAST_PAIRS = [
   ['--color-fault', '--color-canvas', 4.5],
   ['--color-fault', '--color-surface', 4.5],
   ['--color-mast-muted', '--color-mast', 4.5],
-  ['--color-notice-text', '--color-notice-bg', 4.5],
   // Marks a reader has to see, at the non-text line.
   ['--color-accent-mark', '--color-canvas', 3],
   ['--color-accent-mark', '--color-surface', 3],

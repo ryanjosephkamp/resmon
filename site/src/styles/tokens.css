@@ -98,8 +98,6 @@
   --color-mast: var(--paper);
   --color-mast-text: var(--ink);
   --color-mast-muted: var(--ink-faint);
-  --color-mark-ground: var(--ink);
-  --color-mark-dot: var(--paper);
 
   /* ---- The chart: points, rings, and what the filters leave out --------- */
   --color-star: var(--ink);
@@ -124,11 +122,6 @@
   --color-code-text: var(--ink);
   --color-codeblock-bg: var(--paper-2);
 
-  /* ---- Notice ----------------------------------------------------------- */
-  --color-notice-bg: var(--accent-wash);
-  --color-notice-border: var(--accent-mark);
-  --color-notice-text: var(--ink);
-
   /* ---- Type ------------------------------------------------------------- */
   /*
    * The app's three faces. Geist carries the interface and everything read.
@@ -150,8 +143,6 @@
   --text-xl: 1.5rem;
   --text-2xl: 1.875rem;
   --text-3xl: 2.5rem;
-  --text-display: clamp(2.5rem, 1.25rem + 4.1vw, 5rem);
-  --text-entry: 1.3125rem;
   /* Code inside running text, a touch under the line it sits in. */
   --text-code: 0.92em;
 
@@ -164,11 +155,9 @@
   --weight-medium: 500;
   --weight-semibold: 600;
   --weight-bold: 650;
-  --weight-heavy: 700;
 
   --tracking-display: -0.035em;
   --tracking-tight: -0.015em;
-  --tracking-wide: 0.06em;
 
   /* ---- Space (a 4px base, in rem so it scales with the root) ------------ */
   --space-0: 0;
@@ -180,7 +169,6 @@
   --space-6: 2rem;
   --space-7: 3rem;
   --space-8: 4rem;
-  --space-9: 6rem;
 
   /* ---- Shape: the app's radii ------------------------------------------- */
   --radius-sm: 0.25rem;
@@ -190,7 +178,6 @@
   --border-width-heavy: 2px;
   --border-width-thick: 3px;
   --underline-offset: 0.24em;
-  --tick: 0.5rem;
 
   /* ---- Marks ------------------------------------------------------------ */
   /* The Source wall: a run's column, a source's row, the reading and runs beside it. */
@@ -233,7 +220,6 @@
   --fact-key: 7.5rem;
   --fact-rate: 5.5rem;
   --fact-dates: 6rem;
-  --measure-display: 16ch;
   --measure-lead: 22ch;
   /* The plate is square and as tall as the screen leaves room for under the
      title and the map's bar, so the first view holds the title, the bar, the
@@ -266,10 +252,9 @@
   --plate-text-margin: 11.5px;
   --plate-text-margin-narrow: 21px;
 
-  /* ---- Motion: the app's ease and its one duration ---------------------- */
+  /* ---- Motion: the app's ease and its durations ------------------------ */
   --duration-fast: 180ms;
   --duration-fill: 480ms;
-  --duration-settle: 1600ms;
   /* The opening: the new papers light one after another, in the order they
      were collected, on the plate and in its index at once. */
   /* Each paper's turn is the app's (`opening.ts`), written on it in milliseconds; this makes it a time. */
@@ -278,7 +263,6 @@
   --light-fade: 300ms;
   --unlit: 0.18;
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
 
   color-scheme: light dark;
 }
@@ -390,7 +374,6 @@
   :root {
     --duration-fast: 0ms;
     --duration-fill: 0ms;
-    --duration-settle: 0ms;
     --ms: 0ms;
     --light-fade: 0ms;
   }
