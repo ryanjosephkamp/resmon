@@ -306,7 +306,7 @@ class RoutineAlreadyRunning(Exception):
         self.execution_id = execution_id
         super().__init__(
             f"Watch {routine_id} is already running"
-            + (f" as execution {execution_id}." if execution_id is not None
+            + (f" as run {execution_id}." if execution_id is not None
                else ".")
         )
 

@@ -388,9 +388,9 @@ class SweepEngine:
             entity_mode = query_params.get("entity_mode")
             if entity_mode and query_params.get("entity_profile") is None:
                 raise ValueError(
-                    f"The watch profile this routine follows (id "
+                    f"The person this watch follows (id "
                     f"{query_params.get('entity_profile_id')}) no longer exists. "
-                    f"Point the routine at another profile, or delete it."
+                    f"Point the watch at another person, or delete it."
                 )
             if entity_mode == "retractions":
                 return self._run_retractions(
