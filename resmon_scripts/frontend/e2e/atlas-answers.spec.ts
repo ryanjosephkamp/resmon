@@ -88,7 +88,14 @@ app.on('window-all-closed',()=>app.quit());
     const printed = execFileSync(python, ['-c',
       "from pypdf import PdfReader;import sys;print('\\n'.join(p.extract_text() or '' for p in PdfReader(sys.argv[1]).pages))", pdf],
     { encoding: 'utf8' });
-    expect(printed, 'the printed answer does not carry its id').toContain(answerId);
+    // A ligature prints "ff" in a hex id as the one character U+FB00, so the
+    // text copied from the printout is not the id; that failed one answer in
+    // ten, whenever the random id held "ff". "file_id", "offsets" and
+    // "confirmed" are on every printout, so this holds on every run.
+    expect(printed.match(/[ﬀ-ﬆ]/gu) ?? [], 'the printout joins letters into ligatures').toEqual([]);
+    // A long value may wrap at any character, so the id is looked for with
+    // the line breaks taken out.
+    expect(printed.replace(/\s+/gu, ''), 'the printed answer does not carry its id').toContain(answerId);
     expect(await reader.evaluate(() => (globalThis as unknown as { reader: { blocked: string[] } }).reader.blocked),
       'the saved answer asked for something besides itself').toEqual([]);
   } finally {

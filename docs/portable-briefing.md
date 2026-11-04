@@ -9,7 +9,9 @@ corresponding frozen source. **Return to this answer citation** goes back to tha
 specific citation, including when the same quote appears more than once. The
 document's section links, ordinary keyboard Tab/Enter navigation and native
 details control require no script. The system-font layout wraps long text and
-identities. Expand the identity disclosure before printing if you collapsed it.
+identities, and joins no letters into ligatures, so an ID, a hash, or a quote copied
+from the page or its printout matches the saved text. Expand the identity disclosure
+before printing if you collapsed it.
 
 The document includes only saved selected excerpts and selected local note bodies.
 Notes retain their saved IDs, revisions and anchors as owner commentary; they are
