@@ -125,6 +125,20 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     const owed = catalog.filter((e) => e.attribution_requirement === 'required' && e.attribution);
     await expect(win.locator('[data-sources="credits"] li')).toHaveCount(owed.length);
 
+    // — Sources: a contact address for Crossref and OpenAlex, none until set, and taken back --
+    const contactSection = win.locator('[data-sources="contact"]');
+    const contact = win.getByLabel('Your email address');
+    await expect(contact).toHaveValue('');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBeNull();
+    await contact.fill('ada@example.org');
+    await contactSection.getByRole('button', { name: 'Save' }).click();
+    await expect(win.locator('[data-sources="contact-said"]')).toHaveText('Saved. Crossref and OpenAlex are sent ada@example.org.');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBe('ada@example.org');
+    await contactSection.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-edges-contact.png') });
+    await contactSection.getByRole('button', { name: 'Remove' }).click();
+    await expect(win.locator('[data-sources="contact-said"]')).toHaveText('Removed. No address is sent.');
+    expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBeNull();
+
     // — Backup: a chosen folder, a bundle, a check, a staged restore, cancelled ----------
     await app.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
