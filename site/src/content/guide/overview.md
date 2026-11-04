@@ -3,7 +3,7 @@ title: "What resmon is"
 summary: "What resmon watches, what it promises about what it knows, how its screens fit together, and what stays on your computer."
 order: 1
 ---
-resmon is a desktop app that watches scholarly literature for you and tells you when its own watching has broken. You give it words to follow, or a person. It asks 26 open scholarly sources on a schedule or on demand, keeps every paper it finds in a database on your computer, and records what each source did on every run. A quiet week and a broken search never look the same.
+resmon is a desktop app that watches scholarly literature for you and tells you when its own watching has broken. You give it words to follow, or a person. It asks 25 open scholarly sources on a schedule or on demand, keeps every paper it finds in a database on your computer, and records what each source did on every run. A quiet week and a broken search never look the same.
 
 There is no account, no resmon server, and no telemetry. The app is an Electron window over a Python engine that runs on your computer, and the window is a React interface called Atlas.
 

@@ -107,8 +107,7 @@ ResultOrder = Literal["newest_first", "relevance", "unstated"]
 #   them to nothing, leaving their verdicts to A and B alone.
 #
 # ``unknown`` is a real answer and is used rather than a guess: four sources
-# need a key this machine does not hold and one has been answering HTTP 500
-# since it was added. Nothing about them is claimed.
+# need a key this machine does not hold. Nothing about them is claimed.
 EntityQuery = Literal["none", "field", "param", "endpoint", "unknown"]
 EntityIdentifier = Literal["none", "orcid", "native", "unknown"]
 
@@ -273,10 +272,13 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 # upstream date bound at all and filters every record locally, which is the
 # case where "a run can come back with fewer in-window records than the cap
 # you set" is most true -- and the approximation would hide it there. The
-# near-enough state is the trap, not the missing one.
+# near-enough state is the trap, not the missing one. NIST RMM was withdrawn
+# in November 2026 (``api_registry.RETIRED_REPOSITORIES``) and has no entry
+# below, so no row uses this scope today; it stays because the rule it applies
+# still holds, and a revived NIST RMM would need it.
 #
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
-# than read off it: two of the fifteen window-scoped notices are record
+# than read off it: two of the thirteen window-scoped notices are record
 # filters rather than date-window notices, and relabelling them to get the
 # display right would make ``kind`` lie about what they are. Both counts are
 # asserted in ``test_source_constraints.py``, because a number written into
@@ -430,6 +432,10 @@ class RepoCatalogEntry:
     upstream_policy: str
     parallel_safe: str
     notes: str
+    #: A sentence about the service itself that a person should read before
+    #: asking it (one that has announced its own end, say), or empty. Shown
+    #: wherever the source is chosen, not only in its details.
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str
@@ -472,6 +478,7 @@ def _entry(
     upstream_policy: str = "",
     parallel_safe: str = "",
     notes: str = "",
+    service_notice: str = "",
     keyword_combination: str = "",
     keyword_combination_notes: str = "",
     attribution: str = "",
@@ -500,6 +507,7 @@ def _entry(
         upstream_policy=upstream_policy,
         parallel_safe=parallel_safe,
         notes=notes,
+        service_notice=service_notice,
         keyword_combination=keyword_combination,
         keyword_combination_notes=keyword_combination_notes,
         attribution=attribution,
@@ -520,8 +528,8 @@ def _entry(
         # omitted default has an empty citation, so a source added without an
         # answer fails the guard instead of quietly claiming it constrains
         # nothing. "This source constrains nothing" is a real answer and 11 of
-        # the 26 rows below give it — but it is written down, not defaulted.
-        # Of the other 15, five say only that the window means a date other
+        # the 25 rows below give it — but it is written down, not defaulted.
+        # Of the other 14, five say only that the window means a date other
         # than the publication date, which is a sentence worth one line to
         # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
@@ -529,7 +537,7 @@ def _entry(
 
 
 # ---------------------------------------------------------------------------
-# Catalog — 27 active repositories.
+# Catalog — 25 active repositories.
 # ---------------------------------------------------------------------------
 
 REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
@@ -750,23 +758,27 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
     ),
     _entry(
         slug="crossref",
-        name="CrossRef",
+        name="Crossref",
         description="DOI registration agency metadata across all scholarly works",
         subject_coverage="All disciplines (DOI-indexed)",
         endpoint="https://api.crossref.org/works",
         query_method="GET /works?query={q} with optional date filters",
-        rate_limit="10.0 req/s (polite pool recommended)",
+        rate_limit="1.0 req/s (the public pool's limit for searches)",
         client_module="api_crossref.py",
         requirement="none",
         credential_name=None,
         website="https://www.crossref.org",
         registration_url=None,
-        upstream_policy="Polite pool when User-Agent contains mailto:; shared pool otherwise (~50 req/s soft cap)",
+        upstream_policy=(
+            "Since July 21, 2026: searches and filters 1 request a second from the public pool, 3 from the polite "
+            "pool (a request that names a contact address); single records 5 and 10."),
         parallel_safe="Yes",
-        notes="Set a contact email in the UA for priority.",
+        notes=(
+            "resmon sends a contact address only if you set one in Settings › Sources, which puts its requests in "
+            "the polite pool; its pace stays within the public pool's either way."),
         keyword_combination="Relevance-ranked",
         keyword_combination_notes=(
-            "CrossRef ranks by relevance, not strict boolean; documents containing "
+            "Crossref ranks by relevance, not strict boolean; documents containing "
             "more of the words rank higher but single-term matches can still "
             "surface. Measured October 30, 2026: `climate model`, `climate AND model` and "
             "`climate OR model` each matched 3,793,797 works, more than `model` "
@@ -1521,89 +1533,6 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         ),
     ),
     _entry(
-        slug="nist_rmm",
-        name="NIST Resource Metadata Management",
-        description="NIST papers and technical-report metadata",
-        subject_coverage="Engineering / Government technical publications",
-        endpoint="https://data.nist.gov/rmm/papers",
-        query_method="GET with searchphrase, lower-bound-only from_date, skip, and limit; date_to is filtered locally",
-        rate_limit="0.5 req/s (conservative; no published API limit)",
-        client_module="api_nist_rmm.py",
-        requirement="none",
-        credential_name=None,
-        website="https://data.nist.gov/rmm/",
-        registration_url=None,
-        upstream_policy="No authentication or numeric rate limit is documented in the RMM OpenAPI; resmon uses a conservative shared ceiling",
-        parallel_safe="Yes",
-        notes=(
-            "The documented RMM papers API has no upstream upper date bound; "
-            "resmon sends from_date only and applies date_to locally. "
-            "The mapping from a record to a title, identifier and date is provisional: "
-            "NIST's OpenAPI documents the response envelope but not the fields inside a "
-            "record, and the endpoint has been returning HTTP 500 since this source was "
-            "added, so the mapping has never been checked against a live response. A "
-            "record resmon cannot map is skipped and logged rather than stored, so the "
-            "failure you would see is no results rather than wrong ones. "
-            "Permission to use this data is contingent upon your acceptance of the terms "
-            "of this agreement and upon your providing appropriate acknowledgments of "
-            "NIST’s creation of the data/work. "
-            "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications"
-        ),
-        keyword_combination="Undocumented",
-        keyword_combination_notes="The RMM OpenAPI documents searchphrase but does not document how space-separated terms are combined.",
-        result_order="unstated",
-        result_order_established=(
-            "`api_nist_rmm.py`: `search()` sends no sort, and nothing "
-            "establishes NIST RMM's default order."
-        ),
-        attribution='Data created by NIST (National Institute of Standards and Technology).',
-        attribution_requirement="required",
-        attribution_source='https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications',
-        constraints=_constraints(
-            established=(
-                "`api_nist_rmm.py`: `_request_date` validates day-granular "
-                "bounds, and `search()` sends `from_date` only."),
-            notices=(
-                _notice(
-                    "date_window",
-                    "The NIST RMM API documents a start date and no end date, "
-                    "so resmon applies your end date to the records after "
-                    "they arrive rather than asking for it. A run can come "
-                    "back with fewer in-window records than the cap you set, "
-                    "and with no start date either, nothing bounds the "
-                    "request upstream at all.",
-                    # with_end_date, not with_both_dates: `search()` sets
-                    # from_date only `if lower_bound`, while `_inside_window`
-                    # applies the upper bound whenever it is set. So the
-                    # end-date half is what makes this true, and an end date
-                    # on its own is the strongest case rather than an
-                    # excluded one.
-                    "`api_nist_rmm.py`: `search()` sets `from_date` only when "
-                    "there is a lower bound, and `_inside_window` applies the "
-                    "upper bound to each record after it arrives.",
-                    applies_when="with_end_date",
-                ),
-                _notice(
-                    "date_window",
-                    "NIST RMM accepts only whole-day dates written YYYY-MM-DD. "
-                    "A year or a year and month is refused rather than "
-                    "expanded.",
-                    "`api_nist_rmm.py`: `_REQUEST_DATE` and `_request_date` "
-                    "accept a whole day and nothing coarser.",
-                    applies_when="with_date_window",
-                ),
-            ),
-        ),
-        entity_search=_entity(
-            "unknown",
-            established=(
-                f"{ENTITY_PROBED_ON}: not established, and not for want of asking — the endpoint answered "
-                "`{{\"message\":\"Certificate file not found\",\"httpStatus\":\"500\"}}`, "
-                "which is the same outage its catalog note has recorded since the source "
-                "was added."),
-        ),
-    ),
-    _entry(
         slug="openaire",
         name="OpenAIRE",
         description="Open scholarly graph aggregating research outputs and relationships",
@@ -1619,6 +1548,9 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         upstream_policy="Unauthenticated limit: 60 requests/hour in a one-hour sliding window",
         parallel_safe="Yes",
         notes="OpenAIRE announced this legacy Search API discontinued on May 31, 2026. It still responded on August 30, 2026, but continued availability is not guaranteed.",
+        service_notice=(
+            "OpenAIRE has announced the end of the API resmon asks it through, and it still answered on November 4, "
+            "2026. resmon asks it while it answers; a run records it as not answering once it stops."),
         keyword_combination="Combination semantics undocumented",
         keyword_combination_notes=(
             "OpenAIRE documents keywords only as a whitespace-separated list and "
@@ -1822,15 +1754,15 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
         subject_coverage="Biology / Medicine / Natural sciences (PLOS journals only)",
         endpoint="https://api.plos.org/search",
         query_method="GET Solr with q wt=json start rows",
-        rate_limit="5.0 req/s",
+        rate_limit="0.083 req/s (1 per 12 s)",
         client_module="api_plos.py",
         requirement="none",
         credential_name=None,
         website="https://plos.org",
         registration_url=None,
-        upstream_policy="10 req/min soft guidance (resmon is faster)",
+        upstream_policy="10 requests a minute, 300 an hour, and 7,200 a day; an address that asks for more is locked out",
         parallel_safe="Yes",
-        notes="If you see 429s lower the limiter to 0.2 req/s.",
+        notes="One request every 12 seconds keeps within all three of PLOS's limits.",
         keyword_combination="Implicit AND",
         keyword_combination_notes=(
             "PLOS requires every word, which its documentation does not state, so "

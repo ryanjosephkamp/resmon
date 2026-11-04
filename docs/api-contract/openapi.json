@@ -6754,8 +6754,19 @@
       },
       "Health": {
         "additionalProperties": true,
-        "description": "``GET /api/health``.\n\n``embeddings`` is attempted against a real connection on every call rather\nthan read from a cached probe: it is a ``dlopen`` of a 165 KB library, and\na health endpoint answering from memory would keep reporting a capability\nthe process had lost.",
+        "description": "``GET /api/health``.\n\n``embeddings`` is attempted against a real connection on every call rather\nthan read from a cached probe: it is a ``dlopen`` of a 165 KB library, and\na health endpoint answering from memory would keep reporting a capability\nthe process had lost. ``build`` names the build of the app that started\nthis engine (``RESMON_BUILD_ID``), null for an engine started otherwise:\nevery build of a version gives the same ``version``.",
         "properties": {
+          "build": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build"
+          },
           "embeddings": {
             "$ref": "#/components/schemas/VectorExtensionStatus"
           },
@@ -9982,6 +9993,10 @@
             "title": "Result Order Established",
             "type": "string"
           },
+          "service_notice": {
+            "title": "Service Notice",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -10016,6 +10031,7 @@
           "upstream_policy",
           "parallel_safe",
           "notes",
+          "service_notice",
           "keyword_combination",
           "keyword_combination_notes",
           "attribution",
@@ -14711,11 +14727,22 @@
       },
       "ServiceInstalled": {
         "additionalProperties": true,
-        "description": "``POST /api/service/install`` — the unit written, and where.",
+        "description": "``POST /api/service/install`` — the unit written, and where.\n\n``restarting`` is true when the request came from the service's own engine:\nthe service is stopped and started again from the new unit by a process\noutside it once this answer has gone, and the app opens again on it.",
         "properties": {
           "installed": {
             "title": "Installed",
             "type": "boolean"
+          },
+          "restarting": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarting"
           },
           "unit_path": {
             "title": "Unit Path",
@@ -14731,15 +14758,37 @@
       },
       "ServiceStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/service/status`` — whether the unit file is installed.\n\n``installed`` is the file's presence at ``unit_path`` and nothing more: an\ninstalled unit says nothing about whether a service is running, which is\n``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.\n``runs`` is what the installed unit starts, read from the file: ``app`` (the\nresmon app, which posts notifications as resmon), ``engine`` (the bare\nengine), or ``null`` when there is no unit or it names neither.\n``app_available`` is true when this engine was started by the packaged app, so\na unit written now would run the app.",
+        "description": "``GET /api/service/status`` — whether the unit file is installed.\n\n``installed`` is the file's presence at ``unit_path`` and nothing more: an\ninstalled unit says nothing about whether a service is running, which is\n``/api/service/daemon-status``'s question. ``platform`` is ``sys.platform``.\n``runs`` is what the installed unit starts, read from the file: ``app`` (the\nresmon app, which posts notifications as resmon), ``engine`` (the bare\nengine), or ``null`` when there is no unit or it names neither.\n``app_available`` is true when this engine was started by the packaged app, so\na unit written now would run the app.\n\nOn macOS, ``loaded`` is whether launchd holds the service's label, and\n``blocked`` whether macOS's Allow in the Background has turned it off, so\nlaunchd will not start it whatever resmon does. Both are absent elsewhere.",
         "properties": {
           "app_available": {
             "title": "App Available",
             "type": "boolean"
           },
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked"
+          },
           "installed": {
             "title": "Installed",
             "type": "boolean"
+          },
+          "loaded": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Loaded"
           },
           "platform": {
             "title": "Platform",
@@ -14777,7 +14826,7 @@
       },
       "ServiceUninstalled": {
         "additionalProperties": true,
-        "description": "``POST /api/service/uninstall``.\n\n``removed`` is whether a file was there to remove: uninstalling a service\nthat was never installed answers ``installed: false`` and ``removed:\nfalse`` rather than an error.",
+        "description": "``POST /api/service/uninstall``.\n\n``removed`` is whether a file was there to remove: uninstalling a service\nthat was never installed answers ``installed: false`` and ``removed:\nfalse`` rather than an error. ``restarting`` is true when the request came\nfrom the service's own engine: a process outside it stops the service,\nremoves the unit, and opens the app again, once this answer has gone, so\n``removed`` is still false here.",
         "properties": {
           "installed": {
             "title": "Installed",
@@ -14786,6 +14835,17 @@
           "removed": {
             "title": "Removed",
             "type": "boolean"
+          },
+          "restarting": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarting"
           },
           "unit_path": {
             "title": "Unit Path",
@@ -16308,6 +16368,53 @@
           "unique_share"
         ],
         "title": "SourceContributionRow",
+        "type": "object"
+      },
+      "SourceSettings": {
+        "additionalProperties": true,
+        "description": "``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.\n\n``contact_email`` is null when none is set, and then nothing is sent.\n``sent_to`` names the sources it goes to, and no other source is sent it\n(``source_contact``).",
+        "properties": {
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          },
+          "sent_to": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sent To",
+            "type": "array"
+          }
+        },
+        "required": [
+          "contact_email",
+          "sent_to"
+        ],
+        "title": "SourceSettings",
+        "type": "object"
+      },
+      "SourceSettingsBody": {
+        "properties": {
+          "contact_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contact Email"
+          }
+        },
+        "title": "SourceSettingsBody",
         "type": "object"
       },
       "SourceWall": {
@@ -25267,7 +25374,7 @@
     },
     "/api/service/status": {
       "get": {
-        "description": "Return whether the daemon unit file is installed and its path.",
+        "description": "Return whether the daemon unit file is installed and its path, and on macOS what launchd holds.",
         "operationId": "service_status_api_service_status_get",
         "responses": {
           "200": {
@@ -25286,7 +25393,7 @@
     },
     "/api/service/uninstall": {
       "post": {
-        "description": "Remove the unit file; optionally deregister with the OS first.",
+        "description": "Remove the unit file; optionally deregister with the OS first, keeping the file if that fails.",
         "operationId": "service_uninstall_api_service_uninstall_post",
         "requestBody": {
           "content": {
@@ -25687,6 +25794,62 @@
           }
         },
         "summary": "Update Notification Settings"
+      }
+    },
+    "/api/settings/sources": {
+      "get": {
+        "description": "The contact address resmon gives Crossref and OpenAlex, and the sources it goes to.",
+        "operationId": "get_source_settings_api_settings_sources_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Source Settings"
+      },
+      "put": {
+        "description": "Set the contact address, or clear it with null or an empty string, after which nothing is sent.",
+        "operationId": "update_source_settings_api_settings_sources_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceSettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Source Settings"
       }
     },
     "/api/settings/storage": {

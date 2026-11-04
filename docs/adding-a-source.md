@@ -143,9 +143,9 @@ the source returns nothing. Say so in the catalog note. ERIC's entry is the mode
 > no field to filter on, so resmon reports zero results rather than widening the window you
 > asked for.
 
-Where the upstream can only filter one end of a range — NIST's API takes a lower bound and no
-upper — the client applies the other end **locally**, and the catalog entry says so rather
-than implying the upstream filtered something it did not.
+Where the upstream can only filter one end of a range — NIST RMM's API (since withdrawn) took
+a lower bound and no upper — the client applies the other end **locally**, and the catalog
+entry says so rather than implying the upstream filtered something it did not.
 
 `date_granularity` on the catalog entry carries the same fact in a form the app can read:
 `"day"` (the default), `"month"`, or `"year"`. It says the finest precision **resmon's own

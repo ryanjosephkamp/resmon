@@ -1,9 +1,9 @@
 ---
 title: "Sources and their terms"
-summary: "The 26 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms."
+summary: "The 25 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms."
 order: 14
 ---
-resmon asks 26 open scholarly sources. Every statement on this page comes from the catalog that **Settings › Sources** and **Search › Ask the sources** read, so the app and this page cannot disagree about someone else's service. Some of what follows is what a provider publishes about itself. Where resmon does not know, the catalog says so.
+resmon asks 25 open scholarly sources. Every statement on this page comes from the catalog that **Settings › Sources** and **Search › Ask the sources** read, so the app and this page cannot disagree about someone else's service. Some of what follows is what a provider publishes about itself. Where resmon does not know, the catalog says so.
 
 ## The sources
 
@@ -14,7 +14,7 @@ resmon asks 26 open scholarly sources. Every statement on this page comes from t
 | arXiv | Physics / Math / CS / Quant-bio / Stats / EE / Econ | Not required | 0.33 req/s (1 per 3 s) |
 | bioRxiv | Life sciences preprints | Not required | 2.0 req/s (conservative; no published API limit) |
 | CORE | Multi-disciplinary OA | Required | 0.167 req/s (1 per 6 s) |
-| CrossRef | All disciplines (DOI-indexed) | Not required | 10.0 req/s (polite pool recommended) |
+| Crossref | All disciplines (DOI-indexed) | Not required | 1.0 req/s (the public pool's limit for searches) |
 | DataCite | All disciplines / Data / Software / Dissertations / Other DOI outputs | Not required | 1.5 req/s (below 500 requests/5 min unidentified) |
 | DBLP | Computer science | Not required | 0.5 req/s (shared; at least 2 seconds between requests) |
 | DOAJ | All disciplines (OA journals) | Not required | 5.0 req/s |
@@ -27,12 +27,11 @@ resmon asks 26 open scholarly sources. Every statement on this page comes from t
 | medRxiv | Medicine / Clinical research / Health sciences preprints | Not required | 2.0 req/s (conservative; no published API limit) |
 | NASA ADS | Astronomy / Astrophysics / Planetary science | Required | 1.0 req/s (per-key daily cap ~5000/day) |
 | NDL Search | Japanese national bibliography / Books / Articles / Cultural heritage metadata | Not required | 0.5 req/s (conservative; no published numeric API limit) |
-| NIST Resource Metadata Management | Engineering / Government technical publications | Not required | 0.5 req/s (conservative; no published API limit) |
 | OpenAIRE | Multi-disciplinary publications / Research outputs | Not required | 0.0167 req/s (60/hour unauthenticated) |
 | OpenAlex | All disciplines | Not required | 10.0 req/s (100k/day provider ceiling) |
 | Open Library | Books / Humanities / General bibliography | Not required | 1.0 req/s (unidentified-client ceiling) |
 | OSTI.GOV | Energy / Physical sciences / DOE-funded research / Technical reports | Not required | 0.5 req/s (conservative; no published API limit) |
-| PLOS | Biology / Medicine / Natural sciences (PLOS journals only) | Not required | 5.0 req/s |
+| PLOS | Biology / Medicine / Natural sciences (PLOS journals only) | Not required | 0.083 req/s (1 per 12 s) |
 | PubMed | Biomedicine | Optional | 3.0 req/s (matches keyless; 10/s with key) |
 | Semantic Scholar | All disciplines (strong CS and biomed) | Recommended | 0.33 req/s (1 per 3 s) |
 | Springer Nature | STM / Humanities / Social sciences | Required | 5.0 req/s (per-key daily cap ~5000/day on free tier) |
@@ -47,7 +46,7 @@ The terms you type go to every source together, and each source combines them it
 | arXiv | Implicit AND (added by resmon) | Exact dates | Newest first |
 | bioRxiv | Explicit OR | Exact dates | Newest first |
 | CORE | Relevance-ranked (Lucene OR default) | Exact dates | Relevance |
-| CrossRef | Relevance-ranked | Exact dates | Relevance |
+| Crossref | Relevance-ranked | Exact dates | Relevance |
 | DataCite | Implicit AND | Whole years | Relevance |
 | DBLP | Relevance-ranked (upstream-default, unverified) | Whole years | Not stated |
 | DOAJ | Implicit AND | Whole years | Relevance |
@@ -60,7 +59,6 @@ The terms you type go to every source together, and each source combines them it
 | medRxiv | Explicit OR | Exact dates | Newest first |
 | NASA ADS | Implicit OR (Solr default) | Whole months | Newest first |
 | NDL Search | Implicit AND (documented for anywhere) | Exact dates | Not stated |
-| NIST Resource Metadata Management | Undocumented | Exact dates | Not stated |
 | OpenAIRE | Combination semantics undocumented | Exact dates | Not stated |
 | OpenAlex | Implicit AND | Exact dates | Relevance |
 | Open Library | Implicit AND | Whole years | Not stated |
@@ -91,7 +89,7 @@ So neither is asked without a start date. Ask the sources fills one in while eit
 
 ### Asking about a person
 
-A watch on a person asks each source for papers by that person. Of the 26 sources, 19 can be asked about an author: arXiv, Crossref, DataCite, DBLP, DOAJ, Dryad, ERIC, Europe PMC, HAL, INSPIRE-HEP, NDL Search, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, and Zenodo. Each uses a syntax established against a live record and cited in the catalog. bioRxiv and medRxiv cannot be asked. For CORE, GovInfo, NASA ADS, NIST Resource Metadata Management, and Springer Nature, resmon has not established whether they can, so it does not ask them; the run records each as could not be asked, with the reason, not as a bare zero. A source's answer is a candidate, never a verdict: every record that comes back is checked against the person locally.
+A watch on a person asks each source for papers by that person. Of the 25 sources, 19 can be asked about an author: arXiv, Crossref, DataCite, DBLP, DOAJ, Dryad, ERIC, Europe PMC, HAL, INSPIRE-HEP, NDL Search, OpenAIRE, OpenAlex, Open Library, OSTI.GOV, PLOS, PubMed, Semantic Scholar, and Zenodo. Each uses a syntax established against a live record and cited in the catalog. bioRxiv and medRxiv cannot be asked. For CORE, GovInfo, NASA ADS, and Springer Nature, resmon has not established whether they can, so it does not ask them; the run records each as could not be asked, with the reason, not as a bare zero. A source's answer is a candidate, never a verdict: every record that comes back is checked against the person locally.
 
 ## Terms of use
 
@@ -115,12 +113,13 @@ If you add a source yourself, directly or with your own tools, that source's ter
 
 ### Credits
 
-A credit is a **condition of reuse** for six sources: CORE, NDL Search, NIST Resource Metadata Management, OpenAIRE, PLOS, and Semantic Scholar. resmon shows those credits unconditionally. Six more only **ask** for one, and are labeled as requested: arXiv, DataCite, DBLP, Europe PMC, HAL, and OSTI.GOV. The distinction is deliberate. OpenAIRE's Graph metadata is CC BY, so attribution is a license condition, while arXiv publishes an acknowledgment sentence it would like you to use. Rendering both the same way would overstate one and understate the other. Each credit records the clause that imposes it, so it can be re-checked.
+A credit is a **condition of reuse** for five sources: CORE, NDL Search, OpenAIRE, PLOS, and Semantic Scholar. resmon shows those credits unconditionally. Six more only **ask** for one, and are labeled as requested: arXiv, DataCite, DBLP, Europe PMC, HAL, and OSTI.GOV. The distinction is deliberate. OpenAIRE's Graph metadata is CC BY, so attribution is a license condition, while arXiv publishes an acknowledgment sentence it would like you to use. Rendering both the same way would overstate one and understate the other. Each credit records the clause that imposes it, so it can be re-checked.
 
 ### Sources resmon does not ask
 
 - **IEEE Xplore.** Its API Terms of Use limit the grant to non-commercial activity within the licensee's own institution, forbid using a search or retrieval application against the content (clause 4(c)), forbid retaining it in bulk (4(f)), and require deleting it on termination (12). resmon is a retrieval application that keeps a corpus indefinitely, and each user registers for their own key, so shipping the integration would put the account holder in breach of terms they accepted personally. The client is kept in the source tree, so a written license from IEEE would restore the source unchanged.
 - **OAPEN Library.** Its metadata is CC0 and nothing was found wrong with the client, but its search API answers resmon's requests with HTTP 403 and a message saying the caller's address is not allowed to access the API, from both places that were tried, a workstation and GitHub's hosted runners. The source can return if OAPEN lifts the block.
+- **NIST Resource Metadata Management.** Its terms permit what resmon does, with a credit to NIST, but its papers API has answered HTTP 500 to every search since the source was added in August 2026, last checked November 4, 2026. The client is kept in the source tree, so the source can return if NIST's API answers again.
 - **SSRN** answers programmatic requests with a bot challenge, and **RePEc/IDEAS** has a search that is no longer publicly reachable.
 
 A watch, an imported file, or a request over the API that names one of these records it as **could not be asked**, with the reason, and the rest of the run goes on.

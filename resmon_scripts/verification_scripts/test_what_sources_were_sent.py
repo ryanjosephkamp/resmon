@@ -118,7 +118,7 @@ def test_each_source_is_recorded_with_the_query_its_requests_carried(conn, answe
     # record's Markdown never puts them under "Query as sent".
     assert record["query_as_sent"] == "agent"
     text = search_record.to_markdown(search_record.build(conn, run["exec_id"]))
-    assert "| Query as sent to CrossRef | `query=agent & filter=from-pub-date:2026-10-01," in text
+    assert "| Query as sent to Crossref | `query=agent & filter=from-pub-date:2026-10-01," in text
     assert "| Query as sent | `agent` |" not in text
 
 

@@ -132,7 +132,7 @@ def test_every_catalog_entry_carries_a_constraint_record_with_a_citation():
     covered = {entry.slug for entry in REPOSITORY_CATALOG}
     assert registered <= covered, (
         f"registered clients with no constraint record: {sorted(registered - covered)}")
-    assert len(covered) == 26, f"the catalog is {len(covered)} entries, not 26"
+    assert len(covered) == 25, f"the catalog is {len(covered)} entries, not 25"
 
 
 def test_a_window_that_is_honored_exactly_claims_no_rounding():
@@ -358,7 +358,7 @@ def test_the_sources_route_returns_the_constraints():
     response = client.get("/api/repositories/catalog")
     assert response.status_code == 200
     rows = response.json()
-    assert len(rows) == 26
+    assert len(rows) == 25
     for row in rows:
         assert "constraints" in row, row["slug"]
         assert "window_effect" in row["constraints"], row["slug"]
@@ -510,14 +510,15 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     scopes = Counter(
         n.applies_when for e in REPOSITORY_CATALOG for n in e.constraints.notices
     )
-    assert sum(scopes.values()) == 23, sum(scopes.values())
+    # ``with_end_date`` is absent: its one notice was NIST RMM's end-date
+    # sentence, and NIST RMM was withdrawn in November 2026.
+    assert sum(scopes.values()) == 21, sum(scopes.values())
     assert dict(scopes) == {
-        "with_date_window": 14,
+        "with_date_window": 13,
         "always": 3,
         "without_start_date": 2,
         "beyond_default_start": 2,
         "above_record_cap": 1,
-        "with_end_date": 1,
     }, dict(scopes)
 
     # And the claim that scope is worth keeping separate from ``kind``: two
@@ -584,33 +585,29 @@ def test_the_coverage_numbers_this_change_claims_are_the_real_ones():
     ]
 
     # A start date alone retires the two bioRxiv floors and admits the
-    # window-scoped sentences. NIST RMM has one sentence here: the
-    # whole-day one. Its end-date sentence is not about this state.
+    # window-scoped sentences.
     assert speakers(has_from=True, has_to=False, max_results=100) == [
         "arxiv", "biorxiv", "core", "datacite", "dblp", "doaj", "eric",
-        "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "openaire",
+        "medrxiv", "nasa_ads", "ndl_search", "openaire",
         "openlibrary", "semantic_scholar", "springer",
     ]
     from_only = shown(has_from=True, has_to=False, max_results=100)
     assert ("biorxiv", "applied_default") not in from_only
-    assert len([n for n in from_only if n[0] == "nist_rmm"]) == 1
 
     # **An end date and no start date.** The state the first table never
-    # looked at. `search()` sets from_date only when there is a lower bound,
-    # so here resmon sends no upstream date bound at all and `_inside_window`
-    # filters every record locally — the case where "fewer in-window records
-    # than the cap you set" is most true, and the one where the sentence had
-    # gone missing. bioRxiv's floor is still correct here too: an end date
-    # does not fill in the start date the default stands in for.
+    # looked at, and the one NIST RMM's end-date sentence was scoped to
+    # (``with_end_date``) until NIST RMM was withdrawn in November 2026. It
+    # shows the window-scoped sentences a start date would, plus the bioRxiv
+    # and medRxiv floors, which are still correct here: an end date does not
+    # fill in the start date the default stands in for.
     to_only = shown(has_from=False, has_to=True, max_results=100)
-    assert len([n for n in to_only if n[0] == "nist_rmm"]) == 2, (
-        "NIST RMM's end-date sentence belongs in the state it is most true in")
-    assert ("biorxiv", "applied_default") in to_only
+    assert sorted(set(to_only) - set(from_only)) == [
+        ("biorxiv", "applied_default"), ("medrxiv", "applied_default")]
+    assert set(from_only) <= set(to_only)
 
-    # Both dates: the same NIST RMM pair, nothing new.
+    # Both dates: nothing a start date alone does not already show.
     both = shown(has_from=True, has_to=True, max_results=100)
-    assert len([n for n in both if n[0] == "nist_rmm"]) == 2
-    assert len(both) == len(from_only) + 1
+    assert both == from_only
 
     # The cap sentence waits until the run actually exceeds the cap. All four
     # forms stop the slider at 500; a saved configuration loads its stored

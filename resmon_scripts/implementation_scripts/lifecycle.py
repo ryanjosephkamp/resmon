@@ -57,7 +57,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Optional, Sequence
 
-from .api_base import RateLimiter, safe_request
+from . import api_arxiv, api_biorxiv, api_crossref, source_contact
+from .api_base import safe_request
 from .database import (
     BIORXIV_PUBLISHED_DETAIL,
     MissingNoticeError,
@@ -67,13 +68,17 @@ from .database import (
 
 logger = logging.getLogger(__name__)
 
-# Crossref's polite pool. The same limiter the CrossRef search client uses.
+# One pace per source. These checks ask the services a search asks, so they
+# wait on the search clients' own limiters: a check and a search running
+# together keep the source's pace between them, where separate limiters let
+# each go at the full pace, and arXiv's lookups had none at all.
 _CROSSREF_URL = "https://api.crossref.org/works"
-_CROSSREF_LIMITER = RateLimiter(requests_per_second=10.0)
-_CROSSREF_MAILTO = "resmon@example.com"
+_CROSSREF_LIMITER = api_crossref._RATE_LIMITER
 
 _BIORXIV_URL = "https://api.biorxiv.org/details"
-_BIORXIV_LIMITER = RateLimiter(requests_per_second=2.0)
+_BIORXIV_LIMITER = api_biorxiv._RATE_LIMITER
+
+_ARXIV_LIMITER = api_arxiv._RATE_LIMITER
 
 # Module-level like the two above and like every source client's, so each is
 # read when a request is made and a test can point the check at a loopback
@@ -380,7 +385,8 @@ class CrossrefLifecycleProvider:
     name = "crossref"
 
     def __init__(self, mailto: str | None = None):
-        self._mailto = mailto or _CROSSREF_MAILTO
+        # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
+        self._mailto = mailto
 
     def fetch(self, dois: list[str]) -> dict[str, dict]:
         """Return ``{lowercased doi: work}`` for whichever DOIs Crossref knows.
@@ -399,9 +405,9 @@ class CrossrefLifecycleProvider:
             params={
                 "filter": ",".join(f"doi:{doi}" for doi in dois),
                 "rows": len(dois),
-                "mailto": self._mailto,
+                **({"mailto": self._mailto} if self._mailto else {}),
             },
-            headers={"User-Agent": f"resmon (mailto:{self._mailto})"},
+            **({"headers": {"User-Agent": source_contact.user_agent(self._mailto)}} if self._mailto else {}),
         )
         body = _answered(response, self.name).json()
         items = ((body or {}).get("message") or {}).get("items") or []
@@ -445,6 +451,7 @@ class ArxivLifecycleProvider:
             return ""
         response = safe_request(
             "GET", _ARXIV_URL,
+            rate_limiter=_ARXIV_LIMITER,
             params={
                 "id_list": ",".join(base_ids),
                 "max_results": len(base_ids),
@@ -652,7 +659,7 @@ def check_corpus(
     recorded payloads without touching the network. In production the defaults
     are used.
     """
-    crossref = crossref or CrossrefLifecycleProvider()
+    crossref = crossref or CrossrefLifecycleProvider(mailto=source_contact.read(conn))
     biorxiv = biorxiv or BiorxivLifecycleProvider()
     arxiv = arxiv or ArxivLifecycleProvider()
 
@@ -700,7 +707,7 @@ def check_documents(
     was due and nothing checked because the profile has no papers look identical
     in a bare zero, and only one of them means "come back later".
     """
-    crossref = crossref or CrossrefLifecycleProvider()
+    crossref = crossref or CrossrefLifecycleProvider(mailto=source_contact.read(conn))
     biorxiv = biorxiv or BiorxivLifecycleProvider()
     arxiv = arxiv or ArxivLifecycleProvider()
 

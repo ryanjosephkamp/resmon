@@ -45,8 +45,8 @@ def test_the_site_lists_every_shipped_source_once():
 
 
 #: Where the site's guide and the README write the number of sources in words a
-#: reader takes as a count: "26 open scholarly sources", "The 26 sources",
-#: "Of the 26 sources", "lists all 26".
+#: reader takes as a count: "25 open scholarly sources", "The 25 sources",
+#: "Of the 25 sources", "lists all 25".
 COUNT_PHRASES = (
     r"\b(\d+) open scholarly sources\b",
     r"\b[Tt]he (\d+) sources\b",

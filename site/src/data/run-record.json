@@ -232,7 +232,7 @@
    },
    {
     "slug": "crossref",
-    "name": "CrossRef",
+    "name": "Crossref",
     "in_catalog": true,
     "cells": [
      {
@@ -1180,7 +1180,7 @@
    "level": "attention",
    "headline": "CORE, DBLP, and Semantic Scholar have not answered any run resmon has a record of.",
    "detail": [
-    "CrossRef, DOAJ, EuropePMC, HAL, OpenAlex, PLOS, PubMed, and Zenodo answered when last asked and are no longer in the most recent run's saved selection."
+    "Crossref, DOAJ, EuropePMC, HAL, OpenAlex, PLOS, PubMed, and Zenodo answered when last asked and are no longer in the most recent run's saved selection."
    ]
   },
   "window": {

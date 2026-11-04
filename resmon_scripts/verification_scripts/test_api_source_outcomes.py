@@ -72,7 +72,7 @@ def test_execution_route_summarises_which_sources_answered(client):
     assert outcomes["selected"] == 6
     # arXiv returned records; CORE answered and had nothing. Both answered.
     assert outcomes["answered"] == 2
-    # CrossRef 503'd, ERIC cannot express the window, Springer had no key.
+    # Crossref 503'd, ERIC cannot express the window, Springer had no key.
     assert outcomes["could_not_answer"] == 3
     assert outcomes["sources_that_could_not_answer"] == [
         "crossref", "eric", "springer",

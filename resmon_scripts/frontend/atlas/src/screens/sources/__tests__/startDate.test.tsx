@@ -11,6 +11,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { DraftsProvider } from '../../../shell/drafts';
 import { Search } from '../../Search';
 import type { CatalogEntry } from '../../runs/model';
 import { WatchEditor } from '../../watches/WatchEditor';
@@ -45,10 +46,12 @@ function shown(path: string) {
   const view = render(
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}>
-        <Routes>
-          <Route path="/search/ask" element={<Search />} />
-          <Route path="/watches/new" element={<WatchEditor />} />
-        </Routes>
+        <DraftsProvider>
+          <Routes>
+            <Route path="/search/ask" element={<Search />} />
+            <Route path="/watches/new" element={<WatchEditor />} />
+          </Routes>
+        </DraftsProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   );

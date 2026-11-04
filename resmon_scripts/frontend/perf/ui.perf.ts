@@ -151,6 +151,9 @@ function isolatedEnv(state: string): Record<string, string> {
     // Where the background service's unit would be read, so whether the
     // person's own resmon service is installed changes nothing on screen.
     RESMON_SERVICE_UNIT_DIR: path.join(state, 'service-units'),
+    // And launchd's: a label of its own and a launchctl that starts nothing.
+    RESMON_SERVICE_LABEL: 'com.resmon.perf',
+    RESMON_LAUNCHCTL: path.resolve(__dirname, '..', '..', 'verification_scripts', 'fixtures', 'fake_launchctl.py'),
   });
   for (const key of ['RESMON_BACKGROUND_WINDOW', 'RESMON_PYTHON']) {
     const value = process.env[key];

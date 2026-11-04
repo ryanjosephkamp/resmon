@@ -3356,7 +3356,7 @@ export interface paths {
         };
         /**
          * Service Status
-         * @description Return whether the daemon unit file is installed and its path.
+         * @description Return whether the daemon unit file is installed and its path, and on macOS what launchd holds.
          */
         get: operations["service_status_api_service_status_get"];
         put?: never;
@@ -3378,7 +3378,7 @@ export interface paths {
         put?: never;
         /**
          * Service Uninstall
-         * @description Remove the unit file; optionally deregister with the OS first.
+         * @description Remove the unit file; optionally deregister with the OS first, keeping the file if that fails.
          */
         post: operations["service_uninstall_api_service_uninstall_post"];
         delete?: never;
@@ -3561,6 +3561,30 @@ export interface paths {
         get: operations["get_notification_settings_api_settings_notifications_get"];
         /** Update Notification Settings */
         put: operations["update_notification_settings_api_settings_notifications_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/settings/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Source Settings
+         * @description The contact address resmon gives Crossref and OpenAlex, and the sources it goes to.
+         */
+        get: operations["get_source_settings_api_settings_sources_get"];
+        /**
+         * Update Source Settings
+         * @description Set the contact address, or clear it with null or an empty string, after which nothing is sent.
+         */
+        put: operations["update_source_settings_api_settings_sources_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -6898,9 +6922,13 @@ export interface components {
          *     ``embeddings`` is attempted against a real connection on every call rather
          *     than read from a cached probe: it is a ``dlopen`` of a 165 KB library, and
          *     a health endpoint answering from memory would keep reporting a capability
-         *     the process had lost.
+         *     the process had lost. ``build`` names the build of the app that started
+         *     this engine (``RESMON_BUILD_ID``), null for an engine started otherwise:
+         *     every build of a version gives the same ``version``.
          */
         Health: {
+            /** Build */
+            build?: string | null;
             embeddings: components["schemas"]["VectorExtensionStatus"];
             identity: components["schemas"]["RuntimeIdentity"];
             /** Pid */
@@ -8331,6 +8359,8 @@ export interface components {
             result_order: "newest_first" | "relevance" | "unstated";
             /** Result Order Established */
             result_order_established: string;
+            /** Service Notice */
+            service_notice: string;
             /** Slug */
             slug: string;
             /** Subject Coverage */
@@ -10274,10 +10304,16 @@ export interface components {
         /**
          * ServiceInstalled
          * @description ``POST /api/service/install`` — the unit written, and where.
+         *
+         *     ``restarting`` is true when the request came from the service's own engine:
+         *     the service is stopped and started again from the new unit by a process
+         *     outside it once this answer has gone, and the app opens again on it.
          */
         ServiceInstalled: {
             /** Installed */
             installed: boolean;
+            /** Restarting */
+            restarting?: boolean | null;
             /** Unit Path */
             unit_path: string;
         } & {
@@ -10295,12 +10331,20 @@ export interface components {
          *     engine), or ``null`` when there is no unit or it names neither.
          *     ``app_available`` is true when this engine was started by the packaged app, so
          *     a unit written now would run the app.
+         *
+         *     On macOS, ``loaded`` is whether launchd holds the service's label, and
+         *     ``blocked`` whether macOS's Allow in the Background has turned it off, so
+         *     launchd will not start it whatever resmon does. Both are absent elsewhere.
          */
         ServiceStatus: {
             /** App Available */
             app_available: boolean;
+            /** Blocked */
+            blocked?: boolean | null;
             /** Installed */
             installed: boolean;
+            /** Loaded */
+            loaded?: boolean | null;
             /** Platform */
             platform: string;
             /** Runs */
@@ -10316,13 +10360,18 @@ export interface components {
          *
          *     ``removed`` is whether a file was there to remove: uninstalling a service
          *     that was never installed answers ``installed: false`` and ``removed:
-         *     false`` rather than an error.
+         *     false`` rather than an error. ``restarting`` is true when the request came
+         *     from the service's own engine: a process outside it stops the service,
+         *     removes the unit, and opens the app again, once this answer has gone, so
+         *     ``removed`` is still false here.
          */
         ServiceUninstalled: {
             /** Installed */
             installed: boolean;
             /** Removed */
             removed: boolean;
+            /** Restarting */
+            restarting?: boolean | null;
             /** Unit Path */
             unit_path: string;
         } & {
@@ -10910,6 +10959,27 @@ export interface components {
             unique_share: number | null;
         } & {
             [key: string]: unknown;
+        };
+        /**
+         * SourceSettings
+         * @description ``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.
+         *
+         *     ``contact_email`` is null when none is set, and then nothing is sent.
+         *     ``sent_to`` names the sources it goes to, and no other source is sent it
+         *     (``source_contact``).
+         */
+        SourceSettings: {
+            /** Contact Email */
+            contact_email: string | null;
+            /** Sent To */
+            sent_to: string[];
+        } & {
+            [key: string]: unknown;
+        };
+        /** SourceSettingsBody */
+        SourceSettingsBody: {
+            /** Contact Email */
+            contact_email?: string | null;
         };
         /**
          * SourceWall
@@ -17604,6 +17674,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_source_settings_api_settings_sources_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSettings"];
+                };
+            };
+        };
+    };
+    update_source_settings_api_settings_sources_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceSettingsBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceSettings"];
                 };
             };
             /** @description Validation Error */

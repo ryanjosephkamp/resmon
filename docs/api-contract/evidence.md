@@ -39,9 +39,9 @@ Every operation requires the exact loopback renderer Origin
 protection, not authentication of another local program capable of forging a
 header. The guard applies before parsing. Evidence responses use `no-store` and
 expose only their named download/identity headers to the renderer; global CORS
-and other routes are not affected. The Evidence client requires an
-explicit desktop backend port and refuses the reserved daemon port; it has no
-default-instance fallback.
+and other routes are not affected. The Evidence client uses the port of the
+engine its window talks to, the background service's included, and has no
+default-instance fallback: with no port from the window it sends nothing.
 
 | Method | Path under `/api/evidence/projects` | Request and result |
 |---|---|---|

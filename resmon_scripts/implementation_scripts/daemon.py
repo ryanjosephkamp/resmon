@@ -41,6 +41,17 @@ APP_DIR_NAME = "resmon"
 LOCK_FILE_NAME = "daemon.lock"
 
 
+def build_id() -> Optional[str]:
+    """The build of the app that started this engine, as the app names it (``RESMON_BUILD_ID``), or None.
+
+    Two builds of one version both call themselves 1.0.0, so a version alone
+    cannot tell the app whether the service running is its own build. The app
+    passes its id to every engine it starts; an engine started otherwise has none.
+    """
+    value = (os.environ.get("RESMON_BUILD_ID") or "").strip()
+    return value[:128] or None
+
+
 def state_dir() -> Path:
     """Return the OS-appropriate per-user state directory for resmon.
 
@@ -106,6 +117,9 @@ class DaemonLock:
             "pid": int(pid),
             "port": int(port),
             "version": str(version),
+            # Which build of that version: every 1.0.0 says 1.0.0, so the app
+            # tells its own service from another build's by this.
+            "build": build_id(),
             "started_at": datetime.now(timezone.utc).isoformat(),
         }
         fh.write(json.dumps(payload))
@@ -425,7 +439,7 @@ def run(argv: Optional[list[str]] = None) -> int:
         sys.path.insert(0, str(pkg_parent))
 
     import uvicorn  # local import — daemon may be imported from tests without uvicorn configured
-    from resmon import create_app  # type: ignore
+    from resmon import create_app, set_serving_port  # type: ignore
     from implementation_scripts.config import APP_NAME, APP_VERSION  # type: ignore
 
     from implementation_scripts import api_auth  # type: ignore
@@ -444,6 +458,8 @@ def run(argv: Optional[list[str]] = None) -> int:
             from implementation_scripts import desktop_notifier  # type: ignore
             desktop_notifier.configure_host_from_environment()
             try:
+                # Before the app starts: its startup binds Evidence's answers to the port it serves.
+                set_serving_port(port)
                 app = create_app()
                 install_signal_handlers()
                 logger.info("%s daemon v%s listening on 127.0.0.1:%d (pid=%d)",

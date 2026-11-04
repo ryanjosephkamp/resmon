@@ -18,6 +18,7 @@ import {
 } from '../model';
 import { runsCountWords } from '../RunLog';
 import { Metadata } from '../RunTabs';
+import { runSkyCaption } from '../RunSky';
 
 describe("a source's outcome from its count and reason", () => {
   test.each([
@@ -190,7 +191,7 @@ describe('the run\'s log, as the Log tab shows it', () => {
     'End Time: 2026-11-01T00:00:02Z',
     'Status: COMPLETED',
   ].join('\n');
-  const names = new Map([['crossref', 'CrossRef'], ['dblp', 'DBLP'], ['hal', 'HAL'], ['core', 'CORE'], ['ieee', 'IEEE Xplore']]);
+  const names = new Map([['crossref', 'Crossref'], ['dblp', 'DBLP'], ['hal', 'HAL'], ['core', 'CORE'], ['ieee', 'IEEE Xplore']]);
   const coverage = [
     { source: 'crossref', label: 'answered' },
     { source: 'dblp', label: 'could not answer this window' },
@@ -201,8 +202,8 @@ describe('the run\'s log, as the Log tab shows it', () => {
 
   test('every time is local, the date carried over midnight UTC from the log\'s own start', () => {
     expect(lines[3]).toBe('Start Time: October 31, 2026 at 7:59:58\u00a0PM');
-    expect(lines[5]).toBe('[7:59:58\u00a0PM] Querying repository: CrossRef');
-    expect(lines[9]).toBe('[8:00:01\u00a0PM]   CrossRef: 2 results');
+    expect(lines[5]).toBe('[7:59:58\u00a0PM] Querying repository: Crossref');
+    expect(lines[9]).toBe('[8:00:01\u00a0PM]   Crossref: 2 results');
     expect(lines[14]).toBe('End Time: October 31, 2026 at 8:00:02\u00a0PM');
     expect(read.text).not.toMatch(/\d{4}-\d\d-\d\dT/);
     expect(read.note).toContain('The log file keeps its times in UTC');
@@ -210,7 +211,7 @@ describe('the run\'s log, as the Log tab shows it', () => {
 
   test('sources by name, and a source that did not answer never with a count', () => {
     expect(lines[1]).toBe('Operation Type: Deep Sweep');
-    expect(lines[4]).toContain("repositories=['CrossRef', 'DBLP', 'HAL']");
+    expect(lines[4]).toContain("repositories=['Crossref', 'DBLP', 'HAL']");
     expect(lines[7]).toBe('[7:59:59\u00a0PM]   DBLP: could not answer this window');
     expect(lines[8]).toBe('[7:59:59\u00a0PM]     DBLP filters by publication year only, so a window shorter than one whole calendar year cannot be answered.');
     expect(lines[10]).toBe("[8:00:01\u00a0PM]   CORE: WARNING — no API key configured (credential 'core_api_key'); it is recorded as not asked");
@@ -431,4 +432,23 @@ test('the Metadata tab says a run\'s dates in words, as the rest of the run page
   expect(container.textContent).toContain('Date fromOctober 1, 2026');
   expect(container.textContent).toContain('Date toOctober 31, 2026');
   expect(container.textContent).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+});
+
+describe("the sentence under a run's map", () => {
+  const empty = { placed: null, total: 0, ready: true, basis: 'words' } as const;
+
+  it('says when papers arrive while the run is going, not that there are none', () => {
+    expect(runSkyCaption(empty, true)).toBe('Papers appear here once the run has stored them.');
+    expect(runSkyCaption(empty, true)).not.toMatch(/stored no papers/);
+  });
+
+  it('says the run stored no papers only once it has ended', () => {
+    expect(runSkyCaption(empty, false)).toBe('This run stored no papers.');
+  });
+
+  it('counts the papers a run has stored the same way while it runs and after', () => {
+    const some = { placed: 2, total: 3, ready: true, basis: 'words' } as const;
+    expect(runSkyCaption(some, true)).toBe(runSkyCaption(some, false));
+    expect(runSkyCaption(some, false)).toMatch(/^2 of 3 papers from this run are on the map/);
+  });
 });

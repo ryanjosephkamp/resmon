@@ -384,6 +384,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     # --- Manual runs -------------------------------------------------------
     ("POST", "/api/search/dive"): ("J01", "J39"),
     ("POST", "/api/search/sweep"): ("J02", "J39"),
+    ("GET", "/api/settings/sources"): ("J22",),
+    ("PUT", "/api/settings/sources"): ("J22",),
     ("GET", "/api/settings/execution"): ("J39",),
     ("PUT", "/api/settings/execution"): ("J39",),
     # --- Background daemon -------------------------------------------------

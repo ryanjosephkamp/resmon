@@ -52,6 +52,7 @@ def _optional(engine: Engine, path: str, params: Optional[Mapping[str, Any]] = N
 # own copy because it ships without the engine's modules.
 RETIRED_NAMES = {
     "ieee": "IEEE Xplore",
+    "nist_rmm": "NIST Resource Metadata Management",
     "oapen": "OAPEN Library",
     "repec": "RePEc/IDEAS",
     "ssrn": "SSRN",

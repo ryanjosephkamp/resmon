@@ -127,7 +127,13 @@ class CoreClient(BaseAPIClient):
         if publication_date and len(publication_date) >= 10:
             publication_date = publication_date[:10]
 
-        url = work.get("downloadUrl") or work.get("sourceFulltextUrls", [""])[0] if work.get("sourceFulltextUrls") else ""
+        # The download link first, then the first full-text link the source
+        # lists, then the record's page. Written as one conditional expression,
+        # this once read as "(download or full text) if full text else nothing",
+        # which dropped the download link of every work that listed no full text.
+        download = work.get("downloadUrl")
+        listed = [u for u in (work.get("sourceFulltextUrls") or []) if isinstance(u, str) and u.strip()]
+        url = (download.strip() if isinstance(download, str) else "") or (listed[0].strip() if listed else "")
         if not url:
             url = f"https://core.ac.uk/works/{external_id}"
 

@@ -40,12 +40,12 @@ import implementation_scripts.api_nasa_ads       # noqa: F401
 TIER_1_REPOS = [
     "arxiv", "crossref", "semantic_scholar", "openalex", "pubmed",
     "europepmc", "biorxiv", "core", "datacite", "doaj", "dblp", "dryad", "eric",
-    "inspire_hep", "medrxiv", "nasa_ads", "ndl_search", "nist_rmm", "openlibrary", "openaire", "osti", "zenodo",
+    "inspire_hep", "medrxiv", "nasa_ads", "ndl_search", "openlibrary", "openaire", "osti", "zenodo",
 ]
 
 
 def test_all_tier1_registered():
-    """All 22 Tier 1 repositories are registered in the client registry."""
+    """All 21 Tier 1 repositories are registered in the client registry."""
     repos = list_repositories()
     for name in TIER_1_REPOS:
         assert name in repos, f"Missing Tier 1 client: {name}"
@@ -58,6 +58,11 @@ def test_each_client_instantiates():
         assert client.get_name() is not None
 
 
+# NIST RMM was withdrawn in November 2026: its papers API has answered HTTP 500
+# to every search since the source was added (``api_registry.RETIRED_REPOSITORIES``).
+# Its scheduled live case went with it. The fixture contracts below stay, and
+# build ``NistRmmClient`` directly rather than through the registry, because the
+# client is kept on disk for a revival and these are what a revival would rely on.
 def _nist_rmm_record(
     doi="10.18434/mds2-1234",
     *,
@@ -405,17 +410,6 @@ def test_nist_rmm_search_returns_empty_on_upstream_failure(monkeypatch, response
     monkeypatch.setattr(api_nist_rmm, "safe_request", _request)
 
     assert api_nist_rmm.NistRmmClient().search(query="materials") == []
-
-
-@pytest.mark.live_network
-def test_nist_rmm_live_search_degrades_when_the_public_endpoint_is_unavailable():
-    """The real call may return the known 500 outage; either outcome is a list."""
-    results = get_client("nist_rmm").search(query="materials", max_results=1)
-
-    assert isinstance(results, list)
-    if results:
-        assert all(isinstance(result, NormalizedResult) for result in results)
-        assert all(result.source_repository == "nist_rmm" for result in results)
 
 
 class _FakeResponse:

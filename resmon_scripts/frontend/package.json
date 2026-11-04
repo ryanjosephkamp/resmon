@@ -96,6 +96,7 @@
     "beforePack": "scripts/prepare-backend.js",
     "mac": {
       "category": "public.app-category.productivity",
+      "bundleVersion": "11.0.0",
       "target": [
         "dmg"
       ],

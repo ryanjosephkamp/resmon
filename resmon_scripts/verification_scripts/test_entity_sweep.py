@@ -507,7 +507,7 @@ def test_a_person_watch_records_what_each_source_was_sent(conn, monkeypatch, tmp
 
     search = search_record.build(conn, exec_id)["search"]
     assert search["query_as_sent"] == (
-        'HAL: authFullName_s:"Jane Doe"; CrossRef: author "Jane Doe"; '
+        'HAL: authFullName_s:"Jane Doe"; Crossref: author "Jane Doe"; '
         f"OpenAlex: ORCID {ORCID}")
     assert "stale" not in search["query_as_sent"]
     assert "Query as sent" in search_record.to_markdown(search_record.build(conn, exec_id))

@@ -109,7 +109,7 @@ from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
     embeddings, explorer, lifecycle, match_explain, near_duplicates,
-    reading_queue, reference_export, response_models, search_record, source_coverage,
+    reading_queue, reference_export, response_models, search_record, source_contact, source_coverage,
     source_wall, vector_index, watch_profiles,
     watchdog,
 )
@@ -520,6 +520,11 @@ def _check_expected_runtime(expected_runtime_id: Optional[str]) -> None:
             "expected_runtime_id": expected_runtime_id, "actual_runtime_id": actual})
 
 
+def _daemon_build_id() -> Optional[str]:
+    from implementation_scripts.daemon import build_id
+    return build_id()
+
+
 @app.get("/api/health", response_model=response_models.Health,
          response_model_exclude_unset=True)
 def health(expected_runtime_id: Optional[str] = None):
@@ -553,6 +558,7 @@ def health(expected_runtime_id: Optional[str] = None):
         "pid": os.getpid(),
         "started_at": _STARTED_AT,
         "version": APP_VERSION,
+        "build": _daemon_build_id(),
         "embeddings": embeddings,
     }
 
@@ -966,6 +972,11 @@ def _should_dispatch_desktop_notification(
     return False
 
 
+def _listed_names(names: list[str]) -> str:
+    """"arXiv", "arXiv and Crossref": at most two names, as a notification has room for."""
+    return names[0] if len(names) == 1 else f"{names[0]} and {names[1]}"
+
+
 def _notification_coverage_phrase(coverage: dict) -> str:
     """How many of a run's sources answered, short enough for a notification.
 
@@ -973,19 +984,26 @@ def _notification_coverage_phrase(coverage: dict) -> str:
     delivery envelope give -- so the notification can say no more than the
     record does. A source whose outcome was not recorded is neither an answer
     nor a failure here; it is counted as unknown, as it is everywhere else.
+    One or two sources that did not answer are named, so a failed watch says
+    which source failed it; more are counted.
     """
     total = int(coverage.get("total") or 0)
     if total == 0:
         return "no source outcome was recorded"
     counts = coverage.get("counts") or {}
+    answered = int(counts.get("answered") or 0)
     non_answer = int(counts.get("non_answer") or 0)
     unknown = int(counts.get("unknown") or 0)
     partial = int(counts.get("partial") or 0)
+    rows = coverage.get("sources") or []
+    named = [source_coverage._name(s["source"]) for s in rows
+             if s.get("category") == "non_answer" and isinstance(s.get("source"), str)]
     # Where the run's saved selection cannot be read, the count is of the
     # sources that left a record, which may not be every source it asked.
     qualifier = "" if coverage.get("selection_known") else "recorded "
     if total == 1:
-        source = f"the {qualifier}source"
+        only = rows[0].get("source") if rows and isinstance(rows[0].get("source"), str) else None
+        source = source_coverage._name(only) if only else f"the {qualifier}source"
         if non_answer:
             phrase = f"{source} did not answer"
         elif unknown:
@@ -996,6 +1014,9 @@ def _notification_coverage_phrase(coverage: dict) -> str:
         sources = f"{qualifier}sources"
         if not non_answer and not unknown:
             phrase = f"all {total} {sources} answered"
+        elif not unknown and len(named) == non_answer <= 2:
+            phrase = (f"{_listed_names(named)} did not answer" if non_answer == total
+                      else f"{answered} of {total} {sources} answered; {_listed_names(named)} did not")
         elif not unknown:
             phrase = f"{non_answer} of {total} {sources} did not answer"
         elif not non_answer:
@@ -1010,29 +1031,44 @@ def _notification_coverage_phrase(coverage: dict) -> str:
     return phrase
 
 
-def _desktop_notification_body(
+# The plain words a notification's phrase can begin with. Anything else it
+# begins with is a number or a source's own name ("arXiv"), kept as it is.
+_PHRASE_LEADS = ("all ", "whether ", "the ", "no ", "which ")
+
+
+def _sentence(phrase: str) -> str:
+    """A phrase as a sentence: a plain first word raised, and a full stop."""
+    if phrase.startswith(_PHRASE_LEADS):
+        phrase = phrase[0].upper() + phrase[1:]
+    return phrase if phrase.endswith(".") else f"{phrase}."
+
+
+def _desktop_notification_words(
     conn, execution_row: dict, routine_name: Optional[str],
-) -> str:
-    """The sentence a completed or ended run's notification carries.
+) -> tuple[str, str]:
+    """The title and the sentence a finished or ended run's notification carries.
 
-    This read ``total_results`` and ``new_results``, which are the names
-    ``_enrich_execution_row`` gives the counts for the renderer. The hook hands
-    this function the raw ``executions`` row, whose columns are
-    ``result_count`` and ``new_result_count``, so every notification the
-    background service ever posted for a completed run said "0 results (0
-    new)" -- including a routine that had found 1,500 papers, six of them new.
-    The tests only checked that a notification fired. They now check what it
-    says.
+    In the app's words: a run "finished", "failed", or "was stopped", and a
+    watch is named in the title, so the body has room for what came of it.
+    The title begins "resmon: " for the fallback that posts through the
+    system's own notifier; the app strips it, because macOS already shows the
+    app's name beside every notification it posts.
 
-    A count the row does not hold is said to be unrecorded, never printed as
-    zero: a quiet run and an unmeasured one must not read the same.
+    The counts are read from the raw ``executions`` row, whose columns are
+    ``result_count`` and ``new_result_count``; an earlier reading of the
+    renderer's names for them made every notification say "0 results (0
+    new)". A count the row does not hold is said to be unrecorded, never
+    printed as zero: a quiet run and an unmeasured one must not read the same.
     """
     execution_type = str(execution_row.get("execution_type") or "").strip()
-    subject = routine_name or {
-        "deep_dive": "Deep Dive",
-        "deep_sweep": "Deep Sweep",
-        "automated_sweep": "Watch",
-    }.get(execution_type, "Run")
+    if routine_name:
+        subject = f"Watch \u201c{routine_name}\u201d"
+    else:
+        subject = {
+            "deep_dive": "Deep Dive",
+            "deep_sweep": "Deep Sweep",
+            "automated_sweep": "Watch run",
+        }.get(execution_type, "Run")
 
     try:
         coverage = source_coverage.build(
@@ -1046,22 +1082,35 @@ def _desktop_notification_body(
         coverage_phrase = "which sources answered could not be read"
 
     status = str(execution_row.get("status") or "").strip().lower()
-    if status == "completed":
-        total = execution_row.get("result_count")
-        new = execution_row.get("new_result_count")
-        if isinstance(total, int) and isinstance(new, int):
-            counts = f"{new:,} new of {total:,} results"
-        elif isinstance(total, int):
-            counts = f"{total:,} results, how many new not recorded"
-        else:
-            counts = "result count not recorded"
-        return f"{subject}: {counts}; {coverage_phrase}."
-    ended = {
+    verb = {
+        "completed": "finished",
         "failed": "failed",
-        "cancelled": "was cancelled",
+        "cancelled": "was stopped",
         "interrupted": "was interrupted",
-    }.get(status, f"ended with status {status or 'unknown'}")
-    return f"{subject} {ended}; {coverage_phrase}."
+    }.get(status, "ended")
+    title = f"resmon: {subject} {verb}"
+    if status != "completed":
+        return title, _sentence(coverage_phrase)
+    total = execution_row.get("result_count")
+    new = execution_row.get("new_result_count")
+
+    def papers(n: int) -> str:
+        return f"{n:,} paper" if n == 1 else f"{n:,} papers"
+
+    if isinstance(total, int) and isinstance(new, int):
+        counts = f"{new:,} new {'paper' if new == 1 else 'papers'} of {total:,} found"
+    elif isinstance(total, int):
+        counts = f"{papers(total)} found, how many new not recorded"
+    else:
+        counts = "the paper count was not recorded"
+    return title, _sentence(f"{counts}; {coverage_phrase}")
+
+
+def _desktop_notification_body(
+    conn, execution_row: dict, routine_name: Optional[str],
+) -> str:
+    """The sentence a finished or ended run's notification carries (see ``_desktop_notification_words``)."""
+    return _desktop_notification_words(conn, execution_row, routine_name)[1]
 
 
 def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
@@ -1118,13 +1167,7 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
     ):
         return
 
-    status = str(execution_row.get("status") or "").strip().lower()
-    title = (
-        "resmon: Execution Completed"
-        if status == "completed"
-        else f"resmon: Execution {status or 'finished'}"
-    )
-    body = _desktop_notification_body(conn, execution_row, routine_name)
+    title, body = _desktop_notification_words(conn, execution_row, routine_name)
 
     try:
         exec_id = execution_row.get("id")
@@ -4017,9 +4060,12 @@ _selected_lane_lock = threading.RLock()
 
 
 def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
+    # The port this process serves, the service's included: an answer records
+    # it with the process, so a later start can tell its own answer from
+    # another engine's.
     port = serving_port()
-    if type(port) is not int or not 1 <= port <= 65535 or port == 8742:
-        evidence.refuse('invalid_port', 'Selected answers require an explicit non-default serving port.', 409)
+    if type(port) is not int or not 1 <= port <= 65535:
+        evidence.refuse('invalid_port', 'Selected answers need the port this engine serves, and it is not known.', 409)
     db_path = conn.execute('PRAGMA database_list').fetchone()[2]
     owner = runtime_identity.current_runtime_id()
     with _selected_lane_lock:
@@ -4032,7 +4078,7 @@ def _selected_lane(conn: sqlite3.Connection) -> selected_evidence_runtime.Lane:
 def _selected_startup() -> None:
     # Embedded tests without a serving identity do not start this optional lane.
     port = serving_port()
-    if type(port) is int and 1 <= port <= 65535 and port != 8742:
+    if type(port) is int and 1 <= port <= 65535:
         _selected_lane(_get_db())
 
 
@@ -6945,6 +6991,41 @@ def scheduler_status():
     }
 
 
+class SourceSettingsBody(BaseModel):
+    contact_email: Optional[str] = None
+
+
+def _source_settings(conn) -> dict:
+    return {"contact_email": source_contact.read(conn), "sent_to": list(source_contact.SOURCES)}
+
+
+@app.get("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def get_source_settings():
+    """The contact address resmon gives Crossref and OpenAlex, and the sources it goes to."""
+    conn = _get_db()
+    try:
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/settings/sources", response_model=response_models.SourceSettings,
+         response_model_exclude_unset=True)
+def update_source_settings(body: SourceSettingsBody):
+    """Set the contact address, or clear it with null or an empty string, after which nothing is sent."""
+    try:
+        address = source_contact.normalized(body.contact_email)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc))
+    conn = _get_db()
+    try:
+        set_setting(conn, source_contact.SETTING, address or "")
+        return _source_settings(conn)
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/settings/execution", response_model=response_models.ExecutionSettings,
          response_model_exclude_unset=True)
 def get_execution_settings():
@@ -7122,14 +7203,19 @@ class ServiceInstallBody(BaseModel):
 @app.get("/api/service/status", response_model=response_models.ServiceStatus,
          response_model_exclude_unset=True)
 def service_status():
-    """Return whether the daemon unit file is installed and its path."""
-    return {
+    """Return whether the daemon unit file is installed and its path, and on macOS what launchd holds."""
+    body = {
         "installed": _service_manager.is_installed(),
         "unit_path": str(_service_manager.unit_path()),
         "platform": sys.platform,
         "runs": _service_manager.unit_runs(),
         "app_available": _service_manager.default_app_executable() is not None,
     }
+    if _service_manager.uses_launchd():
+        job = _service_manager.launchd_job()
+        body["loaded"] = job.loaded
+        body["blocked"] = job.disabled
+    return body
 
 
 def _probe_daemon() -> tuple[dict, str]:
@@ -7271,23 +7357,29 @@ def service_install(body: ServiceInstallBody = ServiceInstallBody()):
     unit at login (launchctl / systemctl / schtasks).
     """
     try:
-        path = _service_manager.install(port=body.port, register=body.register_service)
-    except _service_manager.TemporaryPlaceError as exc:
+        done = _service_manager.install_unit(port=body.port, register=body.register_service)
+    except (_service_manager.TemporaryPlaceError, _service_manager.ServiceBlockedError) as exc:
         raise HTTPException(409, str(exc))
     except Exception as exc:  # registration failure
         raise HTTPException(500, f"Service install failed: {exc}")
-    return {"installed": True, "unit_path": str(path)}
+    answer = {"installed": True, "unit_path": str(done.path)}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 @app.post("/api/service/uninstall", response_model=response_models.ServiceUninstalled,
           response_model_exclude_unset=True)
 def service_uninstall(body: ServiceInstallBody = ServiceInstallBody()):
-    """Remove the unit file; optionally deregister with the OS first."""
+    """Remove the unit file; optionally deregister with the OS first, keeping the file if that fails."""
     try:
-        removed = _service_manager.uninstall(deregister=body.register_service)
+        done = _service_manager.uninstall_unit(deregister=body.register_service)
     except Exception as exc:
         raise HTTPException(500, f"Service uninstall failed: {exc}")
-    return {"installed": False, "unit_path": str(_service_manager.unit_path()), "removed": removed}
+    answer = {"installed": False, "unit_path": str(done.path), "removed": done.removed}
+    if done.restarting:
+        answer["restarting"] = True
+    return answer
 
 
 # ---------------------------------------------------------------------------
@@ -7879,8 +7971,8 @@ def _restart_instructions() -> tuple[str, str]:
     """``(restart, stop)``: how to restart, and how to stop, the background service here."""
     if sys.platform == "darwin":
         return (
-            "log out of your Mac and back in, or run "
-            "`launchctl kickstart -k gui/$(id -u)/com.resmon.daemon` in Terminal",
+            "turn Run resmon in the background off and on again in Settings › In the background, "
+            "or log out of your Mac and back in",
             "turn off Run resmon in the background in Settings › In the background",
         )
     if sys.platform == "win32":
@@ -9161,12 +9253,24 @@ def dismiss_onboarding():
 _serving_port: Optional[int] = None
 
 
+def set_serving_port(port: int) -> None:
+    """Record the port this process serves, for a backend not started by ``main()``.
+
+    The background service (``daemon.run``) serves this app on its own port.
+    Without this it fell back to the port file, which names whichever window's
+    engine last wrote it, so Evidence's answers were bound to a stale port.
+    """
+    global _serving_port
+    _serving_port = port
+
+
 def serving_port() -> Optional[int]:
     """The port this backend is actually answering on.
 
-    Set by ``main()``. The fallbacks exist for a backend started by a test or by
-    an embedder rather than by ``main`` — and they are read in the same order the
-    MCP server uses, so the two cannot disagree about which resmon is meant.
+    Set by ``main()``, and by the service through ``set_serving_port``. The
+    fallbacks exist for a backend started by a test or by an embedder — and they
+    are read in the same order the MCP server uses, so the two cannot disagree
+    about which resmon is meant.
     """
     if _serving_port is not None:
         return _serving_port

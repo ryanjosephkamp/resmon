@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
@@ -30,6 +30,7 @@ import {
   windowHint, windowSpan, type DateWindowComputed,
 } from './window';
 import { CountField } from '../../shell/CountField';
+import { useDraft } from '../../shell/drafts';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -113,15 +114,33 @@ function EditingWatch({ raw }: { raw: string }) {
   return <EditorForm existing={routine.data} seed={null} />;
 }
 
+/** What the watch editor keeps of a form not yet saved (see `useDraft`), with the watch it began from. */
+interface WatchDraft {
+  basis: string;
+  form: WatchForm;
+  terms: string[];
+  termDraft: string;
+  summaries: SummaryChoice;
+}
+
 function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchSeed | null }) {
   const navigate = useNavigate();
   const client = useQueryClient();
   const initial = useMemo(() => (existing ? formFrom(existing) : seededForm(seed)), [existing, seed]);
-  const [form, setForm] = useState<WatchForm>(initial);
-  const terms = useTerms(initial.keywords);
   const initialSummaries = useMemo<SummaryChoice>(
     () => (existing ? choiceOf(!!existing.ai_enabled, existing.ai_settings) : NO_CHOICE), [existing]);
-  const [summaries, setSummaries] = useState<SummaryChoice>(initialSummaries);
+  // The form as it was left on this history entry, when Back returns to it. A draft of a change to a watch
+  // is kept only while the watch is as it was when the change began: one changed since starts from the watch.
+  const basis = JSON.stringify([initial, initialSummaries]);
+  const draft = useDraft<WatchDraft>(existing ? `watch-editor:${existing.id}` : 'watch-editor:new');
+  const was = draft.restored?.basis === basis ? draft.restored : null;
+  const [form, setForm] = useState<WatchForm>(was?.form ?? initial);
+  const terms = useTerms(was?.terms ?? initial.keywords, was?.termDraft ?? '');
+  const [summaries, setSummaries] = useState<SummaryChoice>(was?.summaries ?? initialSummaries);
+  const keepDraft = draft.keep;
+  useEffect(() => {
+    keepDraft({ basis, form, terms: terms.terms, termDraft: terms.draft, summaries });
+  }, [keepDraft, basis, form, terms.terms, terms.draft, summaries]);
   const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
   const set = (patch: Partial<WatchForm>) => setForm((f) => ({ ...f, ...patch }));
   const setSchedule = (patch: Partial<ScheduleChoice>) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }));
@@ -175,6 +194,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
       return { id: made.id, warning: made.entity_warning ?? null };
     },
     onSuccess: ({ id, warning }) => {
+      // Saved, it is a watch now, not a draft: Back finds the form as the address sets it, not one that saves it twice.
+      draft.drop();
       changed(id);
       const said = existing ? 'Saved.' : form.start ? 'Saved, and watching.' : 'Saved, paused.';
       navigate(`/watches/${id}`, { state: { said: warning ? `${said} ${warning}` : said } satisfies EditorSaid });
@@ -184,6 +205,7 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
   const remove = useMutation({
     mutationFn: (watch: Routine) => answer(engine().DELETE('/api/routines/{routine_id}', { params: { path: { routine_id: watch.id } } })),
     onSuccess: (_done, watch) => {
+      draft.drop();
       changed(watch.id);
       void client.invalidateQueries({ queryKey: RUNS_KEY });
       client.removeQueries({ queryKey: ['routine', watch.id] });
@@ -368,32 +390,32 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
           {ai.isError && <p className="field-error" role="alert">The engine did not say what Settings › AI holds ({ai.error.message}).</p>}
         </fieldset>
 
+        {/* The bar is the foot of the form, Delete included, so nothing sits under it while the page scrolls. */}
         <div className="ask-go">
-          <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}
-            aria-keyshortcuts={commandEnterKeys()}>
-            {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
-          </button>
-          <Link to={back} className="btn quiet go-cancel">Cancel</Link>
-          <CommandEnterHint />
+          <div className="ask-actions">
+            <button type="submit" className="btn primary go" disabled={missing.length > 0 || waiting || save.isPending}
+              aria-keyshortcuts={commandEnterKeys()}>
+              {save.isPending ? 'Saving' : existing ? 'Save changes' : 'Save watch'}
+            </button>
+            <Link to={back} className="btn quiet go-cancel">Cancel</Link>
+            <CommandEnterHint />
+            {existing && (
+              <button type="button" className="btn quiet editor-delete" data-editor="delete" disabled={remove.isPending}
+                onClick={() => {
+                  if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations, and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
+                    remove.mutate(existing);
+                  }
+                }}>
+                Delete this watch
+              </button>
+            )}
+          </div>
           <div className="ask-facts" aria-live="polite">
             {missing.map((m) => <p key={m}>{m}</p>)}
             {save.error && <p className="ask-refusal" role="alert" data-editor="refusal">{errorWords(save.error)}</p>}
           </div>
+          {existing && remove.error && <p className="field-error" role="alert">{errorWords(remove.error)}</p>}
         </div>
-
-        {existing && (
-          <div className="editor-delete">
-            <button type="button" className="btn quiet" data-editor="delete" disabled={remove.isPending}
-              onClick={() => {
-                if (window.confirm(`Delete “${existing.name}”? Its schedule, its destinations, and its record of missed fires go. Its runs stay in the run log, and the papers they found stay in your collection.`)) {
-                  remove.mutate(existing);
-                }
-              }}>
-              Delete this watch
-            </button>
-            {remove.error && <p className="field-error" role="alert">{errorWords(remove.error)}</p>}
-          </div>
-        )}
       </form>
 
       <WillDo form={current} existing={existing} picked={picked} unknown={unknown} person={person}
@@ -614,6 +636,9 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           {coarseMoving.map((line) => <p key={line} className="will-quiet" data-will="coarse-window">{line}</p>)}
           {notices.map((notice) => (
             <p key={`${notice.slug}:${notice.effect}`} className="will-warn" data-will="notice">{notice.effect}</p>
+          ))}
+          {picked.filter((entry) => entry.service_notice).map((entry) => (
+            <p key={`service:${entry.slug}`} className="will-warn" data-will="service-notice">{entry.service_notice}</p>
           ))}
           {newest.length > 0 && (
             <p className="will-quiet" data-will="newest-first">

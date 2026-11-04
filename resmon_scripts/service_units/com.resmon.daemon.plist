@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>com.resmon.daemon</string>
+    <string>{{LABEL}}</string>
     <key>ProgramArguments</key>
     <array>
         <string>{{PYTHON}}</string>

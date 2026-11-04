@@ -1,5 +1,5 @@
 {
-  "count": 26,
+  "count": 25,
   "sources": [
     {
       "slug": "arxiv",
@@ -45,12 +45,12 @@
     },
     {
       "slug": "crossref",
-      "name": "CrossRef",
+      "name": "Crossref",
       "description": "DOI registration agency metadata across all scholarly works",
       "subject_coverage": "All disciplines (DOI-indexed)",
       "website": "https://www.crossref.org",
       "api_key_requirement": "none",
-      "rate_limit": "10.0 req/s (polite pool recommended)",
+      "rate_limit": "1.0 req/s (the public pool's limit for searches)",
       "keyword_combination": "Relevance-ranked",
       "date_granularity": "day",
       "attribution": "",
@@ -226,20 +226,6 @@
       "author_search": "field"
     },
     {
-      "slug": "nist_rmm",
-      "name": "NIST Resource Metadata Management",
-      "description": "NIST papers and technical-report metadata",
-      "subject_coverage": "Engineering / Government technical publications",
-      "website": "https://data.nist.gov/rmm/",
-      "api_key_requirement": "none",
-      "rate_limit": "0.5 req/s (conservative; no published API limit)",
-      "keyword_combination": "Undocumented",
-      "date_granularity": "day",
-      "attribution": "Data created by NIST (National Institute of Standards and Technology).",
-      "attribution_requirement": "required",
-      "author_search": "unknown"
-    },
-    {
       "slug": "openaire",
       "name": "OpenAIRE",
       "description": "Open scholarly graph aggregating research outputs and relationships",
@@ -302,7 +288,7 @@
       "subject_coverage": "Biology / Medicine / Natural sciences (PLOS journals only)",
       "website": "https://plos.org",
       "api_key_requirement": "none",
-      "rate_limit": "5.0 req/s",
+      "rate_limit": "0.083 req/s (1 per 12 s)",
       "keyword_combination": "Implicit AND",
       "date_granularity": "day",
       "attribution": "Data Provided by PLOS",

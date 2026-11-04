@@ -18,7 +18,7 @@ from implementation_scripts.repo_catalog import (
 EXPECTED_SLUGS = {
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "govinfo", "hal", "inspire_hep", "medrxiv", "nasa_ads",
-    "ndl_search", "openaire", "openalex", "openlibrary", "nist_rmm", "osti", "plos", "pubmed", "semantic_scholar",
+    "ndl_search", "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed", "semantic_scholar",
     "springer", "zenodo",
 }
 
@@ -28,10 +28,10 @@ EXPECTED_CREDENTIAL_NAMES = {
 }
 
 
-def test_catalog_has_twenty_six_entries():
-    """The active catalog should contain exactly 26 entries."""
-    # IEEE, OAPEN, RePEc and SSRN are retired and must not appear.
-    assert len(REPOSITORY_CATALOG) == 26
+def test_catalog_has_twenty_five_entries():
+    """The active catalog should contain exactly 25 entries."""
+    # IEEE, NIST RMM, OAPEN, RePEc and SSRN are retired and must not appear.
+    assert len(REPOSITORY_CATALOG) == 25
 
 
 def test_catalog_slugs_match_expected():
@@ -82,12 +82,12 @@ def test_required_credential_for():
 def test_catalog_as_dicts_shape():
     """catalog_as_dicts returns JSON-serializable dicts with expected keys."""
     dicts = catalog_as_dicts()
-    assert len(dicts) == 26
+    assert len(dicts) == 25
     expected_keys = {
         "slug", "name", "description", "subject_coverage", "endpoint",
         "query_method", "rate_limit", "client_module", "api_key_requirement",
         "credential_name", "website", "registration_url", "placeholder",
-        "upstream_policy", "parallel_safe", "notes",
+        "upstream_policy", "parallel_safe", "notes", "service_notice",
         "keyword_combination", "keyword_combination_notes",
         "attribution", "attribution_requirement", "attribution_source",
         "date_granularity",
@@ -168,21 +168,6 @@ def test_openlibrary_catalog_records_year_precision_and_measured_query_semantics
     assert "sub-year window returns nothing" in entry.notes
 
 
-def test_nist_rmm_catalog_records_documented_api_limits_and_acknowledgment():
-    entry = next(e for e in REPOSITORY_CATALOG if e.slug == "nist_rmm")
-
-    assert entry.rate_limit == "0.5 req/s (conservative; no published API limit)"
-    assert entry.keyword_combination == "Undocumented"
-    assert "lower-bound" in entry.query_method
-    assert "date_to" in entry.notes
-    assert (
-        "Permission to use this data is contingent upon your acceptance of the terms "
-        "of this agreement and upon your providing appropriate acknowledgments of "
-        "NIST’s creation of the data/work."
-    ) in entry.notes
-    assert "https://www.nist.gov/open/copyright-fair-use-and-licensing-statements-srd-data-software-and-technical-series-publications" in entry.notes
-
-
 def test_ndl_search_catalog_records_current_contract_and_required_credits():
     entry = next(e for e in REPOSITORY_CATALOG if e.slug == "ndl_search")
 
@@ -245,7 +230,7 @@ def test_every_entry_has_an_established_entity_capability():
     covered = {entry.slug for entry in REPOSITORY_CATALOG}
     assert registered <= covered, (
         f"registered clients with no catalog entry: {sorted(registered - covered)}")
-    assert len(covered) == 26, f"the catalog is {len(covered)} entries, not 26"
+    assert len(covered) == 25, f"the catalog is {len(covered)} entries, not 25"
 
 
 def test_a_source_that_can_be_asked_says_how():
@@ -293,10 +278,17 @@ def test_datacite_and_zenodo_can_be_asked_about_an_author_but_fill_no_identifier
 
 
 def test_unknown_is_used_where_nothing_was_asked():
-    """Five sources are unestablished, and each says why in its own words."""
+    """Four sources are unestablished, and each says why in its own words."""
     unknown = {e.slug: e.entity_search for e in REPOSITORY_CATALOG
                if e.entity_search.author_query == "unknown"}
-    assert set(unknown) == {"core", "govinfo", "nasa_ads", "nist_rmm", "springer"}
+    assert set(unknown) == {"core", "govinfo", "nasa_ads", "springer"}
     for slug, capability in unknown.items():
         assert "not established" in capability.established, slug
         assert not capability.supported
+
+
+def test_openaire_carries_its_notice_and_no_other_source_has_one():
+    """OpenAIRE has announced its API's end; it is kept, with a notice shown wherever it is chosen."""
+    notices = {e.slug: e.service_notice for e in REPOSITORY_CATALOG if e.service_notice}
+    assert set(notices) == {"openaire"}
+    assert "announced the end" in notices["openaire"]

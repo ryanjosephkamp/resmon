@@ -302,11 +302,12 @@ def test_govinfo_live_search(monkeypatch):
 # Freeze the baseline rather than exempting every future catalog entry. Adding
 # a source requires a callable scheduled live case, explicit granularity, and a
 # cited terms verdict; the baseline sources below are exempt from that
-# completeness guard.
+# completeness guard. NIST RMM was in it until it was withdrawn in November
+# 2026; a revived NIST RMM comes back as a new source, with a live case.
 _BASELINE_SLUGS = frozenset({
     "arxiv", "biorxiv", "core", "crossref", "datacite", "dblp", "doaj", "dryad",
     "eric", "europepmc", "hal", "inspire_hep", "medrxiv", "nasa_ads", "ndl_search",
-    "nist_rmm", "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed",
+    "openaire", "openalex", "openlibrary", "osti", "plos", "pubmed",
     "semantic_scholar", "springer", "zenodo",
 })
 

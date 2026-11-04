@@ -129,7 +129,7 @@ export const answers = {
    * connections it can send through.
    */
   setup: async (): Promise<{ runtimeId: string; choices: Choices }> => {
-    if (!bridge()) throw new EngineError(0, 'Selected answers need this window’s own engine.');
+    if (!bridge()) throw new EngineError(0, 'Selected answers cannot reach resmon’s engine yet.');
     const health = await answered(engine().GET('/api/health'));
     const runtimeId = health.identity?.runtime_id;
     if (typeof runtimeId !== 'string' || !runtimeId) wrong('the engine’s runtime identity');

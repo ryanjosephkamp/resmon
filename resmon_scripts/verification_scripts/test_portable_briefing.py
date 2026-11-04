@@ -215,6 +215,16 @@ def test_hostile_strings_are_text_and_only_authored_fragments_exist(workspace,av
     assert "script-src 'none'" in document.CSP
 
 
+def test_html_prints_ids_and_quotes_without_ligatures():
+    # A ligature turns "ff" in a hash or an id into U+FB00 in the printout's
+    # text, so a copied id no longer matches. The rule sits on the root, so
+    # every value and quote inherits it; e2e/atlas-answers.spec.ts reads the
+    # printed PDF.
+    root=re.search(r'(?:^|})html\{([^}]*)\}',document.CSS)
+    assert root and 'font-variant-ligatures:none' in root.group(1).split(';')
+    assert 'font-variant-ligatures' not in document.CSS.replace(root.group(0),'')
+
+
 def test_html_uses_only_saved_data_after_sqlite_reopen_and_missing_originals(workspace,available,monkeypatch):
     w=workspace;a=seed(w);before=exported(w,a);files=files_snapshot(w)
     f=w.files[0];row=w.conn.execute('SELECT relative_path FROM library_files WHERE file_id=?',(f['file_id'],)).fetchone()

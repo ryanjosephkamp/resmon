@@ -56,7 +56,7 @@ page three is the same control flow and is not separately driven. The sweep
 engine is not in this file: that retained records plus ``parse_failure``
 render as a partial note rather than a silent truncation is
 ``sweep_engine``'s property and is asserted in ``test_engine_truth.py``. The
-eighteen registered slugs this row does not drive are listed, with a reason
+sixteen registered slugs this row does not drive are listed, with a reason
 each, in ``_NOT_DRIVEN``, and the two lists are checked against the registry
 by ``test_the_partial_page_denominator_is_named``.
 """
@@ -144,7 +144,6 @@ _NOT_DRIVEN = {
     "govinfo": "Not in the defect set.",
     "hal": "Not in the defect set.",
     "inspire_hep": "Not in the defect set.",
-    "nist_rmm": "Not in the defect set.",
     "openlibrary": "Not in the defect set.",
     "zenodo": "Not in the defect set.",
 }
@@ -431,7 +430,7 @@ def test_a_readable_page_survives_a_body_with_no_object_at_its_root(
 
 
 def test_the_partial_page_denominator_is_named():
-    """Nine of twenty-six, and the other seventeen are named, not forgotten.
+    """Nine of twenty-five, and the other sixteen are named, not forgotten.
 
     The project bans "every client" without a denominator beside it. This row
     speaks for nine slugs; this test is what stops that nine from silently

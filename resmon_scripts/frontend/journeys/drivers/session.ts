@@ -304,6 +304,12 @@ function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<stri
   // accident.
   env.RESMON_SERVICE_UNIT_DIR = path.join(stateDir, 'service-units');
   fs.mkdirSync(env.RESMON_SERVICE_UNIT_DIR, { recursive: true });
+  // And launchd: a label of the journeys' own, and a stand-in for launchctl
+  // that holds nothing and starts nothing, so no journey asks about, starts, or
+  // stops the person's own service.
+  env.RESMON_SERVICE_LABEL = 'com.resmon.journeys';
+  env.RESMON_LAUNCHCTL = path.resolve(__dirname, '..', '..', '..', 'verification_scripts', 'fixtures', 'fake_launchctl.py');
+  delete env.FAKE_LAUNCHCTL_STATE;
   // An AI command only where a journey names it. Left to search the installers'
   // locations and PATH, the engine finds the person's own signed-in `claude`,
   // and a turn sent with no command set runs it: one journey under development

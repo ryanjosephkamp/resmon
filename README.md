@@ -134,7 +134,7 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 | [AI settings](https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/) | Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends. |
 | [Email, delivery, and notifications](https://ryanjosephkamp.github.io/resmon/guide/email-notifications/) | Email, folder, feed, and webhook delivery, how a delivery is recorded, and desktop notifications. |
 | [Backup and restore](https://ryanjosephkamp.github.io/resmon/guide/backup/) | What a backup holds and leaves out, where it goes, restoring it, and keeping a copy in Google Drive. |
-| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 26 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms. |
+| [Sources and their terms](https://ryanjosephkamp.github.io/resmon/guide/sources/) | The 25 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms. |
 | [Configuration](https://ryanjosephkamp.github.io/resmon/guide/configuration/) | Saved searches and watch copies, moving them between computers, and what each Settings group holds. |
 | [Architecture](https://ryanjosephkamp.github.io/resmon/guide/architecture/) | The engine, the window, the scheduler, how runs are admitted and recorded, and the source tree. |
 | [HTTP API reference](https://ryanjosephkamp.github.io/resmon/guide/api-reference/) | The local HTTP API, route by route. The generated contract for every route is in the reference section. |

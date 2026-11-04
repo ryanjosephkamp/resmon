@@ -30,7 +30,7 @@ Press **New watch**, or start from a search with **Watch this search** or from *
 
 A watch on a person uses no terms, because narrowing a person's work by topic would silently hide the rest of it. A watch on words has **Terms to watch for**, entered as chips like a search.
 
-**Sources.** The same catalog as Ask the sources. A person's papers can only be asked of sources whose rows say they can be asked about an author. Of the 26 sources, 19 can. bioRxiv and medRxiv cannot, and resmon has not established whether CORE, GovInfo, NASA ADS, NIST RMM, and Springer Nature can, so it does not ask them. If every chosen source is one that cannot, the editor warns that the watch will find nothing until you add one that can.
+**Sources.** The same catalog as Ask the sources. A person's papers can only be asked of sources whose rows say they can be asked about an author. Of the 25 sources, 19 can. bioRxiv and medRxiv cannot, and resmon has not established whether CORE, GovInfo, NASA ADS, and Springer Nature can, so it does not ask them. If every chosen source is one that cannot, the editor warns that the watch will find nothing until you add one that can.
 
 **When it runs.** Choose **Every day**, **Weekdays**, **Once a week**, **Once a month**, or **Every few hours**. Weekly takes a day of the week, monthly takes a day of the month from 1 to 28 (later days are missing from some months, and those months would not run), and every few hours takes 1, 2, 3, 4, 6, 8, or 12 hours at a chosen minute. The others take a time of day. The default is every day at 8:00. Times are your computer's time. The editor stores each choice as a cron expression whose words are exact, and a schedule it cannot state in words is kept as it is and shown as **As it is**.
 

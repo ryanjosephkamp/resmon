@@ -664,6 +664,18 @@ class ExecutionSettings(LosslessModel):
     routine_fire_queue_limit: int
 
 
+class SourceSettings(LosslessModel):
+    """``GET`` and ``PUT /api/settings/sources`` — the contact address resmon gives the sources that ask for one.
+
+    ``contact_email`` is null when none is set, and then nothing is sent.
+    ``sent_to`` names the sources it goes to, and no other source is sent it
+    (``source_contact``).
+    """
+
+    contact_email: Optional[str]
+    sent_to: list[str]
+
+
 class SettingsSaved(LosslessModel):
     """What the six plain settings PUTs answer: ``{"success": true}``.
 
@@ -1428,7 +1440,9 @@ class Health(LosslessModel):
     ``embeddings`` is attempted against a real connection on every call rather
     than read from a cached probe: it is a ``dlopen`` of a 165 KB library, and
     a health endpoint answering from memory would keep reporting a capability
-    the process had lost.
+    the process had lost. ``build`` names the build of the app that started
+    this engine (``RESMON_BUILD_ID``), null for an engine started otherwise:
+    every build of a version gives the same ``version``.
     """
 
     status: str
@@ -1436,6 +1450,7 @@ class Health(LosslessModel):
     pid: int
     started_at: str
     version: str
+    build: Optional[str] = None
     embeddings: VectorExtensionStatus
 
 
@@ -1532,6 +1547,7 @@ class RepositoryCatalogEntry(LosslessModel):
     upstream_policy: str
     parallel_safe: str
     notes: str
+    service_notice: str
     keyword_combination: str
     keyword_combination_notes: str
     attribution: str
@@ -2559,6 +2575,10 @@ class ServiceStatus(LosslessModel):
     engine), or ``null`` when there is no unit or it names neither.
     ``app_available`` is true when this engine was started by the packaged app, so
     a unit written now would run the app.
+
+    On macOS, ``loaded`` is whether launchd holds the service's label, and
+    ``blocked`` whether macOS's Allow in the Background has turned it off, so
+    launchd will not start it whatever resmon does. Both are absent elsewhere.
     """
 
     installed: bool
@@ -2566,6 +2586,8 @@ class ServiceStatus(LosslessModel):
     platform: str
     runs: Optional[Literal["app", "engine"]]
     app_available: bool
+    loaded: Optional[bool] = None
+    blocked: Optional[bool] = None
 
 
 class DaemonStatus(LosslessModel):
@@ -2594,10 +2616,16 @@ class DaemonStatus(LosslessModel):
 
 
 class ServiceInstalled(LosslessModel):
-    """``POST /api/service/install`` — the unit written, and where."""
+    """``POST /api/service/install`` — the unit written, and where.
+
+    ``restarting`` is true when the request came from the service's own engine:
+    the service is stopped and started again from the new unit by a process
+    outside it once this answer has gone, and the app opens again on it.
+    """
 
     installed: bool
     unit_path: str
+    restarting: Optional[bool] = None
 
 
 class ServiceUninstalled(LosslessModel):
@@ -2605,12 +2633,16 @@ class ServiceUninstalled(LosslessModel):
 
     ``removed`` is whether a file was there to remove: uninstalling a service
     that was never installed answers ``installed: false`` and ``removed:
-    false`` rather than an error.
+    false`` rather than an error. ``restarting`` is true when the request came
+    from the service's own engine: a process outside it stops the service,
+    removes the unit, and opens the app again, once this answer has gone, so
+    ``removed`` is still false here.
     """
 
     installed: bool
     unit_path: str
     removed: bool
+    restarting: Optional[bool] = None
 
 
 class TestEmailSent(LosslessModel):

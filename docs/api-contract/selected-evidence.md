@@ -153,7 +153,7 @@ cleanup; a failure does not mutate saved rows or claim a complete file.
 
 The renderer escapes every untrusted value as text, retaining CR codepoints with
 character references. It emits only index-derived IDs and fragment links, native
-details, semantic headings and wrapping system-font CSS. There are no scripts,
+details, semantic headings and wrapping system-font CSS with ligatures off. There are no scripts,
 active resources, forms, interpreted Markdown, auto-linked URLs or embedded PDFs.
 CSP is early in the file and also in HTTP: default/script/connect/image/media/
 object/frame/font sources are none; base-uri and form-action are none; style-src

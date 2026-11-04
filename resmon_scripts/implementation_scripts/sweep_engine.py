@@ -37,7 +37,7 @@ from .database import (
     get_execution_sources,
     record_execution_source,
 )
-from . import source_coverage
+from . import source_contact, source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -1772,7 +1772,9 @@ class SweepEngine:
                     credential_name=cred_name,
                 )
             try:
-                client = get_client(repo_name)
+                # Crossref and OpenAlex get the contact address set in
+                # Settings › Sources, when there is one (``source_contact``).
+                client = get_client(repo_name, **source_contact.client_options(repo_name, self.db))
                 # Thread the exec_id onto the client so that any
                 # ephemeral (per-execution) credentials are honored by
                 # credential_manager.get_credential_for.
