@@ -356,6 +356,135 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
   }
 });
 
+test('Ask the sources: a wheel over the source list scrolls the page, and nothing waits under the action bar', async () => {
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('ask-scroll');
+  try {
+    await win.evaluate(() => { window.location.hash = '#/search/ask'; });
+    await win.getByRole('button', { name: 'Deep Sweep' }).click();
+    const rows = win.locator('.catalog-rows');
+    await expect(win.locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    const column = win.locator('.ask');
+    const scrolled = () => column.evaluate((el) => el.scrollTop);
+    // The rows are not a box of their own that keeps the wheel.
+    expect(await rows.evaluate((el) => el.scrollHeight - el.clientHeight), 'the source list scrolls inside its own box').toBeLessThanOrEqual(1);
+    expect(await scrolled()).toBe(0);
+
+    // A wheel with the pointer over the list moves the page. Each try wheels again: the old list kept
+    // every wheel in its own box, however many came, so the page never moved.
+    await expect.poll(() => win.locator('.source').count()).toBeGreaterThan(20);
+    const box = await rows.boundingBox();
+    if (!box) throw new Error('the source list has no box');
+    await win.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height / 2, 120));
+    await expect.poll(async () => { await win.mouse.wheel(0, 250); return scrolled(); },
+      { message: 'a wheel over the source list did not scroll the page' }).toBeGreaterThan(0);
+
+    // The column heads and the filter stay at the top of the column meanwhile.
+    await win.mouse.wheel(0, 500);
+    await expect.poll(scrolled).toBeGreaterThan(400);
+    const [top, heads] = await Promise.all([column.boundingBox(), win.locator('.catalog-top').boundingBox()]);
+    expect(Math.abs((heads?.y ?? -100) - (top?.y ?? 0)), 'the column heads scrolled away with the rows').toBeLessThanOrEqual(1);
+
+    // Everything the form holds below the list can be reached, and the bar is the form's last part, with Save and Watch in it.
+    await column.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+    expect(await win.locator('form.ask > :last-child').evaluate((el) => el.classList.contains('ask-go'))).toBe(true);
+    for (const control of ['.cap input', '[data-ask="summaries"] input[type="checkbox"]', '[data-saved="keep"]', '[data-editor="watch-this"]']) {
+      const target = win.locator(control);
+      await target.scrollIntoViewIfNeeded();
+      const covered = await target.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return !(hit && (hit === el || el.contains(hit) || hit.contains(el)));
+      });
+      expect(covered, `${control} is under something`).toBe(false);
+    }
+    await expect(win.locator('.ask-go [data-saved="keep"]')).toBeVisible();
+    await expect(win.locator('.ask-go [data-editor="watch-this"]')).toBeVisible();
+
+    // The filter narrows the rows by name; what is chosen is named above them, and can be taken back there.
+    await column.evaluate((el) => { el.scrollTop = 0; });
+    const filter = win.getByLabel('Filter the sources by name');
+    await filter.fill('arx');
+    await expect(win.locator('.source')).toHaveCount(1);
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await expect(win.locator('[data-catalog="chosen"]')).toContainText('arXiv');
+    await filter.fill('no such source');
+    await expect(win.locator('[data-catalog="no-match"]')).toHaveText('No source’s name matches “no such source”.');
+    await filter.press('Escape');
+    await expect(filter).toHaveValue('');
+    expect(await win.locator('.source').count()).toBeGreaterThan(10);
+    await win.locator('[data-catalog="chosen"]').getByRole('button', { name: 'Remove arXiv' }).click();
+    await expect(win.locator('.source[data-source="arxiv"] input')).not.toBeChecked();
+    await expect(win.locator('[data-catalog="chosen"]')).toHaveCount(0);
+    fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-ask-scroll.png') });
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
+test('a search or a watch being written survives Settings › AI and Back', async () => {
+  test.setTimeout(240_000);
+  const { win, problems, done } = await launchAtlas('drafts');
+  try {
+    // Reached by links, as a person does: each visit is its own history entry.
+    const sections = win.getByRole('navigation', { name: 'Sections' });
+    const toAsk = async () => {
+      await sections.getByRole('link', { name: 'Search' }).click();
+      await win.getByRole('link', { name: 'Ask the sources' }).click();
+      await expect(win).toHaveURL(/#\/search\/ask$/);
+    };
+    // Ask the sources: terms, a source, a cap, and summaries on; then the summaries line's Settings › AI, and Back.
+    await toAsk();
+    await win.getByRole('button', { name: 'Deep Sweep' }).click();
+    await expect(win.locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    const terms = win.getByLabel('Search terms');
+    await terms.fill('perovskite');
+    await terms.press('Enter');
+    await terms.fill('tandem');
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await win.locator('.source[data-source="crossref"] input').check();
+    await win.getByLabel('Most papers per source').fill('40');
+    await win.locator('[data-ask="summaries"] input[type="checkbox"]').check();
+    await win.locator('[data-ask="summaries"]').getByRole('link', { name: 'Settings › AI' }).click();
+    await expect(win).toHaveURL(/#\/settings\/ai$/);
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect(win).toHaveURL(/#\/search\/ask$/);
+    // Leaving the terms field kept what was typed in it as a term.
+    await expect(win.locator('.term')).toHaveText(['perovskite', 'tandem']);
+    await expect(win.locator('.source[data-source="arxiv"] input')).toBeChecked();
+    await expect(win.locator('.source[data-source="crossref"] input')).toBeChecked();
+    await expect(win.getByLabel('Most papers per source')).toHaveValue('40');
+    await expect(win.locator('[data-ask="summaries"] input[type="checkbox"]')).toBeChecked();
+    // A new visit is a new page, and starts empty.
+    await sections.getByRole('link', { name: 'Today' }).click();
+    await toAsk();
+    await expect(win.locator('.source').first()).toBeVisible();
+    await expect(win.locator('.term')).toHaveCount(0);
+
+    // The watch editor: the same walk, out by its summaries line and Back.
+    await sections.getByRole('link', { name: 'Watches' }).click();
+    await win.locator('[data-editor="new"]').click();
+    await expect(win).toHaveURL(/#\/watches\/new$/);
+    await win.getByLabel('Name', { exact: true }).fill('Tandem cells');
+    const watchTerms = win.getByLabel('Terms to watch for');
+    await watchTerms.fill('perovskite');
+    await watchTerms.press('Enter');
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await win.locator('[data-editor="summaries"]').getByRole('link', { name: 'Settings › AI' }).click();
+    await expect(win).toHaveURL(/#\/settings\/ai$/);
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect(win).toHaveURL(/#\/watches\/new$/);
+    await expect(win.getByLabel('Name', { exact: true })).toHaveValue('Tandem cells');
+    await expect(win.locator('.term')).toHaveText(['perovskite']);
+    await expect(win.locator('.source[data-source="arxiv"] input')).toBeChecked();
+    expect(problems).toEqual([]);
+  } finally {
+    await done();
+  }
+});
+
 test('⌘Enter does a field\'s primary action where its button would, and plain Enter is left as it was', async () => {
   test.setTimeout(240_000);
   const { win, problems, done } = await launchAtlas('command-enter');
