@@ -97,6 +97,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     await expect(page.getByRole('heading', { name: 'resmon is starting' })).toBeVisible();
     await expect(page.locator('body')).toContainText('Waiting for its background service to finish starting.');
     await expect(page.locator('body')).toContainText('updates the database that holds your collection, which can take a few minutes');
+    await expect(page.locator('body')).toContainText('Before it changes anything, it keeps a copy of the database in the same folder, if the disk has room.');
     // All of it in the window, none cut off at the bottom.
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
     await expect(page.locator('body')).toContainText('This window closes when resmon opens.');
