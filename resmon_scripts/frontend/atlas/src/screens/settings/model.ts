@@ -21,6 +21,7 @@ export const GROUPS = [
   { slug: 'notifications', label: 'Notifications' },
   { slug: 'ai', label: 'AI' },
   { slug: 'sources', label: 'Sources' },
+  { slug: 'collections', label: 'Collections' },
   { slug: 'storage', label: 'Backup' },
   { slug: 'library', label: 'Library' },
   { slug: 'tutorials', label: 'Tutorials' },

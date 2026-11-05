@@ -6,6 +6,7 @@ import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { FRONTEND_ROOT, atlasEnv, launchEnv, ensureScreenshotDir, e2eAuth, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test('selected runs save one entry per stored paper with globally unique keys', async () => {
   const state = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-reading-export-'));
@@ -67,6 +68,6 @@ test('selected runs save one entry per stored paper with globally unique keys', 
     expect(snapshot()).toBe(before);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(state, { recursive: true, force: true });
+    removeStateDir(state);
   }
 });

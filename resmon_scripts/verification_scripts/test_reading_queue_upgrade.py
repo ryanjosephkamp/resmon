@@ -289,7 +289,11 @@ def test_the_fixture_fills_every_table_the_preservation_check_reads(legacy):
 
 
 def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
-    before = contents(legacy)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the fixture as that recount leaves it.
+    recounted = _as_recounted(legacy)
+    before = contents(recounted)
+    recounted.close()
 
     database.init_db(conn=legacy)
 
@@ -319,6 +323,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 # wherever app_settings is compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -471,7 +476,15 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             # Schema 25: the record of files removed from the
                             # Library. (It also rebuilds ``library_files``,
                             # already listed above.)
-                            "library_removed"}
+                            "library_removed",
+                            # Schema 26: collections, their indexes, and the
+                            # triggers that file a paper and count revisions.
+                            "collections", "collection_documents",
+                            "idx_collection_documents_document",
+                            "idx_collection_documents_added",
+                            "collection_documents_revise_in",
+                            "collection_documents_revise_out",
+                            "documents_file_in_default"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

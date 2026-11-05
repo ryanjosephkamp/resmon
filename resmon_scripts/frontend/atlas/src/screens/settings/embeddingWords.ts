@@ -6,7 +6,10 @@
  */
 import type { components } from '../../api/schema';
 import { providerWords } from '../ask/askModel';
+import type { TipContent } from '../../charts/ChartTip';
+import { exactCount } from '../../charts/exact';
 import { count, number } from '../today/format';
+import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 
 export type EmbeddingStatus = components['schemas']['EmbeddingStatus'];
 export type EmbeddingPage = components['schemas']['EmbeddingSettingsPage'];
@@ -84,17 +87,23 @@ export function orderProviders(providers: readonly ProviderAnswer[]): ProviderAn
   });
 }
 
-/** Papers in the collection with no vector from the model set, never below zero. */
+/** Papers resmon holds with no vector from the model set, never below zero: what a backfill embeds. */
 export function missingCount(status: EmbeddingStatus): number {
   return Math.max(0, status.coverage.total - status.coverage.embedded);
 }
 
-/** The Embedded fact. */
-export function embeddedWords(status: EmbeddingStatus): string {
+/**
+ * The Embedded fact. It counts every paper resmon holds, which is what a
+ * backfill embeds; where there are several collections, it says so.
+ */
+export function embeddedWords(status: EmbeddingStatus, several = false): string {
   const { embedded, total, model } = status.coverage;
   if (!model) return 'None: no embedding model is set up.';
-  if (total === 0) return `None yet: your collection is empty. Papers are embedded with ${model} as runs store them.`;
-  return `${number(embedded)} of ${count(total, 'paper')}, with ${model}.`;
+  if (total === 0) {
+    return several ? `None yet: no collection holds a paper. Papers are embedded with ${model} as runs store them.`
+      : `None yet: your collection is empty. Papers are embedded with ${model} as runs store them.`;
+  }
+  return `${number(embedded)} of ${count(total, 'paper')}${several ? ' in every collection' : ''}, with ${model}.`;
 }
 
 /**
@@ -102,15 +111,16 @@ export function embeddedWords(status: EmbeddingStatus): string {
  * why. A backfill's own count of papers with nothing to embed is the one
  * reason recorded per paper; the rest have simply not been embedded yet.
  */
-export function missingWords(status: EmbeddingStatus): string {
+export function missingWords(status: EmbeddingStatus, several = false): string {
   const { total, model } = status.coverage;
-  if (total === 0) return 'None: your collection is empty.';
-  if (!model) return `${count(total, 'paper')}: no embedding model is set up to make vectors.`;
+  if (total === 0) return several ? 'None: no collection holds a paper.' : 'None: your collection is empty.';
+  const every = several ? ' in every collection' : '';
+  if (!model) return `${count(total, 'paper')}${every}: no embedding model is set up to make vectors.`;
   const missing = missingCount(status);
   if (missing === 0) return 'None.';
   const run = status.run;
   const last = !run.running && run.finished_at && run.model === model ? run : null;
-  const parts = [`${count(missing, 'paper')} ${has(missing)} no vector from ${model} yet.`];
+  const parts = [`${count(missing, 'paper')}${every} ${has(missing)} no vector from ${model} yet.`];
   if (last && last.skipped_no_text > 0) {
     const n = last.skipped_no_text;
     parts.push(`The last backfill found ${count(n, 'paper')} with no title or abstract to embed; ${n === 1 ? 'it stays' : 'they stay'} missing.`);
@@ -154,13 +164,15 @@ export interface Ranking {
 }
 
 /**
- * Whether the collection can be ranked by meaning, and if not, the reason a
- * person can act on: no model, papers without vectors (counted), an index
- * that holds none of them, or the extension missing.
+ * Whether the collection shown can be ranked by meaning, and if not, the
+ * reason a person can act on: no model, papers without vectors (counted), an
+ * index that holds none of them, or the extension missing. The papers counted
+ * are the shown collection's (`collection_coverage`, where the status was
+ * read for one), named as *shown* names them.
  */
-export function ranking(status: EmbeddingStatus): Ranking {
-  const { embedded, total, model } = status.coverage;
-  const missing = missingCount(status);
+export function ranking(status: EmbeddingStatus, shown: CollectionWords = YOUR_COLLECTION): Ranking {
+  const { embedded, total, model } = status.collection_coverage ?? status.coverage;
+  const missing = Math.max(0, total - embedded);
   if (status.capability.available) {
     return {
       available: true, action: null,
@@ -181,26 +193,26 @@ export function ranking(status: EmbeddingStatus): Ranking {
     return {
       available: false, action: 'Set one up in Settings → AI → Embeddings',
       sentence: total > 0
-        ? `Ranking by meaning is off: no embedding model is set up, so none of your ${count(total, 'paper')} has a vector.`
+        ? `Ranking by meaning is off: no embedding model is set up, so none of ${shown.papers(total)} has a vector.`
         : 'Ranking by meaning is off: no embedding model is set up.',
     };
   }
   if (total === 0) {
     return {
       available: false, action: null,
-      sentence: `Ranking by meaning starts once your collection has papers: runs embed the ones they store with ${model}.`,
+      sentence: `Ranking by meaning starts once ${shown.name} has papers: runs embed the ones they store with ${model}.`,
     };
   }
   if (embedded === 0) {
     return {
       available: false, action: 'Embed them in Settings → AI → Embeddings',
-      sentence: `Ranking by meaning is off: none of your ${count(total, 'paper')} has a vector from ${model} yet.`,
+      sentence: `Ranking by meaning is off: none of ${shown.papers(total)} has a vector from ${model} yet.`,
     };
   }
   if (status.index.rows === 0) {
     return {
       available: false, action: 'Rebuild it in Settings → AI → Embeddings',
-      sentence: `Ranking by meaning is off: ${number(embedded)} of your ${count(total, 'paper')} ${has(embedded)} a vector from ${model}, but the similarity index holds none of them.`,
+      sentence: `Ranking by meaning is off: ${number(embedded)} of ${shown.papers(total)} ${has(embedded)} a vector from ${model}, but the similarity index holds none of them.`,
     };
   }
   return { available: false, action: 'Settings → AI → Embeddings says more', sentence: sentence(status.capability.reason ?? 'Ranking by meaning is off.') };
@@ -226,6 +238,18 @@ export function nothingToEmbedWords(missing: number, documents: number): string 
 export function progressWords(run: EmbeddingRun): string {
   if (run.total === 0) return `Starting: finding the papers with no vector${run.model ? ` from ${run.model}` : ''}.`;
   return `Embedding with ${run.model ?? 'the model set'}: ${number(run.processed)} of ${count(run.total, 'paper')} so far.`;
+}
+
+/** The backfill's bar, in the charts' tip: the papers embedded so far of those it set out to, whole, and with what. */
+export function meterTip(run: EmbeddingRun): TipContent {
+  return {
+    name: `Embedding${run.model ? ` with ${run.model}` : ''}`,
+    value: `${exactCount(run.processed)} of ${count(run.total, 'paper')}`,
+    notes: [
+      'The papers that had no vector when the backfill started.',
+      ...(run.skipped_no_text > 0 ? [`${count(run.skipped_no_text, 'paper')} so far had no title or abstract to embed.`] : []),
+    ],
+  };
 }
 
 /** How the last backfill ended, or null when there has been none in this engine's life. */

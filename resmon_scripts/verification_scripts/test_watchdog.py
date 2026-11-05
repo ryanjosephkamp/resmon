@@ -482,6 +482,21 @@ def test_a_routine_that_used_to_deliver_and_stopped_is_unusual(conn):
     assert "perfectly healthy" in findings[0]["detail"]
 
 
+def test_runs_that_did_not_record_a_count_are_not_runs_that_found_nothing(conn):
+    """A run with no recorded new count says nothing about whether it found anything new."""
+    routine_id = _routine(conn)
+    for i in range(watchdog.FLATLINE_RUNS):
+        run = _run(conn, days_ago=i, routine_id=routine_id, new_results=0,
+                   sources={"arxiv": {"status": "ok", "result_count": 20}})
+        conn.execute("UPDATE executions SET new_result_count = NULL WHERE id = ?", (run,))
+    for i in range(4):
+        _run(conn, days_ago=watchdog.FLATLINE_RUNS + i, routine_id=routine_id,
+             new_results=3, sources={"arxiv": {"status": "ok", "result_count": 20}})
+    conn.commit()
+
+    assert _by_kind(watchdog.report(conn, now=NOW), "routine_flatlined") == []
+
+
 def test_four_quiet_runs_are_below_the_flatline_threshold(conn):
     routine_id = _routine(conn)
     for i in range(watchdog.FLATLINE_RUNS - 1):

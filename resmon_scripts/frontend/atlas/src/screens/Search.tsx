@@ -22,6 +22,7 @@ import { NO_CHOICE, overrideOf, type SummaryChoice } from './settings/summaryCho
 import { AI_KEY } from './settings/summaryLanes';
 import { CountField } from '../shell/CountField';
 import { useDraft } from '../shell/drafts';
+import { useCollection } from '../collections/current';
 
 type Mode = SearchKind;
 
@@ -78,6 +79,8 @@ interface AskDraft {
 export function Search() {
   const navigate = useNavigate();
   const client = useQueryClient();
+  // A Deep Dive or a Deep Sweep started here lands in the collection this window shows.
+  const shownCollection = useCollection();
   const location = useLocation();
   const arrival = useNavigationType();
   // A saved search opened from Saved fills the form, and the run it starts
@@ -187,6 +190,7 @@ export function Search() {
         ...(Object.keys(override).length ? { ai_settings: override } : {}),
         request_id: crypto.randomUUID(),
         saved_configuration_id: opened?.id ?? null,
+        ...(shownCollection.id !== null ? { collection: shownCollection.id } : {}),
       };
       return mode === 'dive'
         ? answer(engine().POST('/api/search/dive', { body: { ...base, repository: picked[0]?.slug ?? '' } }))
@@ -370,6 +374,9 @@ export function Search() {
                   : picked.length > 1 ? `Ask ${picked.length} sources` : 'Ask'}
             </button>
             <CommandEnterHint />
+            {shownCollection.several && shownCollection.name && (
+              <span className="ask-lands" data-search="lands">Its papers land in <b>{shownCollection.name}</b></span>
+            )}
             <div className="ask-keep">
               {naming === null ? (
                 <span className="keep-row">

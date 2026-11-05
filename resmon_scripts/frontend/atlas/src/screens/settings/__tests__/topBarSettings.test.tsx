@@ -110,7 +110,7 @@ describe('Settings › Top bar', () => {
     }
     await waitFor(() => expect(sent()).toHaveLength(7));
     expect(sent()[6]!.hidden).toEqual(['today', 'watches', 'search', 'runs', 'library', 'ask', 'health']);
-    expect(screen.getByText(/Settings keeps its place at the bar’s right end, and ⌘, opens it from anywhere/)).toBeInTheDocument();
+    expect(screen.getByText(/The collection the window shows stays beside the\s+resmon name, Settings keeps its place at the bar’s right end, and ⌘, opens\s+Settings from anywhere/)).toBeInTheDocument();
   });
 
   test('the start page and the resmon name offer every page the engine accepts, under their sections', async () => {

@@ -382,6 +382,9 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("DELETE", "/api/reading-queue/{document_id}"): ("J28",),
     ("PUT", "/api/reading-queue/{document_id}"): ("J28",),
     ("POST", "/api/reading-queue/{document_id}/restore"): ("J28",),
+    ("POST", "/api/reading-queue/batch"): ("J28",),
+    ("POST", "/api/reading-queue/batch/all"): ("J28",),
+    ("POST", "/api/reading-queue/batch/undo"): ("J28",),
     # --- Routines ----------------------------------------------------------
     ("GET", "/api/routines"): ("J03",),
     ("POST", "/api/routines"): ("J03",),
@@ -434,6 +437,17 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/shared-wording/papers/{document_id}"): ("J49",),
     ("GET", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
     ("POST", "/api/library/files/{file_id}/shared-wording"): ("J49", "J34"),
+    # --- Collections inside the one database (schema 26) --------------------
+    # Search › Your collection is the Explorer's row; the collection it shows,
+    # and moving and copying its papers, are part of that screen.
+    ("GET", "/api/collections"): ("J12",),
+    ("POST", "/api/collections"): ("J12",),
+    ("PUT", "/api/collections/current"): ("J12", "J48"),
+    ("GET", "/api/collections/{collection_id}"): ("J12",),
+    ("PUT", "/api/collections/{collection_id}"): ("J12",),
+    ("DELETE", "/api/collections/{collection_id}"): ("J12",),
+    ("POST", "/api/collections/{collection_id}/papers"): ("J12",),
+    ("POST", "/api/collections/{collection_id}/papers/undo"): ("J12",),
 }
 
 

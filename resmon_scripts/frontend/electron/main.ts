@@ -1706,7 +1706,7 @@ p { margin: 0; color: ${ink2}; }
 </style></head><body>
 <div class="track" role="progressbar" aria-label="Waiting for the background service"></div>
 <h1>resmon is starting</h1>
-<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes.</p>
+<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes. Before it changes anything, it keeps a copy of the database in the same folder, if the disk has room.</p>
 <p class="small">This window closes when resmon opens. Close it to stop waiting; the service goes on starting.</p>
 </body></html>`;
 }
@@ -1724,7 +1724,7 @@ function showStartingWindow(why: 'starting' | 'started'): void {
     const dark = nativeTheme.shouldUseDarkColors;
     const window = new BrowserWindow({
       width: 440,
-      height: 228,
+      height: 248,
       useContentSize: true,
       resizable: false,
       maximizable: false,
@@ -1970,6 +1970,16 @@ app.whenReady().then(async () => {
         if (window) answer = windowState(window);
       } finally {
         event.returnValue = answer;
+      }
+    });
+    // `resmon:window-collection` is the switch in a window's top bar: that
+    // window shows another collection, by id, and no other window changes.
+    ipcMain.on('resmon:window-collection', (event, collection: unknown) => {
+      const window = senderWindow(event);
+      if (!window) return;
+      const id = typeof collection === 'string' && /^\d{1,12}$/.test(collection) ? collection : null;
+      if (appWindows.setCollection(window, id) && !window.webContents.isDestroyed()) {
+        window.webContents.send('resmon:window-state', windowState(window));
       }
     });
     ipcMain.on('resmon:open-window', (event, route: unknown, tab: unknown) => {

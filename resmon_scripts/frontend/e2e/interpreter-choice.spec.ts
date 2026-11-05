@@ -13,6 +13,7 @@ import * as path from 'path';
 import {
   InterpreterError, REPO_ROOT, resolveInterpreter, verifyInterpreter,
 } from './fixtures/python-interpreter';
+import { removeStateDir } from './fixtures/cleanup';
 
 const venv = process.platform === 'win32'
   ? path.join(REPO_ROOT, '.venv', 'Scripts', 'python.exe')
@@ -105,5 +106,5 @@ test('npm run e2e:review carries the completion guard', () => {
   const output = `${run.stdout || ''}${run.stderr || ''}`;
   expect(output).toContain('never ran');
   expect(run.status).not.toBe(0);
-  fs.rmSync(reviewDir, { recursive: true, force: true });
+  removeStateDir(reviewDir);
 });

@@ -16,6 +16,8 @@ interface Action {
 }
 
 const KEPT = 'Your Library (its files, links, Evidence projects, and saved notes) stays.';
+/** Said by every action that erases the papers: the engine deletes the copy kept before an update with them. */
+const COPY_GOES = 'The copy of your database that resmon kept before its last update is deleted too, because it holds these papers.';
 
 /**
  * Every action, the engine's route for it, and what it does, in the order of
@@ -45,11 +47,11 @@ const ACTIONS: readonly Action[] = [
   },
   {
     id: 'corpus', label: 'Erase the paper corpus', route: '/api/admin/erase-corpus', typed: true,
-    removes: 'Every paper resmon has collected, with its retraction and version records. Runs, watches, settings, and keys are kept.',
-    warning: 'Every paper in your collection is deleted: everything Search finds, Today maps, and Analytics measures, and every '
+    removes: 'Every paper resmon has collected, with its retraction and version records. Runs, watches, collections, settings, and keys are kept.',
+    warning: 'Every paper in every collection is deleted: everything Search finds, Today maps, and Analytics measures, and every '
       + 'retraction or version notice recorded against them. Runs stay, with no papers. Nothing here brings them back: asking '
-      + 'again collects what the sources hold now, and every “first seen” date starts over. Your Library stays; its links to '
-      + 'the deleted papers are removed.',
+      + 'again collects what the sources hold now, and every “first seen” date starts over. Your collections stay, empty. Your '
+      + `Library stays; its links to the deleted papers are removed. ${COPY_GOES}`,
   },
   {
     id: 'execution_data', label: 'Erase all run data', route: '/api/admin/erase-execution-data', typed: true,
@@ -61,7 +63,7 @@ const ACTIONS: readonly Action[] = [
     removes: 'Every key, saved search, run, and paper. Settings other than AI are kept.',
     warning: 'Every key (AI and sources), every saved search, every watch linked to one, every run, and every collected paper '
       + 'is deleted. Settings other than AI stay; AI goes back to having no keys. Your Library stays; its links to the deleted '
-      + 'papers are removed.',
+      + `papers are removed. ${COPY_GOES}`,
   },
   {
     id: 'reset_settings', label: 'Reset all settings', route: '/api/admin/reset-settings', typed: true,
@@ -70,9 +72,10 @@ const ACTIONS: readonly Action[] = [
   },
   {
     id: 'factory', label: 'Factory reset', route: '/api/admin/factory-reset', typed: true,
-    removes: 'Every key, saved search, run, paper, and setting on this computer. The Library is kept.',
-    warning: 'Every key, every saved search, every run, every paper in your collection, and every setting on this computer is '
-      + 'erased. This cannot be undone. Your Library stays; its links to the deleted papers are removed.',
+    removes: 'Every key, saved search, run, paper, collection, and setting on this computer. The Library is kept.',
+    warning: 'Every key, every saved search, every run, every paper, every collection but the default one, and every setting on '
+      + 'this computer is erased; the default collection stays, empty, under its first name. This cannot be undone. Your '
+      + `Library stays; its links to the deleted papers are removed. ${COPY_GOES}`,
   },
 ];
 
@@ -80,6 +83,7 @@ const ACTIONS: readonly Action[] = [
 const COUNTED: Record<string, readonly [string, string]> = {
   ai_keys: ['AI key', 'AI keys'], repo_keys: ['source key', 'source keys'], smtp_credentials: ['email password', 'email passwords'],
   configs: ['saved search', 'saved searches'], executions: ['run', 'runs'], documents: ['paper', 'papers'],
+  collections: ['collection', 'collections'],
 };
 
 /** The counts of what the keychain held: the engine counts a key only when one was stored and is now gone. */

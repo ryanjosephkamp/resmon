@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 async function engine<T>(win: Page, route: string): Promise<T> {
   return win.evaluate(async (r) => {
@@ -64,6 +65,6 @@ test('a person seeded before startup: every match, the historical ones said so, 
     expect(await engine(win, '/api/profiles/1/matches'), 'reading the page changed the matches').toEqual(served);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

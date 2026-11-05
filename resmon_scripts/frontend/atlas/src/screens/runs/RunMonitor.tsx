@@ -7,12 +7,14 @@ import { useMinute } from '../../lib/useMinute';
 import { useNow } from '../../lib/useNow';
 import { clock, dayWord, number } from '../today/format';
 import {
-  ACTIVE_KEY, activeSignature, activeSources, isStalled, useActiveRuns, type ActiveRun, type ActiveRuns,
+  ACTIVE_KEY, activeSignature, activeSources, activeTitle, isStalled, useActiveRuns, type ActiveRun, type ActiveRuns,
 } from './active';
 import { RunningList, WaitingList } from './ActiveList';
 import { readHistory } from './history';
 import { sourcesFinished } from './live';
 import { runKind, runTitle, storedInstant, type RunRow } from './model';
+import { useChartTip } from '../../charts/ChartTip';
+import { monitorTip } from './runTips';
 import { RunMark, type MarkState, type Orbit } from './RunMark';
 
 const PANEL_ID = 'run-monitor-panel';
@@ -122,6 +124,7 @@ export function RunMonitor() {
   const unseen = active.data?.failed_unseen ?? [];
   const now = useNow(1_000, running.length > 0);
   const today = useMinute();
+  const tip = useChartTip();
 
   // A run that has left the running set has ended: the ring spreads once for it.
   const ids = running.map((run) => run.id).join(',');
@@ -182,11 +185,18 @@ export function RunMonitor() {
     `${number(todays.length)} today`,
   ].filter(Boolean).join(' · ');
 
+  // The mark's tip says what its orbits draw: each running run's sources finished. Not while the panel is open.
+  const tipContent = monitorTip(
+    running.map((run) => ({ title: activeTitle(run, watchName), sources: activeSources(run), stalled: isStalled(run, now) })),
+    waiting.length, open ? 0 : unseen.length,
+  );
+  const markTip = tip.mark(tipContent);
   return (
     <div className="run-monitor">
       <button type="button" className={`mon${words ? '' : ' idle'}${open ? ' open' : ''}`} popoverTarget={PANEL_ID}
-        aria-haspopup="dialog" aria-expanded={open} aria-label={label} title={label} data-monitor={state}
-        data-pulse={pulse || undefined}>
+        aria-haspopup="dialog" aria-expanded={open} aria-label={label} data-monitor={state}
+        data-pulse={pulse || undefined} {...markTip}
+        onClick={() => tip.hide()}>
         <RunMark state={state} orbits={orbitsOf(running, now)} pulse={pulse} />
         {words && (
           <span className="mon-words" aria-hidden="true">
@@ -195,6 +205,7 @@ export function RunMonitor() {
           </span>
         )}
       </button>
+      {!open && tip.layer}
       <div id={PANEL_ID} ref={panel} popover="auto" role="dialog" aria-label="Runs" className="mon-panel" tabIndex={-1}
         onToggle={onToggle}>
         {open && (

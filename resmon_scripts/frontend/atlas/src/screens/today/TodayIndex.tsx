@@ -1,9 +1,13 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
-import { authors, duration, number, troubleParts, when } from './format';
+import { useCollection, useCollectionWords } from '../../collections/current';
+import { authors, count, duration, number, troubleParts, when } from './format';
+import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
+import { PickBox, SelectBar, useRowKeys } from '../selection/SelectBar';
+import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../selection/picks';
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 import type { LifecycleEvent } from '../lifecycle/model';
 import { FADE_MS, lightsAt, type Opening } from './opening';
@@ -82,13 +86,24 @@ interface Props {
   /** How the list is grouped, as Today's view remembers it in the engine. */
   by: 'watch' | 'region';
   onBy: (by: 'watch' | 'region') => void;
+  /** Papers a save of many just put in the reading queue, so a mark set by hand gives way to what the engine holds. */
+  onSavedMany?: (ids: readonly number[]) => void;
 }
 
+/**
+ * Today's list, beside the plate: the new papers by watch or by region, each
+ * with its number, its place, and Save to read. Select gives each entry a box
+ * and puts the selection bar in the list's bar: Save to read saves the
+ * entries picked, and Select all every new paper, listed yet or not.
+ */
 export function TodayIndex(props: Props) {
   const {
     papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, opening, selected, now, saved, lifecycle,
-    marking, busy, earlier, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy,
+    marking, busy, earlier, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy, onSavedMany,
   } = props;
+  const place = useCollectionWords();
+  // Today's new papers are the shown collection's: a save of every one names it.
+  const { id: collection } = useCollection();
   const scroller = useRef<HTMLDivElement>(null);
   // How far each group's list has been opened with Show more, by group.
   const [reach, setReach] = useState<ReadonlyMap<string, number>>(new Map());
@@ -138,6 +153,45 @@ export function TodayIndex(props: Props) {
 
   const quiet = by === 'watch' ? watches.filter((w) => w.new_count === 0) : [];
 
+  // The entries as listed, top to bottom, which the arrows and a Shift-pick go by; a paper two watches found is listed twice.
+  const listedOf = useCallback((group: Group) => listedIn(group.papers, reach.get(group.key) ?? GROUP_FIRST, selected),
+    [reach, selected]);
+  const starts = useMemo(() => {
+    const out = new Map<string, number>();
+    let at = 0;
+    for (const group of groups) { out.set(group.key, at); at += listedOf(group); }
+    return out;
+  }, [groups, listedOf]);
+  const order = useMemo(() => groups.flatMap((group) => group.papers.slice(0, listedOf(group)).map((paper) => paper.id)),
+    [groups, listedOf]);
+  const [selecting, setSelecting] = useState(false);
+  // Nothing new (Mark all read, say) leaves select mode, so it does not come back by itself with tomorrow's papers.
+  if (selecting && total === 0) setSelecting(false);
+  // Out of select mode nothing is picked, however it was left.
+  const picks = usePicks<number>(order, selecting ? 'today' : 'idle');
+  const picked = sizeOf(picks.picks, total);
+  const allPicked = picks.picks.all && picks.picks.except.size === 0;
+  const saving = useSaveToRead((done) => { picks.release('all'); onSavedMany?.(done.saved_ids); });
+  const { pick, selectAll, clear } = picks;
+  const { cancel } = saving;
+  const endSelecting = useCallback(() => { setSelecting(false); clear(); cancel(); }, [clear, cancel]);
+  const { onKeyDown: rowKeys } = useRowKeys({
+    count: order.length, onAll: selectAll, within: scroller,
+    onRange: (to, from) => { const id = order[to]; if (id !== undefined) pick(id, true, order[from]); },
+  });
+  const savePicked = () => {
+    if (!picked) return;
+    if (picks.picks.all) {
+      saving.save({
+        target: { kind: 'today', collection, except: [...picks.picks.except], atMost: picked }, n: picked, all: allPicked,
+        what: allPicked ? `all ${count(picked, 'new paper')}` : `these ${count(picked, 'paper')}`,
+      });
+    } else {
+      const ids = [...new Set(pickedIn(picks.picks, order))];
+      saving.save({ target: { kind: 'listed', ids }, n: ids.length, all: false, what: `these ${count(ids.length, 'paper')}` });
+    }
+  };
+
   // The plate chose a paper: bring its entry into view.
   useEffect(() => {
     if (selected === null) return;
@@ -147,14 +201,16 @@ export function TodayIndex(props: Props) {
 
   /** A group's papers as far as they are listed, and the Show more that lists the next ones. */
   const listOf = (group: Group) => {
-    const listed = listedIn(group.papers, reach.get(group.key) ?? GROUP_FIRST, selected);
+    const listed = listedOf(group);
     const rest = group.papers.length - listed;
+    const first = starts.get(group.key) ?? 0;
     return (
       <>
-        {group.papers.slice(0, listed).map((paper) => (
+        {group.papers.slice(0, listed).map((paper, k) => (
           <Entry
             key={`${group.key}:${paper.id}`}
             paper={paper}
+            picking={selecting ? { picked: has(picks.picks, paper.id), index: first + k, onPick: (range) => pick(paper.id, range) } : null}
             opening={opening}
             listed={papers.length}
             firstNumber={papers[0]?.n ?? 1}
@@ -191,14 +247,29 @@ export function TodayIndex(props: Props) {
           <button type="button" aria-pressed={by === 'watch'} onClick={() => setBy('watch')}>By watch</button>
           <button type="button" aria-pressed={by === 'region'} onClick={() => setBy('region')}>By region</button>
         </div>
-        <button type="button" className="btn sm" onClick={onMarkRead} disabled={marking || total === 0}
-          title="Today will start from now the next time you open it">
-          <Icon name="check" size={14} />
-          Mark all read
-        </button>
+        <span className="index-acts">
+          {total > 0 && (
+            <button type="button" className="btn sm" data-today="select" aria-pressed={selecting}
+              onClick={() => (selecting ? endSelecting() : setSelecting(true))}>Select</button>
+          )}
+          <button type="button" className="btn sm" onClick={onMarkRead} disabled={marking || total === 0}
+            title="Today will start from now the next time you open it">
+            <Icon name="check" size={14} />
+            Mark all read
+          </button>
+        </span>
       </header>
+      {selecting && total > 0 && (
+        <SelectBar label="The selected new papers" className="today-select" said={selectedWords(picked, total)}
+          tick={isEmpty(picks.picks, total) ? 'none' : allPicked ? 'on' : 'part'}
+          allLabel={allPicked ? null : `Select all ${count(total, 'new paper')}`} onAll={selectAll} onDone={endSelecting}
+          below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
+          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
+        </SelectBar>
+      )}
 
-      <div className="index-scroll" ref={scroller}>
+      <div className="index-scroll" ref={scroller}
+        onKeyDown={selecting ? rowKeys : undefined}>
         {total > shown && (
           <div className="index-cap earlier" data-today="earlier">
             <p>The newest {number(shown)} of {number(total)} are listed and ringed on the plate.</p>
@@ -237,8 +308,11 @@ export function TodayIndex(props: Props) {
         {total === 0 && (
           <p className="index-empty">
             {collectionSize === 0
-              ? 'Nothing collected yet. Papers your watches and searches find will be listed here.'
-              : 'Nothing new since then. The plate still shows everything you have.'}
+              ? (place.named
+                ? `${place.Name} holds no papers yet. Papers its watches and searches find will be listed here.`
+                : 'Nothing collected yet. Papers your watches and searches find will be listed here.')
+              : place.named ? `Nothing new in ${place.name} since then. The plate still shows everything it holds.`
+                : 'Nothing new since then. The plate still shows everything you have.'}
           </p>
         )}
         {quiet.length > 0 && (
@@ -254,6 +328,7 @@ export function TodayIndex(props: Props) {
         )}
       </div>
       <footer className="index-foot">{footer}</footer>
+      {saving.notice}
     </section>
   );
 }
@@ -320,13 +395,15 @@ function SourceTrouble({ run }: { run: TodayRun }) {
 function Entry(props: {
   paper: IndexPaper; opening: Opening; listed: number; firstNumber: number; selected: boolean; saved: boolean;
   events?: LifecycleEvent[];
+  /** Select mode: whether it is picked, its place among the entries listed, and picking it. */
+  picking: { picked: boolean; index: number; onPick: (range: boolean) => void } | null;
   sourceName: (slug: string) => string;
   onSelect: (id: number) => void;
   onPoint: (id: number | null) => void;
   onZoomTo: (target: { paperId: number }) => void;
   onToggleSave: (paper: IndexPaper) => void;
 }) {
-  const { paper, opening, listed, firstNumber, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
+  const { paper, opening, listed, firstNumber, selected, saved, events, picking, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
   const badge = useRef<HTMLSpanElement>(null);
   // The number brightens at its turn in the opening, as an animation of its
   // own: the page is not changed again as the opening goes, only drawn.
@@ -344,11 +421,12 @@ function Entry(props: {
   const link = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
   return (
     <article
-      className={selected ? 'entry sel' : 'entry'}
+      className={`entry${selected ? ' sel' : ''}${picking ? ' picking' : ''}${picking?.picked ? ' picked' : ''}`}
       data-paper={paper.id}
       onMouseEnter={() => onPoint(paper.id)}
       onMouseLeave={() => onPoint(null)}
     >
+      {picking && <PickBox picked={picking.picked} label={`Select “${paper.title}”`} index={picking.index} onPick={picking.onPick} />}
       <span ref={badge} className={opening.state === 'waiting' ? 'badge dim' : 'badge'} aria-label={`Number ${paper.n}`}>{paper.n}</span>
       <div className="entry-body">
         <h4>

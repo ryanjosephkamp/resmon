@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { useChartTip, type TipContent } from '../../charts/ChartTip';
 import type { MapRegion, Sky } from '../today/model';
 import { cropFor, VIEW } from './coverChart';
 import { COVER_LINES, firstLines } from './galleryModel';
@@ -80,19 +81,44 @@ export const TextCover = memo(function TextCover({ version }: { version: Version
 export interface Atlas { sky: Sky; regions: readonly MapRegion[] }
 
 /**
+ * What a cover's piece of the map shows, in the charts' tip: the paper's cell
+ * and region, and that the crossed star is this paper; or that the map has not
+ * placed it. The card it sits on already opens the paper, so the tip offers no
+ * click of its own.
+ */
+export function coverTip(crop: { cell: string; label: { text: string } | null } | null): TipContent {
+  if (!crop) return { name: 'On the collection map', value: 'Not on the map yet', notes: ['It is placed when the map is next drawn.'] };
+  return {
+    name: 'On the collection map',
+    value: crop.label ? `${crop.cell}, ${crop.label.text}` : crop.cell,
+    notes: ['The crossed star is this paper; the others are the papers nearest it on the map.'],
+  };
+}
+
+/** The element a cover's tip is set beside: its piece of the map. */
+const chartOf = (cover: HTMLElement) => cover.querySelector('.cov-chart');
+
+/**
  * A paper with no PDF: its piece of the night chart over a title block. The
  * crop is the collection map's own, the paper crossed in the accent where it
  * sits. A paper the map has not placed says so in place of a star; while the
- * map is still being read the title block stands alone.
+ * map is still being read the title block stands alone. With the map read, the
+ * pointer over the cover shows the charts' tip with the paper's place. The
+ * picture stays hidden from a screen reader, which the card names by the
+ * paper's title, and the cell is printed in the title block.
  */
 export const AtlasCover = memo(function AtlasCover({ atlas, documentId, title, who, venue, year }: {
   atlas: Atlas | null; documentId: number; title: string; who: string; venue: string; year: string | null;
 }) {
   const crop = useMemo(() => (atlas ? cropFor(atlas.sky, atlas.regions, documentId) : null), [atlas, documentId]);
+  const tip = useChartTip();
   const { left: L, top: T, inner: W, innerHeight: H, width: VW, height: VH } = VIEW;
   const id = `cov-${documentId}`;
+  const { onPointerEnter, onPointerMove, onPointerLeave } = tip.mark(coverTip(crop), chartOf);
   return (
-    <div className="cov" data-cover="atlas" data-placed={crop ? 'true' : atlas ? 'false' : 'unknown'}>
+    <div className="cov" data-cover="atlas" data-placed={crop ? 'true' : atlas ? 'false' : 'unknown'}
+      {...(atlas ? { onPointerEnter, onPointerMove, onPointerLeave } : {})}>
+      {atlas && tip.layer}
       {atlas && (
         <svg className="cov-chart" viewBox={`0 0 ${VW} ${VH}`} aria-hidden="true">
           <defs>

@@ -3,8 +3,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
-import { Tip } from '../Today';
-import { MAP_KEY } from '../today/freshness';
+import { Tip, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection, useCollectionWords } from '../../collections/current';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
 import { collectionSky } from './collectionSky';
@@ -122,9 +124,11 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
   } = props;
   const navigate = useNavigate();
   const { shown, theme } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted is asked for again until it is drawn, as on Today:
     // otherwise a page opened during the fit says it is drawing until left.
     refetchInterval: (query) => {
@@ -212,6 +216,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
             onSelect={onSelect}
             onOpen={onChoose ? undefined : open}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`${said} ${onChoose ? 'Choose a paper to open it beside the map.' : 'Choose a paper to open its page.'}`}
             onAway={() => undefined}
@@ -221,21 +226,41 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus || (!!onChoose && hovered === chosen))} />
             )}
           </Plate>
         ) : (
           <div className="sky-empty">
             {map.isPending || (map.data?.state === 'ready' && !current) ? 'Reading the map.'
-              : map.data?.state === 'fitting' ? 'Drawing the map of your collection.'
-                : 'The collection map has no papers placed yet.'}
+              : map.data?.state === 'fitting' ? `Drawing the map of ${place.name}.`
+                : place.named ? `The map of ${place.name} has no papers placed yet.` : 'The collection map has no papers placed yet.'}
           </div>
         )}
       </div>
+      {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+      <p className="sr-only" aria-live="polite" data-map-said="">
+        {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+          brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          opens: opensWords('keyboard', !!onChoose, hovered === focus),
+        })) : ''}
+      </p>
       <figcaption>{said}</figcaption>
     </figure>
   );
 });
+
+/**
+ * What choosing a paper does on a map, for its tip: opens it beside the map,
+ * or opens its page (from the keyboard, Enter does, once it is chosen). The
+ * page's own paper, and a paper already open beside the map, open nothing
+ * more, and their tips say nothing of it.
+ */
+export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isOpen: boolean): string | undefined {
+  if (isOpen) return undefined;
+  if (beside) return via === 'keyboard' ? undefined : 'Opens it beside the map';
+  return via === 'keyboard' ? 'Enter opens its page' : 'Opens its page';
+}
 
 /** "placed by shared wording" or "placed by meaning", for a caption. */
 export function basisWords(basis: SkyFacts['basis']): string {

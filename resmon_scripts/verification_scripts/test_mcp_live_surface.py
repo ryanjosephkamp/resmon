@@ -107,6 +107,7 @@ _ARGS: dict[str, dict] = {
     "get_paper_lifecycle": {"doc_id": 999999},
     "get_analytics": {"view": "overview"},
     "get_watchdog_findings": {},
+    "list_collections": {},
     "export_references": {"exec_id": 999999, "format": "bibtex"},
     "run_sweep": None,        # starts real work; covered separately
     "create_routine": None,   # writes; covered separately

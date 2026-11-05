@@ -18,9 +18,10 @@ export interface WindowLike {
 }
 
 /**
- * The collection a window shows. Collections are not built yet: every window
- * shows the only one, which is `null` here, and a window opened for another
- * one will say so through this field without anything else in the set changing.
+ * The collection a window shows, by id: its own, which the switch in its top
+ * bar changes (`setCollection`), and which a window opened from it starts on.
+ * `null` until the window has chosen one: it then shows the collection the
+ * engine remembers, the one last chosen in any window, and takes it as its own.
  */
 export type CollectionId = string | null;
 
@@ -72,6 +73,14 @@ export class WindowSet<W extends WindowLike> {
 
   collectionOf(window: W): CollectionId {
     return this.entries.get(window)?.collection ?? null;
+  }
+
+  /** The window shows another collection; no other window's changes. False for a window not in the set. */
+  setCollection(window: W, collection: CollectionId): boolean {
+    const entry = this.entries.get(window);
+    if (!entry) return false;
+    entry.collection = collection;
+    return true;
   }
 
   /**

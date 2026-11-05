@@ -138,8 +138,9 @@ export function TopBarSettings() {
       <h2 id="top-bar-title" className="group-title">Top bar</h2>
       <p className="group-lede">
         Which sections the bar shows, in what order, and the page resmon opens on. Kept in resmon’s own database,
-        so every window and every launch has the same bar. Settings keeps its place at the bar’s right end,
-        and {keysText(shortcut('settings').chord, mac)} opens it from anywhere.
+        so every window and every launch has the same bar. The collection the window shows stays beside the
+        resmon name, Settings keeps its place at the bar’s right end, and {keysText(shortcut('settings').chord, mac)} opens
+        Settings from anywhere.
       </p>
 
       <div className="bar-sections" data-settings="sections">

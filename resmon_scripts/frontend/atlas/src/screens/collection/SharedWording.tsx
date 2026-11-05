@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { count, number, publishedWords, when } from '../today/format';
 import { SearchTabs } from './SearchTabs';
+import { useCollection } from '../../collections/current';
 import {
   WORDING_KEY, comparedWords, pairLine, pairParam, percentWords, progressWords, readPair, segments,
   type SharedWordingBrief, type SharedWordingOverview, type SharedWordingPair,
@@ -24,6 +25,8 @@ function refusal(error: Error): string {
  * passages in both texts. It never says why two texts share wording.
  */
 export function SharedWording() {
+  // The scan reads every abstract resmon holds; with several collections, the words say so.
+  const { several } = useCollection();
   const client = useQueryClient();
   const [params, setParams] = useSearchParams();
   const open = readPair(params.get('pair'));
@@ -53,7 +56,7 @@ export function SharedWording() {
       <SearchTabs />
       <h1 className="page-title">Shared wording</h1>
       <p className="page-lede">
-        Abstracts in your collection that share passages word for word. resmon measures the passages and lists the
+        Abstracts {several ? 'in resmon, in every collection,' : 'in your collection'} that share passages word for word. resmon measures the passages and lists the
         pairs; it does not say why two texts share wording, and it uses no model to look.
       </p>
 
@@ -130,6 +133,7 @@ export function SharedWording() {
 }
 
 function ScanFacts({ data, now }: { data: SharedWordingOverview; now: Date }) {
+  const { several } = useCollection();
   const s = data.settings;
   const scan = data.scan;
   return (
@@ -158,7 +162,7 @@ function ScanFacts({ data, now }: { data: SharedWordingOverview; now: Date }) {
           {data.withheld > 0 && (
             <p className="settings-said" data-wording="withheld">
               {count(data.withheld, 'pair is', 'pairs are')} not listed because a paper&rsquo;s text changed, or the
-              paper left your collection, after the scan.
+              paper left {several ? 'resmon' : 'your collection'}, after the scan.
             </p>
           )}
         </>

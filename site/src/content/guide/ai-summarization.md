@@ -82,7 +82,7 @@ With **An API key**, the default provider is the one summaries use. Codex gets r
 
 ## Embeddings
 
-**Embed papers so Search can rank them by meaning** turns the feature on. Once a model is saved, each run embeds the papers it collects. The papers already in your collection are embedded only when you start that.
+**Embed papers so Search can rank them by meaning** turns the feature on. Once a model is saved, each run embeds the papers it collects. The papers already in your collection are embedded only when you start that. The backfill and its counts cover every paper resmon holds, in every collection.
 
 Four facts are always shown, so the feature never claims more than it has:
 
@@ -95,6 +95,6 @@ The provider list says which can embed. **Local (Ollama)** comes first because i
 
 **Probe this model** asks the lane to embed one short sentence and reports what answered. **Save embedding settings** refuses a provider that cannot embed.
 
-For papers already collected, **Estimate the work** shows the cost first: the papers, the tokens, the money where resmon has a price, and the disk. Then **Embed N papers** starts the backfill. **Stop after this batch** stops it, and starting again resumes from what is missing rather than from where it stopped. A batch already sent is finished and kept. **Rebuild the index** remakes the similarity index from the vectors.
+For papers already collected, **Estimate the work** shows the cost first: the papers, the tokens, the money where resmon has a price, and the disk. Then **Embed N papers** starts the backfill. While it runs, pointing at its bar shows how many papers it has embedded of how many. **Stop after this batch** stops it, and starting again resumes from what is missing rather than from where it stopped. A batch already sent is finished and kept. **Rebuild the index** remakes the similarity index from the vectors.
 
 What is sent: each paper's title and abstract go to the embedding provider, after every run and during a backfill, and a search by meaning sends what you typed. With a local model nothing leaves the computer unless you gave resmon another address for it.

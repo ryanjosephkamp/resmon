@@ -45,11 +45,11 @@ Atlas is React 19 and TypeScript built with Vite. Every HTTP call goes through o
 
 ## What is stored and what is derived
 
-The database holds the papers, runs and their per-source outcomes, watches, schedules, saved searches, people and their matches, the reading queue, Library and Evidence records, assistant conversations, delivery records, and settings. Keys and passwords are not in it; they are in your operating system's keychain.
+The database holds the papers and the collections they are in, runs and their per-source outcomes, watches, schedules, saved searches, people and their matches, the reading queue, Library and Evidence records, assistant conversations, delivery records, and settings. Keys and passwords are not in it; they are in your operating system's keychain.
 
 Some answers are derived from the papers and kept in files beside the database, and are deleted with the corpus because they hold words from it. They are never backed up, and are rebuilt:
 
-- **The collection map** (`<db>-map.npz`). A full fit runs in a child process and is cached. The map reports whether it placed papers by embedding or by shared wording.
+- **The collection map** (`<db>-map.npz` for the default collection, `<db>-map-<id>.npz` for each other). A full fit of one collection's papers runs in a child process and is cached. The map reports whether it placed papers by embedding or by shared wording.
 - **The shared-wording scan** (`<db>-wording.json`), recorded with the version of the method that made it.
 
 Embeddings are stored as plain rows in a table any SQLite can read, with a `sqlite-vec` index over them that can be rebuilt.

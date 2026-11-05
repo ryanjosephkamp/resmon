@@ -119,6 +119,23 @@ def coverage(conn: sqlite3.Connection, model: Optional[str]) -> dict:
     return {"embedded": embedded, "total": total, "model": model}
 
 
+def collection_coverage(conn: sqlite3.Connection, model: Optional[str], collection_id: int) -> dict:
+    """:func:`coverage` over one collection's papers: what Search says of the
+    collection it shows. A backfill still embeds every paper resmon holds."""
+    from .paper_collections import holds_every_paper, member_clause  # noqa: PLC0415 - imports the database module
+
+    if holds_every_paper(conn, collection_id):
+        return coverage(conn, model)
+    total = int(conn.execute("SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?",
+                             (int(collection_id),)).fetchone()[0])
+    if not model:
+        return {"embedded": 0, "total": total, "model": None}
+    embedded = int(conn.execute(
+        f"SELECT COUNT(*) FROM document_embeddings e WHERE e.model = ? AND {member_clause('e.document_id')}",
+        (model, int(collection_id))).fetchone()[0])
+    return {"embedded": embedded, "total": total, "model": model}
+
+
 def embed_documents(
     conn: sqlite3.Connection,
     lane: EmbeddingLane,

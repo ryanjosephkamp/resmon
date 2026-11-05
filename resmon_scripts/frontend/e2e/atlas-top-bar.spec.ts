@@ -67,7 +67,7 @@ async function shoot(win: Page, name: string) {
 async function barFits(win: Page): Promise<void> {
   const inner = await win.evaluate(() => window.innerWidth);
   const boxes = await win.locator('header.bar').evaluate((bar) => [...bar.querySelectorAll(
-    '.lockup, .tabs:not([hidden]) li, .run-monitor, .newsearch, .cmdk, :scope > .iconbtn',
+    '.lockup, .scope, .tabs:not([hidden]) li, .run-monitor, .newsearch, .cmdk, :scope > .iconbtn',
   )].map((node) => node.getBoundingClientRect()).filter((r) => r.width > 0).map((r) => ({ left: r.left, right: r.right })));
   for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.left, `control ${i} overlaps the one before it`).toBeGreaterThanOrEqual(boxes[i - 1]!.right);
   expect(boxes[boxes.length - 1]!.right).toBeLessThanOrEqual(inner);
@@ -312,6 +312,71 @@ test('every section hidden: Settings is still reached, and at 960 by 640 the bar
     await win.evaluate(() => { window.location.hash = '#/runs'; });
     await barFits(win);
     await shoot(win, 'top-bar-some-hidden-960.png');
+    expect(problems, 'the page reported errors').toEqual([]);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+test('with two collections, the switch stays beside the resmon name in the default bar and an arranged one, at four widths, in both themes', async () => {
+  test.setTimeout(300_000);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-top-bar-collections-')));
+  const { app, win, problems } = await launch(stateDir);
+  try {
+    const port = await win.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort());
+    const call = async (route: string, method: string, body: unknown) => {
+      const response = await e2eFetch(`http://127.0.0.1:${port}${route}`, {
+        method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      expect(response.ok, `${method} ${route} answered ${response.status}`).toBe(true);
+      return response.json() as Promise<unknown>;
+    };
+    // A second collection with a long name, chosen in this window's switch, which the window then keeps.
+    await call('/api/collections', 'POST', { name: 'Fluid dynamics and turbulence' });
+    await win.reload();
+    const scope = win.locator('header.bar .scope');
+    await scope.click();
+    await win.getByRole('menu', { name: 'Collections' }).getByRole('menuitemradio', { name: /Fluid dynamics and turbulence/ }).click();
+    await expect(scope).toHaveText('Fluid dynamics and turbulence');
+    const arrangements: [string, unknown][] = [
+      ['default', { order: [], hidden: [], start: '/today', lockup: null }],
+      ['arranged', { order: ['health', 'search', 'runs', 'today', 'library', 'watches', 'ask'], hidden: ['watches', 'ask'], start: '/search', lockup: '/runs' }],
+    ];
+    const resize = async (width: number) => {
+      // The window itself where the display allows, zoomed out where it does not, as the collections spec does.
+      await app.evaluate(({ BrowserWindow, screen }, x) => {
+        const area = screen.getPrimaryDisplay().workAreaSize;
+        const w = BrowserWindow.getAllWindows()[0]!;
+        const fits = x <= area.width;
+        const zoom = fits ? 1 : area.width / x;
+        w.setSize(fits ? x : area.width, Math.min(area.height, Math.round(860 * zoom)));
+        w.webContents.setZoomFactor(zoom);
+      }, width);
+      await expect.poll(() => win.evaluate(() => window.innerWidth), { timeout: 10_000 }).toBeGreaterThanOrEqual(width - 2);
+    };
+    for (const [name, arrangement] of arrangements) {
+      await call('/api/top-bar', 'PUT', arrangement);
+      for (const theme of ['light', 'dark'] as const) {
+        await call('/api/appearance', 'PUT', { theme, accent: null });
+        await win.reload();
+        await expect(win.getByRole('link', { name: 'Settings', exact: true })).toBeVisible({ timeout: 60_000 });
+        await expect(scope).toHaveText('Fluid dynamics and turbulence');
+        expect(await win.evaluate(() => document.documentElement.dataset.theme)).toBe(theme);
+        expect(await tabs(win)).toEqual(name === 'default' ? DEFAULT : ['Health', 'Search', 'Runs', 'Today', 'Library']);
+        for (const width of [960, 1100, 1280, 1600]) {
+          await resize(width);
+          // The switch follows the resmon name, before the first section, whatever their order.
+          expect(await win.locator('header.bar').evaluate((bar) => [...bar.children].filter((n) => !n.matches('[popover]'))
+            .slice(0, 3).map((n) => n.className)))
+            .toEqual(['lockup', 'scope', 'tabs']);
+          await barFits(win);
+          await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+          fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
+          await win.locator('header.bar').screenshot({ path: path.join(SCREENSHOT_DIR, `top-bar-collections-${name}-${width}-${theme}.png`) });
+        }
+      }
+    }
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });

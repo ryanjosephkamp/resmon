@@ -1,10 +1,11 @@
-import type { ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
+import { Icon } from '../../shell/Icon';
 import type { components } from '../../api/schema';
 import { queueWords } from '../collection/Paper';
-import { authors, number, publishedWords } from '../today/format';
+import { authors, count, number, publishedWords } from '../today/format';
 import { invalidateFor } from '../today/freshness';
 import { sourceName } from '../health/model';
 import { scheduleText } from '../watches/model';
@@ -17,6 +18,9 @@ import {
 } from './model';
 import { LivePanel } from './LivePanel';
 import { RunMap } from './RunMap';
+import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
+import { PickBox, SelectBar, useRowKeys } from '../selection/SelectBar';
+import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../selection/picks';
 
 /** One of a run's papers, with its place in the reading queue. */
 export type RunPaper = components['schemas']['RunPaper'];
@@ -83,6 +87,13 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab,
   );
 }
 
+/**
+ * The papers the run stored, a page at a time, each with Save to read or its
+ * place in the reading queue. Save this run's new papers saves every paper the
+ * run was the first to find, read or not. Select gives each row a box, and
+ * the selection bar saves the rows picked, or with Select all every paper the
+ * run stored, past the pages read.
+ */
 function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props, 'papers' | 'running' | 'names'> & {
   runId: number; more?: () => void; readingMore: boolean;
 }) {
@@ -95,21 +106,88 @@ function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props
       void invalidateFor(client, 'paper-changed');
     },
   });
+  // How many the run was the first to find, still in the collection: what Save this run's new papers saves.
+  const fresh = useQuery({
+    queryKey: ['run-papers', runId, 'new'], enabled: !running,
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/documents', {
+      params: { path: { exec_id: runId }, query: { only_new: true, limit: 1 } },
+    })),
+  });
+  const freshCount = fresh.data?.total ?? 0;
+  const [selecting, setSelecting] = useState(false);
+  const order = useMemo(() => papers?.papers.map((paper) => paper.id) ?? [], [papers]);
+  const picks = usePicks<number>(order, `run:${runId}`);
+  const total = papers?.total ?? null;
+  const picked = sizeOf(picks.picks, total);
+  const allPicked = picks.picks.all && picks.picks.except.size === 0;
+  const saving = useSaveToRead(() => picks.release('all'));
+  const { pick, selectAll, clear } = picks;
+  const { cancel } = saving;
+  const endSelecting = useCallback(() => { setSelecting(false); clear(); cancel(); }, [clear, cancel]);
+  const { attach, onKeyDown: rowKeys } = useRowKeys({
+    count: order.length, onAll: selectAll,
+    onRange: (to, from) => { const id = order[to]; if (id !== undefined) pick(id, true, order[from]); },
+  });
+  const savePicked = () => {
+    if (!picked) return;
+    if (picks.picks.all) {
+      saving.save({
+        target: { kind: 'run', executionId: runId, onlyNew: false, except: [...picks.picks.except], atMost: picked },
+        n: picked, all: allPicked, what: allPicked ? `all ${count(picked, 'paper')} this run stored` : `these ${count(picked, 'paper')}`,
+      });
+    } else {
+      const ids = pickedIn(picks.picks, order);
+      saving.save({ target: { kind: 'listed', ids }, n: ids.length, all: false, what: `these ${count(ids.length, 'paper')}` });
+    }
+  };
+  const saveNew = () => saving.save({
+    target: { kind: 'run', executionId: runId, onlyNew: true, except: [], atMost: freshCount },
+    n: freshCount, all: true, what: `this run’s ${count(freshCount, 'new paper')}`,
+  });
+
   if (running) return <p className="record-cap">The run&rsquo;s papers are listed when it has finished storing them.</p>;
   if (!papers) return <p className="record-cap">Reading the run&rsquo;s papers.</p>;
   if (!papers.papers.length) return <p className="record-cap">This run stored no papers.</p>;
   return (
     <>
-      <p className="record-cap">
-        {papers.total > papers.papers.length
-          ? `The first ${number(papers.papers.length)} of ${number(papers.total)} papers this run stored.`
-          : `${number(papers.total)} ${papers.total === 1 ? 'paper' : 'papers'} this run stored.`}
-      </p>
-      <ol className="paper-list">
-        {papers.papers.map((paper) => {
+      {selecting ? (
+        <SelectBar label="The selected papers" className="run-papers-select" said={selectedWords(picked, total)}
+          tick={isEmpty(picks.picks, total) ? 'none' : allPicked ? 'on' : 'part'}
+          allLabel={allPicked ? null : `Select all ${count(papers.total, 'paper')}`} onAll={selectAll} onDone={endSelecting}
+          below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
+          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
+        </SelectBar>
+      ) : (
+        <div className="run-papers-head">
+          <p className="record-cap">
+            {papers.total > papers.papers.length
+              ? `The first ${number(papers.papers.length)} of ${number(papers.total)} papers this run stored.`
+              : `${number(papers.total)} ${papers.total === 1 ? 'paper' : 'papers'} this run stored.`}
+          </p>
+          <span className="run-papers-acts">
+            {freshCount > 0 && (
+              <button type="button" className="btn sm" data-run="save-new" disabled={saving.pending || saving.asking}
+                title="Every paper this run was the first to find, including those not listed yet" onClick={saveNew}>
+                <Icon name="bookmark" size={14} />Save this run&rsquo;s {count(freshCount, 'new paper')} to read
+              </button>
+            )}
+            <button type="button" className="btn sm" data-run="select" onClick={() => setSelecting(true)}>Select</button>
+          </span>
+          {!selecting && saving.question}
+          {!selecting && saving.refused}
+        </div>
+      )}
+      <ol className="paper-list" ref={attach} onKeyDown={selecting ? rowKeys : undefined}>
+        {papers.papers.map((paper, index) => {
           const state = queueWords(paper.queue_status);
+          const chosen = selecting && has(picks.picks, paper.id);
           return (
-            <li key={paper.id} className="paper-row" data-document={paper.id} data-queue={paper.queue_status ?? 'none'}>
+            <li key={paper.id} className={selecting ? (chosen ? 'paper-row picking picked' : 'paper-row picking') : 'paper-row'}
+              data-document={paper.id} data-queue={paper.queue_status ?? 'none'}>
+              {selecting && (
+                <PickBox picked={chosen} label={`Select “${paper.title || 'Untitled'}”`} index={index}
+                  onPick={(range) => pick(paper.id, range)} />
+              )}
               <div className="paper-row-main">
                 <Link to={`/papers/${paper.id}`} className="paper-title">{paper.title || 'Untitled'}</Link>
                 <span className="meta">
@@ -135,6 +213,7 @@ function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props
         </button>
       )}
       {save.error && <p className="field-error" role="alert">The paper could not be saved: {save.error.message}.</p>}
+      {saving.notice}
     </>
   );
 }

@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-226 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+237 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 138 of 226 routes that have one. The remaining 88 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 148 of 237 routes that have one. The remaining 89 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 188 of 226 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 199 of 237 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -47,7 +47,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `PUT` | `/api/routines/{routine_id}` | token | — | `RoutineUpdated` | *Update Routine Endpoint* |
 | `POST` | `/api/routines/{routine_id}/activate` | token | — | `RoutineActivation` | *Activate Routine* |
 | `POST` | `/api/routines/{routine_id}/deactivate` | token | — | `RoutineActivation` | *Deactivate Routine* |
-| `GET` | `/api/routines/{routine_id}/documents` | token | — | `RoutineDocuments` | The papers this routine's runs collected: a watch's constellation. |
+| `GET` | `/api/routines/{routine_id}/documents` | token | — | `RoutineDocuments` | The papers this routine's runs collected that a collection holds: a watch's constellation on its map. |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
 | `GET` | `/api/scheduler/jobs` | token | — | — | *Get Scheduler Jobs* |
 | `GET` | `/api/scheduler/status` | token | — | `SchedulerStatus` | Whether this database's active routines will fire, and what decides it. |
@@ -68,9 +68,9 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/analytics/discovery-lag` | token | — | `DiscoveryLag` | Median days between publication and resmon first seeing each paper. |
 | `GET` | `/api/analytics/keyword-contribution` | token | — | `KeywordContribution` | Per keyword: papers it found that no other keyword did. |
-| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs, in one round trip. |
+| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs about one collection, in one round trip. |
 | `GET` | `/api/analytics/publication-volume` | token | — | `PublicationVolume` | Papers per publication month, split by source or subject category. |
-| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine: new results per run, and whether it has gone quiet. |
+| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine whose papers land in the collection: new results per run, and whether it has gone quiet. |
 | `GET` | `/api/analytics/source-contribution` | token | — | `SourceContribution` | Per source: papers delivered, and how many nothing else found. |
 | `GET` | `/api/analytics/summary` | token | — | `CorpusSummary` | *Analytics Summary* |
 
@@ -102,7 +102,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `PUT` | `/api/profiles/{profile_id}` | token | — | `WatchProfile` | *Update Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}/export` | token | — | `WatchProfileExport` | *Export Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}/lifecycle` | token | — | `WatchProfileLifecycle` | Retractions and other lifecycle findings on this profile's papers. |
-| `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers matched to this profile, **each with the basis it was matched on**. |
+| `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers of a collection matched to this profile, **each with the basis it was matched on**. |
 
 ## J08 — Author identity and entity search
 
@@ -144,6 +144,14 @@ No route of its own. The capability is in the normaliser, the catalog's `entity_
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/collections` | token | — | `CollectionList` | Every collection, the one the app shows, and the default one. |
+| `POST` | `/api/collections` | token | — | `CollectionSummary` | Make an empty collection. Names are unique without regard to case. |
+| `PUT` | `/api/collections/current` | token | — | `CollectionCurrent` | Remember the collection the app shows, by its id or its name. |
+| `DELETE` | `/api/collections/{collection_id}` | token | — | `CollectionDeleted` | Delete a collection, never its papers. |
+| `GET` | `/api/collections/{collection_id}` | token | — | `CollectionDetail` | One collection, and what deleting it would do to its papers and watches. |
+| `PUT` | `/api/collections/{collection_id}` | token | — | `CollectionSummary` | *Rename Collection* |
+| `POST` | `/api/collections/{collection_id}/papers` | token | — | `CollectionPapersChanged` | Move or copy papers into this collection. No paper leaves the database. |
+| `POST` | `/api/collections/{collection_id}/papers/undo` | token | — | `CollectionPapersUndone` | Undo a move or a copy into this collection, from what it answered. |
 | `GET` | `/api/documents/{doc_id}` | token | — | `Paper` | One paper as stored, and where it stands in the reading queue. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
 | `POST` | `/api/explorer/export` | token | — | — | Export everything matching the current filters, not just the page shown. |
@@ -273,7 +281,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
 | `POST` | `/api/backup/drive-upload-notice/acknowledge` | token | — | `DriveUploadNoticeAcknowledged` | Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
 | `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
@@ -303,8 +311,11 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/reading-queue` | token | — | `ReadingQueuePage` | One page of saved papers. `status` omitted (or `all`) means both. |
+| `GET` | `/api/reading-queue` | token | — | `ReadingQueuePage` | One page of a collection's saved papers. `status` omitted (or `all`) means both. |
 | `POST` | `/api/reading-queue` | token | — | `ReadingQueueEntry` | Save a stored paper. Saving one already saved returns it unchanged. |
+| `POST` | `/api/reading-queue/batch` | token | — | `ReadingQueueBatchSaved` | Save many papers at once: each one not in the queue is added, each one in it is left as it is. |
+| `POST` | `/api/reading-queue/batch/all` | token | — | `ReadingQueueBatchSaved` | Save every paper of a search, a run, or Today, read by the engine rather than listed. |
+| `POST` | `/api/reading-queue/batch/undo` | token | — | `ReadingQueueBatchUndone` | Undo a save of many: the entries it added go, unless they changed since. |
 | `DELETE` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueRemoval` | Take a paper out of the queue. The paper itself is not touched. |
 | `PUT` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueEntry` | Mark a saved paper read or unread. |
 | `POST` | `/api/reading-queue/{document_id}/restore` | token | — | `ReadingQueueRestored` | Undo a removal: the entry back with the state and dates it had. |
@@ -447,7 +458,7 @@ No route. Recorded in the register as not carried forward.
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `POST` | `/api/backup/verify` | token | — | `BundleReport` | Recompute every hash and report what a restore would and would not do. |
 | `POST` | `/api/restore` | token | — | `RestoreStaged` | Verify a bundle and stage it. The restore itself happens on the next start. |
 | `POST` | `/api/restore/acknowledge` | token | — | `RestoreAcknowledged` | Dismiss the one-time "what a restore did not bring back" card. |
@@ -463,7 +474,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 226 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 237 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 
@@ -475,10 +486,11 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/analytics/discovery-lag` | token | — | `DiscoveryLag` | Median days between publication and resmon first seeing each paper. |
 | `GET` | `/api/analytics/keyword-contribution` | token | — | `KeywordContribution` | Per keyword: papers it found that no other keyword did. |
-| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs, in one round trip. |
+| `GET` | `/api/analytics/overview` | token | — | `AnalyticsOverview` | Everything the Analytics page needs about one collection, in one round trip. |
 | `GET` | `/api/analytics/publication-volume` | token | — | `PublicationVolume` | Papers per publication month, split by source or subject category. |
-| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine: new results per run, and whether it has gone quiet. |
+| `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine whose papers land in the collection: new results per run, and whether it has gone quiet. |
 | `GET` | `/api/analytics/source-contribution` | token | — | `SourceContribution` | Per source: papers delivered, and how many nothing else found. |
+| `GET` | `/api/collections` | token | — | `CollectionList` | Every collection, the one the app shows, and the default one. |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
@@ -493,7 +505,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/profiles` | token | — | `WatchProfileList` | *List Watch Profiles* |
 | `POST` | `/api/profiles` | token | — | `WatchProfile` | *Create Watch Profile* |
 | `GET` | `/api/profiles/{profile_id}` | token | — | `WatchProfile` | *Get Watch Profile* |
-| `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers matched to this profile, **each with the basis it was matched on**. |
+| `GET` | `/api/profiles/{profile_id}/matches` | token | — | `WatchProfileMatchPage` | Papers of a collection matched to this profile, **each with the basis it was matched on**. |
 | `GET` | `/api/repositories/catalog` | token | — | `list` | Return the static repository catalog (never returns secrets). |
 | `GET` | `/api/routines` | token | — | `list` | *List Routines* |
 | `POST` | `/api/routines` | token | — | `RoutineCreated` | *Create Routine* |
@@ -530,10 +542,10 @@ Calls in `mcp_server.py` that resolve to no single route, and so are not in the 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/documents/briefs` | token | — | `list` | A line about each paper asked for, for the plate's hover: title, authors, |
-| `GET` | `/api/executions/{exec_id}/document-ids` | token | — | `RunDocumentIds` | Every paper this run stored that is still in the collection, by id. |
-| `GET` | `/api/map` | token | — | `CollectionMap` | Where every paper sits on the Atlas plate, and on what basis. |
-| `GET` | `/api/map/facets` | token | — | `MapFacets` | What the map's filters and colors read about every paper: its source, |
-| `GET` | `/api/map/find` | token | — | `MapFind` | The papers whose title or authors contain `q`, newest first, for |
+| `GET` | `/api/executions/{exec_id}/document-ids` | token | — | `RunDocumentIds` | Every paper this run stored that is in the collection, by id. |
+| `GET` | `/api/map` | token | — | `CollectionMap` | Where every paper of a collection sits on the Atlas plate, and on what basis. |
+| `GET` | `/api/map/facets` | token | — | `MapFacets` | What the map's filters and colors read about every paper of a collection: |
+| `GET` | `/api/map/find` | token | — | `MapFind` | The papers of a collection whose title or authors contain `q`, newest |
 | `GET` | `/api/map/views/{name}` | token | — | `MapView` | The filters and colors a map was last left with, and how the list |
 | `PUT` | `/api/map/views/{name}` | token | — | `MapView` | *Put Map View* |
 
@@ -541,10 +553,11 @@ Calls in `mcp_server.py` that resolve to no single route, and so are not in the 
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `PUT` | `/api/collections/current` | token | — | `CollectionCurrent` | Remember the collection the app shows, by its id or its name. |
 | `POST` | `/api/documents/briefs` | token | — | `list` | A line about each paper asked for, for the plate's hover: title, authors, |
-| `GET` | `/api/today` | token | — | `Today` | The papers resmon first collected since Today was last looked at, by watch. |
-| `POST` | `/api/today/looked` | token | — | `TodayLooked` | Record that Today was looked at now: the next window starts here. |
-| `GET` | `/api/today/papers` | token | — | `TodayPapersPage` | The next page of Today's new papers, after the page before it. |
+| `GET` | `/api/today` | token | — | `Today` | The papers runs put in a collection since its Today was last looked at, by watch. |
+| `POST` | `/api/today/looked` | token | — | `TodayLooked` | Record that a collection's Today was looked at now: its next window starts here. |
+| `GET` | `/api/today/papers` | token | — | `TodayPapersPage` | The next page of a collection's new papers on Today, after the page before it. |
 
 ## J49 — Shared wording across papers
 

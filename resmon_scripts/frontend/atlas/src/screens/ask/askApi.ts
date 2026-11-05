@@ -106,7 +106,7 @@ export const ask = {
    * before the stream starts (409 while another turn holds the conversation,
    * a configuration that changed) is thrown with the engine's own sentence.
    */
-  turn: async (id: number, body: { text: string; legacy_adoption?: { choices: ChoiceRequest; confirmed: true } },
+  turn: async (id: number, body: { text: string; collection?: string; legacy_adoption?: { choices: ChoiceRequest; confirmed: true } },
     onEvent: (event: TurnEvent) => void, signal: AbortSignal): Promise<void> => {
     const port = bridge()?.getBackendPort() ?? '';
     if (!port) throw new EngineError(0, 'This window has no backend connection yet.');

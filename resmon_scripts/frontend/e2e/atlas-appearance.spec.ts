@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -141,6 +142,6 @@ test('a theme and an accent chosen in Settings come back on the next launch', as
       }
     }
   } finally {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

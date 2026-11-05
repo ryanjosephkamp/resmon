@@ -124,8 +124,11 @@ def _seed(path: Path) -> dict:
         ])
         ids = {row["external_id"]: int(row["id"])
                for row in conn.execute("SELECT id, external_id FROM documents")}
-        conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?",
-                     ((now - timedelta(days=20)).strftime("%Y-%m-%d %H:%M:%S"), ids["cli-old-1"]))
+        twenty_days_ago = (now - timedelta(days=20)).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (twenty_days_ago, ids["cli-old-1"]))
+        # It arrived in its collection when it was first collected, as a run's paper does.
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?",
+                     (twenty_days_ago, ids["cli-old-1"]))
 
         routine = database.insert_routine(conn, {
             "name": "daily_agents", "schedule_cron": "0 3 1 1 *",
@@ -330,7 +333,7 @@ def test_today_in_words(service):
     assert status == 0, raw
     out = flat(raw)
     assert "nothing has been marked read yet" in out
-    assert "3 papers first collected since then." in out
+    assert "3 papers arrived since then." in out
     for title in ("Agents that read the literature", "A second paper on agents", "Protein folding at scale"):
         assert title in out
     assert "An older paper about agents" not in out  # collected before the window
@@ -453,7 +456,8 @@ def test_a_withdrawn_source_is_named_as_the_wall_names_it():
             return {"/api/today": today, "/api/repositories/catalog": [{"slug": "dblp", "name": "DBLP"}]}.get(path)
 
     stream = io.StringIO()
-    cli_commands.today(Stub(), type("Args", (), {"action": None, "json": False, "all": False, "limit": 5})(),
+    cli_commands.today(Stub(), type("Args", (), {"action": None, "json": False, "all": False, "limit": 5,
+                                                "collection": None})(),
                        cli_text.Out(stream, 100))
     out = stream.getvalue()
     assert "DBLP: could not answer this window. It timed out" in out
@@ -506,6 +510,72 @@ def test_export_today_as_a_json_envelope(service):
     body = json.loads(out)
     assert body["document_count"] == backend.get("/api/today")["total"] == 3
     assert body["content"].startswith("TY  -")
+
+
+@pytest.fixture(scope="module")
+def two_collections(tmp_path_factory):
+    """The seeded corpus with a second collection, Proteins, holding the protein paper alone,
+    and a watch that puts its papers there."""
+    state = tmp_path_factory.mktemp("cli-collections")
+    seeded = _seed(state / "resmon.db")
+    backend = instance.start_backend(state)
+    try:
+        made = backend.post("/api/collections", {"name": "Proteins"})
+        backend.post(f"/api/collections/{made['id']}/papers",
+                     {"mode": "move", "document_ids": [seeded["papers"]["cli-new-3"]]})
+        yield backend, seeded, made["id"]
+    finally:
+        backend.stop()
+
+
+def test_collections_are_listed_with_their_papers_and_watches(two_collections):
+    backend, _, proteins = two_collections
+    status, out, _ = cli(cli_env(backend.state), "collections")
+    assert status == 0
+    out = flat(out)
+    assert "#1 Your collection · 3 papers · 1 watch · the one the app shows · the default" in out
+    assert f"#{proteins} Proteins · 1 paper · 0 watches" in out
+    status, out, _ = cli(cli_env(backend.state), "collections", "--json")
+    assert json.loads(out) == backend.get("/api/collections")
+
+
+def test_a_read_names_its_collection_by_name_or_number(two_collections):
+    backend, _, proteins = two_collections
+    status, out, _ = cli(cli_env(backend.state), "search", "--collection", "proteins")
+    assert status == 0 and "1 paper matches." in out and "Protein folding at scale" in out
+    status, out, _ = cli(cli_env(backend.state), "search", "--collection", str(proteins), "--json")
+    assert json.loads(out) == backend.post("/api/explorer/search", {
+        "collection": proteins, "sources": [], "authors": [], "categories": [], "limit": 20, "sort": "newest"})
+    status, out, _ = cli(cli_env(backend.state), "search")
+    assert "Protein folding" not in out, "no --collection is the default collection"
+
+    status, out, _ = cli(cli_env(backend.state), "today", "--collection", "Proteins")
+    out = flat(out)
+    assert status == 0 and "Today in Proteins: nothing has been marked read yet" in out
+    # Moved there by the person, so not news on its Today.
+    assert "0 papers arrived since then." in out
+    status, out, _ = cli(cli_env(backend.state), "today")
+    assert "Today in Your collection:" in flat(out) and "2 papers arrived since then." in flat(out)
+
+    status, out, _ = cli(cli_env(backend.state), "export", "--search", "", "--collection", "Proteins",
+                         "--format", "csv")
+    assert status == 0 and "Protein folding at scale" in out and "Agents" not in out
+    status, _, err = cli(cli_env(backend.state), "search", "--collection", "Chemistry")
+    assert status == 2 and "No collection called 'Chemistry'" in err and "'Proteins'" in err
+    status, _, err = cli(cli_env(backend.state), "export", "--run", "1", "--collection", "Proteins")
+    assert status == 2 and "--collection goes with --today or --search" in err
+
+
+def test_watch_add_puts_its_papers_in_the_collection_it_names(two_collections):
+    backend, _, proteins = two_collections
+    status, out, _ = cli(cli_env(backend.state), "watch", "add", "folding", "--keyword", "folding",
+                         "--source", "arxiv", "--inactive", "--collection", "Proteins")
+    assert status == 0, out
+    assert "Its papers land in Proteins." in flat(out)
+    made = [r for r in backend.get("/api/routines") if r["name"] == "folding"]
+    assert made and made[0]["collection_id"] == proteins
+    status, out, _ = cli(cli_env(backend.state), "watch", "list")
+    assert "its papers land in Proteins" in flat(out)
 
 
 def test_export_refuses_a_filter_it_would_ignore(service):
@@ -600,7 +670,7 @@ def test_mark_read_starts_the_next_today_there(app_engine):
     assert body["window"] == "since_last_look" and body["since"] == looked
     assert body["total"] == 0 and body["papers"] == []
     status, out, _ = cli(cli_env(backend.state), "today")
-    assert "Today: 0 papers first collected since you last marked all read" in out
+    assert "Today: 0 papers arrived since you last marked all read" in out
 
 
 def test_the_service_is_asked_before_the_app_s_engine(tmp_path, service, app_engine):

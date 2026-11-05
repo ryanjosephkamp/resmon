@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const ISSUES = 'https://github.com/ryanjosephkamp/resmon/issues';
 const GITHUB = 'https://github.com/ryanjosephkamp/';
@@ -159,6 +160,6 @@ test('About resmon: the engine\'s version, the license as written, the keychain 
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

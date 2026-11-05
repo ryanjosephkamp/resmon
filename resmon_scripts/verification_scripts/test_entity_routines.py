@@ -442,6 +442,65 @@ def test_the_retractions_mode_surfaces_the_findings_on_this_profiles_papers(fire
     assert "Retraction Watch" in report
 
 
+def test_a_retractions_run_counts_the_finding_it_recorded_as_new(fired, monkeypatch):
+    """`new_result_count` is the findings this run was the first to record.
+
+    A finding's `first_seen_at` is SQLite's `datetime('now')` and the run's start
+    is `now_iso()`. Compared as text, a finding recorded the day its run started
+    read as older than the run, and the run counted none as new.
+    """
+    from implementation_scripts import lifecycle as lifecycle_real  # noqa: PLC0415
+
+    profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
+    conn = _conn(fired)
+    try:
+        conn.execute(
+            "INSERT INTO documents (source_repository, external_id, title, "
+            "metadata_hash) VALUES ('fixture', 'hers', 'Her paper', 'hers')")
+        doc = conn.execute(
+            "SELECT id FROM documents WHERE external_id = 'hers'").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO watch_profile_matches (document_id, profile_id, basis, "
+            "matched_author) VALUES (?, ?, 'identifier', 'Jane Doe')",
+            (doc, profile["id"]))
+        # A finding recorded before this run, a minute back: the stored times
+        # have one-second resolution.
+        conn.execute(
+            "INSERT INTO document_lifecycle (document_id, kind, severity, "
+            "notice_key, label, notice_url, provider, first_seen_at) VALUES "
+            "(?, 'retraction', 'critical', 'n1', 'Retraction', "
+            "'https://doi.org/10.1/n1', 'crossref', datetime('now', '-1 minute'))", (doc,))
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+
+    real_check = lifecycle_real.check_documents
+
+    def check_and_find_a_correction(db, document_ids, **kwargs):
+        summary = real_check(db, document_ids, **kwargs)
+        db.execute(
+            "INSERT INTO document_lifecycle (document_id, kind, severity, "
+            "notice_key, label, notice_url, provider) VALUES "
+            "(?, 'correction', 'caution', 'n2', 'Correction', "
+            "'https://doi.org/10.1/n2', 'crossref')", (doc,))
+        db.commit()
+        return summary
+
+    monkeypatch.setattr(lifecycle_real, "check_documents", check_and_find_a_correction)
+    routine = fired.post("/api/routines", json=_routine_body(
+        profile["id"], mode="retractions", repositories=["fixture"])).json()
+    fired.post(f"/api/routines/{routine['id']}/run")
+
+    conn = _conn(fired)
+    try:
+        row = conn.execute(
+            "SELECT status, result_count, new_result_count FROM executions "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        resmon_mod._close_db(conn)
+    assert (row["status"], row["result_count"], row["new_result_count"]) == ("completed", 2, 1)
+
+
 def test_a_retractions_report_never_says_nothing_has_happened(fired):
     """Zero findings is a claim about the record, not about the world."""
     profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})

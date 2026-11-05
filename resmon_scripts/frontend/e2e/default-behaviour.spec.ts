@@ -22,12 +22,12 @@
  * spawn-its-own-backend decision.
  */
 import { test, expect } from '@playwright/test';
-import * as fs from 'fs';
 import type { ElectronApplication } from '@playwright/test';
 import {
   launchResmon, ATLAS_LANDMARK, WINDOW_WIDTH, WINDOW_HEIGHT, fittedWindowSize,
 } from './fixtures/resmon-app';
 import { windowTitle } from '../atlas/src/windowTitle';
+import { removeStateDir } from './fixtures/cleanup';
 
 interface Observed {
   bounds: { width: number; height: number };
@@ -84,7 +84,7 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
     plainObs = await observe(plain.app);
   } finally {
     await plain.app.close().catch(() => { /* already gone */ });
-    fs.rmSync(plain.stateDir, { recursive: true, force: true });
+    removeStateDir(plain.stateDir);
   }
 
   const e2e = await launchResmon(true);
@@ -93,7 +93,7 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
     e2eObs = await observe(e2e.app);
   } finally {
     await e2e.app.close().catch(() => { /* already gone */ });
-    fs.rmSync(e2e.stateDir, { recursive: true, force: true });
+    removeStateDir(e2e.stateDir);
   }
 
   console.log('P6 RESMON_E2E UNSET', JSON.stringify(plainObs));

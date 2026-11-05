@@ -13,6 +13,7 @@ import { PageFailed } from './PageFailed';
 import { canGo } from './history';
 import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
+import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
@@ -33,8 +34,9 @@ const keepFocus = (event: MouseEvent) => event.preventDefault();
 /**
  * The frame every screen sits in: the top bar, the screen, the palette, and
  * the keyboard's shortcuts. The bar's sections are the ones the person did not
- * hide, in their order; with every one hidden the list is gone and Settings
- * keeps its place at the bar's right end.
+ * hide, in their order (Settings › Top bar, one arrangement for every
+ * collection). Whatever is hidden, the collection the window shows stays
+ * beside the resmon name and Settings at the bar's right end.
  */
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -170,6 +172,7 @@ export function Shell() {
           <b aria-hidden="true">res</b><span aria-hidden="true">earch </span>
           <b aria-hidden="true">mon</b><span aria-hidden="true">itor</span>
         </Link>
+        <CollectionSwitcher />
         <nav className="tabs" aria-label="Sections" hidden={arranged.shown.length === 0}>
           <ul>
             {arranged.shown.map(sectionFor).map((section) => (

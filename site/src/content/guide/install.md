@@ -57,7 +57,7 @@ An installed copy checks GitHub Releases about 15 seconds after it opens, and ev
 
 ## The `resmon` command
 
-resmon carries a command line inside the app. It asks the running resmon what it has collected and how its watches are doing: Today, a search of the whole collection, recent runs, the Source wall, reference exports, and whether anything will run your watches. It never opens the database and never starts resmon itself.
+resmon carries a command line inside the app. It asks the running resmon what it has collected and how its watches are doing: Today, a search of a collection, recent runs, the Source wall, reference exports, your collections, and whether anything will run your watches. It never opens the database and never starts resmon itself.
 
 To put it on your `PATH`, choose **Install "resmon" Command in PATH**, then open a new terminal:
 
@@ -69,7 +69,8 @@ To put it on your `PATH`, choose **Install "resmon" Command in PATH**, then open
 
 ```bash
 resmon --version
-resmon today            # papers first collected since you last marked all read, by watch
+resmon today            # papers that arrived since you last marked all read, by watch
+resmon collections      # every collection, with its papers and watches
 resmon wall             # every source's answer to each recent run
 resmon service status   # which resmon it reached, and whether your watches will run
 ```
@@ -80,7 +81,7 @@ resmon service status   # which resmon it reached, and whether your watches will
 pipx install ./resmon_scripts/cli
 ```
 
-Both can be installed at once, and whichever comes first on your `PATH` answers. `resmon --version` says which one it is. Every command takes `--json`. The other commands are `search`, `runs`, `export`, and `watch list` and `watch add`. [`resmon_scripts/cli/README.md`](resmon_scripts/cli/README.md) covers each one, and how the command finds a running resmon. With nothing running, it says where it looked and exits with status 3.
+Both can be installed at once, and whichever comes first on your `PATH` answers. `resmon --version` says which one it is. Every command takes `--json`. The other commands are `search`, `runs`, `export`, and `watch list` and `watch add`. `--collection`, by a collection's name or number, chooses the one `today`, `search`, `export`, and `watch add` read or file into; without it they use the default collection. [`resmon_scripts/cli/README.md`](resmon_scripts/cli/README.md) covers each one, and how the command finds a running resmon. With nothing running, it says where it looked and exits with status 3.
 
 ## The background service
 
@@ -89,7 +90,7 @@ A resmon window does not run your watches. The background service does, and it r
 - On **macOS and Windows** the service is the app itself, started with `--service`: no window, no Dock icon, and the engine as its child. The unit is a launch agent on macOS and a scheduled task on Windows.
 - On **Linux** the service is the engine alone, started by a systemd user unit, because a user unit has no display for the app to open on.
 
-Only one copy of resmon runs at a time: a second launch exits, and the running one brings its window forward, or opens one on its own engine if none is open. A launch that finds the service still starting waits for it, without stopping it; after a moment it shows a small window saying resmon is starting, since the first start after an update updates your database and can take a few minutes, and that window closes when the service opens resmon's. A window opened while the service runs uses the service's engine when their versions match. If they do not, **Settings › In the background** tells you, and **Health › This engine** says which engine a window is using. The service writes its logs to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies kept.
+Only one copy of resmon runs at a time: a second launch exits, and the running one brings its window forward, or opens one on its own engine if none is open. A launch that finds the service still starting waits for it, without stopping it; after a moment it shows a small window saying resmon is starting, since the first start after an update keeps a copy of your database, if the disk has room, and then updates it, which can take a few minutes. That window closes when the service opens resmon's. A window opened while the service runs uses the service's engine when their versions match. If they do not, **Settings › In the background** tells you, and **Health › This engine** says which engine a window is using. The service writes its logs to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies kept.
 
 ## Running from source
 

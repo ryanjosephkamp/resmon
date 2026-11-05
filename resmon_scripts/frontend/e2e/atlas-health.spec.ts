@@ -23,6 +23,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -276,6 +277,6 @@ test('Health: the Source wall draws what each source did, the watchdog judges it
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

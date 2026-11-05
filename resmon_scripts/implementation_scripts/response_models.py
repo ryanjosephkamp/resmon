@@ -214,6 +214,8 @@ __all__ = [
     "OnboardingDismissed",
     "OnboardingState",
     "OnboardingStep",
+    "ReadingQueueBatchSaved",
+    "ReadingQueueBatchUndone",
     "ReadingQueueCounts",
     "ReadingQueueDocument",
     "ReadingQueueEntry",
@@ -1089,8 +1091,11 @@ class TodayWatch(LosslessModel):
 
 
 class TodayPaper(LosslessModel):
-    """A paper resmon first collected since the last look.
+    """A paper a run put in the collection since its last look.
 
+    ``first_seen_at`` is when resmon first collected the paper, and
+    ``arrived_at`` when it arrived in this collection; the two differ for a
+    paper resmon held elsewhere before a watch found it for this one.
     ``abstract_lede`` is the opening of the abstract as the source gave it,
     never a summary; resmon does not keep summaries per paper.
     """
@@ -1101,6 +1106,7 @@ class TodayPaper(LosslessModel):
     source: str
     publication_date: Optional[str]
     first_seen_at: Optional[str]
+    arrived_at: Optional[str]
     abstract_lede: Optional[str]
     url: Optional[str]
     doi: Optional[str]
@@ -1109,14 +1115,15 @@ class TodayPaper(LosslessModel):
 
 
 class Today(LosslessModel):
-    """``GET /api/today``.
+    """``GET /api/today``: one collection's new papers and its watches.
 
-    ``window`` is ``since_last_look`` when a look is recorded and
+    ``window`` is ``since_last_look`` when a look at this collection is recorded and
     ``first_look`` when none is, in which case ``since`` is seven days before
     ``now`` and the interface says so. ``papers`` is the first page of them, up
     to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
     (``None`` when the page holds every one) reads the next page from
-    ``GET /api/today/papers``.
+    ``GET /api/today/papers``. ``watches`` are the watches that put their
+    papers in this collection, and any other whose papers are new here.
     """
 
     now: str
@@ -1149,7 +1156,7 @@ class DocumentBrief(LosslessModel):
 
 
 class TodayLooked(LosslessModel):
-    """``POST /api/today/looked``: the moment recorded."""
+    """``POST /api/today/looked``: the moment recorded, for one collection's Today."""
 
     looked_at: str
 
@@ -1337,6 +1344,32 @@ class ReadingQueueRestored(LosslessModel):
 
     restored: bool
     entry: ReadingQueueEntry
+
+
+class ReadingQueueBatchSaved(LosslessModel):
+    """``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+
+    ``asked`` is how many distinct papers the request named or described;
+    ``saved`` were added now, ``already`` were in the queue and are as they
+    were, and ``missing`` are not in the collection. ``saved_ids`` and
+    ``saved_at`` (``None`` when nothing was added) are what an Undo names."""
+
+    asked: int
+    saved: int
+    already: int
+    missing: int
+    saved_at: Optional[str]
+    saved_ids: list[int]
+    counts: ReadingQueueCounts
+
+
+class ReadingQueueBatchUndone(LosslessModel):
+    """``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+    changed since the save, so its Undo left them."""
+
+    removed: int
+    kept: int
+    counts: ReadingQueueCounts
 
 
 # ===========================================================================
@@ -2250,11 +2283,124 @@ class ExplorerPage(LosslessModel):
     lifecycle: Optional[LifecycleForDocuments] = None
 
 
+class PaperCollection(LosslessModel):
+    """One collection a paper is in: when it arrived there, and how (``run``,
+    ``move``, ``copy``, ``upgrade`` for a paper there since before collections,
+    or ``kept`` for one left in no other when its collection was deleted), and
+    the run that put it there where a run did."""
+
+    id: int
+    name: str
+    added_at: Optional[str]
+    added_by: str
+    execution_id: Optional[int]
+
+
 class Paper(PaperColumns):
-    """``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
-    reading queue (``to_read``, ``read``, or ``None`` when it is not saved)."""
+    """``GET /api/documents/{doc_id}``: one paper as stored, its place in the
+    reading queue (``to_read``, ``read``, or ``None`` when it is not saved),
+    and every collection it is in, the default first."""
 
     queue_status: Optional[str]
+    collections: list[PaperCollection]
+
+
+class CollectionSummary(LosslessModel):
+    """One collection: how many papers it holds, and how many watches put
+    their papers there. The default collection (``is_default``) can be renamed
+    and never deleted."""
+
+    id: int
+    name: str
+    is_default: bool
+    papers: int
+    watches: int
+    created_at: Optional[str]
+
+
+class CollectionList(LosslessModel):
+    """``GET /api/collections``: every collection, the default first and the rest
+    in the order they were made; the one the app shows (``current_id``), which
+    the engine remembers; and the default one's id."""
+
+    collections: list[CollectionSummary]
+    current_id: int
+    default_id: int
+
+
+class CollectionWatch(LosslessModel):
+    id: int
+    name: str
+
+
+class CollectionDetail(CollectionSummary):
+    """``GET /api/collections/{collection_id}``: one collection, and what deleting
+    it would do. ``only_here`` papers are in no other collection and would be
+    kept in the default one; ``also_elsewhere`` papers stay where else they are;
+    the watches in ``watch_list`` would put their papers in the default one."""
+
+    only_here: int
+    also_elsewhere: int
+    watch_list: list[CollectionWatch]
+
+
+class CollectionCurrent(LosslessModel):
+    """``PUT /api/collections/current``: the collection the app now shows."""
+
+    current_id: int
+
+
+class CollectionDeleted(LosslessModel):
+    """``DELETE /api/collections/{collection_id}``: what went, and where its
+    papers and watches are now. No paper left the database."""
+
+    id: int
+    name: str
+    papers: int
+    kept_in_default: int
+    still_elsewhere: int
+    watches_moved: int
+    default_id: int
+
+
+class CollectionMembership(LosslessModel):
+    """A paper's place in a collection as a move found it, for an undo to put back."""
+
+    document_id: int
+    added_at: str
+    added_by: str
+    execution_id: Optional[int]
+
+
+class CollectionPapersChanged(LosslessModel):
+    """``POST /api/collections/{collection_id}/papers``: a move or a copy.
+
+    ``added`` are the papers that arrived in the collection; ``already_there``
+    counts those it held already. A move also lists, in ``removed``, each
+    paper's place in the collection it left, as it was; ``not_in_source``
+    counts papers named that were not in that collection, and ``missing`` ids
+    that are no paper. Send ``added``, ``from_collection_id`` and ``removed``
+    back to ``/papers/undo`` to undo it."""
+
+    mode: Literal["move", "copy"]
+    collection_id: int
+    from_collection_id: Optional[int]
+    added: list[int]
+    already_there: int
+    removed: list[CollectionMembership]
+    not_in_source: int
+    missing: int
+
+
+class CollectionPapersUndone(LosslessModel):
+    """``POST /api/collections/{collection_id}/papers/undo``. ``left_in_place``
+    counts papers kept in the collection because they are in no other."""
+
+    collection_id: int
+    from_collection_id: Optional[int]
+    taken_out: int
+    put_back: int
+    left_in_place: int
 
 
 class RunPaper(PaperColumns):
@@ -2276,7 +2422,8 @@ class RunPapersPage(LosslessModel):
 
 class RunDocumentIds(LosslessModel):
     """``GET /api/executions/{exec_id}/document-ids``: every paper the run
-    stored that is still in the collection, by id, for the run's map."""
+    stored that is in the collection named (the default one where none is),
+    by id, for the run's map, which is that collection's."""
 
     ids: list[int]
 
@@ -2369,10 +2516,15 @@ class CollapsePreview(LosslessModel):
 class EmbeddingStatus(EmbeddingJobStatus):
     """``GET /api/embeddings/status``: the backfill, the coverage, the vector
     extension and index, the configured lane, and whether ranking by meaning
-    is available now (and if not, why)."""
+    is available now (and if not, why).
+
+    ``coverage`` counts every paper resmon holds, which is what a backfill
+    embeds. ``collection_coverage``, present when a ``collection`` is named,
+    counts that collection's papers alone."""
 
     lane: Optional[EmbeddingLaneView]
     capability: EmbeddingCapability
+    collection_coverage: Optional[EmbeddingCoverage] = None
 
 
 # ===========================================================================
@@ -2440,7 +2592,8 @@ class RoutineRow(LosslessModel):
     sent rather than as meant, so neither body changes. ``parameters``,
     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-    name the renderer reads.
+    name the renderer reads. ``collection_id`` is the collection its runs'
+    papers land in.
     """
 
     id: int
@@ -2459,6 +2612,7 @@ class RoutineRow(LosslessModel):
     created_at: str
     updated_at: str
     last_executed_at: Optional[str]
+    collection_id: Optional[int]
     last_execution: Optional[str]
     last_status: Optional[str]
     missed_fires: MissedFires
@@ -2468,7 +2622,8 @@ class Routine(LosslessModel):
     """``GET /api/routines/{routine_id}``: one routine, its switches as
     booleans, and every fire it missed, oldest first. ``date_window_next`` is
     present only for a watch whose window moves (``date_window`` in its
-    parameters): the dates a run starting now would ask for."""
+    parameters): the dates a run starting now would ask for. ``collection_id``
+    is the collection its runs' papers land in."""
 
     id: int
     name: str
@@ -2486,6 +2641,7 @@ class Routine(LosslessModel):
     created_at: str
     updated_at: str
     last_executed_at: Optional[str]
+    collection_id: Optional[int]
     missed_fires: MissedFires
     missed_fire_details: list[MissedFire]
     date_window_next: Optional[DateWindowComputed] = None
@@ -2521,6 +2677,7 @@ class RoutineUpdated(LosslessModel):
     ai_settings: Optional[str] = None
     storage_settings: Optional[str] = None
     notify_on_complete: Optional[int] = None
+    collection_id: Optional[int] = None
 
 
 class RoutineActivation(LosslessModel):
@@ -3004,22 +3161,28 @@ class DiscoveryLagRow(LosslessModel):
     median_days: Optional[float]
     fastest_days: Optional[float]
     slowest_days: Optional[float]
+    not_a_day: int
 
 
 class DiscoveryLag(LosslessModel):
-    """``GET /api/analytics/discovery-lag``."""
+    """``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day."""
 
     sources: list[DiscoveryLagRow]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     minimum_sample: int
     insufficient_reason: Optional[str]
 
 
 class RoutineHealthRun(LosslessModel):
+    """One completed run of a watch, oldest first."""
+
+    execution_id: int
     start_time: Optional[str]
-    new_results: int
-    total_results: int
+    # None where the run did not record the count, never 0.
+    new_results: Optional[int]
+    total_results: Optional[int]
 
 
 class RoutineHealthRow(LosslessModel):
@@ -3036,6 +3199,7 @@ class RoutineHealthRow(LosslessModel):
     runs_since_new: int
     last_new_result_at: Optional[str]
     total_new: int
+    unrecorded_runs: int
     status: str
     sample_size: int
     sufficient: bool
@@ -3061,12 +3225,13 @@ class PublicationVolumeMonth(LosslessModel):
 
 
 class PublicationVolume(LosslessModel):
-    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in."""
 
     group_by: str
     groups: list[str]
     series: list[PublicationVolumeMonth]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     insufficient_reason: Optional[str]
 
@@ -4633,6 +4798,21 @@ class BackupSummary(LosslessModel):
     fk_violations_rows: Optional[int]
 
 
+class PreUpgradeCopy(LosslessModel):
+    """The copy of the database kept beside it before the last schema upgrade, read from the file.
+
+    ``schema_version`` is the schema the database was at when it was copied,
+    from the file's name. ``written_at_utc`` is the file's modification time,
+    which is when the copy was finished unless something has written to the
+    file since. ``bytes`` is its size. Nothing is opened or checked here.
+    """
+
+    path: str
+    schema_version: int
+    written_at_utc: str
+    bytes: int
+
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------
@@ -4805,6 +4985,8 @@ class BackupLast(LosslessModel):
     while this database still has the removed upload to Google Drive after
     each run switched on, until ``POST
     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+    ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+    last schema upgrade, ``None`` when there is none there.
 
     A pointer or record edited by hand into a shape no resmon wrote matches
     neither model of its union, and this route then answers 500 rather than a
@@ -4819,6 +5001,7 @@ class BackupLast(LosslessModel):
     last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
     undo_copies: list[str]
     drive_upload_retired: bool
+    pre_upgrade_copy: Optional[PreUpgradeCopy]
 
 
 class RestoreCancelled(LosslessModel):
@@ -4982,7 +5165,10 @@ class SettingsReset(LosslessModel):
 
 
 class FactoryReset(LosslessModel):
-    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+
+    ``collections_removed`` counts the collections deleted; the default one is
+    kept, empty, under its first name.
 
     The counts are as the single-purpose routes and ``SettingsReset`` count
     them, so the key counts are of keys found and removed. It does not clear a
@@ -4999,6 +5185,7 @@ class FactoryReset(LosslessModel):
     ai_keys_removed: int
     repo_keys_removed: int
     smtp_credentials_removed: int
+    collections_removed: int
 
 
 # ===========================================================================

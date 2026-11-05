@@ -5,7 +5,8 @@ import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { exportReferences, FORMATS, type ReferenceFormat } from '../runs/references';
 import { collectionSky } from '../sky/collectionSky';
-import { invalidateFor, MAP_KEY } from '../today/freshness';
+import { invalidateFor, mapKey, readMap } from '../today/freshness';
+import { collectionParam, useCollection } from '../../collections/current';
 import { epochDay } from '../today/model';
 import { count, number } from '../today/format';
 import { errorWords, FileCard, PaperCard, ProjectCard } from './Cards';
@@ -14,7 +15,7 @@ import { evidence, type Project } from './evidenceApi';
 import { useFindDraft } from './findDraft';
 import { Gallery } from './Gallery';
 import {
-  FIND_WORDS, LEDE, SHOWS, SORTS, UNDO_SECONDS, notRemovedWords, pick, pickedWords, readEveryPage, removeEach, removedWords, showFrom,
+  FIND_WORDS, LEDE, SHOWS, SORTS, notRemovedWords, pick, pickedWords, readEveryPage, removeEach, removedWords, showFrom,
   sortFrom, type LibraryFileRow, type QueueEntry, type Show,
 } from './galleryModel';
 import { AddToProject, ConfirmRemoval, PaperPicker, removalSummaries } from './LibraryDialogs';
@@ -23,13 +24,14 @@ import {
   type LibraryImported, type LibraryRemoval, type LibraryStatus,
 } from './libraryApi';
 import { VaultSetup, VaultTrouble } from './VaultPanels';
+import { UndoNotice, type Notice } from './UndoNotice';
+import { SelectBar as Bar } from '../selection/SelectBar';
 import './library.css';
 
 /** The queue's most entries a request, and so the page the gallery reads at a time. */
 const QUEUE_PAGE = 200;
 const FILE_PAGE = 200;
 
-interface Notice { lead: string; name: string | null; rest: string; undo: (() => Promise<void>) | null; id: number }
 
 /**
  * Library: one page for the papers saved to read, the files kept in your own
@@ -71,9 +73,11 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
     refetchInterval: (query) => (query.state.data?.changing ? 1000 : false),
   });
   const vault = status.data?.status === 'ready' ? status.data.vault?.vault_id ?? null : null;
+  // The reading queue is one list; each collection shows the saved papers it holds.
+  const { id: collection } = useCollection();
   const queueCounts = useQuery({
-    queryKey: ['reading-queue', 'counts'],
-    queryFn: () => answer(engine().GET('/api/reading-queue', { params: { query: { limit: 1 } } })),
+    queryKey: ['reading-queue', 'counts', collection],
+    queryFn: () => answer(engine().GET('/api/reading-queue', { params: { query: { limit: 1, ...collectionParam(collection) } } })),
   });
   // Under Evidence's own key, so a project made or changed there is read again here.
   const projects = useQuery({ queryKey: ['evidence-projects', vault, 'all'], enabled: !!vault, queryFn: () => allProjects(vault!) });
@@ -259,53 +263,15 @@ async function allProjects(vault: string): Promise<Project[]> {
   }
 }
 
-/** The notice a removal leaves: what went, Undo, and the seconds left. It waits while the pointer or the keyboard is on it. */
-function UndoNotice({ notice, onDone }: { notice: Notice; onDone: () => void }) {
-  const [left, setLeft] = useState(UNDO_SECONDS);
-  const [held, setHeld] = useState(false);
-  const [undoing, setUndoing] = useState(false);
-  const [failed, setFailed] = useState<string | null>(null);
-  useEffect(() => {
-    if (held || undoing) return undefined;
-    if (left <= 0) { onDone(); return undefined; }
-    const tick = window.setTimeout(() => setLeft((s) => s - 1), 1000);
-    return () => window.clearTimeout(tick);
-  }, [left, held, undoing, onDone]);
-  const undo = async () => {
-    if (!notice.undo) return;
-    setUndoing(true);
-    try { await notice.undo(); onDone(); } catch (error) { setFailed(errorWords(error)); setUndoing(false); }
-  };
-  return (
-    <div className="lib-notice" role="status" onPointerEnter={() => setHeld(true)} onPointerLeave={() => setHeld(false)}
-      onFocus={() => setHeld(true)} onBlur={() => setHeld(false)}>
-      <span>{notice.lead}{notice.name && <b>{notice.name}</b>}{notice.rest}{failed && <> Undo failed: {failed}</>}</span>
-      {notice.undo && <button type="button" className="btn sm" disabled={undoing} onClick={() => void undo()}>{undoing ? 'Undoing' : 'Undo'}</button>}
-      <span className="left num" aria-hidden="true">{left} s</span>
-      <button type="button" className="iconbtn sm" aria-label="Dismiss" onClick={onDone}><Icon name="close" /></button>
-    </div>
-  );
-}
-
-/** The selection bar, in the toolbar's place, so nothing below it moves. */
+/** The selection bar, in the toolbar's place, so nothing below it moves: the bar every list that picks shares. */
 function SelectBar({ picked, total, allPicked, onAll, onDone, children }: {
   picked: number; total: number | null; allPicked: boolean; onAll: () => void; onDone: () => void; children: ReactNode;
 }) {
-  useEffect(() => {
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && !document.querySelector('dialog[open]')) onDone(); };
-    document.addEventListener('keydown', key);
-    return () => document.removeEventListener('keydown', key);
-  }, [onDone]);
   return (
-    <div className="selbar" role="group" aria-label="The picked cards">
-      <span className="n">
-        <span className={`tick${picked ? (allPicked ? ' on' : ' part') : ''}`} aria-hidden="true" />{pickedWords(picked, total)}
-      </span>
-      {!allPicked && <button type="button" className="btn quiet sm" onClick={onAll}>Select all{total !== null ? ` ${number(total)}` : ''}</button>}
+    <Bar label="The picked cards" said={pickedWords(picked, total)} tick={picked ? (allPicked ? 'on' : 'part') : 'none'}
+      allLabel={allPicked ? null : `Select all${total !== null ? ` ${number(total)}` : ''}`} onAll={onAll} onDone={onDone}>
       {children}
-      <span className="grow" />
-      <button type="button" className="btn quiet sm" onClick={onDone}>Done</button>
-    </div>
+    </Bar>
   );
 }
 
@@ -337,11 +303,12 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   say: (n: Omit<Notice, 'id'>) => void; onChanged: () => void;
 }) {
   const shelfName = status === 'read' ? 'Read' : 'To read';
+  const { id: collection } = useCollection();
   const queue = useInfiniteQuery({
-    queryKey: ['reading-queue', 'gallery', status, sort, q],
+    queryKey: ['reading-queue', 'gallery', collection, status, sort, q],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => answer(engine().GET('/api/reading-queue', {
-      params: { query: { status, sort, q, limit: QUEUE_PAGE, offset: pageParam } },
+      params: { query: { status, sort, q, limit: QUEUE_PAGE, offset: pageParam, ...collectionParam(collection) } },
     })),
     getNextPageParam: (last) => (last.offset + last.entries.length < last.total ? last.offset + last.entries.length : undefined),
   });
@@ -350,7 +317,7 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   const catalog = useQuery({ queryKey: ['catalog'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/repositories/catalog')) });
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
   const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
-  const map = useQuery({ queryKey: MAP_KEY, queryFn: () => answer(engine().GET('/api/map')) });
+  const map = useQuery({ queryKey: mapKey(collection), queryFn: () => readMap(collection) });
   const atlas = useMemo<Atlas | null>(() => {
     if (!map.data || map.data.state !== 'ready') return null;
     return { sky: collectionSky(map.data, epochDay(new Date())).sky, regions: map.data.regions };
@@ -452,17 +419,17 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   );
 }
 
-/** Five places a paper is saved to read from, each a slot in the grid's own shape with a way there. */
+/** Five places that save papers to read, one or many at once, each a slot in the grid's own shape with a way there. */
 const SLOTS: readonly { title: string; line: string; to: string; go: string; glyph: ReactNode }[] = [
   { title: 'On a paper', line: 'Press Save to read on any paper’s page.', to: '/search', go: 'Open Your collection',
     glyph: <path d="M14 7h20v34l-10-7-10 7Z" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinejoin="round" /> },
-  { title: 'From a run', line: 'Save to read beside a paper in a run’s Papers tab.', to: '/search/ask', go: 'Open your runs',
+  { title: 'From a run', line: 'In a run’s Papers tab, save one paper, Select several, or save all the run’s new papers.', to: '/runs', go: 'Open your runs',
     glyph: <><circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" strokeWidth="1.6" opacity=".5" /><circle cx="24" cy="24" r="16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeDasharray="34 100" transform="rotate(-90 24 24)" /><circle cx="24" cy="24" r="3.5" fill="currentColor" /></> },
-  { title: 'From Today', line: 'Save a new paper from the morning’s index.', to: '/today', go: 'Open Today',
+  { title: 'From Today', line: 'Save a new paper from the morning’s list, or Select several, or all of them.', to: '/today', go: 'Open Today',
     glyph: <><circle cx="24" cy="24" r="15" fill="none" stroke="currentColor" strokeWidth="2.2" /><text x="24" y="30" textAnchor="middle" className="slot-n">4</text></> },
-  { title: 'On the map', line: 'Choose a paper on the map, then Save to read.', to: '/today', go: 'Open the map',
+  { title: 'On the map', line: 'Choose a paper on the map and save it, or find or filter and save every paper lit.', to: '/today', go: 'Open the map',
     glyph: <><path d="M4 16h40M4 32h40M16 4v40M32 4v40" stroke="currentColor" strokeWidth="1" opacity=".45" /><circle cx="24" cy="24" r="7" fill="none" stroke="currentColor" strokeWidth="2.2" /><circle cx="24" cy="24" r="2.4" fill="currentColor" /><circle cx="12" cy="11" r="1.4" fill="currentColor" /><circle cx="37" cy="14" r="1.2" fill="currentColor" /><circle cx="35" cy="37" r="1.5" fill="currentColor" /><circle cx="10" cy="35" r="1.1" fill="currentColor" /></> },
-  { title: 'In Your collection', line: 'Find a paper in Search, open it, and Save to read.', to: '/search', go: 'Open Search',
+  { title: 'In Your collection', line: 'Search, then Select the matches to save, or every match at once.', to: '/search', go: 'Open Search',
     glyph: <><rect x="9" y="9" width="12" height="12" rx="3" fill="currentColor" /><rect x="9" y="27" width="12" height="12" rx="3" fill="none" stroke="currentColor" strokeWidth="2" /><path d="M27 15h13M27 33h13" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></> },
 ];
 
@@ -471,7 +438,7 @@ function EmptyQueue() {
     <section className="lib-empty-queue" aria-label="Where papers come from">
       <div className="empty-head">
         <h2>Nothing saved to read yet</h2>
-        <p>Papers you save to read appear here as covers, newest first. Five places save them.</p>
+        <p>Papers you save to read appear here as covers, newest first. Five places save them, one at a time or many at once.</p>
       </div>
       <ul className="slots">
         {SLOTS.map((s) => (

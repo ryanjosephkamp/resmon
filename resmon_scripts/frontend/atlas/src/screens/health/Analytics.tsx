@@ -1,13 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type MouseEvent, type ReactNode } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { tipWords, useChartTip, type MarkTip, type TipContent } from '../../charts/ChartTip';
+import { joined, useRoving } from '../../charts/roving';
 import { count, number } from '../today/format';
 import {
-  ANALYTICS_KEY, collectionFor, daysWords, groupTotals, monthShort, monthWords, percent, watchStatusWords, widthOf,
-  type KeywordContribution, type Overview,
+  ANALYTICS_KEY, collectionFor, daysWords, groupName, groupTotals, keywordTip, lagTip, monthShort, notADayWords, percent,
+  searchable, sourceTip, volumeTip, watchRunTip, watchStatusWords, widthOf,
+  type KeywordContribution, type Overview, type WatchRow,
 } from './analyticsModel';
 import { HealthTabs } from './HealthTabs';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import { instantOf } from './model';
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -33,6 +37,41 @@ function OwnAndShared({ own, shared }: { own: string; shared: string }) {
   );
 }
 
+/** The mark a row's tip is set beside: its bar, or its range, or the row where neither is drawn. */
+function markOf(target: HTMLElement): Element | null {
+  const row = target.closest('.bar-row');
+  return row?.querySelector('.chart-bar, .range') ?? row;
+}
+
+/**
+ * One row of a bar chart. The pointer anywhere on the row shows its tip, set
+ * beside its bar, and a click anywhere on it does what its name's link does;
+ * the name is the row's stop for the keyboard, and its accessible name is
+ * everything the tip says. A row with nowhere to go (`to` null) shows its tip
+ * and opens nothing.
+ */
+function BarRow({ tip, content, to, name, data, children }: {
+  tip: MarkTip; content: TipContent; to: string | null; name: ReactNode;
+  data: Record<`data-${string}`, string>; children: ReactNode;
+}) {
+  const navigate = useNavigate();
+  const { onPointerEnter, onPointerMove, onPointerLeave, onFocus, onBlur } = tip.mark(content, markOf);
+  // The link's own click is the link's; a click on the bar or the figure goes where it goes.
+  const onClick = (event: MouseEvent<HTMLLIElement>) => {
+    if (!to || (event.target as Element).closest('a')) return;
+    navigate(to);
+  };
+  return (
+    <li className="bar-row" data-opens={to ? 'true' : undefined} {...data}
+      onPointerEnter={onPointerEnter} onPointerMove={onPointerMove} onPointerLeave={onPointerLeave} onClick={onClick}>
+      {to
+        ? <Link to={to} className="bar-name" aria-label={tipWords(content)} onFocus={onFocus} onBlur={onBlur}>{name}</Link>
+        : <span className="bar-name">{name}</span>}
+      {children}
+    </li>
+  );
+}
+
 /**
  * Analytics: what the collection holds, and which sources, terms and watches
  * earn their place.
@@ -40,11 +79,22 @@ function OwnAndShared({ own, shared }: { own: string; shared: string }) {
  * Every number is the engine's (`/api/analytics/*`). A view with too little to
  * go on shows the engine's sentence saying so instead of a chart, and a share
  * over too little is a dash, not 0. The keyword view reads every paper in the
- * collection once, so it runs only when asked. A source's row, and a source's
- * or a category's month total, opens the collection narrowed to it.
+ * collection once, so it runs only when asked.
+ *
+ * Every mark has the charts' tip, with the engine's numbers unrounded, and a
+ * click on it goes to what it counts: a source's bar or range to the
+ * collection narrowed to that source, a keyword's bar to the collection
+ * searched for it, a month's column to the papers published that month, a
+ * watch's tick to that run, and a source's or a category's total to the
+ * collection narrowed to it.
  */
 export function Analytics() {
-  const overview = useQuery({ queryKey: ANALYTICS_KEY, queryFn: () => answer(engine().GET('/api/analytics/overview')) });
+  const { id: collection } = useCollection();
+  const shown = useCollectionWords();
+  const overview = useQuery({
+    queryKey: [...ANALYTICS_KEY, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/overview', { params: { query: collectionParam(collection) } })),
+  });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -57,7 +107,7 @@ export function Analytics() {
     <div className="page health analytics-page" aria-busy={overview.isFetching}>
       <HealthTabs />
       <p className="page-lede">
-        What your collection holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
+        What {shown.name} holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
         A view with too little to go on says so instead of drawing a chart.
       </p>
       {overview.isPending && <p className="page-lede">Counting.</p>}
@@ -101,6 +151,7 @@ function Corpus({ summary }: { summary: Overview['summary'] }) {
 }
 
 function Sources({ view, nameOf }: { view: Overview['source_contribution']; nameOf: (slug: string) => string }) {
+  const tip = useChartTip();
   const largest = Math.max(0, ...view.sources.map((s) => s.total));
   return (
     <section className="chart-card" data-analytics="sources">
@@ -110,41 +161,43 @@ function Sources({ view, nameOf }: { view: Overview['source_contribution']; name
       <NotEnough reason={view.insufficient_reason} />
       <ol className="bar-rows">
         {view.sources.map((row) => (
-          <li key={row.source} className="bar-row" data-source={row.source}>
-            <Link to={collectionFor({ source: row.source })} className="bar-name" title={`Show ${nameOf(row.source)}’s papers in your collection`}>
-              {nameOf(row.source)}
-            </Link>
+          <BarRow key={row.source} tip={tip} content={sourceTip(row, nameOf(row.source), view.sufficient)}
+            to={collectionFor({ source: row.source })} name={nameOf(row.source)} data={{ 'data-source': row.source }}>
             {view.sufficient && (
-              <span className="chart-bar" title={`${number(row.unique_papers)} only from ${nameOf(row.source)}, ${number(row.duplicated)} also from another source`}>
+              <span className="chart-bar" aria-hidden="true">
                 <span className="bar-own" style={{ width: `${widthOf(row.unique_papers, largest)}%` }} />
                 <span className="bar-context" style={{ width: `${widthOf(row.duplicated, largest)}%` }} />
               </span>
             )}
-            <span className="bar-figure num" data-value={row.total}>
+            <span className="bar-figure num" data-value={row.total} aria-hidden="true">
               {count(row.total, 'paper')}{view.sufficient && <>, {percent(row.unique_share)} only here</>}
             </span>
-          </li>
+          </BarRow>
         ))}
       </ol>
+      {tip.layer}
     </section>
   );
 }
 
 function Keywords() {
   const [asked, setAsked] = useState(false);
+  const { id: collection } = useCollection();
+  const shown = useCollectionWords();
   const yieldQuery = useQuery({
-    queryKey: ['keyword-contribution'],
+    queryKey: ['keyword-contribution', collection],
     enabled: asked,
-    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution')),
+    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution', { params: { query: collectionParam(collection) } })),
   });
   const data: KeywordContribution | undefined = yieldQuery.data;
+  const tip = useChartTip();
   const largest = Math.max(0, ...(data?.keywords ?? []).map((k) => k.matched));
   return (
     <section className="chart-card" data-analytics="keywords" aria-busy={yieldQuery.isFetching}>
       <h2 className="group-title">Which keywords earn their place</h2>
       <p className="chart-note">
-        Of the papers each term matched, how many no other term did. This view reads every paper in your collection
-        once, so it does not run automatically.
+        Of the papers each term matched, how many no other term did. This view reads every paper in {shown.name} once,
+        so it does not run automatically.
       </p>
       {!data && (
         <button type="button" className="btn" data-analytics="measure" disabled={yieldQuery.isFetching} onClick={() => setAsked(true)}>
@@ -158,18 +211,20 @@ function Keywords() {
           {data.keywords.length > 0 && <OwnAndShared own="Only this term" shared="Another term too" />}
           <ol className="bar-rows" data-analytics="keyword-rows">
             {data.keywords.map((row) => (
-              <li key={row.keyword} className="bar-row" data-keyword={row.keyword}>
-                <span className="bar-name">{row.keyword}{row.contains_operators && <span className="bar-aside"> has search operators</span>}</span>
-                <span className="chart-bar" title={`${number(row.unique)} only this term, ${number(row.shared)} another term too`}>
+              <BarRow key={row.keyword} tip={tip} content={keywordTip(row, data.minimum_sample_for_share)}
+                to={searchable(row) ? collectionFor({ words: row.keyword }) : null} data={{ 'data-keyword': row.keyword }}
+                name={<>{row.keyword}{row.contains_operators && <span className="bar-aside"> has search operators</span>}</>}>
+                <span className="chart-bar" aria-hidden="true">
                   <span className="bar-own" style={{ width: `${widthOf(row.unique, largest)}%` }} />
                   <span className="bar-context" style={{ width: `${widthOf(row.shared, largest)}%` }} />
                 </span>
-                <span className="bar-figure num" data-value={row.matched}>
+                <span className="bar-figure num" data-value={row.matched} aria-hidden={searchable(row) ? 'true' : undefined}>
                   {count(row.matched, 'paper')}, {row.unique_share === null ? `share needs ${data.minimum_sample_for_share} matches` : `${percent(row.unique_share)} only here`}
                 </span>
-              </li>
+              </BarRow>
             ))}
           </ol>
+          {tip.layer}
           {data.sample_size > 0 && (
             <p className="chart-note">
               {number(data.documents_matched)} of {count(data.documents_considered, 'paper')} matched one of these terms in
@@ -184,6 +239,7 @@ function Keywords() {
 }
 
 function Lag({ view, nameOf }: { view: Overview['discovery_lag']; nameOf: (slug: string) => string }) {
+  const tip = useChartTip();
   const reported = view.sources.filter((s) => s.sufficient);
   const lo = Math.min(0, ...reported.map((s) => s.fastest_days ?? 0));
   const hi = Math.max(1, ...reported.map((s) => s.slowest_days ?? 0));
@@ -191,70 +247,93 @@ function Lag({ view, nameOf }: { view: Overview['discovery_lag']; nameOf: (slug:
   return (
     <section className="chart-card" data-analytics="lag">
       <h2 className="group-title">How quickly each source surfaces a paper</h2>
-      <p className="chart-note">Days from a paper’s stated publication date to resmon first seeing it: the median, between the fastest and the slowest.</p>
+      <p className="chart-note">
+        Days from a paper’s stated publication date to resmon first seeing it: the median, between the fastest and the
+        slowest.{view.not_a_day > 0 && <> {notADayWords(view.not_a_day)}</>}
+      </p>
       <NotEnough reason={view.insufficient_reason} />
       <ol className="bar-rows lag-rows">
         {view.sources.map((row) => (
-          <li key={row.source} className="bar-row" data-source={row.source}>
-            <span className="bar-name">{nameOf(row.source)}</span>
+          <BarRow key={row.source} tip={tip} content={lagTip(row, nameOf(row.source), view.minimum_sample)}
+            to={collectionFor({ source: row.source })} name={nameOf(row.source)} data={{ 'data-source': row.source }}>
             {row.sufficient && row.median_days !== null ? (
-              <span className="range" title={`fastest ${daysWords(row.fastest_days)}, median ${daysWords(row.median_days)}, slowest ${daysWords(row.slowest_days)}`}>
+              <span className="range" aria-hidden="true">
                 <span className="range-span" style={{ left: at(row.fastest_days ?? 0), width: `calc(${at(row.slowest_days ?? 0)} - ${at(row.fastest_days ?? 0)})` }} />
                 <span className="range-median" style={{ left: at(row.median_days) }} />
               </span>
-            ) : <span className="range-none">{count(row.sample_size, 'dated paper')}; needs {view.minimum_sample}</span>}
-            <span className="bar-figure num">{row.sufficient ? `median ${daysWords(row.median_days)}` : '—'}</span>
-          </li>
+            ) : <span className="range-none" aria-hidden="true">{count(row.sample_size, 'paper')} dated to the day; needs {view.minimum_sample}</span>}
+            <span className="bar-figure num" aria-hidden="true">{row.sufficient ? `median ${daysWords(row.median_days)}` : '—'}</span>
+          </BarRow>
         ))}
       </ol>
+      {tip.layer}
     </section>
   );
 }
 
 function Watches({ view }: { view: Overview['routine_health'] }) {
+  const tip = useChartTip();
   return (
     <section className="chart-card" data-analytics="watches">
       <h2 className="group-title">Watch health</h2>
       <p className="chart-note">Each watch’s completed runs, by how many new papers each found, oldest on the left.</p>
       <NotEnough reason={view.insufficient_reason} />
       <ol className="watch-health">
-        {view.routines.map((row) => {
-          const runs = row.series.slice(-24);
-          const largest = Math.max(1, ...runs.map((r) => r.new_results));
-          return (
-            <li key={row.routine_id} data-routine={row.routine_id} data-status={row.status}>
-              <div className="wh-head">
-                <Link to={`/watches/${row.routine_id}`} className="bar-name">{row.name}</Link>
-                {!row.is_active && <span className="bar-aside">paused</span>}
-              </div>
-              <span className="run-strip" aria-label={`New papers per run: ${runs.map((r) => r.new_results).join(', ') || 'no completed runs'}`}>
-                {runs.map((run, i) => (
-                  <span key={`${run.start_time ?? ''}-${i}`} className="run-tick" data-zero={run.new_results === 0 ? 'true' : undefined}
-                    style={{ height: `${Math.max(8, (100 * run.new_results) / largest)}%` }}
-                    title={`${dayOf(run.start_time)}: ${count(run.new_results, 'new paper')} of ${number(run.total_results)}`} />
-                ))}
-              </span>
-              <span className="wh-status">
-                {watchStatusWords(row, view.stale_after, view.minimum_runs)}
-                {row.missed_fires > 0 && <span className="bar-aside">, {count(row.missed_fires, 'fire')} that did not run</span>}
-              </span>
-            </li>
-          );
-        })}
+        {view.routines.map((row) => (
+          <li key={row.routine_id} data-routine={row.routine_id} data-status={row.status}>
+            <div className="wh-head">
+              <Link to={`/watches/${row.routine_id}`} className="bar-name">{row.name}</Link>
+              {!row.is_active && <span className="bar-aside">paused</span>}
+            </div>
+            <RunStrip row={row} tip={tip} />
+            <span className="wh-status">
+              {watchStatusWords(row, view.stale_after, view.minimum_runs)}
+              {row.missed_fires > 0 && <span className="bar-aside">, {count(row.missed_fires, 'fire')} that did not run</span>}
+            </span>
+          </li>
+        ))}
       </ol>
+      {tip.layer}
     </section>
+  );
+}
+
+/** A watch's last 24 completed runs, a tick each: one stop for the keyboard, the arrow keys between runs, Enter opens one. */
+function RunStrip({ row, tip }: { row: WatchRow; tip: MarkTip }) {
+  const runs = row.series.slice(-24);
+  const largest = Math.max(1, ...runs.map((r) => r.new_results ?? 0));
+  const roving = useRoving(runs.length, runs.length - 1);
+  if (!runs.length) return <span className="run-strip" aria-label="No completed runs" />;
+  return (
+    <span className="run-strip" role="group" aria-label={`${row.name}: new papers in each of its last ${count(runs.length, 'completed run')}, oldest first`}>
+      {runs.map((run, i) => {
+        const content = watchRunTip(run, row.name);
+        return (
+          <Link key={run.execution_id} to={`/runs/${run.execution_id}`} className="run-tick" data-run={run.execution_id}
+            data-zero={run.new_results === 0 ? 'true' : undefined}
+            data-unrecorded={run.new_results === null ? 'true' : undefined} aria-label={tipWords(content)}
+            {...joined(roving.item(i), tip.mark(content))}>
+            {/* A run that did not record its count is a hollow mark of its own, never a bar of none. */}
+            <span className="run-tick-bar"
+              style={run.new_results === null ? undefined : { height: `${Math.max(8, (100 * run.new_results) / largest)}%` }} />
+          </Link>
+        );
+      })}
+    </span>
   );
 }
 
 function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
   const [by, setBy] = useState<'source' | 'category'>('source');
+  const { id: collection } = useCollection();
   const volume = useQuery({
-    queryKey: ['publication-volume', by],
-    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', { params: { query: { group_by: by, months: 12 } } })),
+    queryKey: ['publication-volume', by, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', {
+      params: { query: { group_by: by, months: 12, ...collectionParam(collection) } },
+    })),
     placeholderData: keepPreviousData,
   });
   const data = volume.data;
-  const largest = Math.max(1, ...(data?.series ?? []).map((m) => m.total));
   const groups = data ? groupTotals(data.series) : [];
   const linkable = (group: string) => group !== 'other' && group !== '(uncategorised)';
   return (
@@ -266,25 +345,20 @@ function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
           <button type="button" aria-pressed={by === 'category'} onClick={() => setBy('category')}>Category</button>
         </div>
       </div>
-      <p className="chart-note">By the date each source gives a paper, for the latest twelve months that have any.</p>
+      <p className="chart-note" data-analytics="volume-note">
+        By the date each source gives a paper, for the latest twelve months that have any. A column holds exactly the
+        papers it opens.{data && data.not_a_day > 0 && <> {notADayWords(data.not_a_day)}</>}
+      </p>
       {data && <NotEnough reason={data.insufficient_reason} />}
       {data && data.series.length > 0 && (
         <>
-          <div className="columns" role="img" aria-label={data.series.map((m) => `${monthWords(m.month)}: ${m.total}`).join('; ')}>
-            {data.series.map((m) => (
-              <div key={m.month} className="column" title={`${monthWords(m.month)}: ${count(m.total, 'paper')}`}>
-                <span className="column-figure num">{number(m.total)}</span>
-                <span className="column-bar" style={{ height: `${Math.max(2, (100 * m.total) / largest)}%` }} />
-                <span className="column-label">{monthShort(m.month)}</span>
-              </div>
-            ))}
-          </div>
+          <VolumeColumns series={data.series} by={data.group_by === 'category' ? 'category' : 'source'} nameOf={nameOf} />
           <ul className="group-totals" aria-label={by === 'source' ? 'Sources over these months' : 'Categories over these months'}>
             {groups.map(({ group, total }) => (
               <li key={group}>
                 {linkable(group)
-                  ? <Link to={collectionFor(by === 'source' ? { source: group } : { category: group })}>{by === 'source' ? nameOf(group) : group}</Link>
-                  : <span>{group === 'other' ? 'Everything else' : 'No category given'}</span>}
+                  ? <Link to={collectionFor(by === 'source' ? { source: group } : { category: group })}>{groupName(group, by, nameOf)}</Link>
+                  : <span>{groupName(group, by, nameOf)}</span>}
                 <span className="num">{number(total)}</span>
               </li>
             ))}
@@ -292,5 +366,39 @@ function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
         </>
       )}
     </section>
+  );
+}
+
+/** A month's mark: its bar and the figure set on top of it, which the tip keeps clear of together. */
+function columnMark(column: HTMLElement): Element[] {
+  return [...column.querySelectorAll('.column-figure, .column-bar')];
+}
+
+/**
+ * The months as columns, each one a way into the collection: the papers
+ * published that month. One stop for the keyboard; the arrow keys move
+ * between months, and Enter opens one.
+ */
+function VolumeColumns({ series, by, nameOf }: {
+  series: Overview['publication_volume']['series']; by: 'source' | 'category'; nameOf: (slug: string) => string;
+}) {
+  const tip = useChartTip();
+  const roving = useRoving(series.length, series.length - 1);
+  const largest = Math.max(1, ...series.map((m) => m.total));
+  return (
+    <div className="columns" role="group" aria-label="Papers by publication month">
+      {series.map((m, i) => {
+        const content = volumeTip(m, by, nameOf);
+        return (
+          <Link key={m.month} to={collectionFor({ month: m.month })} className="column" data-month={m.month}
+            aria-label={tipWords(content)} {...joined(roving.item(i), tip.mark(content, columnMark))}>
+            <span className="column-figure num" aria-hidden="true">{number(m.total)}</span>
+            <span className="column-bar" style={{ height: `${Math.max(2, (100 * m.total) / largest)}%` }} />
+            <span className="column-label" aria-hidden="true">{monthShort(m.month)}</span>
+          </Link>
+        );
+      })}
+      {tip.layer}
+    </div>
   );
 }

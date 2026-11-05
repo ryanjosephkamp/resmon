@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .paper_collections import member_clause
+
 TO_READ = "to_read"
 READ = "read"
 
@@ -97,6 +99,115 @@ def save(conn: sqlite3.Connection, document_id: int) -> dict:
     entry = get_entry(conn, document_id)
     assert entry is not None  # the insert above either wrote it or found it
     return entry
+
+
+#: The most papers one save of many takes, listed or described, and the most
+#: one Undo of it takes back. A save of many answers with the ids it added, so
+#: its Undo can name exactly those; at this size that answer is about 130 KB,
+#: and measured on an Apple-silicon Mac the save took 44 ms and its Undo 36 ms
+#: (``test_reading_queue_batch.py`` holds both under five seconds). A set
+#: larger than this is the collection rather than a list to read, and the
+#: refusal says so, so a filter can narrow it.
+BATCH_MOST = 20_000
+
+
+class TooMany(ValueError):
+    """A save of many papers that names or describes more than :data:`BATCH_MOST`."""
+
+
+def _known(conn: sqlite3.Connection, ids: list[int]) -> set[int]:
+    """The ids among *ids* the corpus holds, read in chunks of integer literals."""
+    known: set[int] = set()
+    for start in range(0, len(ids), 5_000):
+        literals = ",".join(str(i) for i in ids[start:start + 5_000])
+        known.update(int(row[0]) for row in conn.execute(f"SELECT id FROM documents WHERE id IN ({literals})"))
+    return known
+
+
+def save_many(conn: sqlite3.Connection, document_ids) -> dict:
+    """Save every paper named that is not in the queue; leave each one that is exactly as it is.
+
+    The many-paper form of :func:`save`, with the same rule: a paper already in
+    the queue, read or not, keeps its state and its dates, and is counted as
+    ``already``. Every entry this adds carries one ``saved_at``, the moment of
+    this save, and ``saved_ids`` lists them, which is what an Undo of it names
+    (:func:`unsave_many`). An id the corpus does not hold (a paper erased since
+    it was listed) is counted as ``missing`` and saves nothing. One transaction:
+    the whole save is written, or none of it.
+    """
+    ids = list(dict.fromkeys(int(i) for i in document_ids))
+    if len(ids) > BATCH_MOST:
+        raise TooMany(f"A save takes at most {BATCH_MOST:,} papers at once; this one names {len(ids):,}.")
+    known = _known(conn, ids)
+    stamp = conn.execute("SELECT datetime('now')").fetchone()[0]
+    added: list[int] = []
+    try:
+        for document_id in ids:
+            if document_id not in known:
+                continue
+            # One row at a time, so a paper saved by another request between the
+            # read above and this write is counted as already there, not as added.
+            cursor = conn.execute(
+                "INSERT INTO reading_queue (document_id, status, saved_at, updated_at) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(document_id) DO NOTHING",
+                (document_id, TO_READ, stamp, stamp),
+            )
+            if cursor.rowcount > 0:
+                added.append(document_id)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {
+        "asked": len(ids),
+        "saved": len(added),
+        "already": len(known) - len(added),
+        "missing": len(ids) - len(known),
+        "saved_at": stamp if added else None,
+        "saved_ids": added,
+        "counts": counts(conn),
+    }
+
+
+def unsave_many(conn: sqlite3.Connection, document_ids, saved_at: str) -> dict:
+    """Undo a save of many: take out the entries it added that are still as it left them.
+
+    An entry goes only when it still carries that save's ``saved_at`` and has
+    not changed since: still to read, its ``updated_at`` the moment it was
+    saved. A paper marked read since, or removed and saved again, stays, and is
+    counted as ``kept``, because the person did something with it after the
+    save and an Undo of the save is not an Undo of that.
+    """
+    ids = list(dict.fromkeys(int(i) for i in document_ids))
+    if len(ids) > BATCH_MOST:
+        raise TooMany(f"An Undo takes back at most {BATCH_MOST:,} papers at once; this one names {len(ids):,}.")
+    if not isinstance(saved_at, str) or not 1 <= len(saved_at) <= 40:
+        raise ValueError("saved_at must be the save's own, as it answered.")
+    removed = 0
+    try:
+        for document_id in ids:
+            removed += conn.execute(
+                "DELETE FROM reading_queue WHERE document_id = ? AND saved_at = ? AND updated_at = saved_at "
+                "AND status = ?",
+                (document_id, saved_at, TO_READ),
+            ).rowcount
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    return {"removed": removed, "kept": len(statuses_for(conn, ids)), "counts": counts(conn)}
+
+
+def run_paper_ids(conn: sqlite3.Connection, execution_id: int, *, only_new: bool = False,
+                  limit: int | None = None) -> list[int]:
+    """The papers a run stored that are still in the collection, by id; ``only_new``, the ones it found first."""
+    sql = ("SELECT DISTINCT ed.document_id FROM execution_documents ed JOIN documents d ON d.id = ed.document_id "
+           "WHERE ed.execution_id = ?" + (" AND ed.is_new = 1" if only_new else "") + " ORDER BY ed.document_id")
+    params: list = [int(execution_id)]
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    return [int(row[0]) for row in conn.execute(sql, params)]
 
 
 def set_status(conn: sqlite3.Connection, document_id: int, status: str) -> dict:
@@ -182,11 +293,20 @@ def restore(conn: sqlite3.Connection, document_id: int, status: str, saved_at: s
     return entry, cursor.rowcount > 0
 
 
-def counts(conn: sqlite3.Connection) -> dict:
-    """How many entries are in each state, and in total."""
+def _in_collection(collection_id: int | None) -> tuple[str, list]:
+    """The clause keeping the queue to one collection's papers, and its parameter."""
+    if collection_id is None:
+        return "", []
+    return member_clause("reading_queue.document_id"), [int(collection_id)]
+
+
+def counts(conn: sqlite3.Connection, collection_id: int | None = None) -> dict:
+    """How many entries are in each state, and in total, among one collection's papers (or all)."""
     result = {TO_READ: 0, READ: 0}
+    within, params = _in_collection(collection_id)
     for row in conn.execute(
-        "SELECT status, COUNT(*) AS n FROM reading_queue GROUP BY status"
+        f"SELECT status, COUNT(*) AS n FROM reading_queue {'WHERE ' + within if within else ''} GROUP BY status",
+        params,
     ):
         result[row["status"]] = int(row["n"])
     result["all"] = result[TO_READ] + result[READ]
@@ -214,8 +334,12 @@ def list_entries(
     q: str = "",
     sort: str = "saved",
     map_order: dict[int, tuple] | None = None,
+    collection_id: int | None = None,
 ) -> dict:
     """One page of the queue, with each paper's metadata, its PDF and where it came from.
+
+    With ``collection_id``, only the saved papers that collection holds: the
+    queue is one list, and each collection shows its own papers in it.
 
     ``status=None`` is the *All* filter. The default order is ``saved_at`` then
     ``document_id``, both descending, matching ``idx_reading_queue_status_saved``;
@@ -250,6 +374,10 @@ def list_entries(
 
     clauses: list[str] = []
     params: list = []
+    within, within_params = _in_collection(collection_id)
+    if within:
+        clauses.append(within)
+        params += within_params
     if status is not None:
         clauses.append("reading_queue.status = ?")
         params.append(status)
@@ -302,7 +430,7 @@ def list_entries(
         "limit": limit,
         "offset": offset,
         "status": status,
-        "counts": counts(conn),
+        "counts": counts(conn, collection_id),
         "sort": sort,
         "q": q,
     }

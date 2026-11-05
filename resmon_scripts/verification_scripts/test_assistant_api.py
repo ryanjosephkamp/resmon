@@ -517,6 +517,34 @@ def test_a_read_tool_runs_without_asking_anyone(backend):
     assert result["is_error"] is False, "the read did not actually run"
 
 
+def test_a_turn_reads_the_windows_collection_where_a_call_names_none(backend):
+    """Ask sends the window's collection with each message; the MCP server the CLI starts reads
+    it for a call that names none, and the answer names the collection it read."""
+    made = _API.post(f"{backend.base}/api/collections", json={"name": "Optics"}, timeout=20)
+    assert made.status_code == 201, made.text
+    session = _session(backend.base)
+
+    def searched(body: dict) -> str:
+        events: list[dict] = []
+        with _API.stream("POST", f"{backend.base}/api/assistant/sessions/{session['id']}/messages",
+                          json={"text": 'CALL:search_corpus {"query": "x"}', **body}, timeout=90) as response:
+            assert response.status_code == 200, response.read()[:500]
+            for line in response.iter_lines():
+                if line.startswith("data: "):
+                    events.append(json.loads(line[6:]))
+                    if events[-1].get("type") == "closed":
+                        break
+        result = next(e for e in events if e["type"] == "tool_result")
+        assert result["is_error"] is False, result
+        return json.dumps(result)
+
+    assert "Optics" in searched({"collection": "Optics"})
+    assert "Your collection" in searched({})
+    refused = _API.post(f"{backend.base}/api/assistant/sessions/{session['id']}/messages",
+                        json={"text": "hello", "collection": "Nowhere"}, timeout=20)
+    assert refused.status_code == 404
+
+
 # ---------------------------------------------------------------------------
 # P10 — surviving a restart
 # ---------------------------------------------------------------------------

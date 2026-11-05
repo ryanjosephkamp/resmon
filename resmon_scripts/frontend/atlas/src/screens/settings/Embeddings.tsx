@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { useChartTip } from '../../charts/ChartTip';
 import { invalidateFor } from '../today/freshness';
 import { count } from '../today/format';
 import {
-  EMBEDDING_STATUS_KEY, embeddedWords, estimateWords, indexWords, missingCount, missingWords, nothingToEmbedWords,
+  EMBEDDING_STATUS_KEY, embeddedWords, estimateWords, indexWords, meterTip, missingCount, missingWords, nothingToEmbedWords,
   orderProviders, outcomeWords, progressWords, providerLabel, providerName, ranking, rebuiltWords,
   type EmbeddingPage, type EmbeddingStatus, type Estimate, type ProbeResult, type Rebuilt,
 } from './embeddingWords';
 import { ProviderKey, refusal } from './ProviderKey';
 import { KEY_NAMES } from './summaryLanes';
 import { commandEnter } from '../../shell/shortcuts';
+import { useCollection } from '../../collections/current';
 
 export const EMBEDDING_PAGE_KEY = ['embedding-settings'] as const;
 
@@ -54,6 +56,8 @@ function startingForm(page: EmbeddingPage): LaneFields {
  * papers, the tokens, the money where resmon has a price, and the disk.
  */
 export function Embeddings() {
+  // These numbers count every paper resmon holds, which a backfill embeds; with several collections, the words say so.
+  const { several } = useCollection();
   const page = useQuery({ queryKey: EMBEDDING_PAGE_KEY, queryFn: readEmbeddingPage });
   const status = useQuery({
     queryKey: EMBEDDING_STATUS_KEY, queryFn: readEmbeddingStatus,
@@ -67,8 +71,8 @@ export function Embeddings() {
         An embedding model turns each paper’s title and abstract into a vector. That is what lets Search rank your
         collection by closeness in meaning, the map place papers by meaning, and a watch’s audit compare what it finds
         with what you meant. It is separate from summaries: either works without the other. Once a model is saved, each
-        run embeds the papers it collects; the papers already in your collection are embedded only when you start that
-        below.
+        run embeds the papers it collects; the papers already in {several ? 'resmon, in every collection,' : 'your collection'} are
+        embedded only when you start that below.
       </p>
       {status.isError && <p className="field-error" role="alert">The engine did not say what is embedded ({status.error.message}).</p>}
       {status.data && <Facts status={status.data} />}
@@ -80,12 +84,13 @@ export function Embeddings() {
 }
 
 function Facts({ status }: { status: EmbeddingStatus }) {
+  const { several } = useCollection();
   const rank = ranking(status);
   return (
     <dl className="facts emb-facts" data-embeddings="facts" data-ranking={rank.available ? 'available' : 'unavailable'}>
-      <div data-embeddings="embedded"><dt>Embedded</dt><dd>{embeddedWords(status)}</dd></div>
+      <div data-embeddings="embedded"><dt>Embedded</dt><dd>{embeddedWords(status, several)}</dd></div>
       <div data-embeddings="missing" data-count={status.coverage.model ? missingCount(status) : status.coverage.total}>
-        <dt>Missing</dt><dd>{missingWords(status)}</dd>
+        <dt>Missing</dt><dd>{missingWords(status, several)}</dd>
       </div>
       <div data-embeddings="index"><dt>Similarity index</dt><dd>{indexWords(status)}</dd></div>
       <div data-embeddings="ranking"><dt>In Search</dt><dd>{rank.sentence}</dd></div>
@@ -259,7 +264,9 @@ function LaneForm({ page }: { page: EmbeddingPage }) {
  * stored vectors.
  */
 function Backfill({ status }: { status: EmbeddingStatus }) {
+  const { several } = useCollection();
   const client = useQueryClient();
+  const tip = useChartTip();
   const run = status.run;
   const missing = missingCount(status);
   // An estimate holds for the coverage it was made against; once that moves, it is asked for again.
@@ -296,14 +303,18 @@ function Backfill({ status }: { status: EmbeddingStatus }) {
 
   return (
     <div className="emb-run" data-embeddings="backfill" data-running={run.running}>
-      <h4 className="form-label">The papers already in your collection</h4>
+      <h4 className="form-label">{several ? 'The papers already in resmon, in every collection' : 'The papers already in your collection'}</h4>
       {outcome && <p className="settings-said" data-embeddings="outcome">{outcome}</p>}
       {run.running ? (
         <>
           <p className="emb-progress" role="status" data-embeddings="progress">{progressWords(run)}</p>
           {run.total > 0 && (
-            <div className="emb-meter" aria-hidden="true">
-              <span style={{ width: `${Math.min(100, (run.processed / run.total) * 100)}%` }} />
+            // The sentence above says it for a screen reader; the bar's tip, for a pointer, with the band around it.
+            <div className="meter-at" {...tip.mark(meterTip(run), (at) => at.firstElementChild)}>
+              <div className="emb-meter" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, (run.processed / run.total) * 100)}%` }} />
+              </div>
+              {tip.layer}
             </div>
           )}
           <div className="form-actions">

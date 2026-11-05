@@ -59,6 +59,8 @@ def _paper(conn, key: str, *, source: str = "arxiv", title: str | None = None, a
     })
     if seen is not None:
         conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (_sqlite(seen), doc_id))
+        # A run's paper arrives in its collection when resmon first collects it.
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (_sqlite(seen), doc_id))
     conn.commit()
     return int(doc_id)
 

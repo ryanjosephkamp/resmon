@@ -1,17 +1,17 @@
 ---
 title: "Today"
-summary: "The collection as a map, and the papers collected since you last marked all read."
+summary: "The collection as a map, and the papers that arrived since you last marked all read."
 order: 4
 ---
-**Today** is the first screen in the top bar, and the one resmon opens on, unless you change either in **Settings › Top bar**. On the left is a map of every paper resmon holds. On the right is the list of papers collected since you last looked.
+**Today** is the first screen in the top bar, and the one resmon opens on, unless you change either in **Settings › Top bar**. On the left is a map of every paper in the collection the window shows. On the right is the list of papers that arrived in it since you last looked.
 
 ## What counts as new
 
-A paper is new when resmon **first collected** it after the last time you pressed **Mark all read**. That is a fact about your database, not about the paper: a paper published years ago and found last night is new, and a paper published last night that resmon already had is not.
+A paper is new when a run **put it in the collection** after the last time you pressed **Mark all read** there. That is a fact about your database, not about the paper: a paper published years ago and found last night is new, and a paper published last night that the collection already held is not. Each collection has its own Today and its own **Mark all read**. A paper resmon held in another collection that a watch found again for this one is new here, because it was not here before; a paper you moved or copied in is not.
 
 Opening Today records nothing, so an accidental open does not empty tomorrow's list. Before you have ever pressed **Mark all read**, Today shows the last seven days and says so ("New this week"). **Mark all read** is the only thing that moves the line, and it deletes nothing. **Settings › Danger zone › Reset all settings** clears the mark.
 
-Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper you hold.
+Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper in the collection.
 
 ## The map
 
@@ -29,6 +29,7 @@ A map flattens many dimensions into two, so it is a drawing of similarities, not
 - **A dashed outline** encloses one watch's papers.
 - **Shading** marks where more papers sit nearby.
 - **Pointing at a paper** shows its title, authors, source, its grid cell (such as B3), and when it was collected.
+- **From the keyboard**, with the map focused, **Enter** chooses the paper nearest the middle and **Shift** with an arrow key the nearest one that way. The chosen paper is named in the same tip, and **Escape** clears the choice.
 - **Clicking a paper** opens it beside the map, with **Back to the list** to return.
 
 Scroll or pinch to zoom, and drag to move. The buttons at the corner zoom in, zoom out, and show the whole collection again.
@@ -41,6 +42,8 @@ The bar above the map has three controls. They change what is lit, not what exis
 - **Filters** narrow by **Watch**, **Source**, **Dates**, and **Your reading**. Under **Dates** you choose whether to read the dates as when resmon found a paper or when it was published. The published date is the one each source recorded, and a paper with no publication date is dimmed once either day is set.
 - **Color** colors the papers by **Region**, **Watch**, **Source**, or **Age**. For a watch or a source it colors the four with the most papers here, each its own color.
 
+While a find or a filter leaves some papers dimmed, **Save N to read** after the count saves the papers lit, and nothing the map dims, to your **Library** at once. The same bar on a run's map does the same for the run's papers.
+
 resmon keeps the filters and colors you chose in its database and restores them the next time you open Today.
 
 ## The list
@@ -49,7 +52,7 @@ The list's heading names the window ("New since" a day, or "New this week") with
 
 Under each watch's name is its last run: when it ran, how long it took, how many papers it found, and how many of its sources answered. If any source did not answer, one line names each source by what happened to it, with one mark for a failure and another for an unknown, and **Why** opens each source's own sentence. **Open run** leads to the run's whole record. A watch that found nothing new is listed under **Nothing new from**, with its last run, so a quiet watch and a broken one are told apart here too.
 
-Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library**, under **To read**, and the arrow opens it at its source. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
+Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library**, under **To read**, and the arrow opens it at its source. **Select**, beside **Mark all read**, puts a box beside each paper: pick some, or **Select all** for every new paper, listed yet or not, and **Save to read** saves them at once. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
 
 Each group lists 25 papers at first, and **Show 50 more** lists the next 50.
 

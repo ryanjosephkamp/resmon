@@ -80,6 +80,7 @@ import resmon as resmon_mod                                    # noqa: E402
 from implementation_scripts import response_models             # noqa: E402
 from implementation_scripts import watch_profiles as wp        # noqa: E402
 from implementation_scripts import collection_map              # noqa: E402
+from implementation_scripts import reading_queue               # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +168,9 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/reading-queue/{document_id}"),
         ("DELETE", "/api/reading-queue/{document_id}"),
         ("POST", "/api/reading-queue/{document_id}/restore"),
+        ("POST", "/api/reading-queue/batch"),
+        ("POST", "/api/reading-queue/batch/all"),
+        ("POST", "/api/reading-queue/batch/undo"),
     ),
     "watchdog": (
         ("GET", "/api/watchdog"),
@@ -211,6 +215,16 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
+    ),
+    "collections": (
+        ("GET", "/api/collections"),
+        ("POST", "/api/collections"),
+        ("PUT", "/api/collections/current"),
+        ("GET", "/api/collections/{collection_id}"),
+        ("PUT", "/api/collections/{collection_id}"),
+        ("DELETE", "/api/collections/{collection_id}"),
+        ("POST", "/api/collections/{collection_id}/papers"),
+        ("POST", "/api/collections/{collection_id}/papers/undo"),
     ),
     "a paper's account": (
         ("GET", "/api/documents/{doc_id}"),
@@ -660,6 +674,7 @@ def driven() -> Drive:
         _drive_today(drive)
         _drive_runs(drive)
         _drive_collection(drive)
+        _drive_collections(drive, doc_ids)
         _drive_watches(drive, doc_ids)
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
@@ -1248,6 +1263,10 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     export directory is set to a scratch folder through the storage settings
     route. Every path is checked before the first backup.
 
+    Backup is read once with nothing beside the database and once with a file
+    named as an upgrade's copy of it, so ``pre_upgrade_copy`` is drawn both
+    ways; the file is removed again.
+
     The live database is given one orphan row before the backup, so the
     foreign-key fields carry a finding, and loses it again at the end. A copy
     of the bundle with one report changed and the vault id taken out of its
@@ -1267,6 +1286,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     import shutil  # noqa: PLC0415 — only this slice needs these
     import sqlite3  # noqa: PLC0415
     from implementation_scripts import backup as backup_module  # noqa: PLC0415
+    from implementation_scripts import upgrade_copy  # noqa: PLC0415
 
     with _scratch("resmon-scenario-backup-") as root:
         state, exports, reports, elsewhere, restored = (
@@ -1310,7 +1330,17 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                                "pending_restore": None, "pending_restore_runs_when": None,
                                "pending_restore_runs_on": None,
                                "last_restore": None, "undo_copies": [],
-                               "drive_upload_retired": False}, nothing
+                               "drive_upload_retired": False, "pre_upgrade_copy": None}, nothing
+
+            # The copy an upgrade keeps beside the database, as Backup reads it.
+            kept = upgrade_copy.copy_path(_database_file(), resmon_mod.SCHEMA_VERSION - 1)
+            sqlite3.connect(kept).close()
+            try:
+                held = drive("GET", "/api/backup/last")["pre_upgrade_copy"]
+                assert (held["path"], held["schema_version"]) == (
+                    str(kept), resmon_mod.SCHEMA_VERSION - 1), held
+            finally:
+                kept.unlink()
 
             # A database from before the upload to Google Drive was removed,
             # with it switched on, as that version stored it.
@@ -1703,6 +1733,30 @@ def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> di
         time.sleep(0.05)
 
 
+def _drive_collections(drive: Drive, doc_ids: list[int]) -> None:
+    """Collections: made, renamed, chosen, papers copied, moved by a search and
+    put back, a collection read with what deleting it would do, and deleted.
+
+    The move takes a paper out of the default collection, so ``removed`` holds
+    a membership as it was, and the delete keeps a paper only it held."""
+    made = drive("POST", "/api/collections", expect=201, json={"name": "Fluid dynamics"})
+    drive("PUT", f"/api/collections/{made['id']}", json={"name": "Fluids"})
+    drive("PUT", "/api/collections/current", json={"collection": "fluids"})
+    drive("GET", "/api/collections")
+    drive("POST", f"/api/collections/{made['id']}/papers", json={"mode": "copy", "document_ids": doc_ids[:1]})
+    moved = drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "matching": {"collection": 1, "query": "Paper 1"}})
+    assert moved["removed"], "the move took a paper out of the default collection"
+    drive("POST", f"/api/collections/{made['id']}/papers/undo", json={
+        "added": moved["added"], "from_collection": moved["from_collection_id"], "removed": moved["removed"]})
+    drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "from_collection": 1, "document_ids": doc_ids[1:2]})
+    detail = drive("GET", f"/api/collections/{made['id']}")
+    assert detail["only_here"] == 1 and detail["also_elsewhere"] == 1
+    drive("DELETE", f"/api/collections/{made['id']}")
+    drive("PUT", "/api/collections/current", json={"collection": 1})
+
+
 def _drive_runs(drive: Drive) -> None:
     """Runs started over the API, read back, restarted and cancelled.
 
@@ -2001,6 +2055,16 @@ def _drive_reading_queue(drive: Drive, document_id: int) -> None:
         "updated_at": entry["updated_at"], "read_at": entry["read_at"]})
     assert back["restored"] is True and back["entry"] == entry
     drive("DELETE", f"/api/reading-queue/{document_id}")
+    # Many at once: the listed papers, then every one of a search, each with its Undo.
+    many = drive("POST", "/api/reading-queue/batch", json={"document_ids": [document_id]})
+    assert many["saved_ids"] == [document_id] and many["saved_at"]
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": many["saved_ids"], "saved_at": many["saved_at"]})
+    every = drive("POST", "/api/reading-queue/batch/all",
+                  json={"scope": "search", "search": {}, "at_most": reading_queue.BATCH_MOST})
+    assert every["saved"] >= 1
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": every["saved_ids"], "saved_at": every["saved_at"]})
 
 
 class _ServiceDown:

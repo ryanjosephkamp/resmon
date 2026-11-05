@@ -427,7 +427,9 @@ def test_the_fit_runs_in_a_child_process(db, monkeypatch):
 
 def test_a_child_that_cannot_fit_says_why_and_leaves_no_file(db, monkeypatch, tmp_path):
     _corpus(db, per_topic=20)
-    monkeypatch.setattr(cm, "_database_of", lambda _path: tmp_path / "no-such-folder" / "resmon.db")
+    fit_in_child = cm._fit_in_child
+    monkeypatch.setattr(cm, "_fit_in_child", lambda _database, path, model, collection: fit_in_child(
+        tmp_path / "no-such-folder" / "resmon.db", path, model, collection))
     cm.snapshot(db, None, lambda: db)
     cm.wait(db)
     path = cm.cache_path(db)
@@ -486,7 +488,7 @@ def test_a_fit_that_ends_after_an_erase_stores_nothing(db, monkeypatch):
     _corpus(db, per_topic=20)
     path = cm.cache_path(db)
 
-    def finished_after_an_erase(where, model):
+    def finished_after_an_erase(_database, where, model, _collection):
         written = where.with_name(where.name + cm._CHILD_SUFFIX)
         cm.save(cm.fit_corpus(db, model), written)
         cm.forget(db)  # the corpus is erased just before the fit's result is stored

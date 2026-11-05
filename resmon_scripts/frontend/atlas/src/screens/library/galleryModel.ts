@@ -278,7 +278,7 @@ export function readsMore({ has, reading, failed, last, rows, ahead }: {
 export function goesWith(summary: {
   links: readonly unknown[];
   projects: readonly { name: string; member: boolean; notes: number; passages: number }[];
-}): string[] {
+}, several = false): string[] {
   const lines = summary.projects.map((p) => {
     const kept = [
       ...(p.member ? ['its place in the project'] : []),
@@ -288,6 +288,8 @@ export function goesWith(summary: {
     return `${p.name}: ${kept.join(', ')}`;
   });
   const links = summary.links.length;
-  if (links) lines.push(links === 1 ? 'Its link to a paper in your collection' : `Its ${number(links)} links to papers in your collection`);
+  // A link is to a paper, whichever collections it is in; with one collection, that is "your collection".
+  const where = several ? '' : ' in your collection';
+  if (links) lines.push(links === 1 ? `Its link to a paper${where}` : `Its ${number(links)} links to papers${where}`);
   return lines;
 }

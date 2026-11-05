@@ -37,7 +37,7 @@ from .database import (
     get_execution_sources,
     record_execution_source,
 )
-from . import source_contact, source_coverage
+from . import paper_collections, source_contact, source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -111,6 +111,18 @@ def required_credential_for_sweep(repo_name: str) -> str | None:
 # nothing broke. A run made entirely of those completed; it simply had nowhere
 # to look.
 _ASKED_AND_DID_NOT_ANSWER = frozenset({"upstream_failure", "parse_failure"})
+
+
+def _utc_clock(stamp: object) -> str:
+    """A UTC time as ``YYYY-MM-DD HH:MM:SS``, so SQLite's and ISO's shapes compare as times.
+
+    ``documents.first_seen_at`` is SQLite's ``datetime('now')``
+    (``2026-11-05 10:00:00``) and a run's start is ``now_iso()``
+    (``2026-11-05T10:00:00Z``). Compared as they are, the space sorts before
+    the ``T``, so a paper a run stored that same day read as older than the run
+    and was linked as not new.
+    """
+    return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
 
 
 class SweepEngine:
@@ -462,7 +474,14 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "dedup")
 
-            dedup_stats = deduplicate_batch(self.db, all_results)
+            # Where this run's papers land: the collection it was started in,
+            # or the one its watch names, carried in its parameters. One deleted
+            # while the run went is the default collection's.
+            target = query_params.get("collection_id")
+            if not isinstance(target, int) or not paper_collections.exists(self.db, target):
+                target = paper_collections.DEFAULT_COLLECTION_ID
+            dedup_stats = deduplicate_batch(self.db, all_results, collection_id=target,
+                                            execution_id=exec_id)
 
             # The match rows, written **after** the documents exist
             # because a match points at a document id. Written for every
@@ -522,7 +541,7 @@ class SweepEngine:
                     self.db, nr.source_repository, nr.external_id
                 )
                 if doc_row:
-                    is_new = doc_row.get("first_seen_at", "") >= start_time
+                    is_new = _utc_clock(doc_row.get("first_seen_at")) >= _utc_clock(start_time)
                     link_execution_document(self.db, exec_id, doc_row["id"], is_new=is_new)
                     linked_ids.append(int(doc_row["id"]))
                     if is_new:
@@ -535,6 +554,12 @@ class SweepEngine:
                         "new_count": new_count,
                         "timestamp": now_iso(),
                     })
+
+            # Every paper the run found is in its collection, including one
+            # resmon already held elsewhere; a paper already there is left as
+            # it arrived. A collection deleted while the run went is the
+            # default one's, decided as each paper is written.
+            paper_collections.file_run_papers(self.db, target, linked_ids, execution_id=exec_id)
 
             # 5b. Embed what this run touched.
             #
@@ -1525,10 +1550,12 @@ class SweepEngine:
         # lifecycle row's own `first_seen_at` rather than from the count moving.
         # A run that checked nothing and a run that found nothing new report the
         # same zero here, which is why the task log carries the coverage sentence
-        # above and the report repeats it.
+        # above and the report repeats it. The finding's time is SQLite's
+        # ``datetime('now')`` and the run's is ``now_iso()``, so both are read
+        # through ``_utc_clock``, as a run's papers are.
         new_count = sum(
             1 for f in findings["findings"]
-            if str(f.get("first_seen_at") or "") >= start_time
+            if _utc_clock(f.get("first_seen_at")) >= _utc_clock(start_time)
         )
 
         end_time = now_iso()

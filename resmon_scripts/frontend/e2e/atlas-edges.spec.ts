@@ -23,6 +23,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { execFileSync } from 'child_process';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 async function engine<T>(win: Page, route: string, method = 'GET', body?: unknown): Promise<{ status: number; body: T }> {
   return win.evaluate(async ([r, m, b]) => {
@@ -301,7 +302,7 @@ test('a resmon that had the upload to Google Drive on is told once, on Backup, t
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });
 
@@ -413,6 +414,6 @@ test('a staged restore restarts resmon from Backup, the next start shows what it
     expect(fs.existsSync(last.last_restore.undo_copy!)).toBe(false);
   } finally {
     await app.close().catch(() => {});
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });

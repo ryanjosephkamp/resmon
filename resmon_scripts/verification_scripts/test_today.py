@@ -55,6 +55,8 @@ def _paper(conn, key: str, seen: datetime, *, abstract: str | None = "A short ab
         "publication_date": published, "metadata_hash": key,
     })
     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (_sqlite(seen), doc_id))
+    # A run's paper arrives in its collection when resmon first collects it.
+    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (_sqlite(seen), doc_id))
     conn.commit()
     return int(doc_id)
 

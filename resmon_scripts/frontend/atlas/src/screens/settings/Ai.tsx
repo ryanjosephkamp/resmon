@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
-import { STATUS_KEY } from '../ask/AskProvider';
+import { STATUS_KEY, readStatusAgain } from '../ask/AskProvider';
 import { ask } from '../ask/askApi';
 import { providerWords } from '../ask/askModel';
 import { CliSignIn } from './CliSignIn';
@@ -143,7 +143,7 @@ function AssistantForm({ stored, status }: { stored: AssistantSettings; status: 
     mutationFn: () => answer(engine().PUT('/api/settings/assistant', { body: { settings: { ...form } } })),
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: ASSISTANT_KEY }),
-      client.invalidateQueries({ queryKey: STATUS_KEY }),
+      readStatusAgain(client),
     ]),
   });
   const set = (key: keyof AssistantSettings) => (value: string) => setForm({ ...form, [key]: value });

@@ -44,6 +44,11 @@ def _json_flag(parser: argparse.ArgumentParser) -> None:
                         help="print resmon's own answer as JSON instead of sentences")
 
 
+def _collection_flag(parser: argparse.ArgumentParser, what: str) -> None:
+    parser.add_argument("--collection", metavar="NAME", help=f"{what}, by its name or number "
+                        "(default: the default collection; resmon collections lists them)")
+
+
 def _corpus_filters(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", action="append", metavar="SOURCE",
                         help="only this source, by name or slug (repeatable)")
@@ -75,20 +80,22 @@ def build_parser() -> argparse.ArgumentParser:
                         help="say which resmon install this is, and its version")
     sub = parser.add_subparsers(dest="command", metavar="<command>")
 
-    p = sub.add_parser("today", help="the papers first collected since you last marked all read",
-                       description="Today: the papers resmon first collected since you last marked "
-                                   "all read, by watch. Reading it marks nothing.")
+    p = sub.add_parser("today", help="the papers that arrived since you last marked all read",
+                       description="Today: the papers runs put in a collection since you last "
+                                   "marked its Today all read, by watch. Reading it marks nothing.")
     p.add_argument("action", nargs="?", choices=["mark-read"],
-                   help="mark-read: Mark all read, so the next Today starts now")
+                   help="mark-read: Mark all read, so the collection's next Today starts now")
     p.add_argument("--limit", type=_positive(1000), default=20, help="papers to show (default 20)")
     p.add_argument("--all", action="store_true", help="show every paper Today lists")
+    _collection_flag(p, "the collection whose Today to read")
     _json_flag(p)
 
-    p = sub.add_parser("search", help="search the whole collection, as Search › Your collection does",
-                       description="Search everything resmon has collected: free text across "
-                                   "titles and abstracts, narrowed by the filters.")
+    p = sub.add_parser("search", help="search a collection, as Search › Your collection does",
+                       description="Search a collection: free text across titles and abstracts, "
+                                   "narrowed by the filters.")
     p.add_argument("query", nargs="*", help="words to look for")
     _corpus_filters(p)
+    _collection_flag(p, "the collection to search")
     p.add_argument("--sort", choices=["newest", "closest"], default="newest",
                    help="newest publication date first (default), or closest to your search, which "
                         "asks the embedding model set in Settings → AI to embed your words")
@@ -125,9 +132,15 @@ def build_parser() -> argparse.ArgumentParser:
                        help="everything matching a search (with the filters below)")
     p.add_argument("--new-only", action="store_true", help="with --run: only the papers new to the collection")
     _corpus_filters(p)
+    _collection_flag(p, "with --today or --search: the collection to read")
     p.add_argument("--format", choices=sorted(commands.FORMAT_NAMES), default="bibtex",
                    help="default bibtex")
     p.add_argument("-o", "--output", metavar="FILE", help="write to FILE instead of standard output")
+    _json_flag(p)
+
+    p = sub.add_parser("collections", help="the collections, and how many papers and watches each has",
+                       description="Every collection in this resmon, the default one first, with "
+                                   "how many papers and watches each has, and which the app shows.")
     _json_flag(p)
 
     p = sub.add_parser("service", help="whether resmon is running, and what runs the schedule")
@@ -163,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
                         help="ask each source in its own order with no dates: newest first for some, "
                              "the most relevant of all years for others")
     s.add_argument("--inactive", action="store_true", help="save it without putting it on its schedule")
+    _collection_flag(s, "where its papers land")
     _json_flag(s)
     return parser
 
@@ -199,6 +213,8 @@ def main(argv: Optional[Sequence[str]] = None, *, env: Optional[Mapping[str, str
             return commands.wall(engine, args, out)
         if args.command == "export":
             return commands.export(engine, args, out, err)
+        if args.command == "collections":
+            return commands.collections(engine, args, out)
         if args.watch_command == "list":
             return commands.watch_list(engine, args, out)
         return commands.watch_add(engine, args, out)

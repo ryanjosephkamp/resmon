@@ -30,20 +30,20 @@ A field extracted from a document, a field matched against your collection, and 
 
 ## The screens
 
-The top bar holds seven sections, a **New search** menu, **Search commands**, and Settings. **Settings › Top bar** puts the sections in the order you choose and hides any or all of them; Settings itself always stays at the bar's right end.
+The top bar holds the collection the window shows, seven sections, a **New search** menu, **Search commands**, and Settings. resmon can keep several collections in one database, one per field, say; each has its own Search, Today, map, and Analytics. See [Search](/resmon/guide/search/). **Settings › Top bar** puts the sections in the order you choose and hides any or all of them; the collection and Settings always stay in the bar.
 
 | Section | Tabs | What it is for |
 |---|---|---|
-| **Today** | | The collection as a map, and the papers collected since you last marked all read |
+| **Today** | | The collection as a map, and the papers that arrived since you last marked all read |
 | **Watches** | Searches · Calendar · People | Your watches, when each is due, and the people resmon looks for on papers |
 | **Search** | Your collection · Ask the sources · Saved · Shared wording | Searching what you hold, asking the sources for more, saved searches, and abstracts that share wording |
 | **Runs** | | Every run: those going now, those waiting for a free slot, and the history |
 | **Library** | To read · Read · Your files · Projects | Saved papers, kept files, and the projects built from them |
 | **Ask** | | The assistant and every conversation kept with it |
 | **Health** | Source wall · Watchdog · Analytics · This engine | What the sources did, what is wrong, what the collection holds, and which engine this window uses |
-| **Settings** | Appearance · Top bar · In the background · Email · Notifications · AI · Sources · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
+| **Settings** | Appearance · Top bar · In the background · Email · Notifications · AI · Sources · Collections · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
 
-Between the sections and **New search** is the run monitor: the accent's ring and core while nothing runs, an orbit for each run going now (its arc is the share of the run's sources that have finished, and it stops and turns gray when the run has said nothing for 15 seconds), one spreading ring when a run finishes, and a struck red mark when a run has failed since you last opened it. Click it, or press Enter on it, for its panel: the runs going now, with their sources, time, and **Stop**; those waiting; today's, with **Why** beside a failure; and **Open Runs**. Escape or a click elsewhere closes it. **Settings › Top bar** can hide it.
+Between the sections and **New search** is the run monitor: the accent's ring and core while nothing runs, an orbit for each run going now (its arc is the share of the run's sources that have finished, and it stops and turns gray when the run has said nothing for 15 seconds), one spreading ring when a run finishes, and a struck red mark when a run has failed since you last opened it. Pointing at it, or reaching it from the keyboard, lists each running run with how many of its sources have finished. Click it, or press Enter on it, for its panel: the runs going now, with their sources, time, and **Stop**; those waiting; today's, with **Why** beside a failure; and **Open Runs**. Escape or a click elsewhere closes it. **Settings › Top bar** can hide it.
 
 The **Search commands** button, or ⌘K (Ctrl+K on Windows and Linux), opens a palette that goes to any screen, starts a search or a conversation, and changes the theme or accent color. A run, a paper, a watch, and a person each have a page of their own, reached from the lists that name them.
 
