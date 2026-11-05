@@ -9,47 +9,76 @@ import { drawable, LONGEST_FORMULA, RichMarkdown, TexView } from '../RichView';
  * A kept file is read as it is, and a file can be hostile or broken. Whatever
  * it holds, reading it for the rich view takes time in proportion to its size,
  * never in its square, and nothing in it can freeze or blank the window.
+ *
+ * Each hostile input is read at half its size and at its full size. A linear
+ * read takes about twice as long for twice the text, a quadratic one about four
+ * times, so the full read is held to under three times the half, with a few
+ * milliseconds for the timer. A ceiling holds too: 200 ms here, and 2 s on a
+ * shared CI runner, whose speed varies from run to run; either still fails the
+ * reads these inputs once caused, which took a minute or more.
  */
-const BUDGET_MS = 200;
+const CEILING_MS = process.env.CI ? 2_000 : 200;
+const SLACK_MS = 10;
 
+/** The middle of three timings, so one pause for garbage collection does not decide a case. */
 function timed(read: () => unknown): number {
-  const started = performance.now();
-  read();
-  return performance.now() - started;
+  const times = [0, 1, 2].map(() => {
+    const started = performance.now();
+    read();
+    return performance.now() - started;
+  });
+  return times.sort((a, b) => a - b)[1]!;
 }
 
 const KB = 1024;
-const hostile: Record<string, string> = {
-  '64 KB of [': '['.repeat(64 * KB),
-  '256 KB of [': '['.repeat(256 * KB),
-  '128K copies of \\(': '\\('.repeat(128 * KB),
-  '![ without a ]': '!['.repeat(128 * KB),
-  '[]( without a )': '[]('.repeat(85 * KB),
-  'links whose title never closes': '[a](b "'.repeat(36 * KB),
-  'autolinks that never close': '<http://'.repeat(32 * KB),
-  'autolinks and links before one far space': `${'[<http://'.repeat(28 * KB)} ](x)`,
-  'code spans of every length': Array.from({ length: 700 }, (_, n) => '`'.repeat(700 - n)).join('a'),
-  'dollars that never close': '$a '.repeat(85 * KB),
-  'double dollars that never close': `$$${'a$'.repeat(128 * KB)}`,
-  'strikes, strongs and emphasis that never close': '~~a**b__c*d_e '.repeat(18 * KB),
-  'a table rule of spaces': `a|b\n${' '.repeat(250 * KB)}x`,
+/** An input at a scale: 1 is the size that once took seconds or minutes to read, 0.5 is half the text. */
+type Hostile = (scale: number) => string;
+const repeated = (unit: string, count: number): Hostile => (scale) => unit.repeat(Math.round(count * scale));
+const hostile: Record<string, Hostile> = {
+  '64 KB of [': repeated('[', 64 * KB),
+  '256 KB of [': repeated('[', 256 * KB),
+  '128K copies of \\(': repeated('\\(', 128 * KB),
+  '![ without a ]': repeated('![', 128 * KB),
+  '[]( without a )': repeated('[](', 85 * KB),
+  'links whose title never closes': repeated('[a](b "', 36 * KB),
+  'autolinks that never close': repeated('<http://', 32 * KB),
+  'autolinks and links before one far space': (scale) => `${repeated('[<http://', 28 * KB)(scale)} ](x)`,
+  // Its length grows with the square of the count, so the count grows with the root of the scale.
+  'code spans of every length': (scale) => {
+    const n = Math.round(700 * Math.sqrt(scale));
+    return Array.from({ length: n }, (_, i) => '`'.repeat(n - i)).join('a');
+  },
+  'dollars that never close': repeated('$a ', 85 * KB),
+  'double dollars that never close': (scale) => `$$${repeated('a$', 128 * KB)(scale)}`,
+  'strikes, strongs and emphasis that never close': repeated('~~a**b__c*d_e ', 18 * KB),
+  'a table rule of spaces': (scale) => `a|b\n${repeated(' ', 250 * KB)(scale)}x`,
 };
-const hostileTex: Record<string, string> = {
-  '128K copies of \\(': '\\('.repeat(128 * KB),
-  '128K copies of \\[': '\\['.repeat(128 * KB),
-  'environments that never end': '\\begin{equation}'.repeat(16 * KB),
-  'dollars that never close': '$\\$'.repeat(85 * KB),
-  'double dollars that never close': `$$${'\\$$'.repeat(85 * KB)}`,
-  'a brace on every byte': '{'.repeat(256 * KB),
+const hostileTex: Record<string, Hostile> = {
+  '128K copies of \\(': repeated('\\(', 128 * KB),
+  '128K copies of \\[': repeated('\\[', 128 * KB),
+  'environments that never end': repeated('\\begin{equation}', 16 * KB),
+  'dollars that never close': repeated('$\\$', 85 * KB),
+  'double dollars that never close': (scale) => `$$${repeated('\\$$', 85 * KB)(scale)}`,
+  'a brace on every byte': repeated('{', 256 * KB),
 };
 
-test.each(Object.entries(hostile))('Markdown: %s reads in under 200 ms', (_name, text) => {
-  expect(timed(() => markdown(text))).toBeLessThan(BUDGET_MS);
-  expect(timed(() => inline(text))).toBeLessThan(BUDGET_MS);
+/** Twice the text in under three times the time, and the whole of it under the ceiling. */
+function readsLinearly(read: (text: string) => unknown, build: Hostile): void {
+  const half = build(0.5);
+  const full = build(1);
+  const halfMs = timed(() => read(half));
+  const fullMs = timed(() => read(full));
+  expect(fullMs).toBeLessThan(3 * halfMs + SLACK_MS);
+  expect(fullMs).toBeLessThan(CEILING_MS);
+}
+
+test.each(Object.entries(hostile))('Markdown: %s reads in time proportional to its size', (_name, build) => {
+  readsLinearly(markdown, build);
+  readsLinearly(inline, build);
 });
 
-test.each(Object.entries(hostileTex))('TeX: %s reads in under 200 ms', (_name, text) => {
-  expect(timed(() => tex(text))).toBeLessThan(BUDGET_MS);
+test.each(Object.entries(hostileTex))('TeX: %s reads in time proportional to its size', (_name, build) => {
+  readsLinearly(tex, build);
 });
 
 test('what the linear read finds is what the pattern read found', () => {
@@ -106,7 +135,7 @@ test('a formula that defines a macro, or one over 2 KB, is shown as its source, 
   const bomb = `\\def\\b{${'x'.repeat(1000)}}${'\\b'.repeat(499)}`;
   let container!: HTMLElement;
   const ms = timed(() => { ({ container } = render(<RichMarkdown text={`$${bomb}$`} />)); });
-  expect(ms).toBeLessThan(BUDGET_MS * 5);
+  expect(ms).toBeLessThan(CEILING_MS * 5);
   const formula = container.querySelector('.formula')!;
   expect(formula.getAttribute('data-drawn')).toBe('false');
   expect(formula.querySelector('.katex')).toBeNull();
