@@ -31,6 +31,8 @@ Each state has its own mark, so a failure and an empty answer can never look ali
 
 Choose a cell to read it: the source, the run and its time, the cell's label and the engine's sentence about what happened, the papers it returned (shown only for an answer), the recorded reason for a zero, and whether the source was in the run's selection.
 
+Pointing at a cell, or reaching it from the keyboard, shows a tip beside it with the source, the run and its time, the label, the engine's sentence, and the number of papers in full. Pointing at a column heading names its run. The grid is one stop for **Tab**: it lands on the cell you chose last, or on the first source's newest run, and the arrow keys move one cell at a time (**Home** and **End** go to the ends of a row).
+
 ## The Watchdog
 
 The Watchdog compares every source and every watch with baselines drawn from your own run history, and reports where reality has departed from them. The tab carries a count of its alarms. Findings are graded, because an alarm that is wrong gets muted, and a muted watchdog misses the real failure:
@@ -85,7 +87,16 @@ Coverage is always shown beside the findings, because no retractions found means
 - **Which keywords earn their place** shows, for each of your terms, how many of its papers no other term matched, so a term that only duplicates another becomes visible. It reads every paper in your collection once, so it runs only when you press **Measure keyword yield**.
 - **How quickly each source surfaces a paper** shows the days from a paper's stated publication date to resmon first seeing it: the median, between the fastest and the slowest. No source publishes this about itself. It is measured through your own polling interval, and withheld for a source until the sample is large enough to mean anything.
 - **Watch health** draws each watch's completed runs by how many new papers each found, oldest on the left.
-- **Papers by publication month** shows the latest twelve months that have any, split by source or by subject category.
+- **Papers by publication month** shows the latest twelve months that have any, split by source or by subject category. By category, a paper with several categories is counted once in each, so a month's total there is not a count of papers.
+
+Every bar, range, tick, and column has a tip with the engine's numbers in full (a share to every decimal place the engine gives), shown when you point at it or reach it from the keyboard. A click goes to what the mark counts:
+
+- a source's bar, or its range of days, opens that source's papers in **Search › Your collection**;
+- a keyword's bar searches your collection for its words (a term with search operators opens nothing, because the collection's search would read the operators as words);
+- a tick in **Watch health** opens that run;
+- a month's column opens the papers published that month.
+
+In **Watch health** and **Papers by publication month**, each chart is one stop for **Tab**, and the arrow keys move between its marks; **Enter** opens the one you are on.
 
 ## This engine
 

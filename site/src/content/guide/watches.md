@@ -59,7 +59,7 @@ The **What it will do** panel restates the form as it stands, in sentences: when
 
 The header has **Run now**, **Pause** or **Resume**, and **Change**. **Run now** runs the watch once whatever the schedule says, even when it is paused. If resmon is at its limit of runs at once, the run joins a queue and starts on its own when one finishes. Pausing keeps the watch and stops its schedule. Two switches, **Notify me when it finishes** and **Email the report**, change at a click. Under them, **Dates** and **Summaries** state what each run asks for and how it is summarized, each with a **Change** link.
 
-Beside the header, a map shows where the watch's papers sit in the collection, with the papers from its latest run ringed. Below is its **Runs** strip: a bar for each of the last 30 runs, as tall as the papers new in that run, with a fault mark under any run in which a source did not answer. A watch's first run usually brings in everything already published and dwarfs the rest, so a run more than twice the next largest is drawn cut off, and the line under the strip says so.
+Beside the header, a map shows where the watch's papers sit in the collection, with the papers from its latest run ringed. Below is its **Runs** strip: a bar for each of the last 30 runs, as tall as the papers new in that run, with a fault mark under any run in which a source did not answer. A watch's first run usually brings in everything already published and dwarfs the rest, so a run more than twice the next largest is drawn cut off, and the line under the strip says so. Pointing at a bar, or reaching it from the keyboard, says when the run started, how many papers were new and how many it found in all, and which sources did not answer; choosing it opens the run. The strip is one stop for **Tab**, and the arrow keys move between runs.
 
 Three tabs hold the rest:
 
@@ -93,7 +93,7 @@ Below the destinations is the record of deliveries: for each, the run, the kind,
 
 ## Calendar
 
-**Watches › Calendar** is the month ahead: five weeks from this week's Sunday, with a mark on each day for every fire a schedule promises, named with its time and watch, in your computer's time. Pointing at a mark lights that watch's marks, and choosing one opens the watch. The page shows only fires still to come.
+**Watches › Calendar** is the month ahead: five weeks from this week's Sunday, with a mark on each day for every fire a schedule promises, named with its time and watch, in your computer's time. Pointing at a mark lights that watch's marks and names it, its day, and its time, and choosing one opens the watch. A day with more than five fires counts the rest, and pointing at the count lists them. The page shows only fires still to come.
 
 The opening sentence says "will run" only when every watching watch will. A watch that nothing will run draws faint marks and says "nothing will run it", or "not confirmed to run" where resmon cannot tell.
 

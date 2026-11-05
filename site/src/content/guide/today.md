@@ -29,6 +29,7 @@ A map flattens many dimensions into two, so it is a drawing of similarities, not
 - **A dashed outline** encloses one watch's papers.
 - **Shading** marks where more papers sit nearby.
 - **Pointing at a paper** shows its title, authors, source, its grid cell (such as B3), and when it was collected.
+- **From the keyboard**, with the map focused, **Enter** chooses the paper nearest the middle and **Shift** with an arrow key the nearest one that way. The chosen paper is named in the same tip, and **Escape** clears the choice.
 - **Clicking a paper** opens it beside the map, with **Back to the list** to return.
 
 Scroll or pinch to zoom, and drag to move. The buttons at the corner zoom in, zoom out, and show the whole collection again.
