@@ -12,7 +12,8 @@ holds the rules a fetch from an address someone else chose needs:
   certificate verified against the host's name, so a name that resolves
   differently a moment later cannot send the request somewhere else.
 * **Refused providers stay refused through a redirect**: a hop onto NASA ADS's,
-  Springer's or CORE's site ends the fetch (``open_access.REFUSED_HOSTS``).
+  Springer's, CORE's, BMC's, or nature.com's site ends the fetch
+  (``open_access.REFUSED_HOSTS``).
 * **A size limit**, from ``Content-Length`` before reading and from the bytes
   as they arrive, and **a type check**: the reply must say it is a PDF (or an
   undifferentiated binary) and its first bytes must be ``%PDF-``.
@@ -134,7 +135,7 @@ def _checked_target(url: str) -> tuple[str, int, str, str]:
         raise DownloadRefused("bad_address", f"The address {url[:200]} has no usable host.")
     provider = open_access.refused_by_host(url)
     if provider:
-        raise DownloadRefused("refused_source", open_access.REFUSED_REPORTERS[provider])
+        raise DownloadRefused("refused_source", open_access.refused_why(provider))
     try:
         resolved = _RESOLVE(host, port, type=socket.SOCK_STREAM)
     except (OSError, UnicodeError):

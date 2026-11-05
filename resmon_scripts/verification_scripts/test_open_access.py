@@ -303,10 +303,35 @@ def test_a_copy_needs_a_stated_open_license_or_to_be_arxivs_own():
     {"pdf_url": "https://link.springer.com/content/pdf/10.1007/x.pdf"},
     {"pdf_url": "https://core.ac.uk/download/1.pdf"},
     {"pdf_url": "https://articles.adsabs.harvard.edu/pdf/1"},
+    {"pdf_url": "https://bmcbioinformatics.biomedcentral.com/counter/pdf/10.1186/s12859-020-03566-9.pdf"},
+    {"pdf_url": "https://www.biomedcentral.com/content/pdf/10.1186/1471-2105-1-1.pdf"},
+    {"pdf_url": "https://www.nature.com/articles/s41586-020-2649-2.pdf"},
+    {"pdf_url": "https://nature.com/articles/ncomms1234.pdf"},
 ])
-def test_nothing_comes_from_nasa_ads_springer_or_core_whatever_the_license(fields):
+def test_nothing_comes_from_a_refused_provider_whatever_the_license(fields):
     row = _row(**fields)
     assert open_access.refusal(row) is not None and not open_access.downloadable(row)
+
+
+@pytest.mark.parametrize("url, provider", [
+    ("https://bmcbioinformatics.biomedcentral.com/counter/pdf/10.1186/s12859-020-03566-9.pdf", "bmc"),
+    ("https://www.nature.com/articles/s41586-020-2649-2.pdf", "nature"),
+])
+def test_bmc_and_nature_com_are_refused_as_springer_natures_sites(url, provider):
+    # A CC BY copy OpenAlex reports on BMC's or nature.com's site is still not downloaded.
+    row = _row(pdf_url=url, license="cc-by", reported_by="openalex")
+    assert open_access.refused_by_host(url) == provider
+    assert open_access.refusal(row) == open_access.REFUSED_SITES[provider]
+    assert "Springer Nature" in open_access.refusal(row)
+    assert open_access.REFUSED_NAMES[provider] in {"BMC", "nature.com"}
+
+
+@pytest.mark.parametrize("url", [
+    "https://naturalhistory.example.org/a.pdf", "https://www.signature.com/a.pdf",
+    "https://nature.com.example.org/a.pdf", "https://notbiomedcentral.com/a.pdf",
+])
+def test_a_host_is_refused_by_its_domain_and_not_by_a_name_inside_it(url):
+    assert open_access.refused_by_host(url) is None
 
 
 def test_the_best_copy_is_licensed_first_then_the_version_of_record():

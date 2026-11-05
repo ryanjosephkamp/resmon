@@ -3,8 +3,8 @@
  * records (`/api/full-text/*`, `/api/find*`), put into the app's words.
  *
  * Nothing here decides whether a copy may be downloaded. The engine says so
- * (`downloadable`, a stated open license and never NASA ADS, Springer, or
- * CORE) and why not (`why_not_words`); this file only says it.
+ * (`downloadable`, a stated open license and never NASA ADS, Springer, CORE,
+ * BMC, or nature.com) and why not (`why_not_words`); this file only says it.
  */
 import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

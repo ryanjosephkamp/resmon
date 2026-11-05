@@ -125,6 +125,9 @@ def test_a_requested_pdf_lands_in_the_library_with_its_origin(db, server, tmp_pa
     (dict(license="publisher-specific-oa"), "no_license"),
     (dict(reported_by="core"), "refused_source"),
     (dict(url="https://link.springer.com/content/pdf/10.1007/x.pdf"), "refused_source"),
+    (dict(url="https://bmcbioinformatics.biomedcentral.com/counter/pdf/10.1186/s12859-020-03566-9.pdf"),
+     "refused_source"),
+    (dict(url="https://www.nature.com/articles/s41586-020-2649-2.pdf"), "refused_source"),
 ])
 def test_a_request_that_cannot_go_ahead_is_skipped_with_no_request_sent(db, server, setup, reason):
     _serve(server, "/a.pdf")
@@ -331,5 +334,8 @@ def test_the_rules_state_the_caps_and_the_license_rule():
     rules = full_text.rules()
     assert rules["per_run_cap"] == full_text.PER_RUN_CAP and rules["daily_cap"] == full_text.DAILY_CAP
     assert rules["max_bytes"] == fd.MAX_BYTES == library.MAX_FILE_BYTES
-    assert {r["source"] for r in rules["refused_sources"]} == {"nasa_ads", "springer", "core"}
+    assert [(r["source"], r["name"]) for r in rules["refused_sources"]] == [
+        ("nasa_ads", "NASA ADS"), ("springer", "Springer"), ("core", "CORE"), ("bmc", "BMC"),
+        ("nature", "nature.com")]
+    assert all(r["why"] for r in rules["refused_sources"])
     assert {r["license"] for r in rules["open_licenses"]} == set(open_access.OPEN_LICENSES)

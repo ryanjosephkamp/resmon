@@ -15,9 +15,11 @@ every arXiv paper carries (an arXiv copy's license is read from arXiv when its
 PDF is asked for). "Free to read" with no license, a publisher's own terms
 (``publisher-specific-oa``), and Unpaywall's ``other-oa`` and ``implied-oa``
 are recorded but never downloaded: the paper's page offers Open at the source
-instead. Nothing is downloaded from NASA ADS, Springer or CORE, or from a
-Crossref text-mining link (no client stores those), whatever license is stated:
-their terms are not settled for resmon (``docs/source-landscape.md``).
+instead. Nothing is downloaded from NASA ADS, Springer, CORE, BMC, or
+nature.com, or from a Crossref text-mining link (no client stores those),
+whatever license is stated: their terms are not settled for resmon
+(``docs/source-landscape.md``). BMC and nature.com are Springer Nature's
+journal sites, under the same terms as Springer.
 """
 from __future__ import annotations
 
@@ -60,14 +62,34 @@ REFUSED_REPORTERS: dict[str, str] = {
     "core": "CORE's terms require a license and attribution resmon has not settled.",
 }
 
+#: Sites resmon never downloads from that are not sources it asks, and why: other
+#: sources (OpenAlex, Europe PMC, Semantic Scholar) report PDFs on them.
+REFUSED_SITES: dict[str, str] = {
+    "bmc": "BMC and nature.com are Springer Nature's journal sites, under the same terms as Springer.",
+    "nature": "BMC and nature.com are Springer Nature's journal sites, under the same terms as Springer.",
+}
+
+#: Each refused provider as a sentence names it.
+REFUSED_NAMES: dict[str, str] = {
+    "nasa_ads": "NASA ADS", "springer": "Springer", "core": "CORE", "bmc": "BMC", "nature": "nature.com",
+}
+
 #: The hosts resmon never downloads from, by registered domain, whoever reported
-#: the copy: the same three providers, reached through another source's link.
+#: the copy: the three sources, reached through another source's link, and the
+#: two sites.
 REFUSED_HOSTS: dict[str, str] = {
     "adsabs.harvard.edu": "nasa_ads",
     "springer.com": "springer",
     "springernature.com": "springer",
     "core.ac.uk": "core",
+    "biomedcentral.com": "bmc",
+    "nature.com": "nature",
 }
+
+
+def refused_why(provider: str) -> str:
+    """Why resmon never downloads from *provider*, a key of ``REFUSED_NAMES``."""
+    return REFUSED_REPORTERS.get(provider) or REFUSED_SITES[provider]
 
 #: How a version of a paper is named by the sources, as resmon stores it.
 _VERSIONS = {
@@ -410,7 +432,7 @@ def refusal(row: dict) -> str | None:
         return REFUSED_REPORTERS[reporter]
     provider = refused_by_host(row.get("pdf_url"))
     if provider:
-        return REFUSED_REPORTERS[provider]
+        return refused_why(provider)
     return None
 
 

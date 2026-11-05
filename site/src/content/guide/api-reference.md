@@ -285,14 +285,14 @@ Every Library route needs the header `X-Resmon-Library: 1`, and a vault id the c
 
 ### Get the PDF
 
-Open-access PDFs into the Library. These routes need no Library header. A PDF is fetched only where a source states an open license for the copy, never from NASA ADS, Springer, or CORE.
+Open-access PDFs into the Library. These routes need no Library header. A PDF is fetched only where a source states an open license for the copy, never from NASA ADS, Springer, CORE, BMC, or nature.com.
 
 | Method | Path | What it does |
 |---|---|---|
 | `POST` | `/api/documents/{doc_id}/full-text` | Ask for a paper's PDF. Recorded before anything is fetched; a request that cannot go ahead comes back `skipped` with its reason and sends nothing. |
 | `POST` | `/api/full-text/for-documents` | For each paper: its open copies, the one resmon would get or why there is none, its latest request, and the PDF the Library holds for it. |
 | `GET` | `/api/executions/{exec_id}/full-text` | Every PDF a watch's run asked for, and what came of each: stored, skipped, or failed, with why. |
-| `GET` | `/api/full-text/rules` | The limits (a watch run's cap, the day's cap, one download at a time from a site and its pace, the size limit) and the license rule. |
+| `GET` | `/api/full-text/rules` | The limits (a watch run's cap, the day's cap, one download at a time from a site and its pace, and the size limit), the license rule, and the sources and sites never downloaded from. |
 
 ## Evidence
 

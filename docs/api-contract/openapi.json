@@ -8260,7 +8260,12 @@
       },
       "FullTextRefusedSource": {
         "additionalProperties": true,
+        "description": "A provider resmon never downloads from: a source it asks, or a site other sources link to.",
         "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
           "source": {
             "title": "Source",
             "type": "string"
@@ -8272,6 +8277,7 @@
         },
         "required": [
           "source",
+          "name",
           "why"
         ],
         "title": "FullTextRefusedSource",
@@ -27368,7 +27374,7 @@
     },
     "/api/full-text/rules": {
       "get": {
-        "description": "The limits on downloads and the license rule, as Settings states them.",
+        "description": "The limits on downloads, the license rule, and the sources and sites never downloaded from.",
         "operationId": "full_text_rules_api_full_text_rules_get",
         "responses": {
           "200": {

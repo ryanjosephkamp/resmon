@@ -2379,7 +2379,7 @@ export interface paths {
         };
         /**
          * Full Text Rules
-         * @description The limits on downloads and the license rule, as Settings states them.
+         * @description The limits on downloads, the license rule, and the sources and sites never downloaded from.
          */
         get: operations["full_text_rules_api_full_text_rules_get"];
         put?: never;
@@ -8211,8 +8211,13 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** FullTextRefusedSource */
+        /**
+         * FullTextRefusedSource
+         * @description A provider resmon never downloads from: a source it asks, or a site other sources link to.
+         */
         FullTextRefusedSource: {
+            /** Name */
+            name: string;
             /** Source */
             source: string;
             /** Why */

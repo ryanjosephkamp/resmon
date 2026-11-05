@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { bridge, systemName } from '../../bridge';
-import { count, when } from '../today/format';
+import { count, listWords, when } from '../today/format';
 import {
   kindOf, LIBRARY, LIBRARY_KEY, download, retryLibrary, sizeWords, unsupportedWords, type LibraryRemovedFile, type LibraryStatus,
 } from '../library/libraryApi';
@@ -72,10 +72,10 @@ function Downloads() {
       {rules.isError && <p className="field-error" role="alert">The engine did not say its rules ({words(rules.error)}).</p>}
       {data && (
         <ul className="lib-rules">
-          <li>Only a copy a source states an open license for: {data.open_licenses.map((l) => l.words).join(', ')}.
+          <li>Only a copy a source states an open license for: {listWords(data.open_licenses.map((l) => l.words))}.
             A copy that is only free to read, or under a publisher’s own terms, is left at the source.</li>
-          <li>Never from {data.refused_sources.map((s) => SOURCE_NAMES[s.source] ?? s.source).join(', ')}, whatever the
-            license: {data.refused_sources.map((s) => s.why).join(' ')}</li>
+          <li>Never from {listWords(data.refused_sources.map((s) => s.name))}, or from Crossref’s text-mining links,
+            whatever the license: {[...new Set(data.refused_sources.map((s) => s.why))].join(' ')}</li>
           <li>Over https only, to public addresses, every redirect checked; a file must be a PDF and at most{' '}
             {sizeWords(data.max_bytes)}.</li>
           <li>One download at a time from each site, {data.host_interval_seconds} seconds apart; at most{' '}
@@ -85,8 +85,6 @@ function Downloads() {
     </div>
   );
 }
-
-const SOURCE_NAMES: Record<string, string> = { nasa_ads: 'NASA ADS', springer: 'Springer', core: 'CORE' };
 
 /** Where the folder is, and the two ways to change it; both wait while either runs, here or as the engine reports. */
 export function Folder({ status }: { status: LibraryStatus }) {

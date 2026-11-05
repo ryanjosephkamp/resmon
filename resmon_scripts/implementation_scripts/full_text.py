@@ -178,7 +178,8 @@ def rules() -> dict:
         "max_bytes": fulltext_download.MAX_BYTES,
         "https_only": True,
         "open_licenses": [{"license": k, "words": v} for k, v in open_access.OPEN_LICENSES.items()],
-        "refused_sources": [{"source": k, "why": v} for k, v in open_access.REFUSED_REPORTERS.items()],
+        "refused_sources": [{"source": k, "name": name, "why": open_access.refused_why(k)}
+                            for k, name in open_access.REFUSED_NAMES.items()],
     }
 
 

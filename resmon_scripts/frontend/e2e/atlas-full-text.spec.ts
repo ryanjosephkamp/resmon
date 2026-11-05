@@ -358,7 +358,8 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await win.evaluate(() => { window.location.hash = '#/settings/library'; });
     const rules = win.locator('[data-library="downloads"]');
     await expect(rules).toContainText('at most 20 PDFs for one watch run, and 100 PDFs in any 24 hours', { timeout: 30_000 });
-    await expect(rules).toContainText('Never from NASA ADS, Springer, CORE');
+    await expect(rules).toContainText('Never from NASA ADS, Springer, CORE, BMC, and nature.com, or from Crossref’s text-mining links');
+    await expect(rules).toContainText("BMC and nature.com are Springer Nature's journal sites");
     await rules.scrollIntoViewIfNeeded();
     await shoot(win, 'atlas-settings-downloads.png');
 

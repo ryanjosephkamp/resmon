@@ -1854,7 +1854,7 @@ def find_result(exec_id: int):
 @app.get("/api/full-text/rules", response_model=response_models.FullTextRules,
          response_model_exclude_unset=True)
 def full_text_rules():
-    """The limits on downloads and the license rule, as Settings states them."""
+    """The limits on downloads, the license rule, and the sources and sites never downloaded from."""
     return full_text.rules()
 
 

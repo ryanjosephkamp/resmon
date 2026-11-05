@@ -369,7 +369,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/documents/{doc_id}/full-text` | token | — | `FullTextRequest` | Get the PDF: ask for this paper's open-access PDF into the Library. |
 | `GET` | `/api/executions/{exec_id}/full-text` | token | — | `RunFullText` | Every PDF a run asked for (a watch with its opt-in on), and what came of each. |
 | `POST` | `/api/full-text/for-documents` | token | — | `list` | For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF. |
-| `GET` | `/api/full-text/rules` | token | — | `FullTextRules` | The limits on downloads and the license rule, as Settings states them. |
+| `GET` | `/api/full-text/rules` | token | — | `FullTextRules` | The limits on downloads, the license rule, and the sources and sites never downloaded from. |
 | `GET` | `/api/library` | token | — | `LibraryStatus` | *Library Status* |
 | `GET` | `/api/library/export` | token | — | `LibraryInventory` | *Library Inventory* |
 | `GET` | `/api/library/files` | token | — | `LibraryFiles` | *Library List* |

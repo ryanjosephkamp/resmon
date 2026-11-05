@@ -5846,7 +5846,10 @@ class FullTextLicense(LosslessModel):
 
 
 class FullTextRefusedSource(LosslessModel):
+    """A provider resmon never downloads from: a source it asks, or a site other sources link to."""
+
     source: str
+    name: str
     why: str
 
 

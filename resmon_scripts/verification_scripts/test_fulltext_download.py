@@ -15,6 +15,7 @@ import tracemalloc
 import pytest
 
 from implementation_scripts import fulltext_download as fd
+from implementation_scripts import open_access
 from verification_scripts.tls_loopback import TEST_HOSTS, LoopbackHTTPS, pdf_body
 
 #: Names the test resolver answers, and with what. ``private.resmon.test`` is
@@ -110,9 +111,34 @@ def test_a_redirect_to_http_is_refused(server, tmp_path):
     assert _refused(server, f"http://pdf.resmon.test:{server.port}/paper.pdf", tmp_path).reason == "not_https"
 
 
-def test_a_redirect_onto_a_refused_providers_site_ends_the_fetch(server, tmp_path):
-    server.routes["/start"] = _redirect("https://link.springer.com/content/pdf/10.1007/x.pdf")
-    assert _refused(server, server.url("/start"), tmp_path).reason == "refused_source"
+@pytest.mark.parametrize("url", [
+    "https://link.springer.com/content/pdf/10.1007/x.pdf",
+    "https://bmcbioinformatics.biomedcentral.com/counter/pdf/10.1186/s12859-020-03566-9.pdf",
+    "https://www.nature.com/articles/s41586-020-2649-2.pdf",
+])
+def test_a_redirect_onto_a_refused_providers_site_ends_the_fetch(server, tmp_path, url):
+    server.routes["/start"] = _redirect(url)
+    refused = _refused(server, server.url("/start"), tmp_path)
+    assert refused.reason == "refused_source"
+    assert refused.detail == open_access.refusal({"pdf_url": url})
+    # The first hop was asked; the refused site never was.
+    assert [r["path"] for r in server.requests] == ["/start"]
+
+
+@pytest.mark.parametrize("url", [
+    "https://bmcbioinformatics.biomedcentral.com/counter/pdf/10.1186/s12859-020-03566-9.pdf",
+    "https://www.nature.com/articles/s41586-020-2649-2.pdf",
+])
+def test_a_refused_providers_address_is_refused_before_any_lookup(tmp_path, url, monkeypatch):
+    def resolve(*_args, **_kwargs):
+        raise AssertionError("a refused site's name was looked up")
+
+    monkeypatch.setattr(fd, "_RESOLVE", resolve)
+    with pytest.raises(fd.DownloadRefused) as refused:
+        fd.fetch_pdf(url, tmp_path / "paper.pdf")
+    assert refused.value.reason == "refused_source"
+    assert "Springer Nature" in refused.value.detail
+    assert not (tmp_path / "paper.pdf").exists()
 
 
 def test_too_many_redirects(server, tmp_path):
