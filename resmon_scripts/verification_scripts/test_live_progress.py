@@ -160,6 +160,47 @@ def test_a_watchs_scheduled_run_says_its_five_minute_wait_for_arxiv(monkeypatch)
     assert {b["retries"] for b in beats if "waiting" in b} == {1}
 
 
+def test_cancelling_a_run_ends_its_searches_long_waits(monkeypatch):
+    """A cancelled run tells each search still under way, so a long wait (arXiv's) ends rather than running on."""
+    monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
+    seen: dict = {}
+
+    def script(slug: str) -> list:
+        seen["outcome"] = search_outcome()
+        started = time.monotonic()
+        api_arxiv._wait(300.0)                 # the real wait: five minutes unless the run stops it
+        seen["stopped"] = api_arxiv._stopped()
+        seen["waited"] = time.monotonic() - started
+        return [_paper(slug)]
+
+    monkeypatch.setattr(se, "get_client", lambda name, **kwargs: _Stand(name, script))
+    conn = sqlite3.connect(":memory:")
+    init_db(conn=conn)
+    engine = SweepEngine(db_conn=conn, config={"unattended": True})
+    exec_id = engine.prepare_execution("deep_sweep", ["arxiv"], {"query": "graphs", "max_results": 10})
+    progress_store.register(exec_id)
+
+    def cancel_once_waiting() -> None:
+        until = time.monotonic() + 5
+        while "outcome" not in seen and time.monotonic() < until:
+            time.sleep(0.01)
+        time.sleep(0.1)
+        progress_store.request_cancel(exec_id)
+
+    threading.Thread(target=cancel_once_waiting, daemon=True).start()
+    began = time.monotonic()
+    engine.run_prepared(exec_id)
+    ran = time.monotonic() - began
+    until = time.monotonic() + 5
+    while "waited" not in seen and time.monotonic() < until:
+        time.sleep(0.01)
+    conn.close()
+
+    assert ran < 5
+    assert seen.get("stopped") is True
+    assert seen["waited"] < 5
+
+
 def test_the_run_record_is_what_it_was(monkeypatch):
     """Retries and waits are said live and kept nowhere: the outcome's snapshot has neither."""
     reset_search_outcome()

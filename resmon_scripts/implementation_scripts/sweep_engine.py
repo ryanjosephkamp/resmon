@@ -1996,6 +1996,11 @@ class SweepEngine:
                     break
             for i in sorted(in_flight):
                 repo_name = in_flight[i]["repo"]
+                # Tell the search the run is over, so a client in a long wait
+                # ends it rather than asking its source again for nothing.
+                outcome = in_flight[i]["live"].get("outcome")
+                if outcome is not None:
+                    outcome.stop.set()
                 # Mark each in-flight repo as errored for UI clarity, then
                 # short-circuit to the cancellation handler. Their worker
                 # threads are daemons and are abandoned; each exits when its

@@ -31,6 +31,9 @@ import pytest
 from implementation_scripts import api_arxiv, api_base, config, zero_reason
 from implementation_scripts.api_base import NormalizedResult, ServerCooldownActive
 
+# The real wait, before the fixture below replaces it with one that records.
+_REAL_WAIT = api_arxiv._wait
+
 _FEED_OPEN = "<feed xmlns='http://www.w3.org/2005/Atom'>"
 _EMPTY_FEED = _FEED_OPEN + "</feed>"
 _ONE_ENTRY = (
@@ -565,3 +568,32 @@ def test_a_stand_in_for_arxiv_can_shorten_its_patience(monkeypatch):
     assert api_arxiv._patience_seconds() == 180.0
     monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS")
     assert api_arxiv._patience_seconds() == 180.0
+
+
+def test_a_cancelled_runs_search_stops_waiting_and_asks_arxiv_nothing_more(arxiv, monkeypatch):
+    """A watch's scheduled run may wait minutes for arXiv; once the run is cancelled, the wait ends at once."""
+    monkeypatch.setattr(api_arxiv, "_wait", _REAL_WAIT)
+    arxiv.script = [(429, {}, "")] * 10
+    seen: dict = {}
+
+    def search() -> None:
+        api_base.reset_search_outcome()
+        outcome = api_base.search_outcome()
+        outcome.unattended = True
+        seen["outcome"] = outcome
+        seen["results"] = _search()
+
+    thread = threading.Thread(target=search, daemon=True)
+    began = time.monotonic()
+    thread.start()
+    until = time.monotonic() + 5
+    while time.monotonic() < until and (seen.get("outcome") is None or seen["outcome"].waiting is None):
+        time.sleep(0.01)
+    assert seen["outcome"].waiting is not None, "the search never began its first wait"
+    seen["outcome"].stop.set()                 # what the engine does when the run is cancelled
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert time.monotonic() - began < 4        # the first wait alone is five seconds
+    assert seen["results"] == []
+    assert arxiv.hits == 1                     # nothing was asked after the cancel

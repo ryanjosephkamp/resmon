@@ -125,8 +125,16 @@ def _patience_seconds(unattended: bool = False) -> float:
 
 
 def _wait(seconds: float) -> None:
-    """Sleep between attempts. A seam, so a test can wait without sleeping."""
-    time.sleep(seconds)
+    """Wait between attempts, ending early if the run is cancelled.
+
+    A seam, so a test can wait without sleeping.
+    """
+    search_outcome().stop.wait(seconds)
+
+
+def _stopped() -> bool:
+    """Whether the run this search belongs to was cancelled (``SearchOutcome.stop``)."""
+    return search_outcome().stop.is_set()
 
 
 class _Patience:
@@ -186,6 +194,8 @@ def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
             if not patience.allows(exc.seconds):
                 raise
             patience.spend(exc.seconds, "is cooling down after an earlier 429", "cooldown")
+            if _stopped():
+                raise
             continue
         if response.status_code not in _PATIENT_STATUSES:
             return response
@@ -199,6 +209,10 @@ def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
         if not patience.allows(seconds):
             return response
         patience.spend(seconds, f"answered {response.status_code}")
+        if _stopped():
+            # The run was cancelled during the wait: nothing reads this search
+            # any more, so arXiv is not asked again for it.
+            return response
         patience.lengthen()
 
 
