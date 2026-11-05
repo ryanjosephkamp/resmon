@@ -37,6 +37,9 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from implementation_scripts import database  # noqa: E402
+from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
+    _MARKERS_A_LAUNCH_MAY_ADD, _as_recounted,
+)
 
 INDEX = "idx_documents_metadata_hash"
 SCHEMA_21_FIXTURE = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
@@ -156,7 +159,9 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     24 rebuilds ``assistant_session_choices`` with its rows, schema 25 rebuilds
     ``library_files`` with its rows and adds the empty ``library_removed``, and
     the marker moves to 25. Those are those steps', and are named here so that
-    nothing else can arrive or change unnoticed.
+    nothing else can arrive or change unnoticed. Any launch also recounts the
+    runs' new papers once; the rows are compared with the fixture as that
+    recount leaves it (``_as_recounted``).
     """
     path = tmp_path / "schema21.db"
     conn = _open(path)
@@ -166,7 +171,9 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     plan = _plan(conn)
     assert any(step.startswith("SCAN") for step in plan), (
         f"the schema 21 corpus should scan for a hash; its plan was {plan}")
-    objects_before, rows_before = _objects(conn), _rows(conn)
+    recounted = _as_recounted(conn)
+    objects_before, rows_before = _objects(conn), _rows(recounted)
+    recounted.close()
     before_library_columns = list(conn.execute("PRAGMA table_info(library_files)"))
     conn.close()
 
@@ -197,7 +204,8 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
         assert settings_after.pop("schema_version") == "25"
         # One-shot backfill markers this build writes on any launch, which the
         # cumulative-upgrade test names; they are not this step's doing.
-        settings_after.pop("document_facets_backfilled", None)
+        for marker in _MARKERS_A_LAUNCH_MAY_ADD:
+            settings_after.pop(marker, None)
         assert settings_after == settings_before
         # Schema 23's tables arrive empty; they are that step's, not this one's.
         assert rows_after.pop("assistant_turn_failures") == []

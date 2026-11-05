@@ -289,7 +289,11 @@ def test_the_fixture_fills_every_table_the_preservation_check_reads(legacy):
 
 
 def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
-    before = contents(legacy)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the fixture as that recount leaves it.
+    recounted = _as_recounted(legacy)
+    before = contents(recounted)
+    recounted.close()
 
     database.init_db(conn=legacy)
 
@@ -319,6 +323,7 @@ def test_upgrading_adds_the_queue_and_changes_nothing_else(legacy):
 # wherever app_settings is compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
