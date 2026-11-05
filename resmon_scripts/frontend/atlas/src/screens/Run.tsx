@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
@@ -31,8 +31,8 @@ import { useMinute } from '../lib/useMinute';
 import { useNow } from '../lib/useNow';
 import { elapsedWords, liveStage, secondsSince, sourcesFinished } from './runs/live';
 
-/** How many of a run's papers are read for the sky; a sweep can store thousands. */
-const SKY_LIMIT = 2_000;
+/** How many of a run's papers its Papers tab reads at a time; More papers reads the next. */
+const PAPERS_PAGE = 200;
 
 /** The engine's own sentence for a refusal where it gave one, otherwise what failed. */
 function refusal(error: Error): string {
@@ -170,23 +170,28 @@ export function Run() {
       return running && !(list ?? []).some((event) => FINAL_EVENTS.has(event.type)) ? 1_000 : false;
     },
   });
-  const papers = useQuery({
+  // The Papers tab reads a page at a time, as it is asked to; the map reads every paper the run
+  // stored, by id, in one request, which the Map tab shares (`RunMap`). The map once read the papers
+  // themselves, 200 at a time up to 2,000, and a sweep that stored more was drawn as if it had not.
+  const papers = useInfiniteQuery({
     queryKey: ['run-papers', id, settledAt],
     enabled: run.isSuccess && !running,
-    queryFn: async () => {
-      const first = await answer(engine().GET('/api/executions/{exec_id}/documents', {
-        params: { path: { exec_id: id }, query: { limit: 200, offset: 0 } },
-      }));
-      const all: RunPaper[] = [...first.papers];
-      while (all.length < Math.min(first.total, SKY_LIMIT)) {
-        const next = await answer(engine().GET('/api/executions/{exec_id}/documents', {
-          params: { path: { exec_id: id }, query: { limit: 200, offset: all.length } },
-        }));
-        if (!next.papers.length) break;
-        all.push(...next.papers);
-      }
-      return { papers: all, total: first.total };
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) => answer(engine().GET('/api/executions/{exec_id}/documents', {
+      params: { path: { exec_id: id }, query: { limit: PAPERS_PAGE, offset: pageParam } },
+    })),
+    getNextPageParam: (last, all) => {
+      const read = all.reduce((n, page) => n + page.papers.length, 0);
+      return last.papers.length && read < last.total ? read : undefined;
     },
+  });
+  const paperPages = useMemo<{ papers: RunPaper[]; total: number } | null>(() => (papers.data
+    ? { papers: papers.data.pages.flatMap((page) => page.papers), total: papers.data.pages[0]?.total ?? 0 }
+    : null), [papers.data]);
+  const runIds = useQuery({
+    queryKey: ['run-ids', id, settledAt],
+    enabled: run.isSuccess && !running,
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', { params: { path: { exec_id: id } } })),
   });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
@@ -261,7 +266,7 @@ export function Run() {
     () => (run.data ? liveSources(selectedSources(run.data), events.data ?? [], run.data.status !== 'running') : []),
     [run.data, events.data],
   );
-  const paperIds = useMemo(() => (papers.data?.papers ?? []).map((paper) => paper.id), [papers.data]);
+  const paperIds = useMemo(() => runIds.data?.ids ?? [], [runIds.data]);
   // A paper chosen on the run's small map opens in the sources' place, beside it, for this run only.
   const [opened, setOpened] = useState<{ runId: number; choice: SkyChoice } | null>(null);
   const onMap = opened?.runId === id ? opened.choice : null;
@@ -481,12 +486,13 @@ export function Run() {
           )}
         </section>
         <RunSky ref={sky} paperIds={paperIds} endedAt={running ? null : data.end_time ?? null} running={running}
-          onOpenMap={!running && (papers.data?.total ?? 0) > 0 ? openMap : undefined}
+          onOpenMap={!running && paperIds.length > 0 ? openMap : undefined}
           chosen={onMap?.id ?? null} onChoose={(next) => setOpened(next ? { runId: id, choice: next } : null)}
           sourceName={(slug) => names.get(slug) ?? slug} />
       </div>
 
-      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={papers.data ?? null} running={running}
+      <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={paperPages} running={running}
+        morePapers={papers.hasNextPage ? () => void papers.fetchNextPage() : undefined} readingMore={papers.isFetchingNextPage}
         tab={tab} onTab={setTab} />
     </div>
   );
