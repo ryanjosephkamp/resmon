@@ -9,8 +9,8 @@ import { Paper } from './screens/collection/Paper';
 import { Saved } from './screens/collection/Saved';
 import { SharedWording } from './screens/collection/SharedWording';
 import { Evidence } from './screens/library/Evidence';
-import { Files } from './screens/library/Files';
-import { ReadingQueue } from './screens/library/ReadingQueue';
+import { FilePage } from './screens/library/FilePage';
+import { Library } from './screens/library/Library';
 import { Run } from './screens/Run';
 import { Search } from './screens/Search';
 import { Settings } from './screens/Settings';
@@ -38,7 +38,7 @@ export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule delivery coverage new watch create', element: <Watches /> },
   { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export shared wording text reuse passages', element: <Collection /> },
-  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import evidence passages notes projects', element: <ReadingQueue /> },
+  { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf tex markdown owned library vault import evidence passages notes projects gallery', element: <Library /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
 ];
@@ -59,7 +59,8 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/saved', element: <Saved /> },
   { path: '/search/wording', element: <SharedWording /> },
   { path: '/settings/:group', element: <Settings /> },
-  { path: '/library/files', element: <Files /> },
+  { path: '/library/files', element: <Library shelf="files" /> },
+  { path: '/library/files/:fileId', element: <FilePage /> },
   { path: '/library/evidence', element: <Evidence /> },
   { path: '/health/watchdog', element: <Watchdog /> },
   { path: '/health/analytics', element: <Analytics /> },

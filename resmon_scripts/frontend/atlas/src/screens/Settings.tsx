@@ -12,6 +12,7 @@ import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
 import { DangerZone } from './settings/DangerZone';
 import { Email } from './settings/Email';
+import { LibrarySettings } from './settings/LibrarySettings';
 import { Notifications } from './settings/Notifications';
 import { Sources } from './settings/Sources';
 import { Storage } from './settings/Storage';
@@ -145,6 +146,7 @@ export function Settings() {
           {known?.slug === 'ai' && <Ai />}
           {known?.slug === 'sources' && <Sources />}
           {known?.slug === 'storage' && <Storage />}
+          {known?.slug === 'library' && <LibrarySettings />}
           {known?.slug === 'tutorials' && <Tutorials />}
           {known?.slug === 'about' && <About />}
           {known?.slug === 'danger' && <DangerZone />}
