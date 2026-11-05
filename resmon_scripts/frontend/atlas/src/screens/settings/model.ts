@@ -95,7 +95,7 @@ export function daemonSentence(daemon: DaemonStatus, state: DaemonState, since: 
  */
 export const RUN_LIMITS = {
   runs: { min: 1, max: 8, words: 'Runs at once' },
-  queue: { min: 1, max: 64, words: 'Watch runs that can wait' },
+  queue: { min: 1, max: 64, words: 'Runs that can wait' },
 } as const;
 
 /** Why a typed limit cannot be saved, or null when it can. */

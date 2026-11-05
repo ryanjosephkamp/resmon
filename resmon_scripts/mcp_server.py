@@ -1121,6 +1121,14 @@ def t_run_sweep(args: dict) -> Any:
     if args.get("ai_enabled") is not None:
         body["ai_enabled"] = bool(args["ai_enabled"])
     data = backend.request("POST", "/api/search/sweep", json=body) or {}
+    if data.get("queued"):
+        # At resmon's run limit the sweep waits for a free slot and starts on
+        # its own; there is no run to poll until it does. The ticket is the
+        # ``request_id`` its run carries once it starts, which is how a caller
+        # finds it in ``list_executions`` afterwards.
+        return {"execution_id": None, "queued": True,
+                "queue_position": data.get("queue_position"), "ticket": data.get("ticket"),
+                "detail": data.get("detail")}
     return {"execution_id": data.get("execution_id"),
             "detail": "Started. Poll get_execution for progress."}
 

@@ -10,6 +10,7 @@ import threading
 import time
 import functools
 from abc import ABC, abstractmethod
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Mapping, Optional
@@ -406,6 +407,7 @@ class RateLimiter:
 
     def acquire(self, *, deadline: float | None = None) -> None:
         """Wait for admission, optionally within an operation's monotonic budget."""
+        outcome: "SearchOutcome | None" = None
         if deadline is None:
             self._lock.acquire()
         elif not self._lock.acquire(timeout=_remaining(deadline)):
@@ -428,8 +430,14 @@ class RateLimiter:
                     return
                 if deadline is not None and wait >= _remaining(deadline):
                     raise RequestDeadlineExceeded("The source rate-limiter wait expired")
+                # Said for the run's heartbeat: the source's own pace, or a
+                # cooldown it asked for with Retry-After.
+                outcome = search_outcome()
+                outcome.waiting = ("cooldown" if cooldown_wait > interval_wait else "pace", now + wait)
                 self._condition.wait(timeout=wait)
         finally:
+            if outcome is not None:
+                outcome.waiting = None
             self._lock.release()
 
 
@@ -663,6 +671,28 @@ class SearchOutcome:
     # The start a client gave a search the run gave none; see
     # ``note_default_start``.
     default_start: dict | None = None
+    # What the search is doing right now, for the run's heartbeat, and never
+    # part of the record (``snapshot`` leaves both out). ``retries`` counts the
+    # times this search asked again after a failed attempt, by ``safe_request``'s
+    # ladder or a client's own. ``waiting`` is what it is waiting for and until
+    # when, as ``(kind, monotonic deadline)``: ``pace`` (the source's rate
+    # limit), ``cooldown`` (a Retry-After the source sent), or ``retry`` (the
+    # pause before asking again). One tuple, assigned whole, because the
+    # heartbeat reads it from another thread.
+    retries: int = 0
+    waiting: tuple[str, float] | None = None
+    # Whether nobody is waiting on this search: it belongs to a watch's
+    # scheduled run, not to one a person started. Set by the engine before the
+    # search, from the run's own config, and read by a client whose patience
+    # with a busy source depends on it (arXiv's 429 and 503 ladder). Not part
+    # of the record.
+    unattended: bool = False
+    # Set by the engine when the run this search belongs to is cancelled. The
+    # run stops reading the search at once, but the search's thread runs on
+    # until its client returns; a client in a long wait (arXiv's, up to five
+    # minutes at a time for a watch's scheduled run) ends the wait on this and
+    # asks the source nothing more. Not part of the record.
+    stop: threading.Event = field(default_factory=threading.Event)
 
     def reset(self) -> None:
         self.attempts = 0
@@ -682,6 +712,25 @@ class SearchOutcome:
         self.queries_sent_omitted = 0
         self.read = None
         self.default_start = None
+        self.retries = 0
+        self.waiting = None
+        self.unattended = False
+        self.stop = threading.Event()
+
+    def live(self) -> dict:
+        """What the search has done so far, as the run's heartbeat says it.
+
+        ``requests`` is the attempts sent, ``retries`` the times it asked again
+        after a failed one, and ``waiting`` (only while it waits) the kind of
+        wait and the seconds left. Read from the run's thread while the search
+        runs on its own, so each field is read once.
+        """
+        out: dict = {"requests": self.attempts, "retries": self.retries}
+        waiting = self.waiting
+        if waiting is not None:
+            kind, until = waiting
+            out["waiting"] = {"kind": kind, "seconds": round(max(0.0, until - time.monotonic()), 1)}
+        return out
 
     # -- written by safe_request ------------------------------------------
 
@@ -748,6 +797,7 @@ class SearchOutcome:
         their existing contract: a retry that later succeeds is still a
         successful invocation. Only the history records that it happened.
         """
+        self.retries += 1
         self._remember_failure(_failure_detail(status_or_exc)[1])
 
     def _remember_failure(self, detail: str) -> None:
@@ -837,6 +887,21 @@ def search_outcome() -> SearchOutcome:
 
 def reset_search_outcome() -> None:
     search_outcome().reset()
+
+
+@contextmanager
+def waiting(kind: str, seconds: float):
+    """Say, for the run's heartbeat, that this search is waiting and for how long.
+
+    ``kind`` is ``pace``, ``cooldown`` or ``retry`` (see
+    ``SearchOutcome.waiting``). Cleared when the wait ends, however it ends.
+    """
+    outcome = search_outcome()
+    outcome.waiting = (kind, time.monotonic() + max(0.0, float(seconds)))
+    try:
+        yield
+    finally:
+        outcome.waiting = None
 
 
 def note_entity_unsupported(why: str = "no_author_query") -> None:
@@ -955,6 +1020,16 @@ def note_retry_wait(seconds: float) -> None:
     """
     if seconds > 0:
         search_outcome().waited_seconds += float(seconds)
+
+
+def note_retry() -> None:
+    """Count a retry by a client's own ladder, when it decides to ask again.
+
+    For the run's heartbeat only ("3 requests, 1 retry"); the record is
+    unchanged. Counted before the wait, as ``safe_request`` counts its own, so
+    the heartbeat during the wait already says the retry is coming.
+    """
+    search_outcome().retries += 1
 
 
 def note_parse_failure(why: str = "parse_error") -> None:
@@ -1147,7 +1222,8 @@ def safe_request(
         # an HTTP attempt for time spent waiting between requests.
         if deadline is not None:
             wait = min(wait, max(0.0, deadline - time.monotonic()))
-        time.sleep(wait)
+        with waiting("retry", wait):
+            time.sleep(wait)
 
     for attempt in range(max_retries + 1):
         try:

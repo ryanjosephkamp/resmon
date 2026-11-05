@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import {
   COMMAND_ENTER_CHORD, MENU_COMMANDS, SHORTCUTS, ariaKeys, blockingDialogOpen, commandEnter, commandEnterAction, isMenuCommand,
-  isTyping, keysText, pressed, sectionIndex, shortcut, shortcutFor, type KeyPress,
+  isTyping, keysText, pressed, sectionPath, sectionShortcut, shortcut, shortcutFor, type KeyPress,
 } from '../shortcuts';
 
 const press = (key: string, held: Partial<Omit<KeyPress, 'key'>> = {}): KeyPress =>
@@ -12,8 +12,8 @@ const pc = (key: string, held: Partial<Omit<KeyPress, 'key'>> = {}) => shortcutF
 
 describe('each shortcut is one key with ⌘ on macOS and Ctrl elsewhere', () => {
   test('the set the shell answers', () => {
-    expect(['k', 'n', 'd', '/', '1', '6', ',', '[', ']'].map((k) => mac(k)))
-      .toEqual(['palette', 'new-conversation', 'new-dive', 'ask', 'section-1', 'section-6', 'settings', 'back', 'forward']);
+    expect(['k', 'n', 'd', '/', '1', '6', '7', ',', '[', ']'].map((k) => mac(k)))
+      .toEqual(['palette', 'new-conversation', 'new-dive', 'ask', 'section-1', 'section-6', 'section-7', 'settings', 'back', 'forward']);
     expect(mac('d', { shiftKey: true })).toBe('new-sweep');
     // With Shift held a letter may arrive capitalized.
     expect(mac('D', { shiftKey: true })).toBe('new-sweep');
@@ -22,7 +22,7 @@ describe('each shortcut is one key with ⌘ on macOS and Ctrl elsewhere', () => 
   });
 
   test('⌘W stays the window\'s, and nothing is taken that the menu or the editing keys already use', () => {
-    for (const key of ['w', 'q', 'c', 'v', 'x', 'z', 'a', 'r', 'm', 'h', '0', '7', '9']) expect(mac(key)).toBeNull();
+    for (const key of ['w', 'q', 'c', 'v', 'x', 'z', 'a', 'r', 'm', 'h', '0', '8', '9']) expect(mac(key)).toBeNull();
     expect(mac('d', { altKey: true })).toBeNull();
     expect(mac('n', { shiftKey: true })).toBeNull();
     // Ctrl is not ⌘ on macOS, and ⌘ is not Ctrl elsewhere.
@@ -49,9 +49,13 @@ describe('each shortcut is one key with ⌘ on macOS and Ctrl elsewhere', () => 
     expect(new Set(chords).size).toBe(chords.length);
   });
 
-  test('the sections are the six digits, in order', () => {
-    expect(SHORTCUTS.map((s) => sectionIndex(s.id)).filter((i) => i !== null)).toEqual([0, 1, 2, 3, 4, 5]);
-    expect(sectionIndex('new-dive')).toBeNull();
+  test('⌘1 to ⌘6 open the sections they always opened, and Runs, added after Search, takes ⌘7', () => {
+    expect(SHORTCUTS.map((s) => sectionPath(s.id)).filter((p) => p !== null))
+      .toEqual(['/today', '/watches', '/search', '/library', '/ask', '/health', '/runs']);
+    expect(sectionPath('new-dive')).toBeNull();
+    expect(sectionShortcut('/runs')).toBe('section-7');
+    expect(sectionShortcut('/library')).toBe('section-4');
+    expect(sectionShortcut('/settings')).toBeNull();
   });
 });
 

@@ -2809,12 +2809,71 @@ def link_execution_document(
     conn.commit()
 
 
+def _executions_filter(
+    execution_type: str | None,
+    routine_id: int | None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+) -> tuple[str, list]:
+    """The joins and WHERE clause shared by the run log's page and its count.
+
+    ``text`` matches, without regard to case, the run's stored parameters (its
+    query, its terms and its sources' ids), its watch's name, its saved
+    search's name, and its number. Parameters are stored as JSON with every
+    character past ASCII escaped (``\\u00e9``), so the words are looked for
+    both as typed and as stored.
+    """
+    joins = (
+        "LEFT JOIN saved_configurations "
+        "  ON saved_configurations.id = executions.saved_configuration_id "
+    )
+    where: list[str] = []
+    params: list = []
+    types = [t for t in ([execution_type] if execution_type else []) + list(execution_types or []) if t]
+    if types:
+        where.append(f"executions.execution_type IN ({', '.join('?' * len(types))})")
+        params.extend(types)
+    if routine_id is not None:
+        where.append("executions.routine_id = ?")
+        params.append(int(routine_id))
+    if statuses:
+        where.append(f"executions.status IN ({', '.join('?' * len(statuses))})")
+        params.extend(statuses)
+    words = (text or "").strip()
+    if words:
+        joins += "LEFT JOIN routines ON routines.id = executions.routine_id "
+
+        def like(value: str) -> str:
+            return "%" + value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+        escaped = json.dumps(words)[1:-1]
+        clauses = [
+            "executions.parameters LIKE ? ESCAPE '\\'",
+            "executions.parameters LIKE ? ESCAPE '\\'",
+            "routines.name LIKE ? ESCAPE '\\'",
+            "saved_configurations.name LIKE ? ESCAPE '\\'",
+        ]
+        params.extend([like(words), like(escaped), like(words), like(words)])
+        if words.isdigit():
+            clauses.append("executions.id = ?")
+            params.append(int(words))
+        where.append(f"({' OR '.join(clauses)})")
+    return joins + (f"WHERE {' AND '.join(where)} " if where else ""), params
+
+
 def get_executions(
     conn: sqlite3.Connection,
     limit: int = 50,
     offset: int = 0,
     execution_type: str | None = None,
     routine_id: int | None = None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+    without_events: bool = False,
 ) -> list[dict]:
     """Paginated execution history, optionally filtered by type and routine.
 
@@ -2822,25 +2881,49 @@ def get_executions(
     ``saved_configuration_name`` field (NULL when the execution is not
     linked to a saved config). The JOIN happens at read time so renames
     of the underlying config row are reflected without any backfill.
+
+    ``execution_types`` and ``statuses`` narrow it to any of those, and
+    ``text`` as ``_executions_filter`` says. ``without_events`` leaves the
+    stored ``progress_events`` unread (NULL): a long sweep's run its every
+    heartbeat, and a list of runs has no use for it.
     """
-    where: list[str] = []
-    params: list = []
-    if execution_type:
-        where.append("executions.execution_type = ?")
-        params.append(execution_type)
-    if routine_id is not None:
-        where.append("executions.routine_id = ?")
-        params.append(int(routine_id))
+    joins, params = _executions_filter(
+        execution_type, routine_id,
+        execution_types=execution_types, statuses=statuses, text=text,
+    )
+    if without_events:
+        columns = [row[1] for row in conn.execute("PRAGMA table_info(executions)").fetchall()]
+        selected = ", ".join(
+            "NULL AS progress_events" if name == "progress_events" else f"executions.{name}"
+            for name in columns
+        )
+    else:
+        selected = "executions.*"
     rows = conn.execute(
-        "SELECT executions.*, saved_configurations.name AS saved_configuration_name "
+        f"SELECT {selected}, saved_configurations.name AS saved_configuration_name "
         "FROM executions "
-        "LEFT JOIN saved_configurations "
-        "  ON saved_configurations.id = executions.saved_configuration_id "
-        + (f"WHERE {' AND '.join(where)} " if where else "")
-        + "ORDER BY executions.start_time DESC LIMIT ? OFFSET ?",
+        + joins
+        + "ORDER BY executions.start_time DESC, executions.id DESC LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     return [dict(r) for r in rows]
+
+
+def count_executions(
+    conn: sqlite3.Connection,
+    execution_type: str | None = None,
+    routine_id: int | None = None,
+    *,
+    execution_types: list[str] | None = None,
+    statuses: list[str] | None = None,
+    text: str | None = None,
+) -> int:
+    """How many runs ``get_executions`` would page through with the same filters."""
+    joins, params = _executions_filter(
+        execution_type, routine_id,
+        execution_types=execution_types, statuses=statuses, text=text,
+    )
+    return int(conn.execute(f"SELECT COUNT(*) FROM executions {joins}", params).fetchone()[0])
 
 
 def get_routine_document_ids(

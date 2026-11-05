@@ -40,7 +40,7 @@ def _get(client: TestClient) -> dict:
 
 
 def test_a_fresh_install_follows_the_system_and_has_no_accent(client):
-    assert _get(client) == {"theme": "system", "accent": None}
+    assert _get(client) == {"theme": "system", "accent": None, "run_monitor": True}
 
 
 @pytest.mark.parametrize("theme", ["system", "light", "dark"])
@@ -48,21 +48,21 @@ def test_what_a_put_stores_is_what_the_next_get_answers(client, theme):
     sent = {"theme": theme, "accent": "#3d8aff"}
     response = client.put("/api/appearance", json=sent)
     assert response.status_code == 200, response.text
-    assert response.json() == sent
-    assert _get(client) == sent
+    assert response.json() == {**sent, "run_monitor": True}
+    assert _get(client) == {**sent, "run_monitor": True}
 
 
 def test_the_accent_is_stored_lowercase_and_the_put_says_so(client):
     response = client.put("/api/appearance", json={"theme": "dark", "accent": "#FF8A3D"})
-    assert response.json() == {"theme": "dark", "accent": "#ff8a3d"}
+    assert response.json() == {"theme": "dark", "accent": "#ff8a3d", "run_monitor": True}
     assert _get(client)["accent"] == "#ff8a3d"
 
 
 def test_a_null_accent_goes_back_to_the_interfaces_default(client):
     client.put("/api/appearance", json={"theme": "light", "accent": "#123456"})
     response = client.put("/api/appearance", json={"theme": "light", "accent": None})
-    assert response.json() == {"theme": "light", "accent": None}
-    assert _get(client) == {"theme": "light", "accent": None}
+    assert response.json() == {"theme": "light", "accent": None, "run_monitor": True}
+    assert _get(client) == {"theme": "light", "accent": None, "run_monitor": True}
 
 
 @pytest.mark.parametrize("body", [
@@ -78,7 +78,7 @@ def test_a_value_the_interface_could_not_draw_is_refused_and_nothing_is_stored(c
     client.put("/api/appearance", json={"theme": "light", "accent": "#123456"})
     response = client.put("/api/appearance", json=body)
     assert response.status_code == 422, response.text
-    assert _get(client) == {"theme": "light", "accent": "#123456"}
+    assert _get(client) == {"theme": "light", "accent": "#123456", "run_monitor": True}
 
 
 @pytest.mark.parametrize("stored_theme, stored_accent", [
@@ -94,19 +94,31 @@ def test_a_stored_value_the_engine_did_not_write_reads_as_unset(client, stored_t
         set_setting(conn, resmon_mod._APPEARANCE_ACCENT_KEY, stored_accent)
     finally:
         resmon_mod._close_db(conn)
-    assert _get(client) == {"theme": "system", "accent": None}
+    assert _get(client) == {"theme": "system", "accent": None, "run_monitor": True}
 
 
 def test_reset_settings_clears_the_appearance_with_everything_else(client):
-    client.put("/api/appearance", json={"theme": "dark", "accent": "#3d8aff"})
+    client.put("/api/appearance", json={"theme": "dark", "accent": "#3d8aff", "run_monitor": False})
     response = client.post("/api/admin/reset-settings", json={"confirm": "CONFIRM"})
     assert response.status_code == 200, response.text
-    assert _get(client) == {"theme": "system", "accent": None}
+    assert _get(client) == {"theme": "system", "accent": None, "run_monitor": True}
+
+
+def test_the_run_monitor_is_shown_until_it_is_hidden_and_a_put_without_it_leaves_it(client):
+    """Settings › Appearance › Show the run monitor in the top bar, kept in the engine."""
+    hidden = client.put("/api/appearance", json={"theme": "dark", "accent": None, "run_monitor": False})
+    assert hidden.json() == {"theme": "dark", "accent": None, "run_monitor": False}
+    # A caller that knows only the theme and the accent changes only those.
+    client.put("/api/appearance", json={"theme": "light", "accent": "#3d8aff"})
+    assert _get(client) == {"theme": "light", "accent": "#3d8aff", "run_monitor": False}
+    shown = client.put("/api/appearance", json={"theme": "light", "accent": "#3d8aff", "run_monitor": True})
+    assert shown.json()["run_monitor"] is True
+    assert client.put("/api/appearance", json={"theme": "light", "accent": None, "run_monitor": "maybe"}).status_code == 422
 
 
 def test_the_assistant_has_no_path_to_the_appearance():
     """Not a settings group, so ``update_settings`` cannot name it."""
-    keys = {resmon_mod._APPEARANCE_THEME_KEY, resmon_mod._APPEARANCE_ACCENT_KEY}
+    keys = {resmon_mod._APPEARANCE_THEME_KEY, resmon_mod._APPEARANCE_ACCENT_KEY, resmon_mod._APPEARANCE_RUN_MONITOR_KEY}
     for group, group_keys in resmon_mod._SETTINGS_GROUPS.items():
         assert not keys & set(group_keys), group
     assert "appearance" not in mcp.SETTINGS_GROUPS

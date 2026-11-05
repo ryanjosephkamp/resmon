@@ -34,6 +34,9 @@ interface Props {
   /** The open tab, held by the page so its sky can open the map. */
   tab: Tab;
   onTab: (tab: Tab) => void;
+  /** Reads the Papers tab's next page, where there is one. */
+  morePapers?: () => void;
+  readingMore?: boolean;
 }
 
 /**
@@ -45,7 +48,7 @@ interface Props {
  * page's own side column, under 400 pixels, cannot hold. As a tab it has the
  * record's full width, and nothing of it is drawn until it is opened.
  */
-export function RunTabs({ run, live, names, events, papers, running, tab, onTab }: Props) {
+export function RunTabs({ run, live, names, events, papers, running, tab, onTab, morePapers, readingMore = false }: Props) {
   return (
     <section className="run-record" id="run-record" aria-label="The run's record">
       <div className="run-tabs" role="tablist" aria-label="Record">
@@ -65,7 +68,9 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
         ))}
       </div>
       <div className="run-panel" role="tabpanel" id="run-tab-panel" aria-labelledby={`run-tab-${tab}`}>
-        {tab === 'Papers' && <Papers runId={run.id} papers={papers} running={running} names={names} />}
+        {tab === 'Papers' && (
+          <Papers runId={run.id} papers={papers} running={running} names={names} more={morePapers} readingMore={readingMore} />
+        )}
         {tab === 'Map' && <RunMap runId={run.id} running={running} settledAt={running ? null : run.end_time ?? run.status}
           endedAt={running ? null : run.end_time ?? null} names={names} />}
         {tab === 'Report' && <TextRecord run={run} kind="report" running={running} names={names} />}
@@ -78,7 +83,9 @@ export function RunTabs({ run, live, names, events, papers, running, tab, onTab 
   );
 }
 
-function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'running' | 'names'> & { runId: number }) {
+function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props, 'papers' | 'running' | 'names'> & {
+  runId: number; more?: () => void; readingMore: boolean;
+}) {
   const client = useQueryClient();
   const save = useMutation({
     mutationFn: (documentId: number) => answer(engine().POST('/api/reading-queue', { body: { document_id: documentId } })),
@@ -122,6 +129,11 @@ function Papers({ runId, papers, running, names }: Pick<Props, 'papers' | 'runni
           );
         })}
       </ol>
+      {more && (
+        <button type="button" className="btn quiet sm runlog-older" data-run="more-papers" disabled={readingMore} onClick={more}>
+          {readingMore ? 'Reading more papers' : `More papers (${number(papers.total - papers.papers.length)} more)`}
+        </button>
+      )}
       {save.error && <p className="field-error" role="alert">The paper could not be saved: {save.error.message}.</p>}
     </>
   );

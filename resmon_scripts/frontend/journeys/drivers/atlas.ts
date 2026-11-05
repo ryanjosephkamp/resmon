@@ -61,9 +61,9 @@ const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Chats: '/ask',
   'AI settings': '/settings/ai',
   // The explorer is Search › Your collection, and a run's results are opened
-  // from the run log beside Ask the sources.
+  // from the Runs tab's history.
   Explorer: '/search',
-  Results: '/search/ask',
+  Results: '/runs',
   'Storage settings': '/settings/storage',
   Tutorials: '/settings/tutorials',
 };
@@ -252,6 +252,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/search/ask') {
       await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
+    } else if (hash === '/runs') {
+      await expect(win().getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('[data-runs="history"]')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
     } else {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     }
@@ -283,7 +286,14 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     await win().evaluate(() => { window.location.hash = '#/search/ask'; });
     await expect(win().getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 30_000 });
     await expect(win().locator('.source').first()).toBeVisible({ timeout: 30_000 });
-    await expect(win().locator('section.runlog')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await expect(win().locator('section.latest-runs')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+  };
+
+  /** The Runs tab, its history read: where every run is listed, ticked, and restarted. */
+  const openRuns = async (): Promise<void> => {
+    await win().evaluate(() => { window.location.hash = '#/runs'; });
+    await expect(win().getByRole('heading', { name: 'Runs', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('[data-runs="history"]')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
   };
 
   const openRun = async (run: RunHandle): Promise<void> => {
@@ -2242,9 +2252,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     exportReferences: async (runs, format): Promise<ExportedFile> => {
-      await openSearch();
+      await openRuns();
       for (const run of runs) {
-        const row = win().locator(`.run-row[data-run="${run.id}"]`);
+        const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
         await expect(row).toBeVisible({ timeout: 30_000 });
         await row.getByRole('checkbox').check();
       }
@@ -2264,8 +2274,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     readInterruptedRow: async (run): Promise<InterruptedRow> => {
-      await openSearch();
-      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await openRuns();
+      const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
       await expect(row).toBeVisible({ timeout: 30_000 });
       await expect(row.locator('.run-status')).toHaveAttribute('data-status', 'interrupted', { timeout: 30_000 });
       return {
@@ -2275,8 +2285,8 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     },
 
     restartRun: async (run) => {
-      await openSearch();
-      const row = win().locator(`.run-row[data-run="${run.id}"]`);
+      await openRuns();
+      const row = win().locator(`[data-runs="history"] .run-row[data-run="${run.id}"]`);
       // Restart says what it will do before anything starts: the AI choice and
       // where the run is sent are read, then the restart is confirmed.
       await row.getByRole('button', { name: 'Restart…', exact: true }).click();

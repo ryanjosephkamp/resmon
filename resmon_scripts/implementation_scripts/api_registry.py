@@ -1,6 +1,8 @@
 # resmon_scripts/implementation_scripts/api_registry.py
 """Client registry mapping repository name strings to API client classes."""
 
+import threading
+
 _REGISTRY: dict[str, type] = {}
 
 # Sources that were once available and are deliberately no longer loaded.
@@ -99,13 +101,35 @@ def list_repositories() -> list[str]:
 # register_client() at import time.
 # ---------------------------------------------------------------------------
 _loaded = False
+# Held while the client modules are imported. ``_loaded`` was once set before
+# they were, with no lock: two watches fired at the same second as the
+# engine's first users of the registry (November 4, 2026, at midnight), and the
+# second thread saw ``_loaded`` true and asked for "crossref" before
+# ``api_crossref`` had registered, so its run failed after 0 seconds with
+# "Unknown repository: crossref". An import that raised partway also left the
+# list half loaded for good.
+_load_lock = threading.Lock()
 
 
 def _ensure_loaded():
+    """Import every client module once, so each has registered, before any lookup.
+
+    ``_loaded`` turns true only after every import has succeeded, under the
+    lock, and a second caller waits for the first rather than reading a list
+    still being filled. An import that raises leaves ``_loaded`` false, so the
+    next caller tries again.
+    """
     global _loaded
     if _loaded:
         return
-    _loaded = True
+    with _load_lock:
+        if _loaded:
+            return
+        _import_clients()
+        _loaded = True
+
+
+def _import_clients():
     from importlib import import_module
     _CLIENT_MODULES = [
         "api_arxiv",

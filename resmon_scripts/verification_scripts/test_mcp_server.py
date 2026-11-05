@@ -1158,3 +1158,14 @@ def test_malformed_identity_shape_is_unavailable(change):
         with pytest.raises(mcp.ToolError) as exc:
             mcp.t_health({"expected_runtime_id": _RUNTIME_A})
     assert exc.value.code == "identity_unavailable"
+
+
+def test_run_sweep_passes_a_queued_sweeps_ticket_through(monkeypatch):
+    """At the run limit a sweep waits; the ticket is how a caller finds the run it becomes."""
+    monkeypatch.delenv(mcp.READ_ONLY_ENV, raising=False)
+    monkeypatch.setattr(mcp.backend, "request", lambda *a, **k: {
+        "execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"})
+    result = mcp.call_tool("run_sweep", {"query": "x", "sources": ["arxiv"]})
+    assert result["isError"] is False
+    payload = json.loads(result["content"][0]["text"])
+    assert payload == {"execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"}

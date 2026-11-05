@@ -224,6 +224,19 @@ function Appearance() {
         </div>
       </div>
 
+      <div className="monitor-setting" data-settings="run-monitor">
+        <h3 className="field-title">Run monitor</h3>
+        <button type="button" className="switch" role="switch" aria-checked={stored.run_monitor} data-switch="run_monitor"
+          onClick={() => save({ run_monitor: !stored.run_monitor })}>
+          <span className="switch-track"><span className="switch-knob" /></span>
+          Show the run monitor in the top bar
+        </button>
+        <p className="form-hint">
+          The mark between the sections and New search: what runs now, what waits, and what failed since you last
+          looked. Hidden, runs still notify you, and the Runs tab still lists them.
+        </p>
+      </div>
+
       {(saveError || loadError) && (
         <p className="field-error" role="alert">
           {saveError

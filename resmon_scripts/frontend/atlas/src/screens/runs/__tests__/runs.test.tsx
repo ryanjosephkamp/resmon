@@ -16,7 +16,8 @@ import {
   logForReading, outcomeOf, reportInLocalTime, restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS,
   type ProgressEvent,
 } from '../model';
-import { runsCountWords } from '../RunLog';
+import { byDay, filterQuery, listedRuns, runSummary, totalWords } from '../history';
+import { placeWords } from '../active';
 import { Metadata } from '../RunTabs';
 import { runSkyCaption } from '../RunSky';
 
@@ -226,10 +227,47 @@ describe('the run\'s log, as the Log tab shows it', () => {
   });
 });
 
-describe('the run log\'s count', () => {
-  test('says the latest runs while older ones are still to read, and the number when it holds them all', () => {
-    expect(runsCountWords(20, true)).toBe('the latest 20');
-    expect(runsCountWords(23, false)).toBe('23');
+describe('the Runs tab\'s history', () => {
+  const row = (id: number, start: string | null, status = 'completed') => ({
+    id, start_time: start, status, coverage: { counts: { answered: 1, non_answer: 0, in_part: 0 }, total: 1 },
+    total_results: 3, new_results: 2, error_message: null,
+  }) as unknown as Parameters<typeof runSummary>[0];
+
+  test('says how many runs match, and nothing while it does not know', () => {
+    expect(totalWords(1_024)).toBe('1,024 runs');
+    expect(totalWords(1)).toBe('1 run');
+    expect(totalWords(null)).toBe('');
+  });
+
+  test('asks the engine for searches, watches\' runs, or failed runs', () => {
+    expect(filterQuery('all')).toEqual({});
+    expect(filterQuery('searches')).toEqual({ type: 'deep_dive,deep_sweep' });
+    expect(filterQuery('watches')).toEqual({ type: 'automated_sweep' });
+    expect(filterQuery('failed')).toEqual({ status: 'failed' });
+  });
+
+  test('lists a run at the edge of two pages once', () => {
+    expect(listedRuns([{ runs: [row(3, null), row(2, null)], total: 3 }, { runs: [row(2, null), row(1, null)], total: 3 }])
+      .map((run) => run.id)).toEqual([3, 2, 1]);
+  });
+
+  test('groups by the reader\'s day against the clock it is given, so "today" turns at midnight', () => {
+    const runs = [row(2, '2026-11-04T23:30:00Z'), row(1, '2026-11-04T12:00:00Z')];
+    // Eastern time: 6:30 PM and 7:00 AM on November 4.
+    expect(byDay(runs, new Date('2026-11-04T23:45:00Z')).map((g) => [g.day, g.runs.length])).toEqual([['today', 2]]);
+    // The same list read after local midnight: those runs were yesterday.
+    expect(byDay(runs, new Date('2026-11-05T05:30:00Z')).map((g) => g.day)).toEqual(['yesterday']);
+  });
+
+  test('a run\'s one line, from what the engine recorded', () => {
+    expect(runSummary(row(1, null))).toBe('1 of 1 source answered · 3 found, 2 new');
+    expect(runSummary(row(1, null, 'running'))).toBe('running');
+  });
+
+  test('a waiting run\'s place in line', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map(placeWords)).toEqual([
+      'next in line', '2nd in line', '3rd in line', '4th in line', '11th in line', '12th in line', '13th in line',
+      '21st in line', '22nd in line']);
   });
 });
 
@@ -276,32 +314,31 @@ describe('a report or log that cannot be shown', () => {
 });
 
 describe('what Restart does, said before it is pressed', () => {
-  test('a search asked by hand: AI not recorded, and never emailed or delivered', () => {
-    const facts = restartFacts({ parameters: JSON.stringify({ repositories: ['arxiv'], keywords: ['graph'] }), execution_type: 'deep_sweep', routine_id: null });
-    expect(facts.ai).toMatch(/^Not recorded with this run\. Restart summarizes only if this run recorded an attempt to/);
+  test('a search asked by hand: copied as a new run, and never emailed or delivered', () => {
+    const facts = restartFacts({ execution_type: 'deep_sweep', routine_id: null });
+    expect(facts.asks).toBe('The same sources, terms, dates, and cap this run recorded, as a new run.');
+    expect(facts.ai).toBe('Restart summarizes only if this run was set to, with what Settings › AI holds now.');
     expect(facts.delivery).toMatch(/^None\./);
     expect(facts.watchId).toBeNull();
   });
 
-  test('a watch\'s run is sent as its watch is set, and names the watch', () => {
-    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: 7 });
-    expect(facts.delivery).toContain('as its watch is set when the run finishes');
+  test('a watch\'s run is its watch\'s Run now, with the watch\'s current settings, and names the watch', () => {
+    const facts = restartFacts({ execution_type: 'automated_sweep', routine_id: 7, ai_lanes: [] }, false);
+    expect(facts.asks).toBe('The watch’s Run now, with the watch’s current settings: its sources, terms, and dates as the '
+      + 'watch holds them now, not this run’s copy. It does not start while the watch is already running.');
+    // Not as this run was set: the watch decides, as it is set now.
+    expect(facts.ai).toBe('As the watch is set now: the run summarizes only if the watch is set to, as the watch’s own runs do.');
+    expect(facts.delivery).toBe('Emailed and delivered as the watch is set when the run finishes.');
     expect(facts.watchId).toBe(7);
   });
 
-  test('a watch\'s run whose watch was deleted is not called a search asked by hand', () => {
-    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null, ai_lanes: [] });
+  test('a watch\'s run whose watch was deleted is copied, and not called a search asked by hand', () => {
+    const facts = restartFacts({ execution_type: 'automated_sweep', routine_id: null, ai_lanes: [] }, true);
+    expect(facts.asks).toBe('The same sources, terms, dates, and cap this run recorded, as a new run.');
+    expect(facts.ai).toMatch(/^This run was set to summarize, so Restart does too/);
     expect(facts.delivery).toBe('None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.');
     expect(facts.delivery).not.toContain('by hand');
     expect(facts.watchId).toBeNull();
-    expect(restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null }).delivery)
-      .toMatch(/^None\. The watch this run belonged to no longer exists/);
-  });
-
-  test('a setting the parameters do record is read from them', () => {
-    const facts = restartFacts({ parameters: JSON.stringify({ ai_enabled: true }), execution_type: 'deep_dive', routine_id: null });
-    expect(facts.ai).toMatch(/^On when this run started, as its parameters record\./);
-    expect(restartFacts({ parameters: 'not json', execution_type: 'deep_dive', routine_id: null }).ai).toMatch(/^Not recorded/);
   });
 });
 

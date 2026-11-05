@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PLACES, SECTIONS, SETTINGS } from '../routes';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { Icon, type IconName } from './Icon';
-import { keysText, shortcut, type ShortcutId } from './shortcuts';
+import { keysText, sectionShortcut, shortcut, type ShortcutId } from './shortcuts';
 
 interface Command {
   id: string;
@@ -116,13 +116,13 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
 
   const commands = useMemo<Command[]>(() => [
     ...SHELL_COMMANDS.filter((c) => c.group === 'Start').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
-    ...[...SECTIONS, SETTINGS].map((section, index) => ({
+    ...[...SECTIONS, SETTINGS].map((section) => ({
       id: `go:${section.path}`,
       group: 'Go to',
       label: section.label,
       keywords: section.keywords,
       icon: 'arrow' as const,
-      keys: (section === SETTINGS ? 'settings' : `section-${index + 1}`) as ShortcutId,
+      keys: section === SETTINGS ? 'settings' as const : sectionShortcut(section.path) ?? undefined,
       run: () => navigate(section.path),
     })),
     ...PLACES.map((place) => ({

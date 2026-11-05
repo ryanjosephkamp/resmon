@@ -1,12 +1,14 @@
-"""Tests for IMPL-R2: manual 429 guard on dive/sweep endpoints.
+"""Manual runs past the run limit: queued in turn, refused only when the queue is full.
 
-Covers the at-cap rejection path introduced in resmon.py:
+A Deep Dive or a Deep Sweep asked for while resmon runs as many runs as it
+allows used to be refused with 429 and a sentence telling the person to try
+again later. It now waits in the queue a watch's fire waits in, and starts on
+its own when a slot frees: the answer is 202 with no execution id, ``queued``,
+its place and a ticket. Only a full queue refuses it, with 429.
 
-    if not admission.try_admit(kind="manual"):
-        raise HTTPException(429, ..., headers={"Retry-After": "5"})
-
-and confirms that _launch_execution wraps the pipeline with
-``note_admitted`` / ``note_finished`` so the slot releases after completion.
+Also confirms that _launch_execution wraps the pipeline with
+``note_admitted`` / ``note_finished`` so the slot releases after completion,
+and that a queued run's slot is reserved for it while it starts.
 """
 
 import sys
@@ -67,11 +69,20 @@ def _slow_run_prepared(self, exec_id: int) -> None:
     progress_store.mark_complete(exec_id)
 
 
-class TestManual429:
-    """Second dive while at cap returns 429 with Retry-After and correct detail."""
+def _wait_for(condition, timeout: float = 5.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if condition():
+            return True
+        time.sleep(0.02)
+    return condition()
+
+
+class TestManualQueue:
+    """A run asked for at the cap waits its turn, and starts on its own."""
 
     @patch("resmon.SweepEngine.run_prepared", _slow_run_prepared)
-    def test_second_dive_rejected_at_cap(self, client):
+    def test_a_dive_at_the_cap_is_queued_and_starts_when_the_slot_frees(self, client):
         _fresh_admission(max_concurrent=1)
         _started.clear()
 
@@ -80,35 +91,60 @@ class TestManual429:
             json={"query": "test", "repository": "arxiv"},
         )
         assert resp1.status_code == 200
+        first = resp1.json()["execution_id"]
 
         # Wait until the background thread has called note_admitted so the
         # admission slot is observably taken before the second request.
         assert _started.wait(timeout=5.0), "pipeline thread did not start"
-        # note_admitted runs at the top of _run(), before the progress emit
-        # inside the patched pipeline, so it has definitely executed here.
-        deadline = time.time() + 2.0
-        while admission.current_active() < 1 and time.time() < deadline:
-            time.sleep(0.01)
-        assert admission.current_active() == 1
+        assert _wait_for(lambda: admission.current_active() == 1)
 
         resp2 = client.post(
             "/api/search/dive",
-            json={"query": "other", "repository": "arxiv"},
+            json={"query": "other", "repository": "arxiv", "request_id": "second-dive"},
         )
-        assert resp2.status_code == HTTPStatus.TOO_MANY_REQUESTS
-        assert resp2.headers.get("retry-after") == "5"
+        assert resp2.status_code == HTTPStatus.ACCEPTED
         body = resp2.json()
-        assert "maximum of 1" in body["detail"]
+        assert list(body) == ["execution_id", "queued", "queue_position", "ticket", "detail"]
+        assert body["execution_id"] is None
+        assert body["queued"] is True and body["queue_position"] == 1
+        # The ticket is the submission's own id, which the run's row carries once it starts.
+        assert body["ticket"] == "second-dive"
+        assert body["detail"] == (
+            "resmon is already running 1 run, as many as it allows at once, so this Deep Dive waits. "
+            "It starts on its own when a run finishes; there is nothing more to do.")
 
-        # Let the first execution finish and release the slot.
-        deadline = time.time() + 5.0
-        while admission.current_active() > 0 and time.time() < deadline:
-            time.sleep(0.05)
-        assert admission.current_active() == 0
+        # Asked again with the same id while it waits: the same entry, not a second one.
+        again = client.post(
+            "/api/search/dive",
+            json={"query": "other", "repository": "arxiv", "request_id": "second-dive"},
+        )
+        assert again.status_code == HTTPStatus.ACCEPTED
+        assert again.json()["duplicate"] is True and again.json()["ticket"] == "second-dive"
+        assert admission.queue_depth() == 1
+
+        # The queue, as the Runs tab reads it.
+        waiting = client.get("/api/executions/active").json()["waiting"]
+        assert [(w["kind"], w["ticket"], w["position"], w["execution_type"], w["query"], w["repositories"])
+                for w in waiting] == [("manual", "second-dive", 1, "deep_dive", "other", ["arxiv"])]
+
+        # The first run ends; the queued one starts on its own, as a row carrying its ticket.
+        assert _wait_for(lambda: admission.queue_depth() == 0, 10.0)
+        conn = resmon_mod._get_db()
+        assert _wait_for(lambda: conn.execute(
+            "SELECT COUNT(*) FROM executions WHERE request_id = 'second-dive'").fetchone()[0] == 1, 10.0)
+        second = conn.execute("SELECT id FROM executions WHERE request_id = 'second-dive'").fetchone()[0]
+        assert second > first
+        # The same submission once more: it is the run it became.
+        later = client.post(
+            "/api/search/dive",
+            json={"query": "other", "repository": "arxiv", "request_id": "second-dive"},
+        )
+        assert later.status_code == 200 and later.json() == {"execution_id": second, "duplicate": True}
+        assert _wait_for(lambda: admission.current_active() == 0, 10.0)
 
     @patch("resmon.SweepEngine.run_prepared", _slow_run_prepared)
-    def test_second_sweep_rejected_at_cap(self, client):
-        _fresh_admission(max_concurrent=1)
+    def test_a_sweep_is_refused_only_when_the_queue_is_full(self, client):
+        _fresh_admission(max_concurrent=1, queue_limit=1)
         _started.clear()
 
         resp1 = client.post(
@@ -117,21 +153,59 @@ class TestManual429:
         )
         assert resp1.status_code == 200
         assert _started.wait(timeout=5.0)
-        deadline = time.time() + 2.0
-        while admission.current_active() < 1 and time.time() < deadline:
-            time.sleep(0.01)
+        assert _wait_for(lambda: admission.current_active() == 1)
 
-        resp2 = client.post(
+        queued = client.post(
             "/api/search/sweep",
-            json={"query": "other", "repositories": ["arxiv"]},
+            json={"query": "second", "repositories": ["arxiv"]},
         )
-        assert resp2.status_code == HTTPStatus.TOO_MANY_REQUESTS
-        assert resp2.headers.get("retry-after") == "5"
-        assert "maximum of 1" in resp2.json()["detail"]
+        assert queued.status_code == HTTPStatus.ACCEPTED
+        # No request id was sent: the engine names it.
+        assert len(queued.json()["ticket"]) == 32
 
-        deadline = time.time() + 5.0
-        while admission.current_active() > 0 and time.time() < deadline:
-            time.sleep(0.05)
+        refused = client.post(
+            "/api/search/sweep",
+            json={"query": "third", "repositories": ["arxiv"]},
+        )
+        assert refused.status_code == HTTPStatus.TOO_MANY_REQUESTS
+        assert refused.headers.get("retry-after") == "5"
+        assert refused.headers.get("x-resmon-conflict") == "admission_queue_full"
+        assert refused.json()["detail"] == (
+            "resmon is already running 1 run, as many as it allows at once, and 1 more are waiting, "
+            "as many as it queues. This Deep Sweep was not queued; ask again once one of them has finished.")
+        assert _wait_for(lambda: admission.current_active() == 0 and admission.queue_depth() == 0, 15.0)
+
+    @patch("resmon.SweepEngine.run_prepared", _slow_run_prepared)
+    def test_a_waiting_run_can_be_withdrawn_before_it_starts(self, client):
+        _fresh_admission(max_concurrent=1)
+        _started.clear()
+        assert client.post("/api/search/dive", json={"query": "a", "repository": "arxiv"}).status_code == 200
+        assert _started.wait(timeout=5.0)
+        assert _wait_for(lambda: admission.current_active() == 1)
+        ticket = client.post("/api/search/dive", json={"query": "b", "repository": "arxiv"}).json()["ticket"]
+
+        withdrawn = client.delete(f"/api/executions/waiting/{ticket}")
+        assert withdrawn.status_code == 200
+        assert withdrawn.json() == {"withdrawn": True, "ticket": ticket}
+        assert admission.queue_depth() == 0
+        assert client.delete(f"/api/executions/waiting/{ticket}").status_code == 404
+        assert _wait_for(lambda: admission.current_active() == 0, 10.0)
+        conn = resmon_mod._get_db()
+        assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == 1, "the withdrawn run started"
+
+    def test_a_watchs_fire_is_not_withdrawn_here(self, client):
+        _fresh_admission(max_concurrent=1)
+        with admission._lock:
+            admission._active.add(999_999)
+        try:
+            assert admission.admit_routine(7, "{}") == "queued"
+            ticket = admission.waiting()[0]["ticket"]
+            refused = client.delete(f"/api/executions/waiting/{ticket}")
+            assert refused.status_code == 409
+            assert "Pause the watch" in refused.json()["detail"]
+            assert admission.queue_depth() == 1
+        finally:
+            _fresh_admission(max_concurrent=3)
 
 
 class TestSlotReleased:

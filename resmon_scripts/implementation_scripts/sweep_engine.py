@@ -1796,15 +1796,18 @@ class SweepEngine:
                 return
 
             holder: dict = {}
+            # The search's own channel, once its thread has one: the heartbeat
+            # reads what it is doing from it.
+            live: dict = {}
 
             def work() -> None:
                 try:
-                    holder.update(self._search_source(client, repo_name, query_params))
+                    holder.update(self._search_source(client, repo_name, query_params, live))
                 finally:
                     finished.put(i)
 
             started = time.monotonic()
-            in_flight[i] = {"repo": repo_name, "holder": holder, "started": started,
+            in_flight[i] = {"repo": repo_name, "holder": holder, "live": live, "started": started,
                             "beat": started + _HEARTBEAT_SECONDS}
             threading.Thread(
                 target=work, daemon=True, name=f"search-{repo_name}-{exec_id}"
@@ -1993,6 +1996,11 @@ class SweepEngine:
                     break
             for i in sorted(in_flight):
                 repo_name = in_flight[i]["repo"]
+                # Tell the search the run is over, so a client in a long wait
+                # ends it rather than asking its source again for nothing.
+                outcome = in_flight[i]["live"].get("outcome")
+                if outcome is not None:
+                    outcome.stop.set()
                 # Mark each in-flight repo as errored for UI clarity, then
                 # short-circuit to the cancellation handler. Their worker
                 # threads are daemons and are abandoned; each exits when its
@@ -2067,25 +2075,38 @@ class SweepEngine:
                 if flight["beat"] > now:
                     continue
                 elapsed = now - flight["started"]
-                store.emit(exec_id, {
+                beat = {
                     "type": "query_progress",
                     "repository": flight["repo"],
                     "phase": "searching",
                     "message": f"still querying {flight['repo']} ({elapsed:.0f}s elapsed)",
                     "elapsed": round(elapsed, 1),
-                    "timestamp": now_iso(),
-                })
+                }
+                # What the search has done so far: requests sent, retries, and
+                # what it is waiting for, if anything. A search whose thread
+                # has not reached its channel yet says nothing about them.
+                outcome = flight["live"].get("outcome")
+                if outcome is not None:
+                    beat.update(outcome.live())
+                beat["timestamp"] = now_iso()
+                store.emit(exec_id, beat)
                 flight["beat"] = now + _HEARTBEAT_SECONDS
 
         assemble()
         return False
 
-    def _search_source(self, client, repo_name: str, query_params: dict) -> dict:
+    def _search_source(self, client, repo_name: str, query_params: dict,
+                       live: Optional[dict] = None) -> dict:
         """One source's search, on whichever thread runs it. Never raises.
 
         Returns ``results`` or ``error``, and always ``outcome``: the snapshot
         of the search's outcome channel, taken here because the channel is
         thread-local and the caller cannot reach this thread's.
+
+        ``live``, when given, is handed this thread's channel itself as
+        ``live["outcome"]``, so the run's heartbeat can say what the search is
+        doing while it runs (``SearchOutcome.live``): requests sent, retries,
+        and a wait. Only the heartbeat reads it, and only those fields.
         """
         holder: dict = {}
         # The outcome channel is thread-local and this thread is fresh per
@@ -2094,9 +2115,14 @@ class SweepEngine:
         # thread that is ever reused would carry that value in as if it
         # were this source's answer.
         reset_search_outcome()
+        if live is not None:
+            live["outcome"] = search_outcome()
         # What each request carried is recorded as it goes out, in this
         # client's own words for its requests.
         search_outcome().describe_request = getattr(client, "describe_request", None)
+        # A watch's scheduled run, which nobody is waiting on: a source that
+        # answers "busy" may be waited out longer (see ``api_arxiv._Patience``).
+        search_outcome().unattended = bool((self.config or {}).get("unattended"))
         try:
             # A watch routine asks the source about a *person*, and a
             # source that cannot be asked is not called at all. The zero

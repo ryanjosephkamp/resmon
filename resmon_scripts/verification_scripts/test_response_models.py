@@ -202,6 +202,8 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/executions/{exec_id}/restart"),
         ("GET", "/api/executions/{exec_id}/documents"),
         ("GET", "/api/executions/{exec_id}/document-ids"),
+        ("DELETE", "/api/executions/waiting/{ticket}"),
+        ("POST", "/api/executions/seen"),
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
@@ -1767,6 +1769,12 @@ def _drive_runs(drive: Drive) -> None:
         resmon_mod._close_db(conn)
     progress_store.register(held)
     try:
+        # A run going now, with its events folded, as the Runs tab reads it.
+        progress_store.emit(held, {"type": "repo_start", "repository": "arxiv", "timestamp": "2026-10-28T00:00:01Z"})
+        progress_store.emit(held, {"type": "query_progress", "repository": "arxiv", "phase": "searching",
+                                   "elapsed": 2.0, "requests": 1, "retries": 0, "timestamp": "2026-10-28T00:00:03Z"})
+        active = drive("GET", "/api/executions/active")
+        assert [run["id"] for run in active["running"]] == [held]
         drive("POST", f"/api/executions/{held}/cancel")
     finally:
         progress_store.cleanup(held)
@@ -1776,6 +1784,36 @@ def _drive_runs(drive: Drive) -> None:
             conn.commit()
         finally:
             resmon_mod._close_db(conn)
+
+    # At the run limit a search and a restart wait their turn (202, no run yet,
+    # their place and ticket); the queue is read back, and both are withdrawn
+    # before they start. A slot is held by an id no run has.
+    from implementation_scripts.admission import admission  # noqa: PLC0415
+    cap = admission.max()
+    admission.set_max(1)
+    admission.note_admitted(9_999_999)
+    try:
+        queued = drive("POST", "/api/search/sweep", expect=202,
+                       json={"repositories": ["springer"], "query": "w", "keywords": ["w"],
+                             "max_results": 5, "request_id": "runs-slice-queued"})
+        assert queued["queued"] is True and queued["execution_id"] is None
+        waiting_again = drive("POST", "/api/search/sweep", expect=202,
+                              json={"repositories": ["springer"], "query": "w", "keywords": ["w"],
+                                    "max_results": 5, "request_id": "runs-slice-queued"})
+        assert waiting_again["duplicate"] is True
+        repeat = drive("POST", f"/api/executions/{dive['execution_id']}/restart", expect=202,
+                       json={"again": True})
+        assert repeat["queued"] is True and repeat["restarted_from"] == dive["execution_id"]
+        waiting = drive("GET", "/api/executions/active")["waiting"]
+        assert [entry["ticket"] for entry in waiting] == ["runs-slice-queued", repeat["ticket"]]
+        drive("DELETE", "/api/executions/waiting/runs-slice-queued")
+        drive("DELETE", f"/api/executions/waiting/{repeat['ticket']}")
+        # The run monitor's panel opened: the failures until now are seen, and /active says when.
+        seen = drive("POST", "/api/executions/seen")
+        assert drive("GET", "/api/executions/active")["seen_at"] == seen["seen_at"]
+    finally:
+        admission.note_finished(9_999_999)
+        admission.set_max(cap)
 
 
 def _drive_collection_map(drive: Drive) -> None:

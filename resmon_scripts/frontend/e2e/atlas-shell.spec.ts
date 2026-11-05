@@ -220,6 +220,9 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     const mac = process.platform === 'darwin';
     await expect(sheet.locator('[data-shortcut="new-sweep"] kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
     await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Library');
+    // Runs, after Search in the bar, takes ⌘7: the keys people know for Library, Ask, and Health stay theirs.
+    await expect(sheet.locator('[data-shortcut="section-7"] dt')).toHaveText('Runs');
+    await expect(sheet.locator('[data-shortcut="section-7"] kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
     await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
     await expect(sheet.locator('[data-shortcut="find"] kbd')).toHaveText(mac ? '⌘F' : 'Ctrl+F');
@@ -242,6 +245,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     const row = (label: string) => palette.getByRole('option', { name: new RegExp(`^${label}`) });
     await expect(row('New Deep Sweep').locator('kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
     await expect(row('Health').locator('kbd')).toHaveText(mac ? '⌘6' : 'Ctrl+6');
+    await expect(row('Runs').locator('kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
     await win.getByRole('combobox', { name: 'Search commands' }).fill('calendar');
     await expect(palette.getByRole('option').first()).toHaveText(/^Calendar/);
     await win.keyboard.press('Enter');
@@ -302,7 +306,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
 
 /** Every top-level screen and the places within them a person reaches from the bar. */
 const SCREENS = ['/today', '/watches', '/watches/calendar', '/watches/people', '/search', '/search/ask', '/search/saved',
-  '/search/wording', '/library', '/library/files', '/library/evidence', '/ask', '/health', '/health/watchdog',
+  '/search/wording', '/runs', '/library', '/library/files', '/library/evidence', '/ask', '/health', '/health/watchdog',
   '/health/analytics', '/health/engine', '/settings', '/settings/about', '/settings/ai'];
 
 test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and the bar gives way rather than spills', async () => {
@@ -334,7 +338,7 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
       await expect(trigger).toBeVisible();
       await expect(search).toBeVisible();
       expect(await trigger.locator('.newsearch-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1200);
-      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1000);
+      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1100);
       if (inner < 1200) {
         fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
         await win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-shell-bar-${inner}.png`) });

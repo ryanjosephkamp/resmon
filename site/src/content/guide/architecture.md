@@ -21,7 +21,7 @@ One rule keeps that honest: a run in which every selected source was asked and n
 
 ### Admission
 
-`admission.py` is the one gate on concurrent runs. At most 3 go at once unless you change it (1 to 8 in **Settings › In the background**). A search you start when none is free is refused with HTTP 429 and a `Retry-After: 5` header. A watch's run waits instead, in a queue of up to 16 (1 to 64), and starts when one finishes. When the queue is full, the run is dropped and the watch runs at its next time.
+`admission.py` is the one gate on concurrent runs. At most 3 go at once unless you change it (1 to 8 in **Settings › In the background**). A search you start when none is free, a Restart, a Run again, and a watch's run wait their turn in one queue of up to 16 (1 to 64), first come, first served, and each starts when a run finishes. When the queue is full, a search is refused with HTTP 429 and a `Retry-After: 5` header, and a watch's run is dropped and the watch runs at its next time.
 
 Three more rules sit beside it. A watch claims its place before its worker starts, so a watch that runs longer than its period is never fired on top of itself; a scheduled fire refused that way is recorded as skipped. **Run now** on a watch that is already running is refused. A search carries a client-chosen `request_id`, and two requests with the same id are one submission, so a double click makes one run. And a run whose process went away is marked **interrupted**, with the reason, not left saying it is running or called failed.
 
