@@ -202,11 +202,18 @@ never claims more than the backend actually reported.</p>
 <em>Route resolution</em>.</p>
 <p><strong>Collections.</strong> resmon keeps several collections in one database, and a paper can be in more
 than one. <code>list_collections</code> names them. <code>search_corpus</code>, <code>get_analytics</code>, and
-<code>get_profile_matches</code> read one collection, and <code>run_sweep</code> and <code>create_routine</code> say where the
-papers land, each through an optional <code>collection</code>: a collection’s name or its id, resolved by
-the backend, which refuses one that names no collection. Without one, a call reads, or files
-into, the default collection, which holds every paper a database had before collections, so a
-harness written for contract 1.0 reads what it read.</p>
+<code>get_profile_matches</code> read <strong>one</strong> collection, and <code>run_sweep</code> and <code>create_routine</code> say which one
+the papers land in, each through an optional <code>collection</code>: a string, the collection’s name or
+its id (digits are read as an id where one exists), resolved by the backend, which refuses one
+that names no collection. Without one, a call reads, or files into, the default collection, not
+every collection; the default holds every paper a database had before collections, so a harness
+written for contract 1.0 reads what it read. Each of these answers carries <code>collection</code>, the id
+and name of the collection it read or wrote, so a caller cannot take one collection for
+everything.</p>
+<p>The in-app assistant reads the collection of the window it is asked from: each message carries
+the window’s collection, and for that turn a call that names none reads it and a sweep it
+starts lands in it, in resmon’s own loop and in the server a CLI starts (given it as
+<code>RESMON_MCP_COLLECTION</code>). A call that names a collection still reads that one.</p>
 <h3 id="read">Read</h3>
 
 

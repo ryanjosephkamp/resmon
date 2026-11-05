@@ -33,7 +33,7 @@ The map beside the list marks where the matches sit in the collection.
 
 ### Collections
 
-resmon can keep several collections in one database, one per field, say. The name beside the resmon mark in the top bar is the collection the window shows. Its menu lists every collection with how many papers it holds, switches to another, and has **New collection** and **Manage collections**, which open **Settings › Collections**. resmon remembers the collection you chose.
+resmon can keep several collections in one database, one per field, say. The name beside the resmon mark in the top bar is the collection the window shows. Its menu lists every collection with how many papers it holds, switches to another, and has **New collection** and **Manage collections**, which open **Settings › Collections**. Each window shows its own collection: switching in one window changes only that window, a window opened from a link or the command palette shows the collection of the window it came from, and a new window (**New Window**, or the first at launch) opens on the collection last chosen.
 
 Search › Your collection, Today, the map, Analytics, a run's and a watch's papers on their maps, a person's matches, and the reading queue's lists all show the collection the window shows. Each collection has its own map, fitted over its own papers, and its own Today with its own **Mark all read**. A paper is stored once and can be in more than one collection; your Library's files and projects belong to no collection.
 
@@ -41,7 +41,7 @@ Every number those screens give counts the collection shown, and where there is 
 
 Papers arrive in a collection from the runs that land there. A Deep Dive or a Deep Sweep lands in the collection the window shows, and Ask the sources says which when there is more than one. A watch lands in the collection its editor names. A run puts every paper it finds in its collection, including one resmon already holds in another.
 
-**Select** picks papers in the list, one at a time or with **Select all N**, which picks every match of the search, not only the rows read so far. **Move to** and **Copy to** put the picked papers in another collection: a copy adds them there and keeps them where they were, and a move also takes them out of the collection shown. Neither deletes a paper, and the notice that follows has **Undo**, which puts every paper back where it was.
+**Select** picks papers in the list, one at a time or with **Select all N**, which picks every match of the search, not only the rows read so far. **Move to** and **Copy to** put the picked papers in another collection: a copy adds them there and keeps them where they were, and a move also takes them out of the collection shown. Neither deletes a paper, and the notice that follows has **Undo** for ten seconds, which puts every paper back where it was; closing the picking with **Done** or Escape leaves the notice and its Undo.
 
 In **Settings › Collections** you make, rename, show, and delete collections. Deleting one asks first when it holds papers or a watch puts papers there, and says what happens: papers only it holds are kept in the default collection, papers also in another collection stay there, and its watches put their papers in the default collection. The default collection, named Your collection until you rename it, is never deleted. A read or a run that names no collection, from the command line or the MCP server, uses it.
 
