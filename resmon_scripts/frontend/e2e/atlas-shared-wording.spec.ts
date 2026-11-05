@@ -243,7 +243,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles([notes]);
-    await expect(win.locator('[data-library="imported"]')).toHaveText('1 retained, 0 exact duplicates reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('1 file added. None was already in the Library.', { timeout: 60_000 });
     await win.locator('article.card', { has: win.getByRole('heading', { name: 'tank-notes.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
     const detail = win.locator('.lib-file');
     await expect(detail.getByRole('heading', { name: 'tank-notes.txt', level: 1 })).toBeVisible();

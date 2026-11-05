@@ -86,7 +86,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['unicode.txt', 'two-pages.pdf', 'image-only.pdf'].map((n) => path.join(FIXTURES, n)));
-    await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('3 files added. None was already in the Library.', { timeout: 60_000 });
     const { vault } = await library<{ vault: { vault_id: string } }>(win, '/api/library');
     const { files } = await library<{ files: { file_id: string; version_id: string; original_name: string }[] }>(
       win, `/api/library/files?expected_vault_id=${vault.vault_id}`);

@@ -273,7 +273,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 30_000 });
     await importer.setInputFiles([files.moe, files.edit, files.radio, files.notes, files.tex, files.txt]);
-    await expect(win.locator('[data-library="imported"]')).toHaveText('6 retained, 0 exact duplicates reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('6 files added. None was already in the Library.', { timeout: 60_000 });
     await expect(cards).toHaveCount(6);
     await expect(win.locator('.sheet-pdf[data-drawn="true"] img')).toHaveCount(3, { timeout: 90_000 });
     const status = await api<{ vault: { vault_id: string; path: string } }>(win, '/api/library');
@@ -415,7 +415,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     });
     await win.dispatchEvent('.lib-page', 'dragover', { dataTransfer: dropped });
     await win.dispatchEvent('.lib-page', 'drop', { dataTransfer: dropped });
-    await expect(win.locator('[data-library="imported"]')).toHaveText('1 retained, 0 exact duplicates reused.', { timeout: 30_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('1 file added. None was already in the Library.', { timeout: 30_000 });
     await expect(cards).toHaveCount(6);
 
     // — the narrowest window a Mac gives, and the phone-width reflow -----------------------------------

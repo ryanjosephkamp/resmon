@@ -11,6 +11,7 @@
 import type { components } from '../../api/schema';
 import { bridge } from '../../bridge';
 import { EngineError, engineSentence } from '../../api/client';
+import { count, number } from '../today/format';
 
 export type LibraryStatus = components['schemas']['LibraryStatus'];
 export type LibraryFile = components['schemas']['LibraryFile'];
@@ -76,13 +77,21 @@ export function sizeWords(bytes: number): string {
   return `${BYTES.format(bytes / 1_000_000_000)} GB`;
 }
 
-/** What one batch of imports did, in the words the import reports. */
+/**
+ * What one batch of imports did: "6 files added. None was already in the
+ * Library." A file already there (the same bytes) is not kept twice, and one
+ * that could not be added has its reason listed below the sentence.
+ */
 export function importWords(results: readonly LibraryImported[], refused: number): string {
-  const kept = results.filter((r) => r.created).length;
-  const reused = results.length - kept;
-  const parts = [`${kept} retained`, `${reused} exact ${reused === 1 ? 'duplicate' : 'duplicates'} reused`];
-  if (refused) parts.push(`${refused} refused`);
-  return `${parts.join(', ')}.`;
+  const added = results.filter((r) => r.created).length;
+  const already = results.length - added;
+  const was = (n: number) => (n === 1 ? 'was' : 'were');
+  const parts = [
+    added ? `${count(added, 'file')} added.` : 'No files added.',
+    already ? `${number(already)} ${was(already)} already in the Library.` : 'None was already in the Library.',
+  ];
+  if (refused) parts.push(`${number(refused)} could not be added.`);
+  return parts.join(' ');
 }
 
 /**

@@ -141,7 +141,7 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['two-pages.pdf', 'unicode.txt'].map((n) => path.join(FIXTURES, n)));
-    await expect(win.locator('[data-library="imported"]')).toHaveText('2 retained, 0 exact duplicates reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('2 files added. None was already in the Library.', { timeout: 60_000 });
     await win.locator('article.card', { has: win.getByRole('heading', { name: 'unicode.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
     await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     await win.getByLabel('A name for a new project').fill('Atlas answers');

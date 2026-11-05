@@ -186,7 +186,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['links.pdf', 'long-500.pdf', LONG].map((n) => path.join(fixtures, n)));
-    await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('3 files added. None was already in the Library.', { timeout: 60_000 });
     const { vault } = await library<{ vault: { vault_id: string } }>(win, '/api/library');
     await win.evaluate(() => { window.location.hash = '#/library/evidence'; });
     await win.getByLabel('A name for a new project').fill('Reading');

@@ -3,9 +3,11 @@ import { importWords, keepable, kindOf, readable, rich, sizeWords, type LibraryI
 const imported = (created: boolean): LibraryImported => ({ created, duplicate: !created } as unknown as LibraryImported);
 
 test('what a batch of imports did, in the words the import reports', () => {
-  expect(importWords([imported(true), imported(true)], 0)).toBe('2 retained, 0 exact duplicates reused.');
-  expect(importWords([imported(false)], 0)).toBe('0 retained, 1 exact duplicate reused.');
-  expect(importWords([imported(true)], 2)).toBe('1 retained, 0 exact duplicates reused, 2 refused.');
+  expect(importWords([imported(true), imported(true)], 0)).toBe('2 files added. None was already in the Library.');
+  expect(importWords([imported(true), imported(false)], 0)).toBe('1 file added. 1 was already in the Library.');
+  expect(importWords([imported(false), imported(false)], 0)).toBe('No files added. 2 were already in the Library.');
+  expect(importWords([imported(true)], 2)).toBe('1 file added. None was already in the Library. 2 could not be added.');
+  expect(importWords([], 1)).toBe('No files added. None was already in the Library. 1 could not be added.');
 });
 
 test('sizes in decimal units, as a file manager shows them', () => {

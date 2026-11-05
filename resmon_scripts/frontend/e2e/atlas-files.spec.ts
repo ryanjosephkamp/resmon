@@ -97,11 +97,11 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     const cards = win.locator('article.card');
     const card = (name: string) => cards.filter({ has: win.getByRole('heading', { name, exact: true }) });
     await importer.setInputFiles([files.note, files.outline, files.paper, files.refused]);
-    await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused, 1 refused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('3 files added. None was already in the Library. 1 could not be added.', { timeout: 60_000 });
     await expect(win.locator('.library-refusals')).toContainText('tool.exe');
     await expect(cards).toHaveCount(3);
     await importer.setInputFiles([files.note]);
-    await expect(win.locator('[data-library="imported"]')).toHaveText('0 retained, 1 exact duplicate reused.', { timeout: 60_000 });
+    await expect(win.locator('[data-library="imported"]')).toHaveText('No files added. 1 was already in the Library.', { timeout: 60_000 });
     await expect(cards).toHaveCount(3);
 
     // — one file's page and its record, against the disk ------------------------------
