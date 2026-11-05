@@ -10,28 +10,32 @@ import { drawable, LONGEST_FORMULA, RichMarkdown, TexView } from '../RichView';
  * it holds, reading it for the rich view takes time in proportion to its size,
  * never in its square, and nothing in it can freeze or blank the window.
  *
- * Each hostile input is read at half its size and at its full size. A linear
- * read takes about twice as long for twice the text, a quadratic one about four
- * times, so the full read is held to under three times the half, with a few
- * milliseconds for the timer. A ceiling holds too: 200 ms here, and 2 s on a
- * shared CI runner, whose speed varies from run to run; either still fails the
- * reads these inputs once caused, which took a minute or more.
+ * Each hostile input is read at a quarter of its size and at its full size. A
+ * linear read takes about four times as long for four times the text, a
+ * quadratic one about sixteen times, so the full read is held to under eight
+ * times the quarter, with a few milliseconds for the timer: far enough apart
+ * that a shared runner's noise does not decide it, as it did with twice the
+ * text against three times the time. A ceiling holds too: 200 ms here, and 2 s
+ * on a shared CI runner, whose speed varies from run to run; either still fails
+ * the reads these inputs once caused, which took a minute or more.
  */
 const CEILING_MS = process.env.CI ? 2_000 : 200;
 const SLACK_MS = 10;
 
-/** The middle of three timings, so one pause for garbage collection does not decide a case. */
+/** The fastest of five timings, after one to warm up, so neither a first call nor a pause for garbage collection decides a case. */
 function timed(read: () => unknown): number {
-  const times = [0, 1, 2].map(() => {
+  read();
+  let fastest = Infinity;
+  for (let i = 0; i < 5; i += 1) {
     const started = performance.now();
     read();
-    return performance.now() - started;
-  });
-  return times.sort((a, b) => a - b)[1]!;
+    fastest = Math.min(fastest, performance.now() - started);
+  }
+  return fastest;
 }
 
 const KB = 1024;
-/** An input at a scale: 1 is the size that once took seconds or minutes to read, 0.5 is half the text. */
+/** An input at a scale: 1 is the size that once took seconds or minutes to read, 0.25 is a quarter of the text. */
 type Hostile = (scale: number) => string;
 const repeated = (unit: string, count: number): Hostile => (scale) => unit.repeat(Math.round(count * scale));
 const hostile: Record<string, Hostile> = {
@@ -62,13 +66,13 @@ const hostileTex: Record<string, Hostile> = {
   'a brace on every byte': repeated('{', 256 * KB),
 };
 
-/** Twice the text in under three times the time, and the whole of it under the ceiling. */
+/** Four times the text in under eight times the time, and the whole of it under the ceiling. */
 function readsLinearly(read: (text: string) => unknown, build: Hostile): void {
-  const half = build(0.5);
+  const quarter = build(0.25);
   const full = build(1);
-  const halfMs = timed(() => read(half));
+  const quarterMs = timed(() => read(quarter));
   const fullMs = timed(() => read(full));
-  expect(fullMs).toBeLessThan(3 * halfMs + SLACK_MS);
+  expect(fullMs).toBeLessThan(8 * quarterMs + SLACK_MS);
   expect(fullMs).toBeLessThan(CEILING_MS);
 }
 
