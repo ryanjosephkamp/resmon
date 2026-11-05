@@ -660,10 +660,14 @@ function postNotice(notice: Notice): boolean {
   // starts with it says it twice.
   const title = notice.title.replace(/^resmon:\s*/i, '') || 'resmon';
   if (isE2E() || process.env.RESMON_NOTICES_TO_LOG === '1') {
-    const shownIn = noticeWindow(appWindows, runOwners, notice.executionId, BrowserWindow.getFocusedWindow());
-    console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null })}`);
+    void settleNotice(notice.executionId).then(() => {
+      const shownIn = noticeWindow(appWindows, runOwners, notice.executionId, BrowserWindow.getFocusedWindow());
+      console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null })}`);
+    });
     return true;
   }
+  // Settled now, while the notice is fresh, so a click needs no read of its own.
+  void settleNotice(notice.executionId);
   if (!Notification.isSupported()) return false;
   const shown = new Notification({ title, body: notice.body });
   // A long-lived service must not keep every notification it ever posted.
@@ -695,6 +699,7 @@ function postNotice(notice: Notice): boolean {
  * notification never opens another window beside them.
  */
 async function showWindow(route: string | null, executionId: number | null = null): Promise<void> {
+  await settleNotice(executionId);
   const window = noticeWindow(appWindows, runOwners, executionId, BrowserWindow.getFocusedWindow());
   if (window) {
     if (route) {
@@ -706,6 +711,40 @@ async function showWindow(route: string | null, executionId: number | null = nul
     return;
   }
   await openAppWindow(route);
+}
+
+/**
+ * A run no window claimed, while a window waits for a run it queued: read the
+ * run's row, whose `request_id` is the queued run's ticket (`RunOwners`).
+ * Never throws; a row that cannot be read leaves the run to the window in front.
+ */
+async function settleNotice(executionId: number | null): Promise<void> {
+  if (!runOwners.unsettled(executionId) || backendPort === null || backendToken === null) return;
+  const row = await readRun(backendPort, backendToken, executionId);
+  if (row) runOwners.settle(executionId, row);
+}
+
+/** One run's row, `GET /api/executions/{id}`, or null when it does not answer. */
+function readRun(port: number, token: string, id: number): Promise<{ request_id?: unknown; routine_id?: unknown } | null> {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: '127.0.0.1', port, path: `/api/executions/${id}`, timeout: 3_000, headers: bearer(token) },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk: string) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(res.statusCode === 200 ? JSON.parse(body) as { request_id?: unknown; routine_id?: unknown } : null);
+          } catch {
+            resolve(null);
+          }
+        });
+      },
+    );
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.on('error', () => resolve(null));
+  });
 }
 
 /** How a new window opens: beside the window it was asked from, or as a tab of it, and on which collection. */
@@ -1939,6 +1978,10 @@ app.whenReady().then(async () => {
     ipcMain.on('resmon:run-started', (event, executionId: unknown) => {
       const window = senderWindow(event);
       if (window) runOwners.claim(executionId, window.id);
+    });
+    ipcMain.on('resmon:run-queued', (event, what: unknown) => {
+      const window = senderWindow(event);
+      if (window && what && typeof what === 'object') runOwners.claimQueued(what as { ticket?: unknown; routineId?: unknown }, window.id);
     });
     // The theme the app shows (`/api/appearance`), so the parts of a window the
     // system draws follow it: macOS's tab bar drew its titles for the system's

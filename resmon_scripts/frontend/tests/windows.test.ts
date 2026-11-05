@@ -111,6 +111,36 @@ describe('the window something without a window goes to', () => {
     expect(noticeWindow(set, owners, 41)).toBeNull();
   });
 
+  test('a run queued at the limit is the window\'s that asked, once it starts: by its ticket, or by its watch', () => {
+    const set = new WindowSet<Fake>();
+    const owners = new RunOwners();
+    const first = fakeWindow();
+    const second = fakeWindow();
+    set.add(first);
+    set.add(second);
+    set.focus(first);
+    expect(owners.unsettled(50)).toBe(false);
+    expect(owners.claimQueued({ ticket: 'tk-1' }, second.id)).toBe(true);
+    expect(owners.claimQueued({ routineId: 7 }, second.id)).toBe(true);
+    for (const bad of [{}, { ticket: '' }, { ticket: 3 }, { routineId: 0 }, { routineId: 'x' }]) {
+      expect(owners.claimQueued(bad, first.id)).toBe(false);
+    }
+    // A run nobody claimed, while two wait: its row says whose it is.
+    expect(owners.unsettled(50)).toBe(true);
+    expect(owners.settle(50, { request_id: 'tk-1', routine_id: null })).toBe(second.id);
+    expect(noticeWindow(set, owners, 50)).toBe(second);
+    expect(owners.settle(51, { request_id: null, routine_id: 7 })).toBe(second.id);
+    expect(noticeWindow(set, owners, 51)).toBe(second);
+    // Each is matched once; a run that matches nothing goes to the window in front.
+    expect(owners.unsettled(52)).toBe(false);
+    expect(owners.settle(52, { request_id: 'tk-1', routine_id: 7 })).toBeNull();
+    expect(noticeWindow(set, owners, 52)).toBe(first);
+    // A run with an owner is never read again.
+    owners.claimQueued({ ticket: 'tk-2' }, first.id);
+    expect(owners.unsettled(50)).toBe(false);
+    expect(owners.unsettled(null)).toBe(false);
+  });
+
   test('only a run\'s own id is claimed, and the record stays bounded', () => {
     const owners = new RunOwners(3);
     for (const bad of [0, -1, 1.5, '7', null, undefined, Number.NaN]) expect(owners.claim(bad, 1)).toBe(false);

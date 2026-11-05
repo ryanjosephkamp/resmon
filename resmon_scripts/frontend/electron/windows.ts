@@ -178,12 +178,23 @@ export function cascade(from: Rect, area: Rect, step = 26): Rect {
 /**
  * Which window started each run, for the run's notification: clicking it
  * shows the run in that window, not in whichever one happens to be in front.
- * A run a watch started has no window, and neither does one started from the
- * `resmon` command; theirs go to the window in front. Bounded, since a long
- * session starts runs without end.
+ * A run a watch started on its schedule has no window, and neither does one
+ * started from the `resmon` command; theirs go to the window in front.
+ *
+ * A run asked for at the run limit waits in the engine's queue, with no id
+ * until it starts. The window that asked is kept against what the engine said
+ * of it: its `ticket` (a search or a restart), which the run's row carries as
+ * `request_id` once it starts, or its watch, for a watch's Run now, whose
+ * answer has no ticket. When a notice comes for a run no window claimed and
+ * one is waiting, `main.ts` reads the run's row and `settle` matches it. A
+ * watch's queued Run now is matched to that watch's next run to start, which
+ * is a scheduled fire instead if one comes due before it.
+ *
+ * Bounded, since a long session starts runs without end.
  */
 export class RunOwners {
   private readonly owners = new Map<number, number>();
+  private readonly waiting = new Map<string, number>();
 
   constructor(private readonly limit = 200) {}
 
@@ -193,6 +204,40 @@ export class RunOwners {
     this.owners.set(executionId, windowId);
     while (this.owners.size > this.limit) this.owners.delete(this.owners.keys().next().value as number);
     return true;
+  }
+
+  /** A run queued at the run limit: by its ticket, or by its watch for a watch's Run now. */
+  claimQueued(what: { ticket?: unknown; routineId?: unknown }, windowId: number): boolean {
+    const key = typeof what.ticket === 'string' && what.ticket.length > 0 && what.ticket.length <= 200 ? `ticket:${what.ticket}`
+      : typeof what.routineId === 'number' && Number.isInteger(what.routineId) && what.routineId > 0 ? `watch:${what.routineId}`
+        : null;
+    if (key === null) return false;
+    this.waiting.delete(key);
+    this.waiting.set(key, windowId);
+    while (this.waiting.size > this.limit) this.waiting.delete(this.waiting.keys().next().value as string);
+    return true;
+  }
+
+  /** Whether `executionId` might be a queued run a window is waiting for: no owner yet, and one is waiting. */
+  unsettled(executionId: number | null): executionId is number {
+    return executionId !== null && !this.owners.has(executionId) && this.waiting.size > 0;
+  }
+
+  /** A run that started from the queue, as its row says: given to the window that queued it, if one did. */
+  settle(executionId: number, row: { request_id?: unknown; routine_id?: unknown }): number | null {
+    const keys = [
+      typeof row.request_id === 'string' ? `ticket:${row.request_id}` : null,
+      typeof row.routine_id === 'number' ? `watch:${row.routine_id}` : null,
+    ];
+    for (const key of keys) {
+      const windowId = key === null ? undefined : this.waiting.get(key);
+      if (key !== null && windowId !== undefined) {
+        this.waiting.delete(key);
+        this.claim(executionId, windowId);
+        return windowId;
+      }
+    }
+    return null;
   }
 
   ownerOf(executionId: number | null): number | null {

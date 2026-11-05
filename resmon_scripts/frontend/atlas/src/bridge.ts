@@ -30,6 +30,8 @@ export interface ResmonBridge {
   openWindow?: (route: string | null, tab?: boolean) => void;
   /** A run this window started, so the run's notification shows it here. */
   runStarted?: (executionId: number) => void;
+  /** A run this window asked for that waits in the queue: by its ticket, or by its watch for a watch's Run now. */
+  runQueued?: (what: { ticket?: string; routineId?: number }) => void;
   /** The theme the app shows, which the system's own parts of a window (its tab bar, its dialogs) then follow. */
   setThemeSource?: (theme: 'system' | 'light' | 'dark') => void;
 }

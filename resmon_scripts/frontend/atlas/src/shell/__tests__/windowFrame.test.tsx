@@ -19,6 +19,7 @@ describe('a window is named by the screen it shows', () => {
   });
 
   test('a screen with an id, by what it shows; anything else, by the app', () => {
+    expect(windowTitle('/runs', true)).toBe('Runs');
     expect(windowTitle('/runs/162', true)).toBe('Run 162');
     expect(windowTitle('/papers/88', true)).toBe('Paper');
     expect(windowTitle('/watches/4', true)).toBe('Watch');

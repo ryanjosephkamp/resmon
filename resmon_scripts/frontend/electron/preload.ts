@@ -99,4 +99,5 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   openWindow: (route: string | null, tab = false): void => ipcRenderer.send('resmon:open-window', route, tab),
   setThemeSource: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send('resmon:theme-source', theme),
   runStarted: (executionId: number): void => ipcRenderer.send('resmon:run-started', executionId),
+  runQueued: (what: { ticket?: string; routineId?: number }): void => ipcRenderer.send('resmon:run-queued', what),
 });
