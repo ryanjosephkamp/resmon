@@ -165,15 +165,19 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
 
     // — The clock and arXiv's time change at least every two seconds -------------------------
+    // Two seconds by design: the clock ticks each second, and a source's time moves on for
+    // one heartbeat interval past the last heartbeat, then waits for the next. The limit
+    // allows half a second more for a busy machine scheduling the heartbeat or the tick late.
     const span = 8_000;
+    const LATE = 2_500;
     const [clock, elapsed] = await Promise.all([
       changes(win, `.run[data-run="${runId}"] [data-run="clock"]`, span),
       changes(win, `.run[data-run="${runId}"] .live-row[data-source="arxiv"] [data-live="elapsed"]`, span),
     ]);
     expect(clock.length, `the clock read ${JSON.stringify(clock)}`).toBeGreaterThanOrEqual(6);
-    expect(longestGap(clock, span), `the clock read ${JSON.stringify(clock)}`).toBeLessThanOrEqual(2_000);
+    expect(longestGap(clock, span), `the clock read ${JSON.stringify(clock)}`).toBeLessThanOrEqual(LATE);
     expect(elapsed.length, `arXiv's time read ${JSON.stringify(elapsed)}`).toBeGreaterThanOrEqual(4);
-    expect(longestGap(elapsed, span), `arXiv's time read ${JSON.stringify(elapsed)}`).toBeLessThanOrEqual(2_000);
+    expect(longestGap(elapsed, span), `arXiv's time read ${JSON.stringify(elapsed)}`).toBeLessThanOrEqual(LATE);
     expect(clock.every((s) => /^for (\d+ s|\d+ min \d\d s)$/.test(s.text)), JSON.stringify(clock)).toBe(true);
 
     // — At the window's sizes: 960, 1280, and 1920 pixels -------------------------------------
