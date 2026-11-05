@@ -53,6 +53,8 @@ The dates a run asks for are computed when it fires and recorded with the run. A
 
 **When a run finishes.** **Notify me**, **Email the report**, and **Attach its results to the email**. The email goes through the account under **Settings › Email**, and notifications follow **Settings › Notifications**. **Start watching when saved** is on by default for a new watch.
 
+**PDFs.** **Get its new papers' open-access PDFs**, off unless you turn it on. After each run, resmon asks for the PDF of each new paper a source states an open license for, by the rules of [Get the PDF](/resmon/guide/library/#get-the-pdf), at most 20 a run. The run's page lists what it got into the Library, what it skipped, and why. A watch on retractions finds no new papers, so it has no PDFs to get.
+
 **Summarize each paper.** Off, or on with the connection from **Settings › AI** or one just for this watch. See [AI settings](/resmon/guide/ai-summarization/).
 
 The **What it will do** panel restates the form as it stands, in sentences: when it runs, what it asks of which sources, what the catalog says about those sources for this question, and what happens when a run finishes. It does not guess how many papers a run will find. **Save watch** (⌘Enter) saves it. **Delete this watch** removes its schedule, destinations, and record of missed fires; its runs stay in the run log and its papers stay in your collection.

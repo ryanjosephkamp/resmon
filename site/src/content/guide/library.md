@@ -28,6 +28,7 @@ Papers get here one at a time when you press **Save to read** on a paper's page 
 
 - **Read** opens the paper's PDF in the reader when one is linked to it, and the paper's page otherwise.
 - **Mark read** moves a paper to **Read**; **Mark unread** moves it back. Marking one paper leaves every other card's controls as they are.
+- **Get the PDF** (the download mark) appears where a source states an open license for a copy of the paper and the card has no PDF yet. While it downloads, the card's label says so; once it lands, the card is a PDF card with the first page as its cover. See [Get the PDF](#get-the-pdf).
 - **Open at the source** opens the paper's own web address, or its DOI's.
 - **Remove** takes the paper out of the queue, with a notice that can **Undo** it for ten seconds. Undo puts it back with its own state and dates. The paper, its authors, and every run that found it are untouched. The only thing in resmon that deletes a paper is **Erase the paper corpus** in the Danger zone.
 - Picked papers export as **BibTeX**, **RIS**, or **CSV**: the file holds exactly the papers picked.
@@ -65,9 +66,19 @@ resmon never deletes your file. A removed file is moved, whole, into a `removed`
 
 A file deleted or moved outside resmon is said to be missing on its own card; the rest of the Library keeps working, and **Remove** takes the missing one off the list.
 
+## Get the PDF
+
+**Get the PDF**, on a paper's page and on its card, downloads an open-access copy into the Library folder, linked to the paper, as if you had imported it. It is offered only where a source states an open license for that copy: a Creative Commons license, a public-domain dedication, or arXiv's own (for an arXiv copy, resmon reads the license from arXiv's record when you ask, and a paper whose record states none is not downloaded). A copy that is only free to read, or that is under a publisher's own terms, is left at the source, and the paper's page says so. The copies come from what the sources report: OpenAlex's open locations, Europe PMC's open-access PDFs, Semantic Scholar's open PDF, bioRxiv's and medRxiv's own PDFs with the license each states, PLOS's PDFs (under PLOS's CC BY license), and arXiv's PDF for any paper with an arXiv id. A copy of the same paper from another source counts too: two records with the same DOI or arXiv id are one paper.
+
+resmon never downloads from NASA ADS, Springer, or CORE, whatever license is stated, and never from Crossref's text-mining links. Their terms for keeping full text are not settled for resmon.
+
+Every request is recorded before anything is fetched. One that cannot go ahead says why and sends nothing: no open copy, no license stated, a source resmon does not download from, no Library folder yet, or the day's limit. A download goes over https only, to public addresses (every redirect is checked, and a redirect to a private or local address, or to plain http, ends it), and keeps only a file that says it is a PDF and begins as one, up to 64 MB, the Library's own limit. One download at a time from each site, three seconds apart, and at most 100 in any 24 hours. A stored file records where it came from, after every redirect, its license, and when. A file whose bytes the Library already holds is linked to the paper rather than kept twice.
+
+A watch can get its new papers' PDFs after each run: see [Watches](/resmon/guide/watches/).
+
 ## Settings › Library
 
-**Settings › Library** shows where the Library folder is, its counts, the removed files it holds, and **Save an inventory**: a JSON list of what the database records about each file. An inventory is not a copy of the files and not a fresh integrity scan, it names your original file names (review them before sharing), and it refuses, instead of truncating, an inventory over 8 MiB.
+**Settings › Library** shows where the Library folder is, its counts, the removed files it holds, the rules Get the PDF keeps, and **Save an inventory**: a JSON list of what the database records about each file. An inventory is not a copy of the files and not a fresh integrity scan, it names your original file names (review them before sharing), and it refuses, instead of truncating, an inventory over 8 MiB.
 
 ### Changing the folder
 
