@@ -653,8 +653,8 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
  * Under the e2e suites, and under the performance harness
  * (`RESMON_NOTICES_TO_LOG`), nothing is put on the screen of the person at the
  * Mac: the notice is written to the log, as a line a spec can read, with the
- * window a click would show it in, and the answer to the engine is the same as
- * for a posted one.
+ * window a click would show it in and the window focused then, and the answer
+ * to the engine is the same as for a posted one.
  */
 function postNotice(notice: Notice): boolean {
   // The OS shows the app's name on every notification it posts; a title that
@@ -663,7 +663,8 @@ function postNotice(notice: Notice): boolean {
   if (isE2E() || process.env.RESMON_NOTICES_TO_LOG === '1') {
     void settleNotice(notice.executionId).then(() => {
       const shownIn = noticeWindow(appWindows, runOwners, notice.executionId, BrowserWindow.getFocusedWindow());
-      console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null })}`);
+      const focused = BrowserWindow.getFocusedWindow()?.id ?? null;
+      console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null, focused })}`);
     });
     return true;
   }

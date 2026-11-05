@@ -25,6 +25,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { windowTitle } from '../atlas/src/windowTitle';
 
 const TITLE = 'Authored windows fixture on tidal dissipation';
 const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
@@ -35,8 +36,10 @@ const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
 
 const mac = process.platform === 'darwin';
 const MOD = mac ? 'Meta' : 'Control';
+/** A page's window title by the app's own rule: the page alone on macOS, with the app's name elsewhere. */
+const titled = (page: string) => windowTitle(page, mac);
 
-interface Notice { title: string; executionId: number | null; window: number | null }
+interface Notice { title: string; executionId: number | null; window: number | null; focused?: number | null }
 
 /** The app's own windows, as the main process has them. */
 function windowsOf(app: ElectronApplication) {
@@ -166,7 +169,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect((await engineAt(first)).port).not.toBe('8742');
     expect((await windowsOf(app)).map((w) => w.id).sort()).toEqual([firstId, secondId].sort());
     // Each window is named by its page, which is what tabs and the Window menu show.
-    await expect.poll(() => second.evaluate(() => document.title)).toBe('Today');
+    await expect.poll(() => second.evaluate(() => document.title)).toBe(titled('/today'));
     // The file menu says the same keys.
     expect(await app.evaluate(({ Menu }) => {
       const item = Menu.getApplicationMenu()?.getMenuItemById('file-new-window');
@@ -181,7 +184,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(second).toHaveURL(/#\/watches$/);
     await sections(second).getByRole('link', { name: 'Health' }).click();
     await expect(second).toHaveURL(/#\/health$/);
-    await expect.poll(() => second.evaluate(() => document.title)).toBe('Health › Source wall');
+    await expect.poll(() => second.evaluate(() => document.title)).toBe(titled('/health'));
     await second.keyboard.press(`${MOD}+BracketLeft`);
     await expect(second).toHaveURL(/#\/watches$/);
     expect(first.url()).toMatch(/#\/search$/);
@@ -225,7 +228,17 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(await downloadsOf(first)).toEqual([]);
 
     // — a notice no window asked for: shown in the window in front --------------------------
-    await app.evaluate(({ BrowserWindow }, id) => { BrowserWindow.fromId(id)?.emit('focus'); }, firstId);
+    // The first window to the front. Where windows can take focus (the macOS window job), focus() makes it the
+    // focused window, which is the one a notice goes to first; the suite's background windows never take focus,
+    // so there the focus event a click would send is what makes it the one focused last.
+    const background = process.env.RESMON_BACKGROUND_WINDOW === '1' || process.env.RESMON_HIDDEN_WINDOW === '1';
+    await app.evaluate(({ BrowserWindow }, [id, quiet]) => {
+      const window = BrowserWindow.fromId(id as number);
+      if (!quiet) window?.focus();
+      window?.emit('focus');
+    }, [firstId, background] as const);
+    const focusedNow = () => app.evaluate(({ BrowserWindow }) => BrowserWindow.getFocusedWindow()?.id ?? null);
+    await expect.poll(focusedNow, { message: 'the second window is still the focused one' }).not.toBe(secondId);
     const unasked = await first.evaluate(async () => {
       const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
       const response = await e2eFetch(`http://127.0.0.1:${port}/api/search/dive`, {
@@ -235,7 +248,9 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       return (await response.json() as { execution_id: number }).execution_id;
     });
     await expect.poll(() => notices().find((n) => n.executionId === unasked), { timeout: 120_000 }).toBeTruthy();
-    expect(notices().find((n) => n.executionId === unasked)?.window).toBe(firstId);
+    const unaskedNotice = notices().find((n) => n.executionId === unasked);
+    expect(unaskedNotice?.window, `the notice went to window ${unaskedNotice?.window}, with ${unaskedNotice?.focused ?? 'none'} focused`)
+      .toBe(firstId);
 
     // — the run monitor and the Runs tab: one engine's runs, the same in both windows -----------
     const api = <T>(page: Page, route: string, method = 'GET', body?: unknown) => page.evaluate(async ([r, m, b]) => {
@@ -250,7 +265,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const mark = (page: Page) => page.locator('header.bar .mon');
     await first.evaluate(() => { window.location.hash = '#/runs'; });
     await second.evaluate(() => { window.location.hash = '#/runs'; });
-    await expect.poll(() => second.evaluate(() => document.title)).toBe('Runs');
+    await expect.poll(() => second.evaluate(() => document.title)).toBe(titled('/runs'));
     const slow = await api<{ execution_id: number }>(first, '/api/search/dive', 'POST',
       { repository: 'arxiv', query: 'slow', keywords: ['slow'], max_results: 5 });
     for (const page of [first, second]) {
@@ -292,7 +307,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 
     await second.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, runId);
     await expect(second.locator(`.run[data-run="${runId}"]`)).toBeVisible({ timeout: 60_000 });
-    await expect.poll(() => second.evaluate(() => document.title)).toBe(`Run ${runId}`);
+    await expect.poll(() => second.evaluate(() => document.title)).toBe(titled(`/runs/${runId}`));
     await second.keyboard.press(`${MOD}+k`);
     await second.getByRole('combobox', { name: 'Search commands' }).fill('this page');
     await expect(second.getByRole('option').first()).toHaveText(/^Open this page in a new window/);
