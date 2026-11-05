@@ -77,12 +77,17 @@ export function useSaveToRead(onSaved?: (saved: Saved) => void) {
  * save or its question is open, and when it cannot be made as it stands
  * (`SaveLimit` says why).
  */
-export function SaveButton({ n, all, busy, onSave }: { n: number | null; all: boolean; busy: boolean; onSave: () => void }) {
+export function SaveButton({ n, all, busy, saving = false, onSave }: {
+  n: number | null; all: boolean; busy: boolean;
+  /** The save is on its way: the button says so. */
+  saving?: boolean;
+  onSave: () => void;
+}) {
   const refusal = saveRefusal(n);
   return (
     <button type="button" className="btn sm" data-save="picked" disabled={!n || busy || refusal !== null}
-      title={refusal ?? undefined} onClick={onSave}>
-      <Icon name="bookmark" size={14} />{n ? saveLabel(n, all) : 'Save to read'}
+      title={refusal ?? undefined} onClick={onSave} aria-busy={saving || undefined}>
+      <Icon name="bookmark" size={14} />{saving ? 'Saving' : n ? saveLabel(n, all) : 'Save to read'}
     </button>
   );
 }

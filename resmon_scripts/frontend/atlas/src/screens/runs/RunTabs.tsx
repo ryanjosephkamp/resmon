@@ -155,7 +155,7 @@ function Papers({ runId, papers, running, names, more, readingMore }: Pick<Props
           tick={isEmpty(picks.picks, total) ? 'none' : allPicked ? 'on' : 'part'}
           allLabel={allPicked ? null : `Select all ${count(papers.total, 'paper')}`} onAll={selectAll} onDone={endSelecting}
           below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
-          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} onSave={savePicked} />
+          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
         </SelectBar>
       ) : (
         <div className="run-papers-head">

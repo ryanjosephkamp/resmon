@@ -161,7 +161,10 @@ export function TodayIndex(props: Props) {
   const order = useMemo(() => groups.flatMap((group) => group.papers.slice(0, listedOf(group)).map((paper) => paper.id)),
     [groups, listedOf]);
   const [selecting, setSelecting] = useState(false);
-  const picks = usePicks<number>(order, 'today');
+  // Nothing new (Mark all read, say) leaves select mode, so it does not come back by itself with tomorrow's papers.
+  if (selecting && total === 0) setSelecting(false);
+  // Out of select mode nothing is picked, however it was left.
+  const picks = usePicks<number>(order, selecting ? 'today' : 'idle');
   const picked = sizeOf(picks.picks, total);
   const allPicked = picks.picks.all && picks.picks.except.size === 0;
   const saving = useSaveToRead((done) => { picks.release('all'); onSavedMany?.(done.saved_ids); });
@@ -257,7 +260,7 @@ export function TodayIndex(props: Props) {
           tick={isEmpty(picks.picks, total) ? 'none' : allPicked ? 'on' : 'part'}
           allLabel={allPicked ? null : `Select all ${count(total, 'new paper')}`} onAll={selectAll} onDone={endSelecting}
           below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
-          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} onSave={savePicked} />
+          <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
         </SelectBar>
       )}
 

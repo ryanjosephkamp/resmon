@@ -361,7 +361,7 @@ export function Collection() {
               allLabel={allPicked || counted === null ? null : `Select all ${count(counted, 'match', 'matches')}`}
               onAll={selectAll} onDone={endSelecting}
               below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
-              <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} onSave={savePicked} />
+              <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
             </SelectBar>
           )}
           {offer && !(selecting && rows.length > 0) && (
@@ -437,8 +437,8 @@ export function Collection() {
             picking={picking}
           />
         </div>
-        {saving.notice}
       </section>
+      {saving.notice}
     </div>
   );
 }

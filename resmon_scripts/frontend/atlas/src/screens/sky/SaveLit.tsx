@@ -32,7 +32,7 @@ export function SaveLit({ sky, look, finding, waiting }: { sky: Sky; look: Look 
       {n > 0 && (
         <div className="map-save" data-map-save={n}
           title={finding ? 'The papers the find matches, as the map lights them' : 'The papers the filters leave lit'}>
-          <SaveButton n={n} all={false} busy={saving.pending || saving.asking}
+          <SaveButton n={n} all={false} busy={saving.pending || saving.asking} saving={saving.pending}
             onSave={() => saving.save({ target: { kind: 'listed', ids: litIds(sky, look, finding) }, n, all: false, what })} />
         </div>
       )}
