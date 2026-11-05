@@ -214,6 +214,8 @@ __all__ = [
     "OnboardingDismissed",
     "OnboardingState",
     "OnboardingStep",
+    "ReadingQueueBatchSaved",
+    "ReadingQueueBatchUndone",
     "ReadingQueueCounts",
     "ReadingQueueDocument",
     "ReadingQueueEntry",
@@ -1301,6 +1303,32 @@ class ReadingQueueRestored(LosslessModel):
 
     restored: bool
     entry: ReadingQueueEntry
+
+
+class ReadingQueueBatchSaved(LosslessModel):
+    """``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+
+    ``asked`` is how many distinct papers the request named or described;
+    ``saved`` were added now, ``already`` were in the queue and are as they
+    were, and ``missing`` are not in the collection. ``saved_ids`` and
+    ``saved_at`` (``None`` when nothing was added) are what an Undo names."""
+
+    asked: int
+    saved: int
+    already: int
+    missing: int
+    saved_at: Optional[str]
+    saved_ids: list[int]
+    counts: ReadingQueueCounts
+
+
+class ReadingQueueBatchUndone(LosslessModel):
+    """``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+    changed since the save, so its Undo left them."""
+
+    removed: int
+    kept: int
+    counts: ReadingQueueCounts
 
 
 # ===========================================================================

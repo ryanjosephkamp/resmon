@@ -80,6 +80,7 @@ import resmon as resmon_mod                                    # noqa: E402
 from implementation_scripts import response_models             # noqa: E402
 from implementation_scripts import watch_profiles as wp        # noqa: E402
 from implementation_scripts import collection_map              # noqa: E402
+from implementation_scripts import reading_queue               # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -163,6 +164,9 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("PUT", "/api/reading-queue/{document_id}"),
         ("DELETE", "/api/reading-queue/{document_id}"),
         ("POST", "/api/reading-queue/{document_id}/restore"),
+        ("POST", "/api/reading-queue/batch"),
+        ("POST", "/api/reading-queue/batch/all"),
+        ("POST", "/api/reading-queue/batch/undo"),
     ),
     "watchdog": (
         ("GET", "/api/watchdog"),
@@ -1982,6 +1986,16 @@ def _drive_reading_queue(drive: Drive, document_id: int) -> None:
         "updated_at": entry["updated_at"], "read_at": entry["read_at"]})
     assert back["restored"] is True and back["entry"] == entry
     drive("DELETE", f"/api/reading-queue/{document_id}")
+    # Many at once: the listed papers, then every one of a search, each with its Undo.
+    many = drive("POST", "/api/reading-queue/batch", json={"document_ids": [document_id]})
+    assert many["saved_ids"] == [document_id] and many["saved_at"]
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": many["saved_ids"], "saved_at": many["saved_at"]})
+    every = drive("POST", "/api/reading-queue/batch/all",
+                  json={"scope": "search", "search": {}, "at_most": reading_queue.BATCH_MOST})
+    assert every["saved"] >= 1
+    drive("POST", "/api/reading-queue/batch/undo",
+          json={"document_ids": every["saved_ids"], "saved_at": every["saved_at"]})
 
 
 class _ServiceDown:

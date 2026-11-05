@@ -5442,6 +5442,131 @@ def explorer_export(body: ExplorerExportBody):
 
 
 # ---------------------------------------------------------------------------
+# The reading queue, many papers at once
+# ---------------------------------------------------------------------------
+#
+# Beside the search routes because a save of every match takes the search's own
+# filters. The rules are the single save's (``reading_queue.save_many``): a paper
+# already in the queue stays exactly as it is and is counted as such, and every
+# entry one save adds carries that save's moment, which is what its Undo names.
+
+
+class ReadingQueueBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+
+
+class ReadingQueueAllBody(BaseModel):
+    """Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+
+    ``scope`` says which set: ``search``, the papers ``search`` matches (the
+    filters as Search › Your collection sends them, the words left out where it
+    ranked by meaning, since there they order the list and do not narrow it);
+    ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+    it found first; ``today``, Today's new papers. ``except_ids`` are left out.
+    ``at_most`` is how many the person was told would be saved: a set that holds
+    more by the time it is read is refused, so a filter lost on the way can never
+    save the whole collection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["search", "run", "today"]
+    search: Optional[ExplorerFilters] = None
+    execution_id: Optional[int] = None
+    only_new: bool = False
+    except_ids: list[int] = Field(default_factory=list, max_length=reading_queue.BATCH_MOST)
+    at_most: int = Field(ge=1)
+
+
+class ReadingQueueUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+    saved_at: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/reading-queue/batch", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_many_to_reading_queue(body: ReadingQueueBatchBody):
+    """Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+
+    The answer counts both, and the ids it does not hold (``missing``), and
+    lists the ids it added with the moment they carry, for Undo
+    (``POST /api/reading-queue/batch/undo``).
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.save_many(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/all", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_all_to_reading_queue(body: ReadingQueueAllBody):
+    """Save every paper of a search, a run, or Today, read by the engine rather than listed.
+
+    At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+    how many it holds. 409 when the set holds more than ``at_most``, the number
+    the person was asked about. Otherwise the answer of ``/batch``.
+    """
+    conn = _get_db()
+    try:
+        most = reading_queue.BATCH_MOST
+        skip = set(body.except_ids)
+        # One more than the limit is read, past the papers left out, so a set too large is known without reading it all.
+        reach = most + len(skip) + 1
+        if body.scope == "search":
+            if body.search is None:
+                raise HTTPException(400, "A save of a search's matches needs the search's filters.")
+            ids = explorer.matching_ids(conn, **_filter_kwargs(body.search), limit=reach)
+            what = "this search matches"
+        elif body.scope == "run":
+            if body.execution_id is None:
+                raise HTTPException(400, "A save of a run's papers needs the run's id.")
+            if get_execution_by_id(conn, body.execution_id) is None:
+                raise HTTPException(404, "Execution not found")
+            ids = reading_queue.run_paper_ids(conn, body.execution_id, only_new=body.only_new, limit=reach)
+            what = f"run {body.execution_id} {'found first' if body.only_new else 'stored'}"
+        else:
+            floor = today.new_window(conn)["floor"]
+            ids = [int(r[0]) for r in conn.execute(
+                "SELECT id FROM documents WHERE first_seen_at > ? ORDER BY first_seen_at DESC, id DESC LIMIT ?",
+                (floor, reach))]
+            what = "Today lists"
+        chosen = [i for i in ids if i not in skip]
+        if len(chosen) > most:
+            raise HTTPException(400, (
+                f"A save takes at most {most:,} papers at once, and {what} more than that. Nothing was saved. "
+                "Narrow it with a filter, or save part of it."))
+        if len(chosen) > body.at_most:
+            raise HTTPException(409, (
+                f"{what[0].upper()}{what[1:]} {len(chosen):,} papers now, more than the {body.at_most:,} you were "
+                "asked about. Nothing was saved."))
+        return reading_queue.save_many(conn, chosen)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/undo", response_model=response_models.ReadingQueueBatchUndone,
+          response_model_exclude_unset=True)
+def undo_save_to_reading_queue(body: ReadingQueueUndoBody):
+    """Undo a save of many: the entries it added go, unless they changed since.
+
+    ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+    read since, or removed and saved again, stays, and is counted as ``kept``.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.unsave_many(conn, body.document_ids, body.saved_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
 # Analytics
 # ---------------------------------------------------------------------------
 #
