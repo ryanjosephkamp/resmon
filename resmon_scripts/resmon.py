@@ -3286,6 +3286,23 @@ def cancel_execution(exec_id: int):
     return {"status": "cancellation_requested"}
 
 
+def _was_set_to_summarize(conn, exec_id: int) -> bool:
+    """Whether a run was set to summarize, as its ``ai_choice`` event recorded at its start.
+
+    Not whether it got as far as summarizing: ``execution_ai`` holds a row only
+    for a lane that was tried, so a run set to summarize that failed before
+    any paper was summarized has none, and a restart read from those rows came
+    back with summaries off (two watches' failed runs on November 4, 2026,
+    whose pages said "Summaries: On" and "Restart does not summarize"). A run
+    without the event (one from before it existed, or one interrupted before
+    its events were saved) is read from those rows, as it was.
+    """
+    for event in reversed(get_progress_events(conn, exec_id)):
+        if isinstance(event, dict) and event.get("type") == "ai_choice" and isinstance(event.get("enabled"), bool):
+            return bool(event["enabled"])
+    return bool(get_execution_ai(conn, exec_id))
+
+
 def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
     """Restart or Run again on a watch's run: the watch's own Run now, answered as a restart answers.
 
@@ -3360,14 +3377,12 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
         if watch is not None:
             return _run_as_its_watch(int(watch_id), watch, response)
         # The AI lane, reproduced as far as the record allows. ``parameters``
-        # holds the search, never the AI settings, so what the source row can
-        # answer is whether AI ran at all: ``execution_ai`` has one row per lane
-        # that was tried. A restart therefore reproduces the *choice* -- AI on
-        # or off -- and runs it against whatever is configured today, which is
-        # the same thing a second click of Deep Sweep would do. Reconstructing
-        # the provider, model and credential of the day from a lane record would
-        # be a guess wearing the original run's clothes.
-        ai_enabled = bool(get_execution_ai(conn, exec_id))
+        # holds the search, never the AI settings. A restart reproduces the
+        # *choice* -- AI on or off -- and runs it against whatever is configured
+        # today, which is the same thing a second click of Deep Sweep would do.
+        # Reconstructing the provider, model and credential of the day from a
+        # lane record would be a guess wearing the original run's clothes.
+        ai_enabled = _was_set_to_summarize(conn, exec_id)
         try:
             stored = json.loads(row["parameters"] or "{}")
         except (json.JSONDecodeError, TypeError):

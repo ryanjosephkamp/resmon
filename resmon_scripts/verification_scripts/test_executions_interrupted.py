@@ -527,6 +527,38 @@ def test_restart_reproduces_the_ai_choice_the_source_row_records(client, monkeyp
     assert seen == [False, True], "the engine was not handed the recorded choice"
 
 
+def test_restart_summarizes_as_the_run_was_set_to_not_as_far_as_it_got(client, monkeypatch):
+    """The run's ``ai_choice`` event decides: a run set to summarize that failed before summarizing restarts on.
+
+    Two watches' failed runs on November 4, 2026 said "Summaries: On" on their
+    pages and "Restart does not summarize" beside it, because the restart read
+    the lanes tried, and a run that failed before any paper had none.
+    """
+    seen: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: seen.append((exec_id, self.config.get("ai_enabled"))))
+    conn = resmon_mod._get_db()
+
+    def failed_with(choice):
+        exec_id = _row(client, "failed")
+        events = [{"type": "execution_start"}]
+        if choice is not None:
+            events.insert(0, {"type": "ai_choice", "enabled": choice, "lanes": [], "message": "AI summaries"})
+        db.save_progress_events(conn, exec_id, events)
+        return exec_id
+
+    on = failed_with(True)
+    off = failed_with(False)
+    old = failed_with(None)                     # a run from before the event: its lanes decide
+    db.start_ai_lane(conn, old, 0, lane_label="Lane 1", lane_kind="api_key", provider="anthropic", model="a-model")
+    answers = {exec_id: client.post(f"/api/executions/{exec_id}/restart").json() for exec_id in (on, off, old)}
+    assert {k: v["ai_enabled"] for k, v in answers.items()} == {on: True, off: False, old: True}
+    deadline = time.monotonic() + 10
+    while len(seen) < 3 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert sorted(flag for _, flag in seen) == [False, True, True], "the engine was not handed the recorded choice"
+
+
 def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
     """`stream_progress` branches on this tuple; it must hold every ended state.
 
