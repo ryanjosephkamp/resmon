@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import {
-  COMMAND_ENTER_CHORD, MENU_COMMANDS, SHORTCUTS, ariaKeys, blockingDialogOpen, commandEnter, commandEnterAction, isMenuCommand,
+  COMMAND_ENTER_CHORD, MENU_COMMANDS, NEW_TAB_CHORD, SHORTCUTS, ariaKeys, blockingDialogOpen, commandEnter, commandEnterAction, isMenuCommand,
   isTyping, keysText, pressed, sectionPath, sectionShortcut, shortcut, shortcutFor, type KeyPress,
 } from '../shortcuts';
 
@@ -13,18 +13,23 @@ const pc = (key: string, held: Partial<Omit<KeyPress, 'key'>> = {}) => shortcutF
 describe('each shortcut is one key with ⌘ on macOS and Ctrl elsewhere', () => {
   test('the set the shell answers', () => {
     expect(['k', 'n', 'd', '/', '1', '6', '7', ',', '[', ']'].map((k) => mac(k)))
-      .toEqual(['palette', 'new-conversation', 'new-dive', 'ask', 'section-1', 'section-6', 'section-7', 'settings', 'back', 'forward']);
+      .toEqual(['palette', 'new-window', 'new-dive', 'ask', 'section-1', 'section-6', 'section-7', 'settings', 'back', 'forward']);
     expect(mac('d', { shiftKey: true })).toBe('new-sweep');
     // With Shift held a letter may arrive capitalized.
     expect(mac('D', { shiftKey: true })).toBe('new-sweep');
+    // ⌘N is New Window, as in every Mac app; a new conversation takes Shift with it.
+    expect(mac('N', { shiftKey: true })).toBe('new-conversation');
     expect(['k', 'n', 'd', '/', '1', ',', '['].map((k) => pc(k)))
-      .toEqual(['palette', 'new-conversation', 'new-dive', 'ask', 'section-1', 'settings', 'back']);
+      .toEqual(['palette', 'new-window', 'new-dive', 'ask', 'section-1', 'settings', 'back']);
+    expect(pc('n', { shiftKey: true })).toBe('new-conversation');
+    // ⌘T is the app menu's New Tab, on macOS, and not the shell's.
+    expect(mac('t')).toBeNull();
   });
 
   test('⌘W stays the window\'s, and nothing is taken that the menu or the editing keys already use', () => {
     for (const key of ['w', 'q', 'c', 'v', 'x', 'z', 'a', 'r', 'm', 'h', '0', '8', '9']) expect(mac(key)).toBeNull();
     expect(mac('d', { altKey: true })).toBeNull();
-    expect(mac('n', { shiftKey: true })).toBeNull();
+    expect(mac('n', { altKey: true })).toBeNull();
     // Ctrl is not ⌘ on macOS, and ⌘ is not Ctrl elsewhere.
     expect(shortcutFor(press('n', { ctrlKey: true }), true)).toBeNull();
     expect(shortcutFor(press('n', { metaKey: true }), false)).toBeNull();
@@ -120,7 +125,7 @@ describe('the app menu carries the same keys and sends the commands the renderer
   const menu = main.slice(main.indexOf('function installApplicationMenu'), main.indexOf('\n}\n', main.indexOf('function installApplicationMenu')));
 
   test.each([
-    ['New Conversation', 'CmdOrCtrl+N', 'new-conversation'],
+    ['New Conversation', 'Shift+CmdOrCtrl+N', 'new-conversation'],
     ['New Deep Dive', 'CmdOrCtrl+D', 'new-dive'],
     ['New Deep Sweep', 'Shift+CmdOrCtrl+D', 'new-sweep'],
   ])('%s is %s, and sends %s', (label, accelerator, command) => {
@@ -134,6 +139,14 @@ describe('the app menu carries the same keys and sends the commands the renderer
     expect(menu).not.toMatch(/CmdOrCtrl\+W|Cmd\+W/);
     expect([...MENU_COMMANDS].sort()).toEqual(['new-conversation', 'new-dive', 'new-sweep', 'settings', 'shortcuts']);
     expect(isMenuCommand('quit')).toBe(false);
+  });
+
+  test('New Window is ⌘N (Ctrl+N elsewhere), and New Tab ⌘T on macOS, both done in the main process', () => {
+    expect(menu).toContain("id: 'file-new-window', label: 'New Window', accelerator: 'CmdOrCtrl+N'");
+    expect(menu).toContain("id: 'file-new-tab', label: 'New Tab', accelerator: 'Cmd+T'");
+    expect(keysText(shortcut('new-window').chord, true)).toBe('⌘N');
+    expect(keysText(shortcut('new-window').chord, false)).toBe('Ctrl+N');
+    expect(keysText(NEW_TAB_CHORD, true)).toBe('⌘T');
   });
 
   test('the History menu\'s keys are the ones the sheet names for back and forward', () => {

@@ -3311,8 +3311,10 @@ def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
     queue, a window it cannot read) is refused here in its words.
     """
     ran = run_routine_now(routine_id, response)
+    # ``routine_id`` says the run is the watch's: queued, it is found again by its
+    # watch, since a watch's fire carries no request id its ``ticket`` could match.
     answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
-                    "ai_enabled": bool(watch.get("ai_enabled"))}
+                    "ai_enabled": bool(watch.get("ai_enabled")), "routine_id": routine_id}
     if ran.get("queued"):
         ticket = next((w["ticket"] for w in admission.waiting()
                        if w["kind"] == "watch" and w["routine_id"] == routine_id), None)

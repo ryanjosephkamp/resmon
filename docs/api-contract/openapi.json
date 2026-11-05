@@ -14052,7 +14052,7 @@
       },
       "RunRestarted": {
         "additionalProperties": true,
-        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``; and\nat the run limit, as there, no ``execution_id`` yet, ``queued``, its\n``queue_position``, its ``ticket``, and a ``detail``.",
+        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``; and\nat the run limit, as there, no ``execution_id`` yet, ``queued``, its\n``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only\nfor a watch's run, which runs as its watch's Run now.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -14123,6 +14123,17 @@
               }
             ],
             "title": "Restarted From"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
           },
           "ticket": {
             "anyOf": [

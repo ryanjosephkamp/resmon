@@ -10,6 +10,7 @@
  */
 
 export type ShortcutId =
+  | 'new-window'
   | 'palette' | 'shortcuts' | 'ask' | 'new-conversation' | 'new-dive' | 'new-sweep'
   | 'section-1' | 'section-2' | 'section-3' | 'section-4' | 'section-5' | 'section-6' | 'section-7'
   | 'settings' | 'back' | 'forward';
@@ -43,7 +44,9 @@ const cmd = (key: string, shift = false): Chord => ({ key, command: true, shift 
 export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'palette', chord: cmd('k') },
   { id: 'shortcuts', chord: { key: '?' } },
-  { id: 'new-conversation', chord: cmd('n') },
+  // ⌘N is New Window, as in every Mac app; a new conversation takes Shift with it.
+  { id: 'new-window', chord: cmd('n') },
+  { id: 'new-conversation', chord: cmd('n', true) },
   { id: 'new-dive', chord: cmd('d') },
   { id: 'new-sweep', chord: cmd('d', true) },
   { id: 'ask', chord: cmd('/') },
@@ -157,6 +160,13 @@ export const COMMAND_ENTER_CHORD: Chord = { key: 'Enter', command: true };
 
 /** Find in the document the Library's reader shows, while the keyboard is in its project (`Reader.tsx`). */
 export const FIND_CHORD: Chord = { key: 'f', command: true };
+
+/**
+ * New Tab, on macOS only: window tabs are macOS's own. The app menu answers it
+ * (`electron/main.ts`), not the shell, so it is not in `SHORTCUTS`; the sheet
+ * names it with macOS's keys for the next and previous tab.
+ */
+export const NEW_TAB_CHORD: Chord = { key: 't', command: true };
 
 /** A field's or a form's opt-in to ⌘Enter, for spreading onto it: the button to press, or its form's submit. */
 export function commandEnter(button?: string): { 'data-command-enter': string } {

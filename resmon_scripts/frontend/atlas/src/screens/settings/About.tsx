@@ -177,7 +177,8 @@ export function About() {
         <div className="about-part" data-about="shortcuts">
           <h3 className="field-title">Keyboard shortcuts</h3>
           <p className="about-text">
-            New Deep Dive is {keysText(shortcut('new-dive').chord, isMac())}, a new conversation in Ask
+            New Deep Dive is {keysText(shortcut('new-dive').chord, isMac())}, a new window
+            is {keysText(shortcut('new-window').chord, isMac())}, a new conversation in Ask
             is {keysText(shortcut('new-conversation').chord, isMac())}, and each section has its own. The full list is
             one key away from anywhere: press ?, outside a text field.
           </p>

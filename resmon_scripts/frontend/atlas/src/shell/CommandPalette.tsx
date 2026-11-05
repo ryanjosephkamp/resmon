@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type RefObject } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PLACES, SECTIONS, SETTINGS } from '../routes';
+import { bridge } from '../bridge';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { Icon, type IconName } from './Icon';
 import { keysText, sectionShortcut, shortcut, type ShortcutId } from './shortcuts';
@@ -52,8 +53,36 @@ const SHELL_COMMANDS: readonly { id: ShortcutId; group: string; label: string; k
   { id: 'ask', group: 'Start', label: 'Message the assistant', keywords: 'ask chat question composer write', icon: 'arrow' },
   { id: 'back', group: 'History', label: 'Back', keywords: 'go back previous page history', icon: 'back' },
   { id: 'forward', group: 'History', label: 'Forward', keywords: 'go forward next page history', icon: 'arrow' },
+  { id: 'new-window', group: 'Window', label: 'New window', keywords: 'window open another second start page', icon: 'plus' },
   { id: 'shortcuts', group: 'Help', label: 'Keyboard shortcuts', keywords: 'keys keyboard shortcuts hotkeys help', icon: 'search' },
 ];
+
+/**
+ * The Window group: a new window at the start page, and this page in a new
+ * window, or on macOS in a new tab. Offered only inside the app, where there
+ * are windows to open.
+ */
+function windowCommands(onRun: (id: ShortcutId) => void, here: string, mac: boolean): Command[] {
+  const open = bridge()?.openWindow;
+  if (!open) return [];
+  return [
+    ...SHELL_COMMANDS.filter((c) => c.group === 'Window').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
+    {
+      id: 'window:this-page', group: 'Window', label: 'Open this page in a new window',
+      keywords: 'window duplicate copy this screen page another', icon: 'arrow', run: () => open(here),
+    },
+    ...(mac ? [{
+      id: 'window:this-page-tab', group: 'Window', label: 'Open this page in a new tab',
+      keywords: 'tab duplicate copy this screen page another window', icon: 'arrow' as const, run: () => open(here, true),
+    }] : []),
+  ];
+}
+
+/** The screen a Go to row opens, which ⌘↩ opens in a new window instead; null for any other row, or outside the app. */
+function elsewhere(command: Command | undefined): string | null {
+  if (!command?.id.startsWith('go:') || !bridge()?.openWindow) return null;
+  return command.id.slice('go:'.length);
+}
 
 /**
  * ⌘K: every screen, every appearance choice, and every command the shell
@@ -109,6 +138,8 @@ interface PaletteProps {
 /** The field and the commands, for one opening: each opening starts with an empty field and the first row. */
 function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const here = `${location.pathname}${location.search}`;
   const { stored, save } = useAppearance();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -134,6 +165,7 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
       run: () => navigate(place.path),
     })),
     ...SHELL_COMMANDS.filter((c) => c.group === 'History').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
+    ...windowCommands(onRun, here, mac),
     ...THEMES.map(({ choice, label, icon }) => ({
       id: `theme:${choice}`,
       group: 'Theme',
@@ -161,7 +193,7 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
       run: () => save({ accent: null }),
     },
     ...SHELL_COMMANDS.filter((c) => c.group === 'Help').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
-  ], [navigate, save, stored, onRun]);
+  ], [navigate, save, stored, onRun, here, mac]);
 
   const shown = useMemo(() => rank(commands, query), [commands, query]);
   const activeIndex = Math.min(active, Math.max(shown.length - 1, 0));
@@ -185,7 +217,14 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
     else if (event.key === 'ArrowUp') { event.preventDefault(); setActive(activeIndex <= 0 ? last : activeIndex - 1); }
     else if (event.key === 'Home' && event.ctrlKey) { event.preventDefault(); setActive(0); }
     else if (event.key === 'End' && event.ctrlKey) { event.preventDefault(); setActive(last); }
-    else if (event.key === 'Enter') { event.preventDefault(); choose(activeCommand); }
+    else if (event.key === 'Enter' && (mac ? event.metaKey : event.ctrlKey) && elsewhere(activeCommand)) {
+      // ⌘↩ (Ctrl+Enter) on a screen opens it in a new window, as a ⌘-click on a link does.
+      event.preventDefault();
+      const path = elsewhere(activeCommand);
+      dialog.current?.close();
+      onClose();
+      if (path) bridge()?.openWindow?.(path);
+    } else if (event.key === 'Enter') { event.preventDefault(); choose(activeCommand); }
   };
 
   return (
@@ -232,6 +271,11 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
       </ul>
       {shown.length === 0 && (
         <p className="palette-empty" role="status">Nothing matches “{query.trim()}”.</p>
+      )}
+      {elsewhere(activeCommand) && (
+        <p className="palette-foot" data-palette="new-window-hint">
+          <kbd>{mac ? '⌘↩' : 'Ctrl+Enter'}</kbd> opens it in a new window
+        </p>
       )}
     </>
   );
