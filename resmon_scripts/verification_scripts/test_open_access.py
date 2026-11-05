@@ -139,6 +139,24 @@ def test_europepmc_keeps_readable_pdfs_and_the_license_only_on_the_open_one():
     assert set(result.identifiers) == {("pmid", "99900002"), ("pmcid", "PMC9990002")}
 
 
+def test_europepmc_puts_its_records_license_only_on_its_own_sites_copies():
+    """The record's license went on every ``OA`` URL, a publisher's and Unpaywall's copies too."""
+    record = {**EUROPEPMC_CORE, "fullTextUrlList": {"fullTextUrl": [
+        *EUROPEPMC_CORE["fullTextUrlList"]["fullTextUrl"],
+        {"availability": "Open access", "availabilityCode": "OA", "documentStyle": "pdf",
+         "site": "PubMedCentral", "url": "https://pmc.ncbi.nlm.nih.gov/articles/PMC9990002/pdf/own.pdf"},
+        {"availability": "Open access", "availabilityCode": "OA", "documentStyle": "pdf",
+         "site": "Unpaywall", "url": "https://repository.example.edu/unpaywall.pdf"},
+        {"availability": "Open access", "availabilityCode": "OA", "documentStyle": "pdf",
+         "site": "DOI", "url": "https://publisher.example.org/article.pdf"},
+    ]}}
+    by_place = {loc.location: loc for loc in EuropepmcClient._parse_result(record).open_access}
+    assert by_place["https://europepmc.org/articles/PMC9990002?pdf=render"].license == "cc-by-nc"
+    assert by_place["https://pmc.ncbi.nlm.nih.gov/articles/PMC9990002/pdf/own.pdf"].license == "cc-by-nc"
+    assert by_place["https://repository.example.edu/unpaywall.pdf"].license is None
+    assert by_place["https://publisher.example.org/article.pdf"].license is None
+
+
 def test_europepmc_states_no_license_for_a_record_it_does_not_call_open():
     record = {**EUROPEPMC_CORE, "isOpenAccess": "N"}
     result = EuropepmcClient._parse_result(record)
