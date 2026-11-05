@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import sqlite3
 
+from .paper_collections import member_clause
+
 TO_READ = "to_read"
 READ = "read"
 
@@ -182,11 +184,20 @@ def restore(conn: sqlite3.Connection, document_id: int, status: str, saved_at: s
     return entry, cursor.rowcount > 0
 
 
-def counts(conn: sqlite3.Connection) -> dict:
-    """How many entries are in each state, and in total."""
+def _in_collection(collection_id: int | None) -> tuple[str, list]:
+    """The clause keeping the queue to one collection's papers, and its parameter."""
+    if collection_id is None:
+        return "", []
+    return member_clause("reading_queue.document_id"), [int(collection_id)]
+
+
+def counts(conn: sqlite3.Connection, collection_id: int | None = None) -> dict:
+    """How many entries are in each state, and in total, among one collection's papers (or all)."""
     result = {TO_READ: 0, READ: 0}
+    within, params = _in_collection(collection_id)
     for row in conn.execute(
-        "SELECT status, COUNT(*) AS n FROM reading_queue GROUP BY status"
+        f"SELECT status, COUNT(*) AS n FROM reading_queue {'WHERE ' + within if within else ''} GROUP BY status",
+        params,
     ):
         result[row["status"]] = int(row["n"])
     result["all"] = result[TO_READ] + result[READ]
@@ -214,8 +225,12 @@ def list_entries(
     q: str = "",
     sort: str = "saved",
     map_order: dict[int, tuple] | None = None,
+    collection_id: int | None = None,
 ) -> dict:
     """One page of the queue, with each paper's metadata, its PDF and where it came from.
+
+    With ``collection_id``, only the saved papers that collection holds: the
+    queue is one list, and each collection shows its own papers in it.
 
     ``status=None`` is the *All* filter. The default order is ``saved_at`` then
     ``document_id``, both descending, matching ``idx_reading_queue_status_saved``;
@@ -250,6 +265,10 @@ def list_entries(
 
     clauses: list[str] = []
     params: list = []
+    within, within_params = _in_collection(collection_id)
+    if within:
+        clauses.append(within)
+        params += within_params
     if status is not None:
         clauses.append("reading_queue.status = ?")
         params.append(status)
@@ -302,7 +321,7 @@ def list_entries(
         "limit": limit,
         "offset": offset,
         "status": status,
-        "counts": counts(conn),
+        "counts": counts(conn, collection_id),
         "sort": sort,
         "q": q,
     }

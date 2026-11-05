@@ -39,6 +39,15 @@ stops and says so, with the number it reached: ``total_is_exact`` is false and
 ``total`` is a floor, never a guess. A later page of the same search reuses the
 first page's count rather than counting again.
 
+One collection at a time
+------------------------
+Every read takes the collection it searches (``collection_id``), and the
+filters narrow that collection's papers: the clause is one lookup per paper in
+the membership's primary key (``paper_collections.MEMBER_SQL``). A count of a
+whole collection reads the membership table instead of walking the papers.
+``collection_id=None`` searches every paper in the database, which no route
+asks for: an absent collection there means the default one.
+
 Sorting by meaning
 ------------------
 ``sort="similarity"`` ranks the corpus by distance from the search phrase,
@@ -92,6 +101,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
 from . import vector_index
+from .paper_collections import member_clause, revision as collection_revision
 
 # How long counting the matches may take before the count stops and says what
 # it reached. At 100,000 papers the slowest count measured (every paper with
@@ -160,8 +170,10 @@ class Count:
 
 # Counts and rankings already made, for the later pages of the same search. Keyed
 # by the database file, the query, and a fingerprint of what it reads, so a paper
-# added or removed since is a miss rather than a stale answer. Only a database in
-# a file is cached: two in-memory databases cannot be told apart by name.
+# added or removed since is a miss rather than a stale answer; the collection's
+# revision is in the fingerprint, so a move or a copy that changed which papers
+# it holds is one too. Only a database in a file is cached: two in-memory
+# databases cannot be told apart by name.
 _COUNTS: "OrderedDict[tuple, Count]" = OrderedDict()
 _COUNTS_MAX = 64
 _RANKINGS: "OrderedDict[tuple, _Ranking]" = OrderedDict()
@@ -178,8 +190,16 @@ def _db_file(conn: sqlite3.Connection) -> str:
     return ""
 
 
-def _documents_fingerprint(conn: sqlite3.Connection) -> tuple:
-    return tuple(conn.execute("SELECT COUNT(*), IFNULL(MAX(id), 0) FROM documents").fetchone())
+def _documents_fingerprint(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> tuple:
+    papers = tuple(conn.execute("SELECT COUNT(*), IFNULL(MAX(id), 0) FROM documents").fetchone())
+    if collection_id is None:
+        return papers
+    return (*papers, int(collection_id), collection_revision(conn, collection_id))
+
+
+def _collection_only(where: str) -> bool:
+    """Whether *where* is the collection's clause and nothing else."""
+    return where == f" WHERE {member_clause()}"
 
 
 def _cached(store: OrderedDict, key: Optional[tuple]):
@@ -215,6 +235,11 @@ def count_where(conn: sqlite3.Connection, where: str, params: list[Any], *,
     """
     if not where:
         return Count(int(conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]), True)
+    if _collection_only(where):
+        # A whole collection: its rows in the membership's primary key, counted
+        # where they lie, rather than every paper walked and looked up.
+        return Count(int(conn.execute(
+            "SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?", params).fetchone()[0]), True)
     deadline = None if budget_s is None else time.monotonic() + budget_s
     counted = 0
     if deadline is not None:
@@ -232,10 +257,11 @@ def count_where(conn: sqlite3.Connection, where: str, params: list[Any], *,
     return Count(counted, True)
 
 
-def _count_for(conn: sqlite3.Connection, where: str, params: list[Any], *, fresh: bool) -> Count:
+def _count_for(conn: sqlite3.Connection, where: str, params: list[Any], *, fresh: bool,
+               collection_id: Optional[int] = None) -> Count:
     """The search's count: made afresh for a first page, reused by its later pages."""
     file = _db_file(conn)
-    key = (file, where, tuple(params), _documents_fingerprint(conn)) if file else None
+    key = (file, where, tuple(params), _documents_fingerprint(conn, collection_id)) if file else None
     if not fresh:
         hit = _cached(_COUNTS, key)
         if hit is not None:
@@ -261,11 +287,18 @@ def _build_where(
     categories: list[str] | None,
     date_from: str | None,
     date_to: str | None,
+    collection_id: Optional[int] = None,
 ) -> tuple[str, list[Any], bool]:
-    """Return ``(where_sql, params, used_fts)`` for the given filters."""
+    """Return ``(where_sql, params, used_fts)`` for the given filters, within one collection."""
     clauses: list[str] = []
     params: list[Any] = []
     used_fts = False
+
+    if collection_id is not None:
+        # First, so a search with no other filter is exactly this clause, which
+        # ``count_where`` counts from the membership table.
+        clauses.append(member_clause())
+        params.append(int(collection_id))
 
     if query and query.strip():
         if _fts_available(conn):
@@ -330,8 +363,9 @@ def search(
     query_vector: Optional[bytes] = None,
     model: Optional[str] = None,
     start_date: Optional[str] = None,
+    collection_id: Optional[int] = None,
 ) -> dict:
-    """Search the corpus. Returns one page plus a cursor for the next.
+    """Search one collection. Returns one page plus a cursor for the next.
 
     *cursor* is the opaque ``"<publication_date>|<id>"`` of the last row of the
     previous page. Ordering is (publication_date DESC, id DESC), which the
@@ -362,10 +396,12 @@ def search(
             conn, query=query, sources=sources, authors=authors,
             categories=categories, date_from=date_from, date_to=date_to,
             cursor=cursor, limit=limit, query_vector=query_vector, model=model,
+            collection_id=collection_id,
         )
     where, params, used_fts = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
 
     page_where, page_params = where, list(params)
@@ -409,7 +445,8 @@ def search(
         # undated paper produces '' rather than the string "None".
         next_cursor = f"{last.get('publication_date') or ''}|{last['id']}"
 
-    counted = _count_for(conn, where, params, fresh=cursor is None or jump is not None)
+    counted = _count_for(conn, where, params, fresh=cursor is None or jump is not None,
+                         collection_id=collection_id)
     out = {
         "results": page,
         "next_cursor": next_cursor,
@@ -443,8 +480,9 @@ def _search_by_similarity(
     limit: int,
     query_vector: Optional[bytes],
     model: Optional[str],
+    collection_id: Optional[int] = None,
 ) -> dict:
-    """The corpus, ranked by distance, within the structured filters.
+    """The collection, ranked by distance, within the structured filters.
 
     **The free-text phrase is the ranking query and not a filter here** — the one
     thing that separates this from the newest sort, and what lets a
@@ -473,7 +511,7 @@ def _search_by_similarity(
         page = search(
             conn, query=query, sources=sources, authors=authors,
             categories=categories, date_from=date_from, date_to=date_to,
-            cursor=cursor, limit=limit,
+            cursor=cursor, limit=limit, collection_id=collection_id,
         )
         page["sort"] = "newest"
         page["similarity_unavailable"] = (
@@ -487,9 +525,11 @@ def _search_by_similarity(
     where, params, _ = _build_where(
         conn, query=None, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
     offset = _offset_from(cursor)
-    ranking = _ranking_for(conn, where, params, model, query_vector, fresh=offset == 0)
+    ranking = _ranking_for(conn, where, params, model, query_vector, fresh=offset == 0,
+                           collection_id=collection_id)
 
     window = list(ranking.ids[offset : offset + limit])
     rows = _rows_in_order(conn, window)
@@ -537,7 +577,7 @@ class _Ranking:
 
 
 def _ranking_for(conn: sqlite3.Connection, where: str, params: list[Any], model: str,
-                 vector: bytes, *, fresh: bool) -> _Ranking:
+                 vector: bytes, *, fresh: bool, collection_id: Optional[int] = None) -> _Ranking:
     """Rank every paper in scope; a first page ranks afresh, its later pages reuse it."""
     file = _db_file(conn)
     key = None
@@ -547,7 +587,7 @@ def _ranking_for(conn: sqlite3.Connection, where: str, params: list[Any], model:
             (model,),
         ).fetchone())
         key = (file, model, hashlib.sha256(vector).hexdigest(), where, tuple(params),
-               _documents_fingerprint(conn), embedded)
+               _documents_fingerprint(conn, collection_id), embedded)
     if not fresh:
         hit = _cached(_RANKINGS, key)
         if hit is not None:
@@ -687,6 +727,7 @@ def facets(
     categories: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    collection_id: Optional[int] = None,
 ) -> dict:
     """Available filter values and their counts, for the current filter set.
 
@@ -695,30 +736,33 @@ def facets(
     reason.
     """
     def _counts(column_sql: str, join: str, exclude: str,
-                standalone: str | None = None) -> list[dict]:
+                standalone: str | None = None, column: str = "documents.id") -> list[dict]:
         where, params, _ = _build_where(
             conn, query=query,
             sources=None if exclude == "sources" else sources,
             authors=None if exclude == "authors" else authors,
             categories=None if exclude == "categories" else categories,
-            date_from=date_from, date_to=date_to,
+            date_from=date_from, date_to=date_to, collection_id=collection_id,
         )
 
         # With no filters at all, counting straight out of the facet table beats
         # joining to documents by a wide margin -- 12 ms against 542 ms on
         # 100,000 papers, because (document_id, author) is the primary key so
         # the join adds nothing but work. The join is only needed once a filter
-        # has to be applied to the documents themselves.
-        if not where and standalone:
+        # has to be applied to the documents themselves. A whole collection is
+        # still no filter on the documents: the facet table's rows are kept to
+        # its papers by the same lookup, with no join.
+        if (not where or _collection_only(where)) and standalone:
+            within = f" WHERE {member_clause(column)}" if where else ""
             rows = conn.execute(
                 f"""
-                SELECT value, COUNT(*) AS count FROM ({standalone})
+                SELECT value, COUNT(*) AS count FROM ({standalone}{within})
                 GROUP BY value
                 HAVING value IS NOT NULL AND TRIM(value) <> ''
                 ORDER BY count DESC, value ASC
                 LIMIT ?
                 """,
-                (MAX_FACET_VALUES,),
+                (*params, MAX_FACET_VALUES),
             ).fetchall()
             return [{"value": r["value"], "count": r["count"]} for r in rows]
 
@@ -736,6 +780,7 @@ def facets(
         ).fetchall()
         return [{"value": r["value"], "count": r["count"]} for r in rows]
 
+    # A facet table's rows are kept to the collection by their ``document_id``.
     return {
         "sources": _counts(
             "documents.source_repository", "", "sources",
@@ -746,12 +791,14 @@ def facets(
             "JOIN document_authors da ON da.document_id = documents.id",
             "authors",
             standalone="SELECT author AS value FROM document_authors",
+            column="document_authors.document_id",
         ),
         "categories": _counts(
             "dc.category",
             "JOIN document_categories dc ON dc.document_id = documents.id",
             "categories",
             standalone="SELECT category AS value FROM document_categories",
+            column="document_categories.document_id",
         ),
         "max_values": MAX_FACET_VALUES,
     }
@@ -767,11 +814,13 @@ def matching_ids(
     date_from: str | None = None,
     date_to: str | None = None,
     limit: Optional[int] = None,
+    collection_id: Optional[int] = None,
 ) -> list[int]:
     """Every document id matching the filters, newest first; *limit* stops it early."""
     where, params, _ = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
     sql = f"SELECT documents.id FROM documents {where} ORDER BY {_ORDER_BY}"
     if limit is not None:
@@ -789,6 +838,7 @@ def count_matching(
     categories: list[str] | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    collection_id: Optional[int] = None,
 ) -> int:
     """How many documents match the filters, counted to the end (no time budget).
 
@@ -799,6 +849,7 @@ def count_matching(
     where, params, _ = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
     return count_where(conn, where, params).total
 
@@ -813,6 +864,7 @@ def iter_matching(
     date_from: str | None = None,
     date_to: str | None = None,
     batch: int = 500,
+    collection_id: Optional[int] = None,
 ) -> Iterator[dict]:
     """Every matching document, newest first, read *batch* rows at a time.
 
@@ -822,6 +874,7 @@ def iter_matching(
     where, params, _ = _build_where(
         conn, query=query, sources=sources, authors=authors,
         categories=categories, date_from=date_from, date_to=date_to,
+        collection_id=collection_id,
     )
     cursor = conn.execute(f"SELECT documents.* FROM documents {where} ORDER BY {_ORDER_BY}", params)
     try:

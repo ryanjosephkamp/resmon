@@ -18,7 +18,7 @@ import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar
+from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar, Union
 
 import httpx
 
@@ -111,7 +111,7 @@ from implementation_scripts.zero_reason import answered as zero_answered, in_par
 from implementation_scripts import (
     analytics, assistant_choices, assistant_export, assistant_runtime, assistant_store,
     coverage_audit, date_window, embedding_job, map_facets, today,
-    embeddings, explorer, lifecycle, match_explain, near_duplicates,
+    embeddings, explorer, lifecycle, match_explain, near_duplicates, paper_collections,
     reading_queue, reference_export, response_models, search_record, source_contact, source_coverage,
     source_wall, vector_index, watch_profiles,
     watchdog,
@@ -359,6 +359,32 @@ def _close_db(conn):
 
 
 # ---------------------------------------------------------------------------
+# Naming a collection
+# ---------------------------------------------------------------------------
+
+#: A collection as a request names it: its id, or its name. Absent (None) is the
+#: default collection, so a client from before collections reads what it read.
+CollectionRef = Optional[Union[int, str]]
+
+
+#: A collection named in a query string, by its id or its name; absent, the default collection.
+_COLLECTION_QUERY = Query(None, max_length=200, description=(
+    "The collection, by its id or its name. Absent, the default collection."))
+
+
+def _collection_refusal(exc: "paper_collections.CollectionError") -> HTTPException:
+    return HTTPException(exc.status, exc.message)
+
+
+def _collection_id(conn, ref: CollectionRef) -> int:
+    """The id of the collection a request names, or a 404 that says which name was not found."""
+    try:
+        return paper_collections.resolve(conn, ref)
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
+
+
+# ---------------------------------------------------------------------------
 # Pydantic models
 # ---------------------------------------------------------------------------
 
@@ -382,6 +408,9 @@ class DiveRequest(BaseModel):
     # time, never at page load: an id fixed when the page rendered would make
     # the user's genuine second search look like a duplicate of their first.
     request_id: Optional[str] = None
+    # The collection the run's papers land in, by id or name: the window's
+    # collection it was started from. Absent, the default collection.
+    collection: CollectionRef = None
 
 class SweepRequest(BaseModel):
     repositories: list[str]
@@ -397,6 +426,8 @@ class SweepRequest(BaseModel):
     saved_configuration_id: Optional[int] = None
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
+    # See DiveRequest.collection.
+    collection: CollectionRef = None
 
 
 class RestartRequest(BaseModel):
@@ -452,6 +483,8 @@ class RoutineCreate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: bool = False
+    # Where the watch's papers land, by id or name. Absent, the default collection.
+    collection: CollectionRef = None
 
 class RoutineUpdate(BaseModel):
     name: Optional[str] = None
@@ -465,6 +498,9 @@ class RoutineUpdate(BaseModel):
     ai_settings: Optional[dict] = None
     storage_settings: Optional[dict] = None
     notify_on_complete: Optional[bool] = None
+    # Point the watch's later runs at another collection, by id or name. Papers
+    # its earlier runs filed stay where they are.
+    collection: CollectionRef = None
 
 class ConfigCreate(BaseModel):
     name: str
@@ -1627,6 +1663,7 @@ def search_dive(body: DiveRequest, response: Response):
         "date_from": body.date_from,
         "date_to": body.date_to,
         "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
     }
     return _start_or_queue(
         request_id=body.request_id, what="Deep Dive",
@@ -1656,6 +1693,7 @@ def search_sweep(body: SweepRequest, response: Response):
         "date_from": body.date_from,
         "date_to": body.date_to,
         "max_results": body.max_results,
+        "collection_id": _collection_id(conn, body.collection),
     }
     return _start_or_queue(
         request_id=body.request_id, what="Deep Sweep",
@@ -2073,6 +2111,7 @@ def create_routine(body: RoutineCreate):
             "storage_settings": json.dumps(body.storage_settings) if body.storage_settings else None,
             "notify_on_complete": int(body.notify_on_complete),
             "execution_location": "local",
+            "collection_id": _collection_id(conn, body.collection),
         }
         rid = insert_routine(conn, routine_dict)
         _sync_routine_config(conn, rid)
@@ -2133,6 +2172,8 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["storage_settings"] = json.dumps(body.storage_settings)
         if body.notify_on_complete is not None:
             updates["notify_on_complete"] = int(body.notify_on_complete)
+        if body.collection is not None:
+            updates["collection_id"] = _collection_id(conn, body.collection)
         update_routine(conn, routine_id, updates)
         _sync_routine_config(conn, routine_id)
         _sched_update_routine(routine_id)
@@ -2561,8 +2602,9 @@ def deactivate_routine(routine_id: int):
 
 @app.get("/api/routines/{routine_id}/documents", response_model=response_models.RoutineDocuments,
          response_model_exclude_unset=True)
-def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1)):
-    """The papers this routine's runs collected: a watch's constellation.
+def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1),
+                      collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers this routine's runs collected that a collection holds: a watch's constellation on its map.
 
     Ids only, newest run first and each paper once, because what a screen does
     with them is mark them on the collection map; a page of records is the
@@ -2576,7 +2618,8 @@ def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1))
     try:
         if not get_routine_by_id(conn, routine_id):
             raise HTTPException(404, "Watch not found")
-        ids, total = get_routine_document_ids(conn, routine_id, limit=limit)
+        ids, total = get_routine_document_ids(conn, routine_id, limit=limit,
+                                              collection_id=_collection_id(conn, collection))
         return {"routine_id": routine_id, "document_ids": ids, "total": total, "limit": limit}
     finally:
         _close_db(conn)
@@ -4028,7 +4071,7 @@ def _reading_queue_status(value: Optional[str]) -> Optional[str]:
     return value
 
 
-def _map_order(conn, wanted: set[int]) -> Optional[dict[int, tuple]]:
+def _map_order(conn, wanted: set[int], collection_id: Optional[int] = None) -> Optional[dict[int, tuple]]:
     """A sort key per paper the collection's map has placed, keeping its neighbors together.
 
     The map's own regions first, then a Hilbert curve through each region's
@@ -4037,7 +4080,7 @@ def _map_order(conn, wanted: set[int]) -> Optional[dict[int, tuple]]:
     queue then says it is in saved order.
     """
     from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
-    fit = collection_map._current(collection_map.cache_path(conn))
+    fit = collection_map._current(collection_map.cache_path(conn, collection_id), collection_id)
     if fit is None or not len(fit.ids):
         return None
     side = 1024
@@ -4066,20 +4109,26 @@ def list_reading_queue(
     offset: int = 0,
     q: str = Query("", max_length=200),
     sort: str = "saved",
+    collection: Optional[str] = _COLLECTION_QUERY,
 ):
-    """One page of saved papers. ``status`` omitted (or ``all``) means both.
+    """One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.
 
-    ``q`` keeps the papers whose title, authors or source contain it. ``sort`` is
-    ``saved`` (newest save first), ``published``, ``title``, ``source`` or
-    ``map``; the page's own ``sort`` says which order it is in, which is
-    ``saved`` when ``map`` was asked for and no map is fitted yet.
+    The queue is one list; each collection shows the saved papers it holds,
+    with their counts. ``q`` keeps the papers whose title, authors or source
+    contain it. ``sort`` is ``saved`` (newest save first), ``published``,
+    ``title``, ``source`` or ``map`` (the collection's map); the page's own
+    ``sort`` says which order it is in, which is ``saved`` when ``map`` was
+    asked for and no map is fitted yet.
     """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return reading_queue.list_entries(
             conn, status=_reading_queue_status(status), limit=limit, offset=offset, q=q, sort=sort,
-            map_order=_map_order(conn, {r[0] for r in conn.execute("SELECT document_id FROM reading_queue")})
+            map_order=_map_order(conn, {r[0] for r in conn.execute("SELECT document_id FROM reading_queue")},
+                                 chosen)
             if sort == "map" else None,
+            collection_id=chosen,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -4969,6 +5018,9 @@ class ExplorerFilters(BaseModel):
     categories: list[str] = []
     date_from: Optional[str] = None
     date_to: Optional[str] = None
+    # The collection searched, by its id or its name. Absent, the default
+    # collection, which is every paper a client from before collections knew.
+    collection: CollectionRef = None
 
 
 class ExplorerSearchBody(ExplorerFilters):
@@ -4993,7 +5045,7 @@ class ExplorerExportBody(ExplorerFilters):
     format: str = "bibtex"
 
 
-def _filter_kwargs(body: ExplorerFilters) -> dict:
+def _filter_kwargs(body: ExplorerFilters, conn) -> dict:
     return {
         "query": body.query,
         "sources": body.sources or None,
@@ -5001,7 +5053,190 @@ def _filter_kwargs(body: ExplorerFilters) -> dict:
         "categories": body.categories or None,
         "date_from": body.date_from,
         "date_to": body.date_to,
+        "collection_id": _collection_id(conn, body.collection),
     }
+
+
+# ---------------------------------------------------------------------------
+# Collections
+# ---------------------------------------------------------------------------
+#
+# Several collections inside the one database: a paper is stored once and is in
+# one or more of them (``paper_collections``). Every read of "the collection"
+# takes ``collection`` (an id or a name) and an absent one is the default
+# collection, so a client from before collections reads what it always read.
+
+
+class CollectionNameBody(BaseModel):
+    name: str = Field(..., max_length=200)
+
+
+class CollectionCurrentBody(BaseModel):
+    collection: Union[int, str]
+
+
+class CollectionPapersBody(BaseModel):
+    """Move or copy papers into the collection in the path.
+
+    The papers are named by id (``document_ids``) or by a search of the
+    collection they come from (``matching``: the Explorer's filters, whose own
+    ``collection`` is that collection), never both. A move takes them out of
+    ``from_collection``, which is the search's collection where ``matching`` is
+    given and the default collection where neither names one.
+    """
+
+    mode: Literal["move", "copy"]
+    document_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    matching: Optional[ExplorerFilters] = None
+
+
+class CollectionMembershipBody(BaseModel):
+    document_id: int
+    added_at: str = Field(..., max_length=40)
+    added_by: str = Field(..., max_length=20)
+    execution_id: Optional[int] = None
+
+
+class CollectionPapersUndoBody(BaseModel):
+    """What a move or a copy answered, sent back to undo it."""
+
+    added: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    from_collection: CollectionRef = None
+    removed: list[CollectionMembershipBody] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+
+
+def _collections_call(compute: Callable[[], dict]) -> dict:
+    """Run a collections change, answering its refusal in the module's own words."""
+    try:
+        return compute()
+    except paper_collections.CollectionError as exc:
+        raise _collection_refusal(exc) from None
+
+
+@app.get("/api/collections", response_model=response_models.CollectionList,
+         response_model_exclude_unset=True)
+def list_collections():
+    """Every collection, the one the app shows, and the default one."""
+    conn = _get_db()
+    try:
+        return {"collections": paper_collections.summaries(conn),
+                "current_id": paper_collections.current(conn),
+                "default_id": paper_collections.DEFAULT_COLLECTION_ID}
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections", status_code=201, response_model=response_models.CollectionSummary,
+          response_model_exclude_unset=True)
+def create_collection(body: CollectionNameBody):
+    """Make an empty collection. Names are unique without regard to case."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.create(conn, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/current", response_model=response_models.CollectionCurrent,
+         response_model_exclude_unset=True)
+def set_current_collection(body: CollectionCurrentBody):
+    """Remember the collection the app shows, by its id or its name."""
+    conn = _get_db()
+    try:
+        chosen = _collection_id(conn, body.collection)
+        return {"current_id": _collections_call(lambda: {"id": paper_collections.set_current(conn, chosen)})["id"]}
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/collections/{collection_id}", response_model=response_models.CollectionDetail,
+         response_model_exclude_unset=True)
+def get_collection(collection_id: int):
+    """One collection, and what deleting it would do to its papers and watches."""
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.detail(conn, collection_id))
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/collections/{collection_id}", response_model=response_models.CollectionSummary,
+         response_model_exclude_unset=True)
+def rename_collection(collection_id: int, body: CollectionNameBody):
+    conn = _get_db()
+    try:
+        return _collections_call(lambda: paper_collections.rename(conn, collection_id, body.name))
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/collections/{collection_id}", response_model=response_models.CollectionDeleted,
+            response_model_exclude_unset=True)
+def delete_collection(collection_id: int):
+    """Delete a collection, never its papers.
+
+    A paper only it held is kept in the default collection; one in another
+    collection stays there. Its watches put their papers in the default
+    collection from then on. Its map goes with it, since the map holds words
+    from its papers. The default collection is refused (409).
+    """
+    conn = _get_db()
+    try:
+        deleted = _collections_call(lambda: paper_collections.delete(conn, collection_id))
+        from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+        collection_map.forget(conn, collection_id)
+        return deleted
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers", response_model=response_models.CollectionPapersChanged,
+          response_model_exclude_unset=True)
+def change_collection_papers(collection_id: int, body: CollectionPapersBody):
+    """Move or copy papers into this collection. No paper leaves the database.
+
+    A copy adds them and every collection they were in keeps them. A move adds
+    them here and then takes them out of the collection they came from, so a
+    paper is never in none. The answer is what an undo sends back.
+    """
+    conn = _get_db()
+    try:
+        if body.matching is not None and body.document_ids:
+            raise HTTPException(400, "Name the papers by id or by a search, not both.")
+        source = None
+        if body.matching is not None:
+            filters = _filter_kwargs(body.matching, conn)
+            source = filters["collection_id"]
+            if body.mode == "move" and body.from_collection is not None \
+                    and _collection_id(conn, body.from_collection) != source:
+                raise HTTPException(400, "A move by a search takes papers out of the collection searched.")
+            ids = explorer.matching_ids(conn, **filters)
+            if len(ids) > paper_collections.IDS_MAX:
+                raise HTTPException(400, f"A search moves or copies at most {paper_collections.IDS_MAX:,} "
+                                         f"papers at once, and this one matches {len(ids):,}.")
+        else:
+            ids = body.document_ids
+        if body.mode == "copy":
+            return _collections_call(lambda: paper_collections.copy(conn, collection_id, ids))
+        if source is None:
+            source = _collection_id(conn, body.from_collection)
+        return _collections_call(lambda: paper_collections.move(conn, source, collection_id, ids))
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/collections/{collection_id}/papers/undo", response_model=response_models.CollectionPapersUndone,
+          response_model_exclude_unset=True)
+def undo_collection_papers(collection_id: int, body: CollectionPapersUndoBody):
+    """Undo a move or a copy into this collection, from what it answered."""
+    conn = _get_db()
+    try:
+        source = _collection_id(conn, body.from_collection) if body.from_collection is not None else None
+        return _collections_call(lambda: paper_collections.undo(
+            conn, collection_id, body.added, source, [row.model_dump() for row in body.removed]))
+    finally:
+        _close_db(conn)
 
 
 def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optional[str]]:
@@ -5071,7 +5306,7 @@ def explorer_search(body: ExplorerSearchBody):
             vector, model, reason = _embed_query(conn, body.query or "")
         result = explorer.search(
             conn, cursor=body.cursor, limit=body.limit, sort=body.sort,
-            query_vector=vector, model=model, start_date=body.start_date, **_filter_kwargs(body),
+            query_vector=vector, model=model, start_date=body.start_date, **_filter_kwargs(body, conn),
         )
         if reason:
             # The request asked for a ranking and did not get one. Saying so is
@@ -5396,7 +5631,7 @@ def explorer_facets(body: ExplorerFilters):
     """Available filter values and their counts, for the current filters."""
     conn = _get_db()
     try:
-        return explorer.facets(conn, **_filter_kwargs(body))
+        return explorer.facets(conn, **_filter_kwargs(body, conn))
     finally:
         _close_db(conn)
 
@@ -5432,7 +5667,7 @@ def explorer_export(body: ExplorerExportBody):
     try:
         conn.execute("PRAGMA busy_timeout=5000;")
         conn.execute("BEGIN")
-        filters = _filter_kwargs(body)
+        filters = _filter_kwargs(body, conn)
         total = explorer.count_matching(conn, **filters)
         documents = explorer.iter_matching(conn, **filters)
     except BaseException:
@@ -5485,7 +5720,10 @@ def _analytics_fingerprint(conn) -> tuple:
         " (SELECT COUNT(*) FROM execution_sources),"
         " (SELECT IFNULL(MAX(recorded_at), '') FROM execution_sources),"
         " (SELECT COUNT(*) FROM watchdog_mutes),"
-        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes)"
+        " (SELECT IFNULL(MAX(muted_at), '') FROM watchdog_mutes),"
+        # A move or a copy changes which papers a collection holds and nothing
+        # above; each collection's revision counts those changes.
+        " (SELECT IFNULL(SUM(revision), 0) || ':' || COUNT(*) FROM collections)"
     ).fetchone()
     return tuple(row)
 
@@ -5509,74 +5747,82 @@ def _cached_analytics(name: str, params: tuple, conn, compute):
 
 @app.get("/api/analytics/overview", response_model=response_models.AnalyticsOverview,
          response_model_exclude_unset=True)
-def analytics_overview():
-    """Everything the Analytics page needs, in one round trip."""
+def analytics_overview(collection: Optional[str] = _COLLECTION_QUERY):
+    """Everything the Analytics page needs about one collection, in one round trip."""
     conn = _get_db()
     try:
-        return _cached_analytics("overview", (), conn, lambda: analytics.overview(conn))
+        chosen = _collection_id(conn, collection)
+        return _cached_analytics("overview", (chosen,), conn, lambda: analytics.overview(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/summary", response_model=response_models.CorpusSummary,
          response_model_exclude_unset=True)
-def analytics_summary():
+def analytics_summary(collection: Optional[str] = _COLLECTION_QUERY):
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "summary", (), conn, lambda: analytics.corpus_summary(conn))
+            "summary", (chosen,), conn, lambda: analytics.corpus_summary(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/source-contribution", response_model=response_models.SourceContribution,
          response_model_exclude_unset=True)
-def analytics_source_contribution():
+def analytics_source_contribution(collection: Optional[str] = _COLLECTION_QUERY):
     """Per source: papers delivered, and how many nothing else found."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "source_contribution", (), conn,
-            lambda: analytics.source_contribution(conn))
+            "source_contribution", (chosen,), conn,
+            lambda: analytics.source_contribution(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/discovery-lag", response_model=response_models.DiscoveryLag,
          response_model_exclude_unset=True)
-def analytics_discovery_lag():
+def analytics_discovery_lag(collection: Optional[str] = _COLLECTION_QUERY):
     """Median days between publication and resmon first seeing each paper."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "discovery_lag", (), conn, lambda: analytics.discovery_lag(conn))
+            "discovery_lag", (chosen,), conn, lambda: analytics.discovery_lag(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/routine-health", response_model=response_models.RoutineHealth,
          response_model_exclude_unset=True)
-def analytics_routine_health():
-    """Per routine: new results per run, and whether it has gone quiet."""
+def analytics_routine_health(collection: Optional[str] = _COLLECTION_QUERY):
+    """Per routine whose papers land in the collection: new results per run, and whether it has gone quiet."""
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "routine_health", (), conn, lambda: analytics.routine_health(conn))
+            "routine_health", (chosen,), conn, lambda: analytics.routine_health(conn, chosen))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/analytics/publication-volume", response_model=response_models.PublicationVolume,
          response_model_exclude_unset=True)
-def analytics_publication_volume(group_by: str = "source", months: int = 12):
+def analytics_publication_volume(group_by: str = "source", months: int = 12,
+                                 collection: Optional[str] = _COLLECTION_QUERY):
     """Papers per publication month, split by source or subject category."""
     if group_by not in ("source", "category"):
         raise HTTPException(400, "group_by must be 'source' or 'category'")
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "publication_volume", (group_by, int(months)), conn,
-            lambda: analytics.publication_volume(conn, group_by=group_by, months=months))
+            "publication_volume", (group_by, int(months), chosen), conn,
+            lambda: analytics.publication_volume(conn, group_by=group_by, months=months,
+                                                 collection_id=chosen))
     finally:
         _close_db(conn)
 
@@ -5869,6 +6115,7 @@ def get_document(doc_id: int):
             raise HTTPException(404, "Document not found")
         paper = dict(row)
         paper["queue_status"] = reading_queue.statuses_for(conn, [doc_id]).get(doc_id)
+        paper["collections"] = paper_collections.of_document(conn, doc_id)
         return paper
     finally:
         _close_db(conn)
@@ -5891,19 +6138,22 @@ def document_why(doc_id: int, execution_id: Optional[int] = None):
 
 @app.get("/api/analytics/keyword-contribution", response_model=response_models.KeywordContribution,
          response_model_exclude_unset=True)
-def analytics_keyword_contribution(execution_id: Optional[int] = None):
+def analytics_keyword_contribution(execution_id: Optional[int] = None,
+                                   collection: Optional[str] = _COLLECTION_QUERY):
     """Per keyword: papers it found that no other keyword did.
 
     Scoped to one execution with ``?execution_id=``, otherwise to every keyword
-    ever searched against the whole corpus. Cached like the other analytics —
-    it reads every candidate document once, which is not free on a large corpus.
+    of the runs that put papers in the collection, against its papers. Cached
+    like the other analytics — it reads every candidate document once, which
+    is not free on a large corpus.
     """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         return _cached_analytics(
-            "keyword_contribution", (execution_id,), conn,
+            "keyword_contribution", (execution_id, chosen), conn,
             lambda: match_explain.keyword_contribution(
-                conn, execution_id=execution_id,
+                conn, execution_id=execution_id, collection_id=chosen,
             ),
         )
     except LookupError as exc:
@@ -6530,43 +6780,46 @@ def _current_embedding_lane(conn):
 
 @app.get("/api/map", response_model=response_models.CollectionMap,
          response_model_exclude_unset=True)
-def get_collection_map():
-    """Where every paper sits on the Atlas plate, and on what basis.
+def get_collection_map(collection: Optional[str] = _COLLECTION_QUERY):
+    """Where every paper of a collection sits on the Atlas plate, and on what basis.
 
     The first call on a collection starts a fit in the background and answers
     ``fitting``; later calls answer from the fit, placing papers that arrived
-    since. See ``collection_map`` for what a position does and does not say.
+    since. Each collection has its own map, fitted over its papers alone. See
+    ``collection_map`` for what a position does and does not say.
     """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection)
         lane = _current_embedding_lane(conn)
         from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
-        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db)
+        return collection_map.snapshot(conn, lane.model if lane else None, open_connection=_get_db,
+                                       collection_id=chosen)
     finally:
         _close_db(conn)
 
 
 @app.get("/api/map/facets", response_model=response_models.MapFacets,
          response_model_exclude_unset=True)
-def get_map_facets():
-    """What the map's filters and colors read about every paper: its source,
-    its dates, its place in the reading queue, whether it is new on Today, and
-    the watches that found it. See ``map_facets`` for what each says."""
+def get_map_facets(collection: Optional[str] = _COLLECTION_QUERY):
+    """What the map's filters and colors read about every paper of a collection:
+    its source, its dates, its place in the reading queue, whether it is new on
+    Today, and the watches that found it. See ``map_facets`` for what each says."""
     conn = _get_db()
     try:
-        return map_facets.facets(conn)
+        return map_facets.facets(conn, collection_id=_collection_id(conn, collection))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/map/find", response_model=response_models.MapFind,
          response_model_exclude_unset=True)
-def find_on_map(q: str = Query("", max_length=200)):
-    """The papers whose title or authors contain ``q``, newest first, for
-    lighting them on a map. Fewer than two characters find nothing."""
+def find_on_map(q: str = Query("", max_length=200), collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers of a collection whose title or authors contain ``q``, newest
+    first, for lighting them on a map. Fewer than two characters find nothing."""
     conn = _get_db()
     try:
-        return {"query": q, "ids": map_facets.find(conn, q)}
+        return {"query": q, "ids": map_facets.find(conn, q, collection_id=_collection_id(conn, collection))}
     finally:
         _close_db(conn)
 
@@ -7206,6 +7459,11 @@ def _dispatch_routine_fire(
             # with fixed dates or none is left exactly as stored. `retractions`
             # searches no source for papers (it checks the ones already
             # matched), so it has no dates to ask.
+            # Where this fire's papers land, resolved here for the same reason:
+            # the run carries its collection, so a watch pointed elsewhere
+            # afterwards does not move papers a run already filed.
+            params["collection_id"] = paper_collections.watch_target(conn, row)
+
             if params.get("entity_mode") != "retractions":
                 try:
                     date_window.apply(conn, routine_id, params)
@@ -7560,30 +7818,31 @@ def _next_fire_epochs(conn: sqlite3.Connection) -> dict[str, Optional[float]]:
 
 
 @app.get("/api/today", response_model=response_models.Today, response_model_exclude_unset=True)
-def get_today():
-    """The papers resmon first collected since Today was last looked at, by watch.
+def get_today(collection: Optional[str] = _COLLECTION_QUERY):
+    """The papers runs put in a collection since its Today was last looked at, by watch.
 
     See ``today`` for what "new", "looked" and "watch" mean. Reading this does
     not mark anything looked at; ``POST /api/today/looked`` does.
     """
     conn = _get_db()
     try:
-        return today.build(conn, _next_fire_epochs(conn))
+        return today.build(conn, _next_fire_epochs(conn), collection_id=_collection_id(conn, collection))
     finally:
         _close_db(conn)
 
 
 @app.get("/api/today/papers", response_model=response_models.TodayPapersPage,
          response_model_exclude_unset=True)
-def get_today_papers(cursor: str, limit: int = Query(today.PAPER_PAGE, ge=1, le=today.PAPER_PAGE)):
-    """The next page of Today's new papers, after the page before it.
+def get_today_papers(cursor: str, limit: int = Query(today.PAPER_PAGE, ge=1, le=today.PAPER_PAGE),
+                     collection: Optional[str] = _COLLECTION_QUERY):
+    """The next page of a collection's new papers on Today, after the page before it.
 
     ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
     listed, a page at a time, however many there are.
     """
     conn = _get_db()
     try:
-        return today.papers_after(conn, cursor, limit)
+        return today.papers_after(conn, cursor, limit, collection_id=_collection_id(conn, collection))
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
     finally:
@@ -7608,11 +7867,11 @@ def get_document_briefs(body: DocumentBriefsBody):
 
 @app.post("/api/today/looked", response_model=response_models.TodayLooked,
           response_model_exclude_unset=True)
-def mark_today_looked():
-    """Record that Today was looked at now: the next window starts here."""
+def mark_today_looked(collection: Optional[str] = _COLLECTION_QUERY):
+    """Record that a collection's Today was looked at now: its next window starts here."""
     conn = _get_db()
     try:
-        return {"looked_at": today.mark_looked(conn)}
+        return {"looked_at": today.mark_looked(conn, collection_id=_collection_id(conn, collection))}
     finally:
         _close_db(conn)
 
@@ -8412,10 +8671,11 @@ def _erase_corpus(conn) -> int:
     count = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
     conn.execute("DELETE FROM documents")
     conn.execute("DELETE FROM sqlite_sequence WHERE name='documents'")
-    # The collection map's cache holds positions and words taken from these
-    # papers, so it goes with them, and so does the shared-wording answer.
+    # The collection maps' caches hold positions and words taken from these
+    # papers, so they go with them (every collection's), and so does the
+    # shared-wording answer. The collections stay, empty.
     from implementation_scripts import collection_map, shared_wording  # noqa: PLC0415 - see the imports
-    collection_map.forget(conn)
+    collection_map.forget(conn, every=True)
     shared_wording.forget(conn)
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
@@ -9803,8 +10063,9 @@ def get_watch_profile_lifecycle(profile_id: int, limit: int = 100):
 @app.get("/api/profiles/{profile_id}/matches",
          response_model=response_models.WatchProfileMatchPage,
          response_model_exclude_unset=True)
-def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0):
-    """Papers matched to this profile, **each with the basis it was matched on**.
+def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0,
+                              collection: Optional[str] = _COLLECTION_QUERY):
+    """Papers of a collection matched to this profile, **each with the basis it was matched on**.
 
     The basis rides on every row and is never omitted: a list of papers with no
     basis is exactly the claim resmon refuses to make.
@@ -9813,23 +10074,25 @@ def get_watch_profile_matches(profile_id: int, limit: int = 50, offset: int = 0)
     try:
         if not watch_profiles.get_profile(conn, profile_id):
             raise HTTPException(404, "That profile does not exist.")
+        chosen = _collection_id(conn, collection)
+        within = paper_collections.member_clause("m.document_id")
         rows = conn.execute(
             "SELECT m.document_id, m.basis, m.matched_author, m.evidence, "
             "       m.first_seen_at, d.title, d.source_repository, d.doi, d.url, "
             "       d.publication_date "
             "  FROM watch_profile_matches m "
             "  JOIN documents d ON d.id = m.document_id "
-            " WHERE m.profile_id = ? "
+            f" WHERE m.profile_id = ? AND {within} "
             " ORDER BY m.first_seen_at DESC, m.document_id DESC LIMIT ? OFFSET ?",
-            (profile_id, max(1, min(int(limit), 200)), max(0, int(offset))),
+            (profile_id, chosen, max(1, min(int(limit), 200)), max(0, int(offset))),
         ).fetchall()
         total = conn.execute(
-            "SELECT COUNT(*) FROM watch_profile_matches WHERE profile_id = ?",
-            (profile_id,)).fetchone()[0]
+            f"SELECT COUNT(*) FROM watch_profile_matches m WHERE m.profile_id = ? AND {within}",
+            (profile_id, chosen)).fetchone()[0]
         by_basis = {
             row[0]: row[1] for row in conn.execute(
-                "SELECT basis, COUNT(*) FROM watch_profile_matches "
-                "WHERE profile_id = ? GROUP BY basis", (profile_id,))
+                "SELECT basis, COUNT(*) FROM watch_profile_matches m "
+                f"WHERE m.profile_id = ? AND {within} GROUP BY basis", (profile_id, chosen))
         }
         return {"matches": [dict(r) for r in rows], "total": total,
                 "by_basis": by_basis}

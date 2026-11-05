@@ -124,8 +124,11 @@ def _seed(path: Path) -> dict:
         ])
         ids = {row["external_id"]: int(row["id"])
                for row in conn.execute("SELECT id, external_id FROM documents")}
-        conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?",
-                     ((now - timedelta(days=20)).strftime("%Y-%m-%d %H:%M:%S"), ids["cli-old-1"]))
+        twenty_days_ago = (now - timedelta(days=20)).strftime("%Y-%m-%d %H:%M:%S")
+        conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (twenty_days_ago, ids["cli-old-1"]))
+        # It arrived in its collection when it was first collected, as a run's paper does.
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?",
+                     (twenty_days_ago, ids["cli-old-1"]))
 
         routine = database.insert_routine(conn, {
             "name": "daily_agents", "schedule_cron": "0 3 1 1 *",

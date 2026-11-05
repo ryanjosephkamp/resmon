@@ -22,6 +22,9 @@ a chart that looks broken, so this module distinguishes three things:
 The thresholds are deliberately low. They exist to stop a single data point
 being presented as a trend, not to withhold information from someone with a
 small corpus.
+
+Each view reads one collection when given ``collection_id``: its papers, the
+runs that put papers in it, and the watches whose papers land there.
 """
 
 from __future__ import annotations
@@ -29,6 +32,9 @@ from __future__ import annotations
 import sqlite3
 from collections import defaultdict
 from statistics import median
+from typing import Optional
+
+from .paper_collections import RUN_COLLECTION_SQL, documents_in
 
 # Minimum papers with a usable publication date before a median discovery lag is
 # reported for a source. Below this, one preprint posted late skews the answer.
@@ -54,8 +60,8 @@ def _dedup_key_sql(alias: str = "documents") -> str:
     )
 
 
-def corpus_summary(conn: sqlite3.Connection) -> dict:
-    """Headline counts for the whole corpus."""
+def corpus_summary(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> dict:
+    """Headline counts for one collection, or the whole corpus."""
     row = conn.execute(
         f"""
         SELECT
@@ -66,7 +72,7 @@ def corpus_summary(conn: sqlite3.Connection) -> dict:
             COUNT(DISTINCT source_repository)                   AS sources,
             MIN(first_seen_at)                                  AS first_seen,
             MAX(first_seen_at)                                  AS last_seen
-        FROM documents
+        FROM {documents_in(collection_id)}
         """
     ).fetchone()
 
@@ -75,11 +81,12 @@ def corpus_summary(conn: sqlite3.Connection) -> dict:
 
     executions = conn.execute(
         "SELECT COUNT(*) AS n FROM executions WHERE status = 'completed'"
+        + ("" if collection_id is None else f" AND {RUN_COLLECTION_SQL} = {int(collection_id)}")
     ).fetchone()["n"]
 
     authors: set[str] = set()
     for (blob,) in conn.execute(
-        "SELECT authors FROM documents WHERE authors IS NOT NULL AND TRIM(authors) <> ''"
+        f"SELECT authors FROM {documents_in(collection_id)} WHERE authors IS NOT NULL AND TRIM(authors) <> ''"
     ):
         for name in str(blob).split(","):
             name = name.strip()
@@ -101,7 +108,7 @@ def corpus_summary(conn: sqlite3.Connection) -> dict:
     }
 
 
-def source_contribution(conn: sqlite3.Connection) -> dict:
+def source_contribution(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> dict:
     """Per source: how many papers it delivered, and how many nothing else found.
 
     This is the question "which of my 15 repositories actually earn their
@@ -112,7 +119,7 @@ def source_contribution(conn: sqlite3.Connection) -> dict:
     rows = conn.execute(
         f"""
         WITH keyed AS (
-            SELECT id, source_repository, {key} AS k FROM documents
+            SELECT id, source_repository, {key} AS k FROM {documents_in(collection_id)}
         ),
         key_spread AS (
             SELECT k, COUNT(DISTINCT source_repository) AS n_sources
@@ -153,7 +160,7 @@ def source_contribution(conn: sqlite3.Connection) -> dict:
     }
 
 
-def discovery_lag(conn: sqlite3.Connection) -> dict:
+def discovery_lag(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> dict:
     """Median days between a paper's publication date and resmon first seeing it.
 
     resmon is unusually placed to answer this: it stamps ``first_seen_at`` itself,
@@ -161,10 +168,10 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
     source with a two-week median does not justify an hourly routine.
     """
     rows = conn.execute(
-        """
+        f"""
         SELECT source_repository AS source,
                julianday(first_seen_at) - julianday(publication_date) AS lag_days
-        FROM documents
+        FROM {documents_in(collection_id)}
         WHERE publication_date IS NOT NULL
           AND TRIM(publication_date) <> ''
           AND first_seen_at IS NOT NULL
@@ -209,7 +216,7 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
     }
 
 
-def routine_health(conn: sqlite3.Connection) -> dict:
+def routine_health(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> dict:
     """Per routine: new results per run, and whether it has gone quiet.
 
     The actionable question is "is this routine still worth running?". A routine
@@ -217,7 +224,9 @@ def routine_health(conn: sqlite3.Connection) -> dict:
     field has gone quiet, and either way the user should know.
     """
     routines = conn.execute(
-        "SELECT id, name, schedule_cron, is_active FROM routines ORDER BY name"
+        "SELECT id, name, schedule_cron, is_active FROM routines"
+        + ("" if collection_id is None else f" WHERE COALESCE(collection_id, 1) = {int(collection_id)}")
+        + " ORDER BY name"
     ).fetchall()
 
     out = []
@@ -305,6 +314,7 @@ def publication_volume(
     conn: sqlite3.Connection,
     group_by: str = "source",
     months: int = 12,
+    collection_id: Optional[int] = None,
 ) -> dict:
     """Papers per publication month, split by source or by subject category.
 
@@ -316,11 +326,11 @@ def publication_volume(
         raise ValueError("group_by must be 'source' or 'category'")
 
     rows = conn.execute(
-        """
+        f"""
         SELECT substr(publication_date, 1, 7) AS month,
                source_repository              AS source,
                categories                     AS categories
-        FROM documents
+        FROM {documents_in(collection_id)}
         WHERE publication_date IS NOT NULL AND length(publication_date) >= 7
         """
     ).fetchall()
@@ -374,12 +384,12 @@ def publication_volume(
     }
 
 
-def overview(conn: sqlite3.Connection) -> dict:
+def overview(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> dict:
     """Everything the Analytics page needs, in one round trip."""
     return {
-        "summary": corpus_summary(conn),
-        "source_contribution": source_contribution(conn),
-        "discovery_lag": discovery_lag(conn),
-        "routine_health": routine_health(conn),
-        "publication_volume": publication_volume(conn),
+        "summary": corpus_summary(conn, collection_id),
+        "source_contribution": source_contribution(conn, collection_id),
+        "discovery_lag": discovery_lag(conn, collection_id),
+        "routine_health": routine_health(conn, collection_id),
+        "publication_volume": publication_volume(conn, collection_id=collection_id),
     }

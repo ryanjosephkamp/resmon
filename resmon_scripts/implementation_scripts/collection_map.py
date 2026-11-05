@@ -45,6 +45,15 @@ they reach :data:`REFIT_FRACTION` of the papers the fit saw, or when the basis
 changes. A refit starts from the map it replaces: its regions begin as the old
 ones, each sits where its papers were, and each is turned to face the way it
 did. So the sky is redrawn, not reshuffled, each time.
+
+One map per collection
+----------------------
+Each collection has its own map, fitted over its own papers alone, so its
+regions are named by its own words and a paper sits among the papers it is
+with. The default collection's file is ``<db>-map.npz``, the name the map had
+before collections, so the map of a database upgraded to collections (whose
+default collection holds every paper) is still its map; another collection's
+is ``<db>-map-<id>.npz``. A paper in two collections has a place on each map.
 """
 
 from __future__ import annotations
@@ -70,6 +79,7 @@ from typing import Callable, Iterable, Optional
 import numpy as np
 
 from .child_process import hidden_window_kwargs
+from .database import DEFAULT_COLLECTION_ID
 
 logger = logging.getLogger(__name__)
 
@@ -801,12 +811,24 @@ def _layout(centers: np.ndarray, radii: np.ndarray, rng: np.random.Generator
 # Reading the corpus
 # ---------------------------------------------------------------------------
 
-def _corpus(conn: sqlite3.Connection) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Every paper's id, a hash of its metadata hash, and the day it was first
-    seen (days since 1970-01-01, UTC), in id order."""
+def _in_collection(collection_id: Optional[int], alias: str = "documents") -> tuple[str, tuple]:
+    """The ``WHERE`` that keeps a read to one collection's papers, and its parameter.
+
+    ``None`` is the default collection, as everywhere a collection is named.
+    """
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    return (f" WHERE EXISTS (SELECT 1 FROM collection_documents cm "
+            f"WHERE cm.collection_id = ? AND cm.document_id = {alias}.id)", (cid,))
+
+
+def _corpus(conn: sqlite3.Connection, collection_id: Optional[int] = None
+            ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Every paper of the collection: its id, a hash of its metadata hash, and
+    the day it was first seen (days since 1970-01-01, UTC), in id order."""
+    where, params = _in_collection(collection_id)
     rows = conn.execute(
         "SELECT id, metadata_hash, CAST(julianday(first_seen_at) - 2440587.5 AS INTEGER) "
-        "FROM documents ORDER BY id"
+        f"FROM documents{where} ORDER BY id", params
     ).fetchall()
     ids = np.fromiter((r[0] for r in rows), dtype=np.int64, count=len(rows))
     hashes = np.fromiter((_hash32(r[1]) for r in rows), dtype=np.int32, count=len(rows))
@@ -814,11 +836,12 @@ def _corpus(conn: sqlite3.Connection) -> tuple[np.ndarray, np.ndarray, np.ndarra
     return ids, hashes, seen
 
 
-def _texts(conn: sqlite3.Connection, ids: Optional[np.ndarray] = None
+def _texts(conn: sqlite3.Connection, ids: Optional[np.ndarray] = None, collection_id: Optional[int] = None
            ) -> Callable[[], Iterable[tuple[int, Optional[str], Optional[str]]]]:
     def rows() -> Iterable[tuple[int, Optional[str], Optional[str]]]:
         if ids is None:
-            for row in conn.execute("SELECT id, title, abstract FROM documents ORDER BY id"):
+            where, params = _in_collection(collection_id)
+            for row in conn.execute(f"SELECT id, title, abstract FROM documents{where} ORDER BY id", params):
                 yield row[0], row[1], row[2]
             return
         wanted = [int(i) for i in ids]
@@ -881,12 +904,14 @@ def _embedding_vectors(conn: sqlite3.Connection, model: str, ids: np.ndarray,
     return out, has, dims
 
 
-def embedding_coverage(conn: sqlite3.Connection, model: Optional[str], total: int) -> Optional[dict]:
+def embedding_coverage(conn: sqlite3.Connection, model: Optional[str], total: int,
+                       collection_id: Optional[int] = None) -> Optional[dict]:
     if not model:
         return None
+    where, params = _in_collection(collection_id, alias="d")
     embedded = int(conn.execute(
-        "SELECT COUNT(*) FROM document_embeddings e JOIN documents d ON d.id = e.document_id "
-        "WHERE e.model = ?", (model,)).fetchone()[0])
+        "SELECT COUNT(*) FROM document_embeddings e JOIN documents d ON d.id = e.document_id"
+        f"{where} AND e.model = ?", (*params, model)).fetchone()[0])
     # The order of ``EmbeddingCoverage``, the model it is answered through.
     return {"embedded": embedded, "total": total, "model": model}
 
@@ -908,11 +933,12 @@ def _take(matrix: _Csr, rows: np.ndarray) -> _Csr:
     return _Csr(indptr, matrix.indices[picks], matrix.data[picks], matrix.cols)
 
 
-def fit_corpus(conn: sqlite3.Connection, model: Optional[str], previous: Optional[Fit] = None) -> Fit:
-    """A full fit of everything in the database, on the basis its coverage allows."""
-    ids, hashes, _seen = _corpus(conn)
-    basis, use_model = choose_basis(embedding_coverage(conn, model, len(ids)))
-    words = _words(_texts(conn), ids)
+def fit_corpus(conn: sqlite3.Connection, model: Optional[str], previous: Optional[Fit] = None,
+               collection_id: Optional[int] = None) -> Fit:
+    """A full fit of one collection's papers, on the basis its coverage allows."""
+    ids, hashes, _seen = _corpus(conn, collection_id)
+    basis, use_model = choose_basis(embedding_coverage(conn, model, len(ids), collection_id))
+    words = _words(_texts(conn, None, collection_id), ids)
     rng = np.random.default_rng(SEED)
     components = None
     projection = None
@@ -987,12 +1013,23 @@ def place_new(conn: sqlite3.Connection, current: Fit, ids: np.ndarray, hashes: n
 # The cache file beside the database
 # ---------------------------------------------------------------------------
 
-def cache_path(conn: sqlite3.Connection) -> Optional[Path]:
-    """``<database>-map.npz``, or None for a database with no file."""
+def _database_file(conn: sqlite3.Connection) -> Optional[Path]:
     for row in conn.execute("PRAGMA database_list"):
         if row[1] == "main" and row[2]:
-            return Path(f"{row[2]}-map.npz")
+            return Path(row[2])
     return None
+
+
+def map_file(database: Path, collection_id: Optional[int] = None) -> Path:
+    """The file a collection's map is kept in beside *database*."""
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    return Path(f"{database}-map.npz") if cid == DEFAULT_COLLECTION_ID else Path(f"{database}-map-{cid}.npz")
+
+
+def cache_path(conn: sqlite3.Connection, collection_id: Optional[int] = None) -> Optional[Path]:
+    """The collection's map file (``map_file``), or None for a database with no file."""
+    database = _database_file(conn)
+    return map_file(database, collection_id) if database is not None else None
 
 
 def save(current: Fit, path: Path) -> None:
@@ -1063,12 +1100,17 @@ _generations: dict[Optional[str], int] = {}
 _children: dict[Optional[str], subprocess.Popen] = {}
 
 
-def _key(path: Optional[Path]) -> Optional[str]:
-    return str(path) if path is not None else None
+def _key(path: Optional[Path], collection_id: Optional[int] = None) -> Optional[str]:
+    """What a map is known by in memory: its file, or for a database with none,
+    its collection (the default collection's is ``None``)."""
+    if path is not None:
+        return str(path)
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    return None if cid == DEFAULT_COLLECTION_ID else f":memory:-map-{cid}"
 
 
-def _current(path: Optional[Path]) -> Optional[Fit]:
-    key = _key(path)
+def _current(path: Optional[Path], collection_id: Optional[int] = None) -> Optional[Fit]:
+    key = _key(path, collection_id)
     with _lock:
         if key not in _fits and path is not None:
             loaded = load(path)
@@ -1077,9 +1119,9 @@ def _current(path: Optional[Path]) -> Optional[Fit]:
         return _fits.get(key)
 
 
-def fitting(path: Optional[Path]) -> bool:
+def fitting(path: Optional[Path], collection_id: Optional[int] = None) -> bool:
     with _lock:
-        job = _jobs.get(_key(path))
+        job = _jobs.get(_key(path, collection_id))
         return job is not None and job.is_alive()
 
 
@@ -1088,11 +1130,6 @@ _SCRIPTS = Path(__file__).resolve().parent.parent
 
 #: How a child's file is named beside the cache while it is written and read.
 _CHILD_SUFFIX = "-fit.npz"
-
-
-def _database_of(path: Path) -> Path:
-    """The database a cache file sits beside (``<database>-map.npz``)."""
-    return Path(str(path)[: -len("-map.npz")])
 
 
 def _child_files(path: Path, pid: Optional[int] = None) -> list[Path]:
@@ -1111,8 +1148,9 @@ def _remove(paths: list[Path]) -> None:
             pass
 
 
-def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
-    """Fit the database ``path`` belongs to in a child process: its fit, and the file it wrote.
+def _fit_in_child(database: Path, path: Path, model: Optional[str],
+                  collection_id: Optional[int] = None) -> tuple[Fit, Path]:
+    """Fit one collection of *database* in a child process: its fit, and the file it wrote.
 
     A fit is seconds of NumPy and Python loops. On a thread it shares the
     engine's interpreter lock, and every request answered meanwhile waits for
@@ -1131,7 +1169,8 @@ def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
     with _lock:
         child = subprocess.Popen(
             [sys.executable, "-m", "implementation_scripts.collection_map",
-             str(_database_of(path)), str(path), str(output), model or ""],
+             str(database), str(path), str(output), model or "",
+             str(DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id))],
             cwd=str(_SCRIPTS), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE, text=True, **hidden_window_kwargs(),
         )
@@ -1151,8 +1190,8 @@ def _fit_in_child(path: Path, model: Optional[str]) -> tuple[Fit, Path]:
     return fresh, output
 
 
-def _child(database: str, cache: str, output: str, model: str) -> int:
-    """The child's whole work: one fit, written to ``output``."""
+def _child(database: str, cache: str, output: str, model: str, collection: str = "") -> int:
+    """The child's whole work: one fit of one collection, written to ``output``."""
     engine = os.getppid()
 
     def outlive_nothing() -> None:
@@ -1167,7 +1206,8 @@ def _child(database: str, cache: str, output: str, model: str) -> int:
     conn = sqlite3.connect(database, timeout=30)
     conn.execute("PRAGMA query_only = ON")
     try:
-        fresh = fit_corpus(conn, model or None, previous=load(Path(cache)))
+        fresh = fit_corpus(conn, model or None, previous=load(Path(cache)),
+                           collection_id=int(collection) if collection else None)
     finally:
         conn.close()
     save(fresh, Path(output))
@@ -1175,8 +1215,9 @@ def _child(database: str, cache: str, output: str, model: str) -> int:
 
 
 def _start_fit(path: Optional[Path], model: Optional[str],
-               open_connection: Callable[[], sqlite3.Connection]) -> None:
-    key = _key(path)
+               open_connection: Callable[[], sqlite3.Connection],
+               database: Optional[Path] = None, collection_id: Optional[int] = None) -> None:
+    key = _key(path, collection_id)
     with _lock:
         running = _jobs.get(key)
         if running is not None and running.is_alive():
@@ -1193,12 +1234,15 @@ def _start_fit(path: Optional[Path], model: Optional[str],
                 if path is None:
                     # A database with no file has nothing a child could open.
                     conn = open_connection()
-                    fresh = fit_corpus(conn, model, previous=_current(path))
+                    fresh = fit_corpus(conn, model, previous=_current(path, collection_id),
+                                       collection_id=collection_id)
                     with _lock:
                         if current():
                             _fits[key] = fresh
                     return
-                fresh, written = _fit_in_child(path, model)
+                if database is None:
+                    raise RuntimeError("a map kept in a file is fitted from the database beside it")
+                fresh, written = _fit_in_child(database, path, model, collection_id)
                 with _lock:
                     if not current():
                         # Forgotten while it ran: it holds words from erased papers.
@@ -1218,24 +1262,16 @@ def _start_fit(path: Optional[Path], model: Optional[str],
         thread.start()
 
 
-def wait(conn: sqlite3.Connection, timeout: float = 120.0) -> None:
-    """Block until a fit in progress for this database ends (for tests and tools)."""
+def wait(conn: sqlite3.Connection, timeout: float = 120.0, collection_id: Optional[int] = None) -> None:
+    """Block until a fit in progress for this collection ends (for tests and tools)."""
     with _lock:
-        job = _jobs.get(_key(cache_path(conn)))
+        job = _jobs.get(_key(cache_path(conn, collection_id), collection_id))
     if job is not None:
         job.join(timeout)
 
 
-def forget(conn: sqlite3.Connection) -> None:
-    """Drop the map of this database, in memory and on disk, and stop a fit of it.
-
-    Called when the corpus is erased: the file holds positions and words taken
-    from the papers, and erasing the papers has to erase them too. A fit under
-    way read those papers, so its child is stopped, and a fit that ends anyway
-    finds the generation it started under gone and stores nothing.
-    """
-    path = cache_path(conn)
-    key = _key(path)
+def _forget_one(path: Optional[Path], collection_id: Optional[int]) -> None:
+    key = _key(path, collection_id)
     with _lock:
         _generations[key] = _generations.get(key, 0) + 1
         _fits.pop(key, None)
@@ -1252,18 +1288,55 @@ def forget(conn: sqlite3.Connection) -> None:
         _remove([path, *_child_files(path)])
 
 
+_OTHER_MAP = re.compile(r"-map-(\d+)\.npz$")
+
+
+def forget(conn: sqlite3.Connection, collection_id: Optional[int] = None, *, every: bool = False) -> None:
+    """Drop a collection's map, in memory and on disk, and stop a fit of it.
+
+    Called when the papers are erased (``every``: each collection's map, and any
+    a deleted collection left) and when a collection is deleted: the file holds
+    positions and words taken from the papers, and erasing them has to erase
+    those too. A fit under way read those papers, so its child is stopped, and
+    a fit that ends anyway finds the generation it started under gone and
+    stores nothing.
+    """
+    if not every:
+        _forget_one(cache_path(conn, collection_id), collection_id)
+        return
+    wanted: set[int] = {DEFAULT_COLLECTION_ID}
+    try:
+        wanted.update(int(r[0]) for r in conn.execute("SELECT id FROM collections"))
+    except sqlite3.OperationalError:
+        pass  # a database from before collections has the default one alone
+    database = _database_file(conn)
+    if database is not None:
+        for each in database.parent.glob(f"{database.name}-map-*.npz"):
+            found = _OTHER_MAP.search(each.name)
+            if found:
+                wanted.add(int(found.group(1)))
+    with _lock:
+        wanted.update(int(k.rsplit("-", 1)[1]) for k in list(_fits) + list(_jobs)
+                      if isinstance(k, str) and k.startswith(":memory:-map-"))
+    for cid in sorted(wanted):
+        _forget_one(cache_path(conn, cid), cid)
+
+
 def snapshot(conn: sqlite3.Connection, model: Optional[str],
-             open_connection: Callable[[], sqlite3.Connection]) -> dict:
-    """The map as the plate draws it, starting or scheduling a fit as needed.
+             open_connection: Callable[[], sqlite3.Connection],
+             collection_id: Optional[int] = None) -> dict:
+    """One collection's map as the plate draws it, starting or scheduling a fit as needed.
 
     ``state`` is ``empty`` (no papers), ``fitting`` (no usable map yet; one is
     being fitted), ``failed`` (the last fit raised, and there is no map), or
     ``ready``. A ready map can be ``refitting`` at the same time, and is served
     meanwhile: the old sky until the new one is ready.
     """
-    path = cache_path(conn)
-    ids, hashes, seen = _corpus(conn)
-    coverage = embedding_coverage(conn, model, len(ids))
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    path = cache_path(conn, cid)
+    database = _database_file(conn)
+    ids, hashes, seen = _corpus(conn, cid)
+    coverage = embedding_coverage(conn, model, len(ids), cid)
     basis, use_model = choose_basis(coverage)
     base = {
         "basis": None, "model": None, "fitted_at": None, "fitted_count": 0, "placed_since_fit": 0,
@@ -1272,12 +1345,12 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
         "regions": [], "points": {"id": [], "x": [], "y": [], "region": [], "seen_day": []},
     }
     if len(ids) == 0:
-        if _current(path) is not None:
-            forget(conn)
+        if _current(path, cid) is not None:
+            forget(conn, cid)
         return {"state": "empty", **base}
 
     with _lock:
-        current = _current(path)
+        current = _current(path, cid)
         matching = 0
         if current is not None:
             # A paper the fit placed, or saw and could not place, is known.
@@ -1294,9 +1367,9 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
         # A fit that knows fewer than half of today's papers is another
         # collection's (a reset, a replaced database), not a stale one.
         if current is None or matching < 0.5 * len(ids):
-            _start_fit(path, model, open_connection)
-            error = _errors.get(_key(path))
-            state = "failed" if error and not fitting(path) else "fitting"
+            _start_fit(path, model, open_connection, database, cid)
+            error = _errors.get(_key(path, cid))
+            state = "failed" if error and not fitting(path, cid) else "fitting"
             return {"state": state, **base, "error": error}
 
         new = ~same
@@ -1315,7 +1388,7 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
         due = (current.basis != basis or current.model != use_model
                or current.placed_since_fit >= REFIT_FRACTION * max(1, current.fitted_count))
         if due:
-            _start_fit(path, model, open_connection)
+            _start_fit(path, model, open_connection, database, cid)
 
         on_plate = np.isin(current.ids, ids)
         served_ids = current.ids[on_plate]
@@ -1349,8 +1422,8 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
             "fitted_at": current.fitted_at,
             "fitted_count": current.fitted_count,
             "placed_since_fit": current.placed_since_fit,
-            "refitting": fitting(path),
-            "error": _errors.get(_key(path)),
+            "refitting": fitting(path, cid),
+            "error": _errors.get(_key(path, cid)),
             "unplaced": {"no_text": unplaced - not_embedded, "not_embedded": not_embedded},
             "regions": regions,
             "points": {
@@ -1364,4 +1437,4 @@ def snapshot(conn: sqlite3.Connection, model: Optional[str],
 
 
 if __name__ == "__main__":
-    sys.exit(_child(*sys.argv[1:5]))
+    sys.exit(_child(*sys.argv[1:6]))

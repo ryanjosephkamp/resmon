@@ -27,7 +27,7 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
-from implementation_scripts import explorer, vector_index  # noqa: E402
+from implementation_scripts import explorer, paper_collections, vector_index  # noqa: E402
 from implementation_scripts.database import index_document_facets, init_db  # noqa: E402
 
 pytest.importorskip("sqlite_vec")
@@ -99,6 +99,9 @@ _FILTER_CASES: dict[str, dict] = {
     "categories": {"categories": ["cs.AI"]},
     "date_from": {"date_from": "2026-02-01"},
     "date_to": {"date_to": "2026-01-31"},
+    # The collection searched: ``mixed_corpus`` files three of the five papers
+    # in a second collection, whose id is 2.
+    "collection": {"collection_id": 2},
 }
 
 # ``query`` is deliberately **not** a P4 case.
@@ -144,16 +147,19 @@ def mixed_corpus(conn):
                         authors="C. Third", categories="physics", date="2026-02-20",
                         vector=[0.0, 0.0, 1.0]),
     }
+    quantum = paper_collections.create(conn, "Quantum")["id"]
+    assert quantum == 2
+    paper_collections.copy(conn, quantum, [ids["q1"], ids["q3"], ids["q4"]])
     vector_index.rebuild(conn, MODEL)
     return ids
 
 
 @pytest.mark.parametrize("field", sorted(_FILTER_CASES))
 def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mixed_corpus):
-    """P4. 5 of 5 **structured** filter fields; ``query`` is not one.
+    """P4. 6 of 6 **structured** filter fields; ``query`` is not one.
 
     The denominator is still ``ExplorerFilters.model_fields`` — the test above
-    asserts that these five plus ``query`` account for all of it.
+    asserts that these six plus ``query`` account for all of it.
     """
     filters = _FILTER_CASES[field]
 

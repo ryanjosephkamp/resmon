@@ -643,7 +643,12 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # so a conversation can be fixed to Codex, with Codex's own effort levels.
 # 25 rebuilds ``library_files`` so the Library keeps TeX (``text/x-tex``) and
 # adds ``library_removed``, the record a removed Library file is put back from.
-SCHEMA_VERSION = 25
+# 26 adds collections inside the one database: ``collections``, the membership
+# table ``collection_documents`` (a paper is stored once and can be in more
+# than one collection), and ``routines.collection_id``, where a watch's papers
+# land. The upgrade files every paper in the default collection and points
+# every watch at it.
+SCHEMA_VERSION = 26
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -733,6 +738,9 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_answer_records(conn)
     _migrate_assistant_codex(conn)
     _migrate_library_v25(conn)
+    # Last of the schema steps: its tables reference ``documents``,
+    # ``executions`` and ``routines`` in their final shapes.
+    _migrate_collections(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
     # Commit before returning. Each thread holds its own connection (sharing
@@ -2364,6 +2372,133 @@ def _migrate_library_v25(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
 
 
+# Schema 26: collections inside the one database.
+#
+# A paper is stored once (``documents`` keeps its UNIQUE source and external id)
+# and is in one or more collections through ``collection_documents``, which says
+# when it arrived there and how: a run, a move, a copy, the upgrade that made
+# collections, or ``kept`` (left in no other collection when its own was
+# deleted, and so kept in the default one).
+#
+# Every paper is in at least one collection, and the database keeps that:
+# ``documents_file_in_default`` files a paper stored with no collection in the
+# default one, in the statement that stores it. A run that stores a paper for
+# another collection moves it there in the same transaction
+# (``insert_document``), so no reader ever sees it in the default one.
+#
+# ``revision`` counts every change of a collection's papers, kept by two
+# triggers, so a count or a ranking made of a collection is known to be stale
+# when a move or a copy changed it without changing ``documents``.
+#
+# The default collection is the row with id 1. It can be renamed and never
+# deleted, so "no collection named" always has somewhere to mean.
+DEFAULT_COLLECTION_ID = 1
+DEFAULT_COLLECTION_NAME = "Your collection"
+#: How a paper arrived in a collection, as ``collection_documents.added_by``
+#: holds it. The CHECK below enumerates the same words.
+COLLECTION_ARRIVALS = ("run", "move", "copy", "upgrade", "kept")
+
+_COLLECTIONS_TABLES = {
+    "collections": """CREATE TABLE collections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE CHECK (length(name) BETWEEN 1 AND 80),
+    revision INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+)""",
+    "collection_documents": """CREATE TABLE collection_documents (
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    added_at TEXT NOT NULL DEFAULT (datetime('now')),
+    added_by TEXT NOT NULL CHECK (added_by IN ('run', 'move', 'copy', 'upgrade', 'kept')),
+    execution_id INTEGER REFERENCES executions(id) ON DELETE SET NULL,
+    PRIMARY KEY (collection_id, document_id)
+)""",
+    # A paper's collections, for a move, a copy and "is it anywhere else".
+    "idx_collection_documents_document":
+        "CREATE INDEX idx_collection_documents_document ON collection_documents(document_id)",
+    # Today's list: a collection's arrivals, newest first, a page at a time.
+    "idx_collection_documents_added":
+        "CREATE INDEX idx_collection_documents_added "
+        "ON collection_documents(collection_id, added_at, document_id)",
+}
+
+# Made after the upgrade has filed every paper, so filing a hundred thousand
+# papers does not count a hundred thousand revisions.
+_COLLECTIONS_TRIGGERS = {
+    "collection_documents_revise_in": """CREATE TRIGGER collection_documents_revise_in
+AFTER INSERT ON collection_documents BEGIN
+    UPDATE collections SET revision = revision + 1 WHERE id = NEW.collection_id;
+END""",
+    "collection_documents_revise_out": """CREATE TRIGGER collection_documents_revise_out
+AFTER DELETE ON collection_documents BEGIN
+    UPDATE collections SET revision = revision + 1 WHERE id = OLD.collection_id;
+END""",
+    "documents_file_in_default": f"""CREATE TRIGGER documents_file_in_default
+AFTER INSERT ON documents BEGIN
+    INSERT OR IGNORE INTO collection_documents (collection_id, document_id, added_at, added_by)
+    VALUES ({DEFAULT_COLLECTION_ID}, NEW.id, NEW.first_seen_at, 'run');
+END""",
+}
+
+# Added with ALTER on every database, fresh or upgraded, so both carry the
+# same stored ``CREATE TABLE routines`` text.
+_ROUTINES_COLLECTION_COLUMN = (
+    "ALTER TABLE routines ADD COLUMN collection_id INTEGER "
+    "REFERENCES collections(id) ON DELETE SET NULL"
+)
+
+
+def _migrate_collections(conn: sqlite3.Connection) -> None:
+    """Create the collections, file every paper in the default one, and point every watch at it.
+
+    On a database without the tables (an upgrade from 25, or a fresh install)
+    the tables and the default collection are made, every paper is filed in it
+    as ``upgrade`` (arriving when resmon first collected it, so Today's "new
+    since you last looked" is what it was), every watch targets it, and then
+    the triggers are made. On a later launch the objects are checked and
+    nothing is written. An object already present in another shape is a
+    conflict, refused before anything is written.
+    """
+    def shape(name: str) -> str | None:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+        return " ".join((row[0] or "").split()) if row else None
+
+    conn.commit()
+    conn.execute("SAVEPOINT collections_v26")
+    try:
+        upgrading = shape("collection_documents") is None
+        for objects in (_COLLECTIONS_TABLES, _COLLECTIONS_TRIGGERS):
+            if objects is _COLLECTIONS_TRIGGERS and upgrading:
+                conn.execute(
+                    "INSERT OR IGNORE INTO collections (id, name) VALUES (?, ?)",
+                    (DEFAULT_COLLECTION_ID, DEFAULT_COLLECTION_NAME))
+                conn.execute(
+                    "INSERT OR IGNORE INTO collection_documents (collection_id, document_id, added_at, added_by) "
+                    "SELECT ?, id, first_seen_at, 'upgrade' FROM documents ORDER BY id",
+                    (DEFAULT_COLLECTION_ID,))
+            for name, ddl in objects.items():
+                if shape(name) is None:
+                    conn.execute(ddl)
+                if shape(name) != " ".join(ddl.split()):
+                    raise sqlite3.DatabaseError("Conflicting schema-26 object: " + name)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(routines)")}
+        if "collection_id" not in columns:
+            conn.execute(_ROUTINES_COLLECTION_COLUMN)
+            conn.execute("UPDATE routines SET collection_id = ?", (DEFAULT_COLLECTION_ID,))
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<26",
+            (_SCHEMA_VERSION_KEY, "26"),
+        )
+        conn.execute("RELEASE collections_v26")
+    except BaseException:
+        conn.execute("ROLLBACK TO collections_v26")
+        conn.execute("RELEASE collections_v26")
+        raise
+    conn.commit()
+
+
 # A DOAJ date stored with its month as a name: ``2025-January-01``,
 # ``2025-Sept.-01``. The day is optional, so ``2025-July`` is caught as well.
 _DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
@@ -2593,8 +2728,17 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
 # ---------------------------------------------------------------------------
 
 
-def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
-    """INSERT OR IGNORE a document. Returns the row id or None if ignored."""
+def insert_document(conn: sqlite3.Connection, doc: dict, *,
+                    collection_id: int | None = None, how: str = "run",
+                    execution_id: int | None = None) -> int | None:
+    """INSERT OR IGNORE a document. Returns the row id or None if ignored.
+
+    A paper stored is filed in a collection in the same transaction, so it is
+    never in none: *collection_id* (the default collection when None), arriving
+    *how* (``COLLECTION_ARRIVALS``), by *execution_id* where a run stored it. A
+    paper already stored is left where it is; a run files it in its own
+    collection when it links it.
+    """
     sql = """\
         INSERT OR IGNORE INTO documents
             (source_repository, external_id, doi, title, authors, abstract,
@@ -2620,8 +2764,33 @@ def insert_document(conn: sqlite3.Connection, doc: dict) -> int | None:
         # comma-joined string that SQL has no clean way to parse.
         index_document_facets(conn, doc_id, doc.get("authors"), doc.get("categories"),
                               structured=doc.get("structured_authors"))
+        _file_stored_paper(conn, doc_id, collection_id, how, execution_id)
     conn.commit()
     return doc_id
+
+
+def _file_stored_paper(conn: sqlite3.Connection, doc_id: int, collection_id: int | None,
+                       how: str, execution_id: int | None) -> None:
+    """Put a paper just stored where it belongs, before the transaction that stored it ends.
+
+    ``documents_file_in_default`` has filed it in the default collection as a
+    run's. Filed for the default collection as a run's, only the run is noted;
+    filed elsewhere or otherwise, the default's row gives way to the right one.
+    """
+    target = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
+    if target == DEFAULT_COLLECTION_ID and how == "run":
+        if execution_id is not None:
+            conn.execute(
+                "UPDATE collection_documents SET execution_id = ? WHERE collection_id = ? AND document_id = ?",
+                (execution_id, DEFAULT_COLLECTION_ID, doc_id))
+        return
+    conn.execute("DELETE FROM collection_documents WHERE collection_id = ? AND document_id = ?",
+                 (DEFAULT_COLLECTION_ID, doc_id))
+    conn.execute(
+        "INSERT OR IGNORE INTO collection_documents "
+        "(collection_id, document_id, added_at, added_by, execution_id) "
+        "SELECT ?, id, first_seen_at, ?, ? FROM documents WHERE id = ?",
+        (target, how, execution_id, doc_id))
 
 
 def get_document_by_source(conn: sqlite3.Connection, source: str, external_id: str) -> dict | None:
@@ -2928,8 +3097,10 @@ def count_executions(
 
 def get_routine_document_ids(
     conn: sqlite3.Connection, routine_id: int, limit: int | None = None,
+    collection_id: int | None = None,
 ) -> tuple[list[int], int]:
-    """The papers a routine's runs collected, newest run first, each once.
+    """The papers a routine's runs collected, newest run first, each once;
+    with ``collection_id``, only those that collection holds.
 
     Returns ``(ids, total)``: every id, or the first *limit* of them. ``executions.routine_id`` carries no
     index, and that is deliberate here rather than an oversight: the table
@@ -2941,9 +3112,12 @@ def get_routine_document_ids(
         "FROM execution_documents "
         "JOIN executions ON executions.id = execution_documents.execution_id "
         "WHERE executions.routine_id = ? "
-        "GROUP BY execution_documents.document_id "
+        + ("" if collection_id is None else
+           "AND EXISTS (SELECT 1 FROM collection_documents cm WHERE cm.collection_id = ? "
+           "AND cm.document_id = execution_documents.document_id) ")
+        + "GROUP BY execution_documents.document_id "
         "ORDER BY latest DESC, id DESC",
-        (int(routine_id),),
+        (int(routine_id),) if collection_id is None else (int(routine_id), int(collection_id)),
     ).fetchall()
     ids = [int(r["id"]) for r in rows]
     return (ids if limit is None else ids[:limit]), len(rows)
@@ -2984,8 +3158,8 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         INSERT INTO routines
             (name, schedule_cron, parameters, intent, is_active, email_enabled,
              email_ai_summary_enabled, ai_enabled, ai_settings, storage_settings,
-             notify_on_complete, execution_location)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             notify_on_complete, execution_location, collection_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     loc = routine_dict.get("execution_location", "local")
     if loc != "local":
@@ -3006,6 +3180,8 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         routine_dict.get("storage_settings"),
         routine_dict.get("notify_on_complete", 0),
         loc,
+        # Where the watch's papers land; the default collection unless named.
+        routine_dict.get("collection_id") or DEFAULT_COLLECTION_ID,
     ))
     conn.commit()
     return cursor.lastrowid
@@ -3017,7 +3193,7 @@ def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> 
         "name", "schedule_cron", "parameters", "intent", "is_active", "email_enabled",
         "email_ai_summary_enabled", "ai_enabled", "ai_settings",
         "storage_settings", "last_executed_at", "notify_on_complete",
-        "execution_location",
+        "execution_location", "collection_id",
     }
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:

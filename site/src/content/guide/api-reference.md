@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 224 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 232 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -31,8 +31,8 @@ Starting a Deep Dive or a Deep Sweep, and the catalog they choose from. Both sta
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once, or, at the run limit, with its place in the queue. |
-| `POST` | `/api/search/sweep` | Start a Deep Sweep on several sources. The cap on papers applies to each source. |
+| `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once, or, at the run limit, with its place in the queue. Its papers land in `collection` (an id or a name), or the default collection. |
+| `POST` | `/api/search/sweep` | Start a Deep Sweep on several sources. The cap on papers applies to each source. Its papers land in `collection`, as a Deep Dive's do. |
 | `GET` | `/api/search/repositories` | The slugs of the sources this copy of resmon can ask. |
 | `GET` | `/api/repositories/catalog` | The source catalog: each source's coverage, key requirement, pace, how it combines terms and dates papers, credit, and whether it can be asked about an author. It never returns a secret. |
 
@@ -65,20 +65,20 @@ Every run, whether you started it or a watch fired it. A run's progress is read 
 
 ## Watches and the schedule
 
-A watch is called a routine in the API. Deactivating one keeps it and stops its schedule; a routine can be run once whatever its state.
+A watch is called a routine in the API. Deactivating one keeps it and stops its schedule; a routine can be run once whatever its state. Each watch's papers land in its collection (`collection_id`); `collection` (an id or a name) on making or changing one chooses it, and without one a new watch's papers land in the default collection.
 
 | Method | Path | What it does |
 |---|---|---|
 | `GET` | `/api/routines` | Every watch. |
 | `POST` | `/api/routines` | Make a watch. The answer includes `entity_warning` when it follows a person through sources that cannot be asked about one. |
 | `GET` | `/api/routines/{routine_id}` | One watch, with its next computed dates and its record of missed fires. |
-| `PUT` | `/api/routines/{routine_id}` | Change a watch: its name, schedule, parameters, switches, summaries, or intent. |
+| `PUT` | `/api/routines/{routine_id}` | Change a watch: its name, schedule, parameters, switches, summaries, intent, or collection. Papers its earlier runs filed stay where they are. |
 | `DELETE` | `/api/routines/{routine_id}` | Delete a watch and its schedule. Its runs and papers stay. |
 | `POST` | `/api/routines/{routine_id}/activate` | Put the watch on the schedule. |
 | `POST` | `/api/routines/{routine_id}/deactivate` | Take the watch off the schedule without deleting it. |
 | `POST` | `/api/routines/{routine_id}/run` | Run once, now, outside the schedule. At the run limit it is queued and the answer says so; only when the queue is full is it refused. |
 | `GET` | `/api/routines/{routine_id}/coverage` | The coverage audit: is this watch finding what its intent says, and what is it missing. |
-| `GET` | `/api/routines/{routine_id}/documents` | The papers this watch's runs collected. |
+| `GET` | `/api/routines/{routine_id}/documents` | The papers this watch's runs collected that the collection holds. |
 | `GET` | `/api/routines/{routine_id}/delivery-targets` | The watch's destinations. |
 | `POST` | `/api/routines/{routine_id}/delivery-targets` | Add a destination: email, folder, webhook, or feed. |
 | `PUT` | `/api/routines/{routine_id}/delivery-targets/{target_id}` | Change a destination's mode (automatic or review) or turn it on or off. |
@@ -122,16 +122,33 @@ Saved Deep Dives, saved Deep Sweeps, and the copy kept of every watch. Imports a
 | `POST` | `/api/configurations/archive` | The same archive, as bytes. |
 | `POST` | `/api/configurations/import` | Read ZIP or JSON files and add every entry as a new row. A watch arrives paused. |
 
-## Today and the map
+## Collections
+
+Several collections inside the one database: a paper is stored once and can be in more than one. Every route that reads "the collection" (Today, the map, Search › Your collection, Analytics, a watch's papers, a person's matches, and the reading queue) takes `collection`, an id or a name, in its query or body; without one it reads the default collection, which holds every paper a database had before collections. The default collection can be renamed and never deleted. Nothing here deletes a paper.
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/today` | The papers first collected since Today was last marked read, by watch, with each watch's last run: the first 1,000, newest first, and a cursor to the rest. |
+| `GET` | `/api/collections` | Every collection with how many papers and watches each has, the one the app shows, and the default one. |
+| `POST` | `/api/collections` | Make an empty collection. Names are unique without regard to case. |
+| `PUT` | `/api/collections/current` | Remember the collection the app shows, by id or name. |
+| `GET` | `/api/collections/{collection_id}` | One collection, and what deleting it would do: how many of its papers are in no other collection, and which watches put their papers there. |
+| `PUT` | `/api/collections/{collection_id}` | Rename a collection. |
+| `DELETE` | `/api/collections/{collection_id}` | Delete a collection. Papers only it held are kept in the default collection, papers also elsewhere stay there, its watches put their papers in the default collection, and its map goes with it. |
+| `POST` | `/api/collections/{collection_id}/papers` | Move or copy papers into the collection, by id or by a search of the collection they come from. A copy adds them; a move adds them and then takes them out of the collection they came from. The answer is what an undo sends back. |
+| `POST` | `/api/collections/{collection_id}/papers/undo` | Undo a move or a copy, from what it answered: the papers it added leave, and the places it took them from are put back as they were. |
+
+## Today and the map
+
+Each collection has its own Today, with its own last look, and its own map.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/today` | The papers a run put in the collection since its Today was last marked read, by watch, with each watch's last run: the first 1,000, newest first, and a cursor to the rest. |
 | `GET` | `/api/today/papers` | The next 1,000 of Today's new papers, after the cursor the page before gave. |
-| `POST` | `/api/today/looked` | Mark all read: the next window starts now. |
-| `GET` | `/api/map` | Where every paper sits on the plate, the basis it was placed on, and the regions. |
-| `GET` | `/api/map/facets` | What the map's filters and colors read about every paper: source, dates, reading state, whether it is new, and its watches. |
-| `GET` | `/api/map/find` | Papers whose title or authors contain a string of at least two characters, newest first. |
+| `POST` | `/api/today/looked` | Mark all read: the collection's next window starts now. |
+| `GET` | `/api/map` | Where every paper of the collection sits on its plate, the basis it was placed on, and the regions. Each collection's map is fitted over its papers alone. |
+| `GET` | `/api/map/facets` | What the map's filters and colors read about every paper of the collection: source, dates, reading state, whether it is new, and its watches. |
+| `GET` | `/api/map/find` | Papers of the collection whose title or authors contain a string of at least two characters, newest first. |
 | `GET` | `/api/map/views/{name}` | The filters and colors a map (`today` or `run`) was last left with. |
 | `PUT` | `/api/map/views/{name}` | Keep a map's filters and colors. |
 | `POST` | `/api/documents/briefs` | A line about each paper asked for: title, authors, source, and dates. |
@@ -144,10 +161,10 @@ Searching what resmon holds, one paper, links between records of the same work, 
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/api/explorer/search` | Search the whole collection by words or by meaning, with filters, counting every match (a count that runs out of time says so) and, in the newest order, starting at a date. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/search` | Search a collection by words or by meaning, with filters, counting every match (a count that runs out of time says so) and, in the newest order, starting at a date. POST because the filter set is a structure. |
 | `POST` | `/api/explorer/facets` | The filter values available under the current filters, with counts. |
 | `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown, however many: the file is sent as it is written. |
-| `GET` | `/api/documents/{doc_id}` | One paper as stored, and its place in the reading queue. |
+| `GET` | `/api/documents/{doc_id}` | One paper as stored, its place in the reading queue, and every collection it is in, with when and how it arrived in each. |
 | `GET` | `/api/documents/{doc_id}/why` | What is locally verifiable about why a paper is in the collection, and what resmon cannot see. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | Retractions, concerns, corrections, and newer versions recorded against one paper. |
 | `GET` | `/api/documents/{document_id}/similar` | The papers nearest one paper, with distances and sources. |
@@ -157,7 +174,7 @@ Searching what resmon holds, one paper, links between records of the same work, 
 | `POST` | `/api/links/scan` | Find records that look like the same work across the collection. Returns at once. |
 | `POST` | `/api/links/scan/cancel` | Stop the scan after the paper in flight. Links already written are kept. |
 | `GET` | `/api/links/status` | How many links exist, by method, and the scan's state. |
-| `GET` | `/api/reading-queue` | One page of saved papers, filtered by `to_read`, `read`, or all, found by title, authors, or source, in an order (saved, published, title, source, or the map's), each with its linked PDF and the run that found it. |
+| `GET` | `/api/reading-queue` | One page of the saved papers a collection holds, filtered by `to_read`, `read`, or all, found by title, authors, or source, in an order (saved, published, title, source, or the map's), each with its linked PDF and the run that found it. |
 | `POST` | `/api/reading-queue` | Save a paper. Saving one already saved returns it unchanged. |
 | `PUT` | `/api/reading-queue/{document_id}` | Mark a saved paper read or unread. |
 | `DELETE` | `/api/reading-queue/{document_id}` | Take a paper out of the queue, answering with the entry as it was. The paper is not touched. |
@@ -180,7 +197,7 @@ Watch profiles, which the app calls people. Every match records its basis.
 | `GET` | `/api/profiles/{profile_id}` | One person. |
 | `PUT` | `/api/profiles/{profile_id}` | Change a person. |
 | `DELETE` | `/api/profiles/{profile_id}` | Remove a person and their matches. The papers stay. |
-| `GET` | `/api/profiles/{profile_id}/matches` | Papers matched to a person, each with the basis it matched on. |
+| `GET` | `/api/profiles/{profile_id}/matches` | Papers of the collection matched to a person, each with the basis it matched on. |
 | `GET` | `/api/profiles/{profile_id}/lifecycle` | Retractions and other notices on that person's papers, with coverage. |
 | `GET` | `/api/profiles/{profile_id}/export` | A person as JSON. |
 | `POST` | `/api/profiles/import` | Import exported people. |
@@ -201,7 +218,7 @@ The Source wall, the Watchdog, retractions and updates, and analytics.
 | `POST` | `/api/lifecycle/check` | Start a bounded check of the least recently checked papers. |
 | `POST` | `/api/lifecycle/stop` | Ask a running check to stop before its next request. |
 | `POST` | `/api/lifecycle/for-documents` | Notices for a page of results in one round trip. |
-| `GET` | `/api/analytics/overview` | Everything Analytics needs, in one round trip. |
+| `GET` | `/api/analytics/overview` | Everything Analytics needs about one collection, in one round trip. |
 | `GET` | `/api/analytics/summary` | The collection's summary counts. |
 | `GET` | `/api/analytics/source-contribution` | Per source: papers delivered, and how many nothing else found. |
 | `GET` | `/api/analytics/keyword-contribution` | Per keyword: papers it found that no other keyword did. |

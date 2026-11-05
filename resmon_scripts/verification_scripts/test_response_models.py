@@ -208,6 +208,16 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "the Explorer": (
         ("POST", "/api/explorer/search"),
     ),
+    "collections": (
+        ("GET", "/api/collections"),
+        ("POST", "/api/collections"),
+        ("PUT", "/api/collections/current"),
+        ("GET", "/api/collections/{collection_id}"),
+        ("PUT", "/api/collections/{collection_id}"),
+        ("DELETE", "/api/collections/{collection_id}"),
+        ("POST", "/api/collections/{collection_id}/papers"),
+        ("POST", "/api/collections/{collection_id}/papers/undo"),
+    ),
     "a paper's account": (
         ("GET", "/api/documents/{doc_id}"),
         ("GET", "/api/documents/{doc_id}/why"),
@@ -655,6 +665,7 @@ def driven() -> Drive:
         _drive_today(drive)
         _drive_runs(drive)
         _drive_collection(drive)
+        _drive_collections(drive, doc_ids)
         _drive_watches(drive, doc_ids)
         _drive_background_service(drive)
         _drive_credentials_and_the_test_send(drive)
@@ -1696,6 +1707,30 @@ def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> di
             return row
         assert time.monotonic() < deadline, f"run {exec_id} still running after {timeout} s"
         time.sleep(0.05)
+
+
+def _drive_collections(drive: Drive, doc_ids: list[int]) -> None:
+    """Collections: made, renamed, chosen, papers copied, moved by a search and
+    put back, a collection read with what deleting it would do, and deleted.
+
+    The move takes a paper out of the default collection, so ``removed`` holds
+    a membership as it was, and the delete keeps a paper only it held."""
+    made = drive("POST", "/api/collections", expect=201, json={"name": "Fluid dynamics"})
+    drive("PUT", f"/api/collections/{made['id']}", json={"name": "Fluids"})
+    drive("PUT", "/api/collections/current", json={"collection": "fluids"})
+    drive("GET", "/api/collections")
+    drive("POST", f"/api/collections/{made['id']}/papers", json={"mode": "copy", "document_ids": doc_ids[:1]})
+    moved = drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "matching": {"collection": 1, "query": "Paper 1"}})
+    assert moved["removed"], "the move took a paper out of the default collection"
+    drive("POST", f"/api/collections/{made['id']}/papers/undo", json={
+        "added": moved["added"], "from_collection": moved["from_collection_id"], "removed": moved["removed"]})
+    drive("POST", f"/api/collections/{made['id']}/papers", json={
+        "mode": "move", "from_collection": 1, "document_ids": doc_ids[1:2]})
+    detail = drive("GET", f"/api/collections/{made['id']}")
+    assert detail["only_here"] == 1 and detail["also_elsewhere"] == 1
+    drive("DELETE", f"/api/collections/{made['id']}")
+    drive("PUT", "/api/collections/current", json={"collection": 1})
 
 
 def _drive_runs(drive: Drive) -> None:
