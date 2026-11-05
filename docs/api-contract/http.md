@@ -10,7 +10,7 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 116 of 209 routes that have one. The remaining 93 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 117 of 209 routes that have one. The remaining 92 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
 **Response.** The `response_model` the route declares, for the 173 of 209 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
@@ -22,7 +22,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
+| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 | `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
@@ -31,7 +31,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
+| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 | `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
@@ -221,7 +221,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/executions/active` | token | — | `ActiveRuns` | *Active Executions* |
 | `POST` | `/api/executions/{exec_id}/cancel` | token | — | `RunCancelRequested` | Request cooperative cancellation of a running execution. |
-| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | *Get Execution Progress Events* |
+| `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 
 ## J20 — Calendar

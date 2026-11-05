@@ -1815,7 +1815,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Execution Progress Events */
+        /**
+         * Get Execution Progress Events
+         * @description The run's progress events, from the ``since``-th on (0, every one).
+         *
+         *     A running run's page reads only the events it has not seen: a sweep's
+         *     heartbeat adds one event every two seconds for each source still being
+         *     asked, and reading the whole list every second read it again and again.
+         *     The list only grows while the run runs, and once it has ended the
+         *     persisted list is the same list, so an index into one is an index into
+         *     the other.
+         */
         get: operations["get_execution_progress_events_api_executions__exec_id__progress_events_get"];
         put?: never;
         post?: never;
@@ -14873,7 +14883,9 @@ export interface operations {
     };
     get_execution_progress_events_api_executions__exec_id__progress_events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                since?: number;
+            };
             header?: never;
             path: {
                 exec_id: number;

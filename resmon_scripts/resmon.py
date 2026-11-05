@@ -3135,7 +3135,18 @@ async def stream_progress(exec_id: int, last_event_id: int = 0):
 
 
 @app.get("/api/executions/{exec_id}/progress/events")
-def get_execution_progress_events(exec_id: int, response: Response):
+def get_execution_progress_events(
+    exec_id: int, response: Response, since: int = Query(0, ge=0),
+):
+    """The run's progress events, from the ``since``-th on (0, every one).
+
+    A running run's page reads only the events it has not seen: a sweep's
+    heartbeat adds one event every two seconds for each source still being
+    asked, and reading the whole list every second read it again and again.
+    The list only grows while the run runs, and once it has ended the
+    persisted list is the same list, so an index into one is an index into
+    the other.
+    """
     conn = _get_db()
     row = get_execution_by_id(conn, exec_id)
     if not row:
@@ -3149,8 +3160,8 @@ def get_execution_progress_events(exec_id: int, response: Response):
     # window between mark_complete and cleanup).  Fall back to persisted
     # events after cleanup removes the live store entry.
     if progress_store.is_registered(exec_id):
-        return progress_store.get_events(exec_id)
-    return get_progress_events(conn, exec_id)
+        return progress_store.get_events(exec_id, since=since)
+    return get_progress_events(conn, exec_id)[since:]
 
 
 @app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,

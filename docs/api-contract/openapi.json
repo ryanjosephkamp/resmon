@@ -22244,6 +22244,7 @@
     },
     "/api/executions/{exec_id}/progress/events": {
       "get": {
+        "description": "The run's progress events, from the ``since``-th on (0, every one).\n\nA running run's page reads only the events it has not seen: a sweep's\nheartbeat adds one event every two seconds for each source still being\nasked, and reading the whole list every second read it again and again.\nThe list only grows while the run runs, and once it has ended the\npersisted list is the same list, so an index into one is an index into\nthe other.",
         "operationId": "get_execution_progress_events_api_executions__exec_id__progress_events_get",
         "parameters": [
           {
@@ -22252,6 +22253,17 @@
             "required": true,
             "schema": {
               "title": "Exec Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Since",
               "type": "integer"
             }
           }

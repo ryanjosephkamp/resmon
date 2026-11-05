@@ -15,7 +15,9 @@ from .api_base import (
     RateLimiter,
     ServerCooldownActive,
     note_parse_failure,
+    note_retry,
     note_retry_wait,
+    waiting,
     retry_after_seconds,
     safe_request,
     sent_params,
@@ -113,9 +115,12 @@ class _Patience:
     def allows(self, seconds: float) -> bool:
         return self.waited + seconds <= _patience_seconds()
 
-    def spend(self, seconds: float, why: str) -> None:
+    def spend(self, seconds: float, why: str, kind: str = "retry") -> None:
         logger.warning("arXiv %s; waiting %.0f s before asking again", why, seconds)
-        _wait(seconds)
+        # ``kind`` is what the run's heartbeat says this wait is for.
+        note_retry()
+        with waiting(kind, seconds):
+            _wait(seconds)
         self.waited += seconds
         note_retry_wait(seconds)
 
@@ -141,7 +146,7 @@ def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
             # rather than giving up while the time is inside the budget.
             if not patience.allows(exc.seconds):
                 raise
-            patience.spend(exc.seconds, "is cooling down after an earlier 429")
+            patience.spend(exc.seconds, "is cooling down after an earlier 429", "cooldown")
             continue
         if response.status_code not in _PATIENT_STATUSES:
             return response

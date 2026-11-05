@@ -14,8 +14,10 @@ from .api_base import (
     NormalizedResult,
     RateLimiter,
     note_parse_failure_unless_transport,
+    note_retry,
     safe_request,
     sent_params,
+    waiting,
 )
 from .config import DEFAULT_BACKOFF_BASE, DEFAULT_MAX_RETRIES
 
@@ -90,7 +92,8 @@ def _single_request(params: dict[str, object]) -> httpx.Response:
     with _REQUEST_LOCK:
         cooldown_remaining = _cooldown_until - time.monotonic()
         if cooldown_remaining > 0:
-            time.sleep(cooldown_remaining)
+            with waiting("cooldown", cooldown_remaining):
+                time.sleep(cooldown_remaining)
         response = safe_request(
             "GET",
             _INSPIRE_API_URL,
@@ -120,7 +123,9 @@ def _request_page(params: dict[str, object]) -> httpx.Response:
                 DEFAULT_MAX_RETRIES,
                 wait,
             )
-            time.sleep(wait)
+            note_retry()
+            with waiting("retry", wait):
+                time.sleep(wait)
             continue
 
         if (
@@ -135,7 +140,9 @@ def _request_page(params: dict[str, object]) -> httpx.Response:
                 DEFAULT_MAX_RETRIES,
                 wait,
             )
-            time.sleep(wait)
+            note_retry()
+            with waiting("retry", wait):
+                time.sleep(wait)
             continue
         return response
 
