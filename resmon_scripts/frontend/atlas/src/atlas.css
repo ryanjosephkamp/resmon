@@ -1186,6 +1186,88 @@ a.active-title:hover { text-decoration: underline; text-decoration-thickness: 1p
 .result-folded { margin: 6px 0 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink-2); }
 .btn.more { margin-top: 16px; }
 
+/* The PDFs a watch's run asked for, under its head. */
+.run-pdfs { margin-top: 14px; max-width: 920px; }
+.run-pdfs-head { margin: 0 0 6px; font: 600 14px/1.3 var(--sans); color: var(--ink); }
+.run-pdfs-head span { margin-left: 8px; font-weight: 400; font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.run-pdfs-list { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow: auto; border-top: 1px solid var(--rule); }
+.run-pdfs-list li { display: grid; gap: 1px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.run-pdfs-list a { font: 500 13px/1.4 var(--sans); color: var(--ink); }
+.run-pdfs-list a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
+.run-pdfs-list span { font: 400 12.5px/1.4 var(--sans); color: var(--ink-3); }
+.run-pdfs-list li[data-state="failed"] span { color: var(--fault); }
+.run-pdfs-list li:is([data-state="waiting"], [data-state="downloading"]) span { color: var(--accent-ink); }
+
+/* ---------------------------------------------------------- find a paper */
+
+.find-page { max-width: 1060px; }
+.find-form { display: flex; align-items: center; gap: 12px; margin-top: 26px; }
+.find-form .terms { flex: 1; margin-top: 0; min-height: 54px; }
+.find-form .btn.primary { flex: none; height: 40px; padding: 0 24px; }
+/* Held room: what the query reads as arrives a moment after it is typed. */
+.find-plan { min-height: 80px; margin-top: 10px; }
+.find-reads { margin: 0; font: 400 13.5px/1.5 var(--sans); color: var(--ink-2); max-width: 92ch; text-wrap: pretty; }
+.find-value { padding: 1px 5px; border-radius: 4px; background: var(--panel-2); font: 400 12.5px/1.3 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+/* The sources a find asks, each one pressed in or left out. */
+.find-picks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.find-pick {
+  height: 28px; padding: 0 11px; border: 1px solid var(--rule-2); border-radius: 999px; background: transparent;
+  font: 500 12.5px/1 var(--sans); color: var(--ink-3); cursor: pointer;
+  transition: border-color var(--dur) var(--ease-out), background-color var(--dur) var(--ease-out), color var(--dur) var(--ease-out);
+}
+.find-pick:hover { border-color: var(--accent-mark); color: var(--ink); }
+.find-pick[aria-pressed="true"] { border-color: var(--rule-2); background: var(--raise); color: var(--ink); }
+.find-pick[aria-pressed="false"] { text-decoration: line-through; text-decoration-color: var(--ink-3); }
+.find-not-asked { margin-top: 6px; }
+.find-not-asked summary { width: fit-content; font: 500 13px/1.5 var(--sans); color: var(--ink-2); cursor: pointer; }
+.find-not-asked summary:hover { color: var(--ink); }
+.find-not-asked ul { display: grid; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); max-width: 92ch; }
+.find-not-asked b { font-weight: 600; color: var(--ink-2); }
+.find-result { margin-top: 26px; }
+.find-status { margin: 0 0 14px; font: 600 14.5px/1.4 var(--sans); color: var(--ink); font-variant-numeric: tabular-nums; }
+.find-status a { margin-left: 10px; font-weight: 400; font-size: 13px; color: var(--ink-2); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--rule-2); }
+.find-status a:hover { color: var(--ink); text-decoration-color: var(--accent-mark); }
+.find-paper { padding: 18px 0 20px; border-top: 1px solid var(--rule-2); }
+.find-paper-title { font: 600 19px/1.3 var(--sans); letter-spacing: -.01em; color: var(--ink); text-wrap: balance; }
+.find-paper-title:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--ink-3); }
+.find-paper .meta { margin-top: 6px; flex-wrap: wrap; row-gap: 4px; }
+.find-sources { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule-2); }
+.find-source {
+  display: grid; grid-template-columns: 16px minmax(110px, 11rem) minmax(0, 1fr); align-items: baseline;
+  column-gap: 12px; row-gap: 3px; padding: 10px 0; border-bottom: 1px solid var(--rule);
+}
+.find-source > .wall-mark { align-self: start; margin-top: 2px; }
+.find-source-name { font: 600 13.5px/1.4 var(--sans); color: var(--ink); }
+.find-source-name a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
+.find-outcome { font: 400 13.5px/1.45 var(--sans); color: var(--ink); }
+.find-why { display: block; margin-top: 2px; font-size: 12.5px; color: var(--ink-3); max-width: 80ch; }
+.find-details { grid-column: 3; display: flex; flex-wrap: wrap; gap: 2px 16px; font: 400 12.5px/1.45 var(--sans); color: var(--ink-2); }
+.find-copy[data-copy="downloadable"] { color: var(--ink); }
+.find-source[data-outcome="not_asked"] .find-source-name { font-weight: 500; color: var(--ink-2); }
+.find-source[data-outcome="not_asked"] .find-outcome { color: var(--ink-2); }
+.find-source[data-outcome="did_not_answer"] .find-outcome { color: var(--fault); }
+.find-source[data-outcome="asking"] .find-outcome { color: var(--accent-ink); }
+.find-earlier { margin-top: 44px; }
+.find-earlier ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.find-earlier li { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 9px 0; border-top: 1px solid var(--rule); }
+.find-earlier a { min-width: 0; font: 500 13.5px/1.4 var(--sans); color: var(--ink); overflow-wrap: anywhere; }
+.find-earlier a:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; text-decoration-color: var(--ink-3); }
+.find-earlier span { flex: none; font: 400 12.5px/1.4 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) {
+  .find-form { flex-direction: column; align-items: stretch; }
+  .find-form .terms input { min-width: 0; font-size: 16px; }
+  .find-source { grid-template-columns: 16px minmax(0, 1fr); }
+  .find-outcome, .find-details { grid-column: 2; }
+  .find-earlier li { flex-direction: column; gap: 2px; }
+}
+
+/* A paper's full text, on its page: Read the PDF, Get the PDF, or Open at the source, and why. */
+.fulltext { margin-top: 12px; }
+.fulltext-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.fulltext-acts .btn .icon { color: var(--ink-3); }
+.fulltext-line { margin: 7px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink-2); max-width: 72ch; text-wrap: pretty; }
+.fulltext:is([data-fulltext="waiting"], [data-fulltext="downloading"]) .fulltext-line { color: var(--accent-ink); }
+
 /* ----------------------------------------------------------------- paper */
 
 .paper { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 400px); gap: 48px; height: 100%; overflow: auto; padding: 26px 56px 64px; align-items: start; }

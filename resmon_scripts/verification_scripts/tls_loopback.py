@@ -154,19 +154,23 @@ def pdf_body(size: int = 2048) -> bytes:
 
 
 def _serve_forever_from_stdin() -> None:
-    """The journey's server: a PDF at ``/paper.pdf`` and ``/second.pdf``, until stdin closes."""
+    """The journey's server: each file in ``<folder>/serve`` at ``/<its name>``, as a PDF, until stdin closes.
+
+    Its certificate also answers for any host named after the folder on the
+    command line, so the journey can stand in for a named site.
+    """
     folder = Path(sys.argv[1])
-    server = LoopbackHTTPS(folder)
-    body = pdf_body(40_000)
-    server.routes["/paper.pdf"] = lambda _h: (200, {"Content-Type": "application/pdf"}, body)
-    server.routes["/second.pdf"] = lambda _h: (200, {"Content-Type": "application/pdf"}, pdf_body(30_000))
+    hosts = tuple(dict.fromkeys((*TEST_HOSTS, *sys.argv[2:])))
+    server = LoopbackHTTPS(folder, hosts=hosts)
+    for served in sorted((folder / "serve").glob("*")):
+        body = served.read_bytes()
+        server.routes["/" + served.name] = lambda _h, body=body: (200, {"Content-Type": "application/pdf"}, body)
     server.start()
     print(json.dumps({"port": server.port, "ca": str(server.ca_path)}), flush=True)
     try:
         sys.stdin.read()
     finally:
-        log = folder / "requests.json"
-        log.write_text(json.dumps(server.requests))
+        (folder / "requests.json").write_text(json.dumps(server.requests))
         server.stop()
 
 

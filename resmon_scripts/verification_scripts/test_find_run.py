@@ -170,3 +170,16 @@ def test_a_found_papers_account_says_a_find_kept_it_and_checks_no_keywords(conn,
     assert said["verdict"] == "found_by_find" and said["keywords"] == []
     assert "Crossref answered with this record, which carries the DOI asked for" in said["headline"]
     assert match_explain.keyword_contribution(conn)["keywords"] == []
+
+
+def test_a_find_that_names_its_sources_accounts_for_every_other():
+    """Every source in the catalog is accounted for: asked, left out, or unable to look it up."""
+    import resmon as resmon_mod
+
+    _query, asked, not_asked = resmon_mod._find_plan(DOI, ["openalex", "crossref"])
+    assert asked == ["crossref", "openalex"]
+    why = {item["source"]: item["why"] for item in not_asked}
+    assert why["zenodo"] == "Left out of this find."
+    assert why["arxiv"] == "arXiv can be asked by arXiv id, title, not by DOI."
+    from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
+    assert set(asked) | set(why) == {entry.slug for entry in REPOSITORY_CATALOG}

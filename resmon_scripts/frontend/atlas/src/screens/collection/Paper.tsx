@@ -5,6 +5,7 @@ import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { invalidateFor, mapKey, readMap } from '../today/freshness';
 import { PaperCollections } from '../../collections/PaperCollections';
+import { PaperFullText } from '../fulltext/GetPdf';
 import { useCollection } from '../../collections/current';
 import { PaperLifecycle } from '../lifecycle/LifecycleMarks';
 import { basisWords, PaperSky } from '../sky/PaperSky';
@@ -155,6 +156,7 @@ export function Paper() {
             <p className="field-error" role="alert">{(save.error ?? mark.error ?? remove.error)?.message}</p>
           )}
         </div>
+        <PaperFullText id={data.id} sourceUrl={data.url ?? null} sourceName={source} />
 
         {/* Above the abstract: a retraction is read before the paper is. */}
         <PaperLifecycle id={data.id} />

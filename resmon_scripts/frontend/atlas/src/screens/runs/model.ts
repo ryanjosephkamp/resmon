@@ -313,6 +313,7 @@ export function runKind(executionType: string): string {
     case 'deep_dive': return 'Deep Dive';
     case 'deep_sweep': return 'Deep Sweep';
     case 'automated_sweep': return 'Watch run';
+    case 'find_paper': return 'Find a paper';
     default: return executionType.replace(/_/g, ' ');
   }
 }

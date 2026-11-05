@@ -34,10 +34,10 @@ export const FILTERS: readonly { id: RunFilter; label: string }[] = [
   { id: 'failed', label: 'Failed' },
 ];
 
-/** The engine's filter for each: a search is a Deep Dive or a Deep Sweep, asked by hand. */
+/** The engine's filter for each: a search is a Deep Dive, a Deep Sweep, or a find, asked by hand. */
 export function filterQuery(filter: RunFilter): { type?: string; status?: string } {
   switch (filter) {
-    case 'searches': return { type: 'deep_dive,deep_sweep' };
+    case 'searches': return { type: 'deep_dive,deep_sweep,find_paper' };
     case 'watches': return { type: 'automated_sweep' };
     case 'failed': return { status: 'failed' };
     default: return {};

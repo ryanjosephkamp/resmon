@@ -32,6 +32,7 @@ import {
 import { CountField } from '../../shell/CountField';
 import { useDraft } from '../../shell/drafts';
 import { useCollection } from '../../collections/current';
+import { LIBRARY, LIBRARY_KEY } from '../library/libraryApi';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -148,6 +149,9 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
     keepDraft({ basis, form, terms: terms.terms, termDraft: terms.draft, summaries });
   }, [keepDraft, basis, form, terms.terms, terms.draft, summaries]);
   const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
+  // The limits the PDFs switch states, and whether the Library has a folder to put them in.
+  const rules = useQuery({ queryKey: ['full-text-rules'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/full-text/rules')) });
+  const library = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)) });
   const set = (patch: Partial<WatchForm>) => setForm((f) => ({ ...f, ...patch }));
   const setSchedule = (patch: Partial<ScheduleChoice>) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }));
   /** Whether the stored schedule is one the choices cannot state, so "As it is" is offered. */
@@ -404,6 +408,21 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
             <EditorSwitch label="Start watching when saved" on={form.start} name="is_active" onFlip={(start) => set({ start })} />
           )}
         </fieldset>
+
+        {form.follows !== 'retractions' && (
+          <fieldset className="choices editor-switches" data-editor="pdfs">
+            <legend className="field-title">PDFs</legend>
+            <EditorSwitch label="Get its new papers’ open-access PDFs" on={form.pdfs} name="download_full_text"
+              onFlip={(pdfs) => set({ pdfs })} />
+            <p className="form-hint">
+              After each run, resmon downloads into the Library the PDF of each new paper a source states an open license
+              for (Creative Commons, public domain, or arXiv’s own), never from NASA ADS, Springer, or CORE. At most{' '}
+              {rules.data?.per_run_cap ?? 20} a run and {rules.data?.daily_cap ?? 100} in any 24 hours, one at a time from
+              each site. The run’s page says what it got, skipped, and why.
+              {!library.data?.vault && <> The Library needs its folder first: <Link to="/library">Library</Link>.</>}
+            </p>
+          </fieldset>
+        )}
 
         <fieldset className="choices editor-summaries" data-editor="summaries">
           <legend className="field-title">Summaries</legend>

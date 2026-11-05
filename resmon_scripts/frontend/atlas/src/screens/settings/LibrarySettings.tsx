@@ -50,9 +50,43 @@ export function LibrarySettings() {
       {data?.vault && <Folder status={data} />}
       {data?.vault && data.status === 'ready' && <Removed vault={data.vault.vault_id} />}
       {data?.vault && data.status === 'ready' && <Inventory vault={data.vault.vault_id} />}
+      <Downloads />
     </section>
   );
 }
+
+/**
+ * Get the PDF's rules, as the engine states them: where the PDFs go, the
+ * license rule, the sources never downloaded from, and the limits.
+ */
+function Downloads() {
+  const rules = useQuery({ queryKey: ['full-text-rules'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/full-text/rules')) });
+  const data = rules.data;
+  return (
+    <div className="lib-downloads" data-library="downloads">
+      <h3 className="field-title">Downloads</h3>
+      <p className="field-lede">
+        Get the PDF, on a paper’s page and on its card, and a watch’s PDFs switch download open-access copies into this
+        folder, linked to their paper, with where each came from, its license, and when.
+      </p>
+      {rules.isError && <p className="field-error" role="alert">The engine did not say its rules ({words(rules.error)}).</p>}
+      {data && (
+        <ul className="lib-rules">
+          <li>Only a copy a source states an open license for: {data.open_licenses.map((l) => l.words).join(', ')}.
+            A copy that is only free to read, or under a publisher’s own terms, is left at the source.</li>
+          <li>Never from {data.refused_sources.map((s) => SOURCE_NAMES[s.source] ?? s.source).join(', ')}, whatever the
+            license: {data.refused_sources.map((s) => s.why).join(' ')}</li>
+          <li>Over https only, to public addresses, every redirect checked; a file must be a PDF and at most{' '}
+            {sizeWords(data.max_bytes)}.</li>
+          <li>One download at a time from each site, {data.host_interval_seconds} seconds apart; at most{' '}
+            {count(data.per_run_cap, 'PDF')} for one watch run, and {count(data.daily_cap, 'PDF')} in any 24 hours.</li>
+        </ul>
+      )}
+    </div>
+  );
+}
+
+const SOURCE_NAMES: Record<string, string> = { nasa_ads: 'NASA ADS', springer: 'Springer', core: 'CORE' };
 
 /** Where the folder is, and the two ways to change it; both wait while either runs, here or as the engine reports. */
 export function Folder({ status }: { status: LibraryStatus }) {

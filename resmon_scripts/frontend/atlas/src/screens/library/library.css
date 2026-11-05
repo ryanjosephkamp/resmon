@@ -317,3 +317,10 @@
   .lib-notice, .lib-sheet[open], .lib-sheet::backdrop { animation: none; }
   .sheet-pdf, .sheet-text, .cov { transition: none; }
 }
+
+/* Get the PDF on a card: while it goes, its label says so in the accent's ink. */
+.card-getting { color: var(--accent-ink); }
+
+/* Settings › Library: the rules Get the PDF keeps, one to a line. */
+.lib-rules { display: grid; gap: 6px; margin: 10px 0 0; padding-left: 18px; font: 400 13px/1.5 var(--sans); color: var(--ink-2); max-width: 84ch; }
+.lib-rules li::marker { color: var(--ink-3); }

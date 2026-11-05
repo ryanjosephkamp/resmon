@@ -1770,12 +1770,22 @@ def search_sweep(body: SweepRequest, response: Response):
 
 
 def _find_plan(query: str, repositories: Optional[list[str]]) -> tuple[paper_find.PaperQuery, list[str], list[dict]]:
+    """The find asked for: every source in the catalog accounted for, asked or not, and why not.
+
+    *repositories*, when given, are the sources to ask; one that could have
+    been asked and was not named is recorded as left out of this find.
+    """
     try:
         parsed = paper_find.parse(query)
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
-    named = repositories if repositories else [entry["slug"] for entry in catalog_as_dicts()]
-    asked, not_asked = paper_find.plan(parsed, named)
+    every = [entry["slug"] for entry in catalog_as_dicts()]
+    named = list(repositories) if repositories else every
+    asked, not_asked = paper_find.plan(parsed, list(dict.fromkeys(named + every)))
+    if repositories:
+        left = [slug for slug in asked if slug not in named]
+        asked = [slug for slug in asked if slug in named]
+        not_asked = [{"source": slug, "why": "Left out of this find."} for slug in left] + not_asked
     return parsed, asked, not_asked
 
 

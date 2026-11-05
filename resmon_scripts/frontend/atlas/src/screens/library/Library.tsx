@@ -10,6 +10,8 @@ import { collectionParam, useCollection } from '../../collections/current';
 import { epochDay } from '../today/model';
 import { count, number } from '../today/format';
 import { errorWords, FileCard, PaperCard, ProjectCard } from './Cards';
+import { useFullText } from '../fulltext/fullText';
+import { useLanded } from '../fulltext/GetPdf';
 import type { Atlas } from './Cover';
 import { evidence, type Project } from './evidenceApi';
 import { useFindDraft } from './findDraft';
@@ -323,6 +325,9 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
     return { sky: collectionSky(map.data, epochDay(new Date())).sky, regions: map.data.regions };
   }, [map.data]);
   const order = useMemo(() => entries.map((e) => `p:${e.document_id}`), [entries]);
+  const paperIds = useMemo(() => entries.map((e) => e.document_id), [entries]);
+  const fullText = useFullText(paperIds);
+  useLanded(fullText.data);
   const { picked, setPicked, onPick } = useSelection(order, selecting);
   const chosen = entries.filter((e) => picked.has(`p:${e.document_id}`));
 
@@ -410,6 +415,7 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
           more={{ has: !!queue.hasNextPage, reading: queue.isFetchingNextPage, failed: queue.isFetchNextPageError, read: readMore }}>
           {(entry, _i, narrow) => (
             <PaperCard entry={entry} atlas={atlas} vault={vault} sourceName={sourceName} narrow={narrow} onChanged={onChanged}
+              fullText={fullText.data?.get(entry.document_id)}
               picking={{ on: selecting, picked: picked.has(`p:${entry.document_id}`), onPick }}
               onRemove={(e) => remove.mutate([e])} />
           )}

@@ -10,6 +10,7 @@ import {
   type LibraryFileRow, type Project, type QueueEntry,
 } from './galleryModel';
 import { kindOf, LIBRARY, sizeWords, type Version } from './libraryApi';
+import { hostWords, licenseWords, pending, requestWords, useGetPdf, type FullTextStatus } from '../fulltext/fullText';
 
 export function errorWords(error: unknown): string {
   if (error instanceof EngineError && error.detail) return error.detail;
@@ -65,9 +66,11 @@ function openExternal(url: string): void {
   void bridge()?.openPath?.(url);
 }
 
-export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceName, picking, narrow, onRemove, onChanged }: {
+export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceName, picking, narrow, onRemove, onChanged, fullText }: {
   entry: QueueEntry; atlas: Atlas | null; vault: string | null; sourceName: (slug: string) => string;
   picking: Picking; narrow: boolean; onRemove: (entry: QueueEntry) => void; onChanged: () => void;
+  /** Whether an open copy can be got, and the latest request for it (``/api/full-text/for-documents``). */
+  fullText?: FullTextStatus;
 }) {
   const doc = entry.document;
   const title = doc?.title ?? `Paper ${entry.document_id}`;
@@ -87,6 +90,18 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
     onSuccess: onChanged,
   });
   const markWords = read ? 'Mark unread' : 'Mark read';
+  // Get the PDF where a source states an open license for a copy and the card
+  // has no PDF yet; while it downloads, the card says so, and once it lands the
+  // queue is read again and the card becomes a PDF card with its cover.
+  const get = useGetPdf();
+  const request = fullText?.download ?? null;
+  const getting = pending(request) || get.isPending;
+  const canGet = !pdf && !!fullText?.downloadable && !fullText.in_library;
+  const failed = request?.state === 'failed' ? `The last try failed: ${requestWords(request)} ` : '';
+  const getWords = canGet && fullText?.best
+    ? `${failed}Get the PDF from ${hostWords(fullText.best.host)} (${licenseWords(fullText.best)})` : 'Get the PDF';
+  // In the label's own line while it goes, so the card does not change height.
+  const gettingLine = !pdf && request && pending(request) ? requestWords(request) : null;
   const venue = [source, (doc?.categories ?? '').split(/[;,]/)[0]?.trim()].filter(Boolean).join(' · ');
   return (
     <article className={`card${picking.on ? ' selecting' : ''}${picking.picked ? ' picked' : ''}`} data-document={entry.document_id}
@@ -104,9 +119,13 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
           <span>{source}</span>
           {year && <><span className="sep" /><span>{year}</span></>}
         </p>
-        <p className="card-label">
-          {label.from ? <>From {label.name ? <span className="it">{label.from}</span> : label.from}{label.day ? ` · ${label.day}` : ''}</> : `Saved ${label.day ?? ''}`}
-        </p>
+        {gettingLine
+          ? <p className="card-label card-getting" role="status" data-fulltext={request?.state} title={gettingLine}>{gettingLine}</p>
+          : (
+            <p className="card-label">
+              {label.from ? <>From {label.name ? <span className="it">{label.from}</span> : label.from}{label.day ? ` · ${label.day}` : ''}</> : `Saved ${label.day ?? ''}`}
+            </p>
+          )}
         <div className="card-acts">
           <Link className="btn sm" to={to}>Read</Link>
           {narrow ? (
@@ -117,6 +136,10 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
               <More label={`More for ${title}`}>
                 {(close) => (
                   <>
+                    {canGet && (
+                      <button type="button" role="menuitem" disabled={getting} data-fulltext="get"
+                        onClick={() => { close(); get.mutate(entry.document_id); }}>{getting ? 'Getting the PDF' : 'Get the PDF'}</button>
+                    )}
                     {url && <button type="button" role="menuitem" onClick={() => { close(); openExternal(url); }}>Open at {source}</button>}
                     <button type="button" role="menuitem" onClick={() => { close(); onRemove(entry); }}>Remove from {read ? 'Read' : 'To read'}</button>
                   </>
@@ -127,7 +150,11 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
             <>
               <button type="button" className="btn quiet sm" disabled={mark.isPending} onClick={() => mark.mutate()}>{markWords}</button>
               <span className="grow" />
-              {/* Get the PDF joins these icons where an open copy is known (full text, a later change). */}
+              {canGet && (
+                <button type="button" className="iconbtn sm" aria-label={getting ? 'Getting the PDF' : getWords}
+                  title={getting ? 'Getting the PDF' : getWords} disabled={getting} data-fulltext="get"
+                  onClick={() => get.mutate(entry.document_id)}><Icon name="download" /></button>
+              )}
               {url && (
                 <button type="button" className="iconbtn sm" aria-label={`Open at ${source}`} title={`Open at ${source}`}
                   onClick={() => openExternal(url)}><Icon name="open" /></button>
@@ -137,7 +164,7 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
             </>
           )}
         </div>
-        {mark.error && <p className="field-error" role="alert">{errorWords(mark.error)}</p>}
+        {(mark.error || get.error) && <p className="field-error" role="alert">{errorWords(mark.error ?? get.error)}</p>}
       </div>
     </article>
   );
