@@ -142,9 +142,9 @@ Searching what resmon holds, one paper, links between records of the same work, 
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/api/explorer/search` | Search the whole collection by words or by meaning, with filters. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/search` | Search the whole collection by words or by meaning, with filters, counting every match (a count that runs out of time says so) and, in the newest order, starting at a date. POST because the filter set is a structure. |
 | `POST` | `/api/explorer/facets` | The filter values available under the current filters, with counts. |
-| `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown. |
+| `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown, however many: the file is sent as it is written. |
 | `GET` | `/api/documents/{doc_id}` | One paper as stored, and its place in the reading queue. |
 | `GET` | `/api/documents/{doc_id}/why` | What is locally verifiable about why a paper is in the collection, and what resmon cannot see. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | Retractions, concerns, corrections, and newer versions recorded against one paper. |
