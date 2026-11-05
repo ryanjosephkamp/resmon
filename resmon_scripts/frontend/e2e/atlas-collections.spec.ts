@@ -11,6 +11,12 @@
  * collection, whose papers only it held are kept in the default one. Every
  * other connection the engine tries, and port 8742, is refused by the startup
  * hook, and the spec fails if anything was.
+ *
+ * Search's note on ranking by meaning is checked as the engine's embedding
+ * status says it applies: where the similarity index cannot load (some
+ * runners' Python has no loadable-extension support) it says that instead of
+ * counting papers. `RESMON_E2E_NO_SQLITE_VEC=1` hides the index's package from
+ * the engine, so that sentence can be checked on a machine where it loads.
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -66,6 +72,32 @@ async function engine<T>(win: Page, route: string, method = 'GET', body?: unknow
 
 interface Listed { collections: { id: number; name: string; papers: number }[]; current_id: number; default_id: number }
 
+interface EmbeddingStatus { capability: { available: boolean }; extension: { extension: string | null } }
+
+/**
+ * Search's note on ranking by meaning, as the engine's embedding status says it
+ * applies (`embeddingWords.ranking`): none where the collection can be ranked;
+ * the collection's own papers counted, by `counted`, where the similarity index
+ * loaded and nothing is embedded; and where it did not load (a runner whose
+ * Python has no loadable-extension support), that sentence, which names no
+ * collection, so the count line is checked for the collection's name.
+ */
+async function expectRankingNote(win: Page, collection: number | null, counted: string, count: string): Promise<'none' | 'counted' | 'no-index'> {
+  const status = await engine<EmbeddingStatus>(win, `/api/embeddings/status${collection === null ? '' : `?collection=${collection}`}`);
+  const note = win.locator('[data-collection="ranking"]');
+  if (status.capability.available) {
+    await expect(note).toHaveCount(0);
+    return 'none';
+  }
+  await expect(win.locator('.count-sentence')).toHaveText(count);
+  if (status.extension.extension) {
+    await expect(note).toContainText(counted);
+    return 'counted';
+  }
+  await expect(note).toContainText('Ranking by meaning is off: the similarity index (sqlite-vec) did not load in this copy of resmon');
+  return 'no-index';
+}
+
 /** The ids of the papers Search › Your collection lists. */
 async function listed(win: Page): Promise<number[]> {
   await expect(win.locator('.results[aria-busy="false"]')).toBeVisible({ timeout: 30_000 });
@@ -116,6 +148,7 @@ socket.socket.connect = connect
 sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
+${process.env.RESMON_E2E_NO_SQLITE_VEC === '1' ? "# The similarity index's package missing, as on a runner that cannot load it.\nsys.modules['sqlite_vec'] = None" : ''}
 `);
   const env: Record<string, string> = { ...launchEnv(stateDir, true) };
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
@@ -202,8 +235,8 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.evaluate(() => { window.location.hash = '#/search'; });
     expect(await listed(win)).toEqual(found);
     // Every count names Photonics and is its own: 2 papers here, of the 5 resmon holds.
-    await expect(win.locator('.count-sentence')).toHaveText('2 papers in Photonics');
-    await expect(win.locator('[data-collection="ranking"]')).toContainText('none of the 2 papers in Photonics has a vector');
+    const note = await expectRankingNote(win, photonics, 'none of the 2 papers in Photonics has a vector', '2 papers in Photonics');
+    console.log(`ATLAS COLLECTIONS RANKING NOTE ${note}`);
     await expect(win.locator('.collection figcaption')).toHaveText(/^Every paper in Photonics, /, { timeout: 90_000 });
     await win.screenshot({ path: path.join(shots, 'search-photonics-dark.png') });
 
@@ -230,8 +263,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.evaluate(() => { window.location.hash = '#/search'; });
     await expect(win.getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible();
     expect(await listed(win)).toEqual([...corpus].sort((a, b) => a - b));
-    await expect(win.locator('.count-sentence')).toHaveText('3 papers in your collection');
-    await expect(win.locator('[data-collection="ranking"]')).toContainText('none of your 3 papers has a vector');
+    await expectRankingNote(win, 1, 'none of your 3 papers has a vector', '3 papers in your collection');
     await expect.poll(async () => {
       const map = await engine<{ state: string; points: { id: number[] } }>(win, '/api/map');
       return map.state === 'ready' ? [...map.points.id].sort((a, b) => a - b) : map.state;
