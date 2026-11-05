@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const FEED = `<feed xmlns="http://www.w3.org/2005/Atom">
 <entry>
@@ -328,5 +329,6 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
   } finally {
     await app.close();
     source.close();
+    removeStateDir(stateDir);
   }
 });
