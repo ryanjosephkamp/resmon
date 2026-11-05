@@ -2433,13 +2433,16 @@ def deactivate_routine(routine_id: int):
 
 @app.get("/api/routines/{routine_id}/documents", response_model=response_models.RoutineDocuments,
          response_model_exclude_unset=True)
-def routine_documents(routine_id: int, limit: int = Query(2000, ge=1, le=10000)):
+def routine_documents(routine_id: int, limit: Optional[int] = Query(None, ge=1)):
     """The papers this routine's runs collected: a watch's constellation.
 
     Ids only, newest run first and each paper once, because what a screen does
     with them is mark them on the collection map; a page of records is the
-    Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
-    cut the list short can say so rather than imply the marks are complete.
+    Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+    bytes each, and a constellation drawn from the first 2,000 of a watch's
+    papers left the rest off the map. ``total`` counts all of them, so a screen
+    whose ``limit`` cut the list short can say so rather than imply the marks
+    are complete.
     """
     conn = _get_db()
     try:
@@ -6954,6 +6957,23 @@ def get_today():
     conn = _get_db()
     try:
         return today.build(conn, _next_fire_epochs(conn))
+    finally:
+        _close_db(conn)
+
+
+@app.get("/api/today/papers", response_model=response_models.TodayPapersPage,
+         response_model_exclude_unset=True)
+def get_today_papers(cursor: str, limit: int = Query(today.PAPER_PAGE, ge=1, le=today.PAPER_PAGE)):
+    """The next page of Today's new papers, after the page before it.
+
+    ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+    listed, a page at a time, however many there are.
+    """
+    conn = _get_db()
+    try:
+        return today.papers_after(conn, cursor, limit)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         _close_db(conn)
 

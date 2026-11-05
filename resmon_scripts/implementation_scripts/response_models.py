@@ -1087,8 +1087,17 @@ class Today(LosslessModel):
     window: Literal["since_last_look", "first_look"]
     total: int
     papers: list[TodayPaper]
+    next_cursor: Optional[str]
     from_searches: int
     watches: list[TodayWatch]
+
+
+class TodayPapersPage(LosslessModel):
+    """``GET /api/today/papers``: the page of Today's new papers after a cursor,
+    in the same order and shape, and the cursor after it (``None`` at the end)."""
+
+    papers: list[TodayPaper]
+    next_cursor: Optional[str]
 
 
 class DocumentBrief(LosslessModel):
@@ -2373,14 +2382,15 @@ class RoutineDocuments(LosslessModel):
     """``GET /api/routines/{routine_id}/documents``: the papers this routine's
     runs collected, newest run first, each once.
 
-    ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+    ``total`` counts every one; ``document_ids`` holds every one, or stops at
+    ``limit`` where the request set one (``None`` when it did not). Only ids:
     what a screen marks on the collection map, not a page of records.
     """
 
     routine_id: int
     document_ids: list[int]
     total: int
-    limit: int
+    limit: Optional[int]
 
 
 class DeliveryTarget(LosslessModel):

@@ -43,9 +43,11 @@ from implementation_scripts.database import get_setting, set_setting
 
 LOOKED_KEY = "today_looked_at"
 FIRST_LOOK_DAYS = 7
-#: Today lists at most this many papers, newest first, and says how many more
-#: there are. A month away can mean thousands; the plate still shows them all.
-PAPER_LIMIT = 1_000
+#: Today reads its papers this many at a time, newest first: the first page with
+#: the rest of Today, and each page after it from ``/api/today/papers``, so every
+#: new paper can be listed however many there are. A month away can mean
+#: thousands, and every one of 76,726 at once was 49 MB, read once a minute.
+PAPER_PAGE = 1_000
 LEDE_CHARS = 320
 #: How many papers one ``/api/documents/briefs`` request may ask about.
 BRIEF_LIMIT = 200
@@ -205,36 +207,39 @@ def new_window(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict
     }
 
 
-def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
-          now: Optional[datetime] = None) -> dict:
-    """Today's papers and watches. ``next_fire`` is ``{routine id: epoch seconds}``
-    from the job store (absent or None where no job is held)."""
-    now = now or datetime.now(timezone.utc)
-    span = new_window(conn, now)
-    window = span["window"]
-    floor = span["floor"]
+_PAPER_COLUMNS = ("SELECT id, title, authors, source_repository, publication_date, first_seen_at, "
+                  "abstract, url, doi FROM documents")
 
-    total = int(conn.execute(
-        "SELECT COUNT(*) FROM documents WHERE first_seen_at > ?", (floor,)).fetchone()[0])
-    rows = [dict(r) for r in conn.execute(
-        "SELECT id, title, authors, source_repository, publication_date, first_seen_at, "
-        "abstract, url, doi FROM documents WHERE first_seen_at > ? "
-        "ORDER BY first_seen_at DESC, id DESC LIMIT ?", (floor, PAPER_LIMIT))]
+
+def _page(conn: sqlite3.Connection, floor: str, cursor: Optional[tuple[str, int]],
+          limit: int, watches_of: Optional[dict[int, list[int]]] = None) -> tuple[list[dict], Optional[str]]:
+    """One page of new papers, newest first, and the cursor after it (None at the end).
+
+    The cursor is the last paper's ``first_seen_at`` as stored and its id, so a
+    page starts exactly where the one before it stopped, whatever arrived since.
+    ``watches_of`` is every new paper's watches where the caller has them;
+    otherwise they are read for this page's papers alone.
+    """
+    if cursor is None:
+        rows = conn.execute(f"{_PAPER_COLUMNS} WHERE first_seen_at > ? "
+                            "ORDER BY first_seen_at DESC, id DESC LIMIT ?", (floor, limit + 1)).fetchall()
+    else:
+        rows = conn.execute(f"{_PAPER_COLUMNS} WHERE first_seen_at > ? AND (first_seen_at, id) < (?, ?) "
+                            "ORDER BY first_seen_at DESC, id DESC LIMIT ?",
+                            (floor, cursor[0], cursor[1], limit + 1)).fetchall()
+    rows = [dict(r) for r in rows]
+    more = len(rows) > limit
+    rows = rows[:limit]
     ids = [int(r["id"]) for r in rows]
-
-    # Every watch whose runs returned each paper, counted over all the new
-    # papers rather than the listed page, so a watch's count is not capped.
-    watches_of: dict[int, list[int]] = {}
-    counts: dict[int, int] = {}
-    for doc_id, routine_id in conn.execute(
-            "SELECT DISTINCT ed.document_id, e.routine_id FROM execution_documents ed "
-            "JOIN executions e ON e.id = ed.execution_id "
-            "JOIN documents d ON d.id = ed.document_id "
-            "WHERE d.first_seen_at > ? AND e.routine_id IS NOT NULL", (floor,)):
-        watches_of.setdefault(int(doc_id), []).append(int(routine_id))
-        counts[int(routine_id)] = counts.get(int(routine_id), 0) + 1
-    from_searches = total - len(watches_of)
-
+    if watches_of is None:
+        watches_of = {}
+        if ids:
+            marks = ",".join("?" * len(ids))
+            for doc_id, routine_id in conn.execute(
+                    "SELECT DISTINCT ed.document_id, e.routine_id FROM execution_documents ed "
+                    "JOIN executions e ON e.id = ed.execution_id "
+                    f"WHERE ed.document_id IN ({marks}) AND e.routine_id IS NOT NULL", ids):
+                watches_of.setdefault(int(doc_id), []).append(int(routine_id))
     saved = reading_queue.statuses_for(conn, ids)
     papers = [{
         "id": int(r["id"]),
@@ -249,6 +254,56 @@ def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
         "watches": sorted(watches_of.get(int(r["id"]), [])),
         "queue_status": saved.get(int(r["id"])),
     } for r in rows]
+    next_cursor = f"{rows[-1]['first_seen_at']}|{rows[-1]['id']}" if more and rows else None
+    return papers, next_cursor
+
+
+def _cursor(text: str) -> tuple[str, int]:
+    try:
+        seen, doc_id = text.rsplit("|", 1)
+        return seen, int(doc_id)
+    except (ValueError, AttributeError):
+        raise ValueError(f"Malformed cursor: {text!r}") from None
+
+
+def papers_after(conn: sqlite3.Connection, cursor: str, limit: int = PAPER_PAGE,
+                 now: Optional[datetime] = None) -> dict:
+    """The page of new papers after *cursor*, as ``build`` lists them, and the cursor after it.
+
+    New is counted from the same last look ``build`` uses, read again here, so
+    a page asked for after Mark all read finds nothing older than the look.
+    """
+    floor = new_window(conn, now)["floor"]
+    papers, next_cursor = _page(conn, floor, _cursor(cursor), max(1, min(int(limit), PAPER_PAGE)))
+    return {"papers": papers, "next_cursor": next_cursor}
+
+
+def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
+          now: Optional[datetime] = None) -> dict:
+    """Today's papers and watches. ``next_fire`` is ``{routine id: epoch seconds}``
+    from the job store (absent or None where no job is held)."""
+    now = now or datetime.now(timezone.utc)
+    span = new_window(conn, now)
+    window = span["window"]
+    floor = span["floor"]
+
+    total = int(conn.execute(
+        "SELECT COUNT(*) FROM documents WHERE first_seen_at > ?", (floor,)).fetchone()[0])
+
+    # Every watch whose runs returned each paper, counted over all the new
+    # papers rather than the listed page, so a watch's count is not capped.
+    watches_of: dict[int, list[int]] = {}
+    counts: dict[int, int] = {}
+    for doc_id, routine_id in conn.execute(
+            "SELECT DISTINCT ed.document_id, e.routine_id FROM execution_documents ed "
+            "JOIN executions e ON e.id = ed.execution_id "
+            "JOIN documents d ON d.id = ed.document_id "
+            "WHERE d.first_seen_at > ? AND e.routine_id IS NOT NULL", (floor,)):
+        watches_of.setdefault(int(doc_id), []).append(int(routine_id))
+        counts[int(routine_id)] = counts.get(int(routine_id), 0) + 1
+    from_searches = total - len(watches_of)
+
+    papers, next_cursor = _page(conn, floor, None, PAPER_PAGE, watches_of)
 
     # Every paper each watch has ever returned, for its outline on the plate.
     members: dict[int, list[int]] = {}
@@ -281,6 +336,7 @@ def build(conn: sqlite3.Connection, next_fire: dict[str, Optional[float]],
         "window": window,
         "total": total,
         "papers": papers,
+        "next_cursor": next_cursor,
         "from_searches": max(0, from_searches),
         "watches": watches,
     }

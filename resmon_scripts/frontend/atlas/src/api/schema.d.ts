@@ -3108,8 +3108,11 @@ export interface paths {
          *
          *     Ids only, newest run first and each paper once, because what a screen does
          *     with them is mark them on the collection map; a page of records is the
-         *     Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
-         *     cut the list short can say so rather than imply the marks are complete.
+         *     Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+         *     bytes each, and a constellation drawn from the first 2,000 of a watch's
+         *     papers left the rest off the map. ``total`` counts all of them, so a screen
+         *     whose ``limit`` cut the list short can say so rather than imply the marks
+         *     are complete.
          */
         get: operations["routine_documents_api_routines__routine_id__documents_get"];
         put?: never;
@@ -3755,6 +3758,29 @@ export interface paths {
          * @description Record that Today was looked at now: the next window starts here.
          */
         post: operations["mark_today_looked_api_today_looked_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/today/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Papers
+         * @description The next page of Today's new papers, after the page before it.
+         *
+         *     ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+         *     listed, a page at a time, however many there are.
+         */
+        get: operations["get_today_papers_api_today_papers_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8973,14 +8999,15 @@ export interface components {
          * @description ``GET /api/routines/{routine_id}/documents``: the papers this routine's
          *     runs collected, newest run first, each once.
          *
-         *     ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+         *     ``total`` counts every one; ``document_ids`` holds every one, or stops at
+         *     ``limit`` where the request set one (``None`` when it did not). Only ids:
          *     what a screen marks on the collection map, not a page of records.
          */
         RoutineDocuments: {
             /** Document Ids */
             document_ids: number[];
             /** Limit */
-            limit: number;
+            limit: number | null;
             /** Routine Id */
             routine_id: number;
             /** Total */
@@ -11266,6 +11293,8 @@ export interface components {
         Today: {
             /** From Searches */
             from_searches: number;
+            /** Next Cursor */
+            next_cursor: string | null;
             /** Now */
             now: string;
             /** Papers */
@@ -11324,6 +11353,19 @@ export interface components {
             url: string | null;
             /** Watches */
             watches: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayPapersPage
+         * @description ``GET /api/today/papers``: the page of Today's new papers after a cursor,
+         *     in the same order and shape, and the cursor after it (``None`` at the end).
+         */
+        TodayPapersPage: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Papers */
+            papers: components["schemas"]["TodayPaper"][];
         } & {
             [key: string]: unknown;
         };
@@ -17057,7 +17099,7 @@ export interface operations {
     routine_documents_api_routines__routine_id__documents_get: {
         parameters: {
             query?: {
-                limit?: number;
+                limit?: number | null;
             };
             header?: never;
             path: {
@@ -17973,6 +18015,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodayLooked"];
+                };
+            };
+        };
+    };
+    get_today_papers_api_today_papers_get: {
+        parameters: {
+            query: {
+                cursor: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayPapersPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

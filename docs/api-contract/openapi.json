@@ -11168,7 +11168,7 @@
       },
       "RoutineDocuments": {
         "additionalProperties": true,
-        "description": "``GET /api/routines/{routine_id}/documents``: the papers this routine's\nruns collected, newest run first, each once.\n\n``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:\nwhat a screen marks on the collection map, not a page of records.",
+        "description": "``GET /api/routines/{routine_id}/documents``: the papers this routine's\nruns collected, newest run first, each once.\n\n``total`` counts every one; ``document_ids`` holds every one, or stops at\n``limit`` where the request set one (``None`` when it did not). Only ids:\nwhat a screen marks on the collection map, not a page of records.",
         "properties": {
           "document_ids": {
             "items": {
@@ -11178,8 +11178,15 @@
             "type": "array"
           },
           "limit": {
-            "title": "Limit",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
           },
           "routine_id": {
             "title": "Routine Id",
@@ -17082,6 +17089,17 @@
             "title": "From Searches",
             "type": "integer"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "now": {
             "title": "Now",
             "type": "string"
@@ -17130,6 +17148,7 @@
           "window",
           "total",
           "papers",
+          "next_cursor",
           "from_searches",
           "watches"
         ],
@@ -17266,6 +17285,36 @@
           "queue_status"
         ],
         "title": "TodayPaper",
+        "type": "object"
+      },
+      "TodayPapersPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/today/papers``: the page of Today's new papers after a cursor,\nin the same order and shape, and the cursor after it (``None`` at the end).",
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/TodayPaper"
+            },
+            "title": "Papers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "papers",
+          "next_cursor"
+        ],
+        "title": "TodayPapersPage",
         "type": "object"
       },
       "TodayRun": {
@@ -25133,7 +25182,7 @@
     },
     "/api/routines/{routine_id}/documents": {
       "get": {
-        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. ``total`` counts all of them, so a screen whose ``limit``\ncut the list short can say so rather than imply the marks are complete.",
+        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. Every one unless ``limit`` asks for fewer: ids are a few\nbytes each, and a constellation drawn from the first 2,000 of a watch's\npapers left the rest off the map. ``total`` counts all of them, so a screen\nwhose ``limit`` cut the list short can say so rather than imply the marks\nare complete.",
         "operationId": "routine_documents_api_routines__routine_id__documents_get",
         "parameters": [
           {
@@ -25150,11 +25199,16 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 2000,
-              "maximum": 10000,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
             }
           }
         ],
@@ -26132,6 +26186,58 @@
           }
         },
         "summary": "Mark Today Looked"
+      }
+    },
+    "/api/today/papers": {
+      "get": {
+        "description": "The next page of Today's new papers, after the page before it.\n\n``cursor`` is the ``next_cursor`` that page gave, so every new paper can be\nlisted, a page at a time, however many there are.",
+        "operationId": "get_today_papers_api_today_papers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": true,
+            "schema": {
+              "title": "Cursor",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayPapersPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Today Papers"
       }
     },
     "/api/watchdog": {

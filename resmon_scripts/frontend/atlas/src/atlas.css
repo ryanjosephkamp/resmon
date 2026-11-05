@@ -2531,3 +2531,8 @@ button.ai-link {
   margin: 6px 0 0; padding: 6px 10px; border-radius: var(--r); background: var(--accent-wash);
   font: italic 400 14px/1.5 var(--serif); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* Today: the newest new papers listed, and a button that lists the ones that arrived before them. */
+.index-cap.earlier { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.index-cap.earlier p { margin: 0; }
+.index-cap.earlier .field-error { flex-basis: 100%; }
