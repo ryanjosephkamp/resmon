@@ -428,9 +428,60 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     await expect(win().locator('.lib-page')).toHaveAttribute('data-show', 'files', { timeout: 30_000 });
     await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
   };
-  /** A kept file's card on the Your files shelf, by the name it was imported under. */
-  const fileCard = (name: string): Locator => win().locator('article.card.file')
-    .filter({ has: win().getByRole('heading', { name, exact: true }) });
+  /**
+   * A kept file's card on the Your files shelf, by the name it was imported
+   * under, found as a person finds one among many: with the shelf's find
+   * field. The gallery draws only the rows near the view, so a card is not
+   * in the page until it is.
+   */
+  const fileCard = async (name: string): Promise<Locator> => {
+    await win().locator('.lib-find input').fill(name);
+    const card = win().locator('article.card.file').filter({ has: win().getByRole('heading', { name, exact: true }) });
+    await expect(card).toBeVisible({ timeout: 30_000 });
+    return card;
+  };
+
+  /**
+   * Every card on the shelf open now, in its order, read by scrolling the page
+   * from top to bottom: the gallery draws only the rows near the view, and
+   * reads the next page as the view nears the end. Held to the size the list
+   * states, so a shelf read short fails rather than passing as a smaller one.
+   */
+  const everyCard = async (): Promise<{ document: string | null; file: string | null; title: string; status: string | null }[]> => {
+    await expect(win().locator('.gal [role="listitem"], .lib-empty, .lib-empty-queue').first()).toBeVisible({ timeout: 30_000 });
+    const seen = await win().evaluate(async () => {
+      const stage = document.querySelector('main.stage') as HTMLElement;
+      const drawn = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const cards = new Map<number, { document: string | null; file: string | null; title: string; status: string | null }>();
+      let size = 0;
+      stage.scrollTop = 0;
+      await drawn();
+      for (let step = 0, waited = 0; step < 4000; step += 1) {
+        for (const cell of Array.from(document.querySelectorAll('.gal [role="listitem"]'))) {
+          size = Number(cell.getAttribute('aria-setsize'));
+          const card = cell.querySelector('article.card') as HTMLElement | null;
+          const at = Number(cell.getAttribute('aria-posinset'));
+          if (card && !cards.has(at)) {
+            cards.set(at, { document: card.dataset.document ?? null, file: card.dataset.file ?? null,
+              title: card.querySelector('.card-title')?.textContent?.trim() ?? '', status: card.dataset.status ?? null });
+          }
+        }
+        if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2) {
+          // At the end of what is drawn: done, unless the next page is still being read.
+          if (cards.size >= size || waited > 100) break;
+          waited += 1;
+          await new Promise((done) => setTimeout(done, 100));
+        } else {
+          stage.scrollTop += Math.round(stage.clientHeight * 0.6);
+        }
+        await drawn();
+      }
+      stage.scrollTop = 0;
+      return { size, cards: [...cards.entries()].sort((a, b) => a[0] - b[0]).map(([, card]) => card) };
+    });
+    expect(seen.cards.length, 'the shelf was read short of the size its list states').toBe(seen.size);
+    return seen.cards;
+  };
 
   /** The vault the engine made inside the chosen folder: the one `resmon-library-*` there. */
   const vaultDirectory = (): string => {
@@ -797,11 +848,11 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
     await expect(win().locator('article.card, .lib-empty, .lib-empty-queue').first()).toBeVisible({ timeout: 30_000 });
   };
-  const readShelf = async (): Promise<QueuedPaper[]> => win().locator('article.card[data-document]').evaluateAll((cards) => cards.map((card) => ({
-    id: Number((card as HTMLElement).dataset.document),
-    title: card.querySelector('.card-title')?.textContent?.trim() ?? '',
-    state: (card as HTMLElement).dataset.status === 'read' ? 'Read' : 'To read',
-  })));
+  const readShelf = async (): Promise<QueuedPaper[]> => (await everyCard()).filter((card) => card.document !== null).map((card) => ({
+    id: Number(card.document),
+    title: card.title,
+    state: card.status === 'read' ? 'Read' as const : 'To read' as const,
+  }));
   /** The queue as a filter once named it: a shelf, or both shelves for All. */
   const readQueueFor = async (filter: 'to read' | 'read' | 'all'): Promise<QueuedPaper[]> => {
     const out: QueuedPaper[] = [];
@@ -812,11 +863,32 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return out;
   };
   /** The shelf a saved paper is on now, opened, and its card. */
+  /** Scroll the shelf open now from the top until the gallery draws this card; false when the shelf ends without it. */
+  const scrolledTo = async (selector: string): Promise<boolean> => win().evaluate(async (wanted) => {
+    const stage = document.querySelector('main.stage') as HTMLElement;
+    const drawn = () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+    stage.scrollTop = 0;
+    await drawn();
+    for (let step = 0; step < 4000; step += 1) {
+      const card = document.querySelector(wanted);
+      if (card) {
+        card.scrollIntoView({ block: 'center' });
+        await drawn();
+        return true;
+      }
+      if (stage.scrollTop + stage.clientHeight >= stage.scrollHeight - 2) return false;
+      stage.scrollTop += Math.round(stage.clientHeight * 0.6);
+      await drawn();
+    }
+    return false;
+  }, selector);
+
   const queuedCard = async (paper: QueuedPaper): Promise<Locator> => {
     for (const shelf of ['to read', 'read'] as const) {
       await openShelf(shelf);
-      const card = win().locator(`article.card[data-document="${paper.id}"]`);
-      if (await card.count()) return card;
+      // Scrolled to, as a person scrolls to a card the window does not show yet.
+      const selector = `article.card[data-document="${paper.id}"]`;
+      if (await scrolledTo(selector)) return win().locator(selector);
     }
     throw new Error(`paper ${paper.id} is on neither reading shelf`);
   };
@@ -1101,9 +1173,8 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     readTheLibraryItems: async (): Promise<LibraryItem[]> => {
       await openFiles();
-      const cards = win().locator('article.card.file');
-      await expect(cards.first()).toBeVisible({ timeout: 60_000 });
-      const ids = await cards.evaluateAll((all) => all.map((card) => String((card as HTMLElement).dataset.file)));
+      await expect(win().locator('article.card.file').first()).toBeVisible({ timeout: 60_000 });
+      const ids = (await everyCard()).map((card) => String(card.file));
       const out: LibraryItem[] = [];
       for (const id of ids) out.push(await readLibraryDetail(id));
       return out;
@@ -1116,7 +1187,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         return (await (await e2eFetch(`http://127.0.0.1:${port}/api/documents/${id}`)).json()) as { title: string };
       }, paperId);
       await openFiles();
-      await fileCard(name).getByRole('button', { name: 'Read', exact: true }).click();
+      await (await fileCard(name)).getByRole('button', { name: 'Read', exact: true }).click();
       const page = win().locator('.lib-file');
       await expect(page.locator('.lib-file-name')).toHaveText(name, { timeout: 30_000 });
       await page.locator('.lib-file-head').getByRole('button', { name: 'Link to a paper' }).click();
@@ -1159,7 +1230,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     startAnEvidenceProjectFrom: async (item, project): Promise<EvidencePageView> => {
       await openFiles();
-      await fileCard(item).getByRole('button', { name: 'Read', exact: true }).click();
+      await (await fileCard(item)).getByRole('button', { name: 'Read', exact: true }).click();
       const detail = win().locator('.lib-file-head');
       await expect(detail.locator('.lib-file-name')).toHaveText(item, { timeout: 30_000 });
       await detail.getByRole('link', { name: 'Open in Evidence', exact: true }).click();
@@ -2154,8 +2225,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       const card = await queuedCard(paper);
       await card.getByRole('button', { name: 'Mark read' }).click();
       await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
-      await openShelf('read');
-      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveAttribute('data-status', 'read', { timeout: 30_000 });
+      await expect(await queuedCard(paper)).toHaveAttribute('data-status', 'read', { timeout: 30_000 });
     },
 
     removeFromReadingQueue: async (paper) => {
@@ -2176,7 +2246,9 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       expect(shelves.size, 'the papers to export are on both shelves; a selection is one shelf\'s').toBe(1);
       await win().getByRole('button', { name: 'Select', exact: true }).click();
       for (const paper of papers) {
-        await win().locator(`article.card[data-document="${paper.id}"] .thumb`).click();
+        const selector = `article.card[data-document="${paper.id}"]`;
+        expect(await scrolledTo(selector), `paper ${paper.id} left its shelf`).toBe(true);
+        await win().locator(`${selector} .thumb`).click();
       }
       const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
       const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
