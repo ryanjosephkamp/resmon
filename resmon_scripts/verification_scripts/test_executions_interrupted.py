@@ -416,13 +416,60 @@ def test_restart_refuses_a_live_or_finished_run_and_names_the_state(client, stat
 
 
 def test_restart_goes_through_the_manual_admission_cap(client, monkeypatch):
-    """A restart cannot get resmon past the cap a manual run respects."""
-    monkeypatch.setattr(resmon_mod.admission, "try_admit", lambda **kw: False)
+    """A restart cannot get resmon past the cap a manual run respects: at it, it is refused only when the queue is full."""
+    monkeypatch.setattr(resmon_mod.admission, "admit_manual", lambda *a, **kw: "full")
     source = _row(client, "interrupted")
     resp = client.post(f"/api/executions/{source}/restart")
     assert resp.status_code == 429
+    assert resp.headers.get("x-resmon-conflict") == "admission_queue_full"
     assert resmon_mod._get_db().execute(
         "SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (source,)).fetchone()[0] == 0
+
+
+def test_a_restart_at_the_cap_waits_and_its_row_is_written_when_it_starts(client, monkeypatch):
+    """Queued, the restart has no run yet; its row is written, and carries its ticket, when its turn comes."""
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared", lambda self, exec_id: None)
+    admission = resmon_mod.admission
+    admission.set_max(1)
+    admission.note_admitted(987_654)
+    try:
+        source = _row(client, "failed")
+        resp = client.post(f"/api/executions/{source}/restart", json={"request_id": "again-1"})
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert list(body) == ["execution_id", "restarted_from", "ai_enabled", "queued", "queue_position", "ticket", "detail"]
+        assert body["execution_id"] is None and body["restarted_from"] == source
+        assert body["queued"] is True and body["ticket"] == "again-1"
+        conn = resmon_mod._get_db()
+        count = lambda: conn.execute(  # noqa: E731
+            "SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (source,)).fetchone()[0]
+        assert count() == 0, "a waiting restart wrote a run that is not running"
+        admission.note_finished(987_654)
+        deadline = time.time() + 5
+        while count() == 0 and time.time() < deadline:
+            time.sleep(0.02)
+        row = conn.execute("SELECT * FROM executions WHERE restarted_from = ?", (source,)).fetchone()
+        assert row is not None and row["request_id"] == "again-1"
+    finally:
+        admission.set_max(3)
+
+
+def test_run_again_repeats_a_completed_run_only_when_asked_to(client, monkeypatch):
+    """Run again is restart for a run that finished: its search once more, linked back to it."""
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared", lambda self, exec_id: None)
+    source = _row(client, "completed")
+    assert client.post(f"/api/executions/{source}/restart").status_code == 409
+    resp = client.post(f"/api/executions/{source}/restart", json={"again": True})
+    assert resp.status_code == 202, resp.text
+    new_id = resp.json()["execution_id"]
+    conn = resmon_mod._get_db()
+    new_row = conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone()
+    old_row = conn.execute("SELECT * FROM executions WHERE id = ?", (source,)).fetchone()
+    assert new_row["parameters"] == old_row["parameters"] and new_row["restarted_from"] == source
+    running = _row(client, "running")
+    refused = client.post(f"/api/executions/{running}/restart", json={"again": True})
+    assert refused.status_code == 409
+    assert refused.json()["detail"] == f"Execution {running} is running; only a run that has ended can be run again."
 
 
 def test_cancelling_an_interrupted_row_answers_with_its_state(client):

@@ -1757,10 +1757,20 @@ class RunStarted(LosslessModel):
     ``duplicate`` is present only when ``request_id`` matched a submission
     already made, and the id is that earlier run's: a retried click starts
     nothing new. Absent rather than ``false`` on a first submission.
+
+    At the run limit the run waits for a free slot (HTTP 202): there is no
+    ``execution_id`` yet, ``queued`` is true, ``queue_position`` is its place
+    (1 for next), and ``ticket`` names it in ``GET /api/executions/active``'s
+    ``waiting`` and in the ``request_id`` its row carries once it starts.
+    ``detail`` says so in a sentence.
     """
 
-    execution_id: int
+    execution_id: Optional[int]
     duplicate: Optional[bool] = None
+    queued: Optional[bool] = None
+    queue_position: Optional[int] = None
+    ticket: Optional[str] = None
+    detail: Optional[str] = None
 
 
 class RunCoverageCounts(LosslessModel):
@@ -1952,10 +1962,68 @@ class Run(RunColumns):
     ai_lanes: list[RunAiLane]
 
 
+class ActiveRun(LosslessModel):
+    """A run this engine is running now, with its search and its events so far.
+
+    ``events`` is the run's progress events with the repeating ones folded to
+    their latest: each source's newest heartbeat, and the newest count of the
+    papers linked, embedded or summarized. Every event that changes a source's
+    or the run's state is kept, in order, so a reader folds them as it folds
+    the whole list (``/progress/events``).
+    """
+
+    id: int
+    execution_type: str
+    routine_id: Optional[int]
+    saved_configuration_id: Optional[int]
+    query: Optional[str]
+    keywords: Optional[list[str]]
+    repositories: Optional[list[str]]
+    start_time: Optional[str]
+    current_stage: Optional[str]
+    restarted_from: Optional[int]
+    request_id: Optional[str]
+    events: list[dict]
+
+
+class WaitingRun(LosslessModel):
+    """A run waiting for a free slot, in the order it will start.
+
+    ``kind`` is ``watch`` (a watch's fire, scheduled or Run now) or ``manual``
+    (a Deep Dive, a Deep Sweep, a restart, or a run asked for again).
+    ``queued_at`` is when it joined the queue (for a scheduled fire, when it
+    came due). ``run_now`` is set for a watch's fire only. A manual run also
+    says its search: ``execution_type``, ``query``, ``keywords`` and
+    ``repositories``, and ``restarted_from`` when it repeats a run.
+    """
+
+    ticket: str
+    kind: Literal["watch", "manual"]
+    position: int
+    queued_at: str
+    routine_id: Optional[int]
+    run_now: Optional[bool]
+    execution_type: Optional[str] = None
+    query: Optional[str] = None
+    keywords: Optional[list[str]] = None
+    repositories: Optional[list[str]] = None
+    restarted_from: Optional[int] = None
+
+
 class ActiveRuns(LosslessModel):
-    """``GET /api/executions/active``: the runs this backend is running now."""
+    """``GET /api/executions/active``: the runs this backend is running now, and those waiting.
+
+    ``active_ids`` is the running runs' ids, as it always was. ``running`` is
+    each of them in the order it started; ``waiting`` the queue, next first.
+    ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
+    background sets, as this engine holds them.
+    """
 
     active_ids: list[int]
+    running: list[ActiveRun]
+    waiting: list[WaitingRun]
+    max_concurrent: int
+    queue_limit: int
 
 
 class RunReport(LosslessModel):
@@ -1977,14 +2045,27 @@ class RunCancelRequested(LosslessModel):
     status: Literal["cancellation_requested"]
 
 
+class WaitingWithdrawn(LosslessModel):
+    """``DELETE /api/executions/waiting/{ticket}``: the run is out of the queue and will not start."""
+
+    withdrawn: bool
+    ticket: str
+
+
 class RunRestarted(LosslessModel):
     """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
-    parameters, linked back to it. ``duplicate`` as on ``RunStarted``."""
+    parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
+    at the run limit, as there, no ``execution_id`` yet, ``queued``, its
+    ``queue_position``, its ``ticket``, and a ``detail``."""
 
-    execution_id: int
+    execution_id: Optional[int]
     restarted_from: Optional[int]
     ai_enabled: bool
     duplicate: Optional[bool] = None
+    queued: Optional[bool] = None
+    queue_position: Optional[int] = None
+    ticket: Optional[str] = None
+    detail: Optional[str] = None
 
 
 # ===========================================================================

@@ -204,7 +204,7 @@ export function Run() {
   });
   const restart = useMutation({
     mutationFn: () => answer(engine().POST('/api/executions/{exec_id}/restart', {
-      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID() },
+      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID(), again: false },
     })),
     onSuccess: (started) => {
       void client.invalidateQueries({ queryKey: RUNS_KEY });

@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-209 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+210 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 117 of 209 routes that have one. The remaining 92 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 122 of 210 routes that have one. The remaining 88 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 173 of 209 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 174 of 210 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -24,7 +24,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
-| `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
+| `POST` | `/api/search/dive` | token | — | `RunStarted` | Start a Deep Dive, or queue it when resmon runs as many as it allows (202). |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 
 ## J02 — Deep Sweep
@@ -34,7 +34,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
-| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | Start a Deep Sweep, or queue it when resmon runs as many as it allows (202). |
 
 ## J03 — Routines
 
@@ -202,7 +202,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions` | token | — | `list` | *List Executions* |
+| `GET` | `/api/executions` | token | — | `list` | The runs, newest first, a page at a time; how many match is the `X-Resmon-Total` header. |
 | `POST` | `/api/executions/archive` | token | — | — | The same archive `POST /api/executions/export` writes, as bytes. |
 | `POST` | `/api/executions/export` | token | — | — | Bundle the reports and logs for the selected executions into a .zip. |
 | `DELETE` | `/api/executions/{exec_id}` | token | — | — | Delete a run's record; its report and log files stay where they were written. |
@@ -219,7 +219,8 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
-| `GET` | `/api/executions/active` | token | — | `ActiveRuns` | *Active Executions* |
+| `GET` | `/api/executions/active` | token | — | `ActiveRuns` | The runs this engine is running, each with its search and its events, and the queue. |
+| `DELETE` | `/api/executions/waiting/{ticket}` | token | — | `WaitingWithdrawn` | Take a run that waits for a free slot out of the queue, before it starts. |
 | `POST` | `/api/executions/{exec_id}/cancel` | token | — | `RunCancelRequested` | Request cooperative cancellation of a running execution. |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
@@ -408,8 +409,8 @@ No route. Recorded in the register as not carried forward.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/routines/{routine_id}` | token | — | `Routine` | Fetch a single routine by ID. |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
-| `POST` | `/api/search/dive` | token | — | `RunStarted` | *Search Dive* |
-| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
+| `POST` | `/api/search/dive` | token | — | `RunStarted` | Start a Deep Dive, or queue it when resmon runs as many as it allows (202). |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | Start a Deep Sweep, or queue it when resmon runs as many as it allows (202). |
 | `GET` | `/api/settings/execution` | token | — | `ExecutionSettings` | *Get Execution Settings* |
 | `PUT` | `/api/settings/execution` | token | — | `ExecutionSettingsSaved` | *Update Execution Settings* |
 
@@ -449,7 +450,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 209 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 210 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 
@@ -469,7 +470,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
 | `GET` | `/api/documents/{document_id}/similar` | token | — | — | The papers nearest this one, with distances and their sources. |
-| `GET` | `/api/executions` | token | — | `list` | *List Executions* |
+| `GET` | `/api/executions` | token | — | `list` | The runs, newest first, a page at a time; how many match is the `X-Resmon-Total` header. |
 | `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
 | `GET` | `/api/executions/{exec_id}/references` | token | — | — | Export one run; JSON can explicitly include corpus IDs for follow-up reads. |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
@@ -489,7 +490,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `POST` | `/api/routines/{routine_id}/deactivate` | token | — | `RoutineActivation` | *Deactivate Routine* |
 | `GET` | `/api/routines/{routine_id}/deliveries` | token | — | `RoutineDeliveries` | *List Routine Deliveries* |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
-| `POST` | `/api/search/sweep` | token | — | `RunStarted` | *Search Sweep* |
+| `POST` | `/api/search/sweep` | token | — | `RunStarted` | Start a Deep Sweep, or queue it when resmon runs as many as it allows (202). |
 | `GET` | `/api/watchdog` | token | — | `WatchdogReport` | Findings, what could not be judged yet, and the thresholds used. |
 
 Read out of `resmon_scripts/mcp_server.py` rather than transcribed: `api_contract.mcp_driven_routes()` parses every `backend.request(method, path)` call in that module — method included, so a path the harness only reads does not appear here as a path it also deletes — and matches each against the route table.

@@ -97,7 +97,7 @@ export function RunLog() {
 
   const restart = useMutation({
     mutationFn: (id: number) => answer(engine().POST('/api/executions/{exec_id}/restart', {
-      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID() },
+      params: { path: { exec_id: id } }, body: { request_id: crypto.randomUUID(), again: false },
     })),
     onSuccess: (started) => navigate(`/runs/${started.execution_id}`),
   });
