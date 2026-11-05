@@ -224,7 +224,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
                 cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
-                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus)} />
+                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus || (!!onChoose && hovered === chosen))} />
             )}
           </Plate>
         ) : (
@@ -250,10 +250,11 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
 /**
  * What choosing a paper does on a map, for its tip: opens it beside the map,
  * or opens its page (from the keyboard, Enter does, once it is chosen). The
- * page's own paper opens nothing, and its tip says nothing of it.
+ * page's own paper, and a paper already open beside the map, open nothing
+ * more, and their tips say nothing of it.
  */
-export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isFocus: boolean): string | undefined {
-  if (isFocus) return undefined;
+export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isOpen: boolean): string | undefined {
+  if (isOpen) return undefined;
   if (beside) return via === 'keyboard' ? undefined : 'Opens it beside the map';
   return via === 'keyboard' ? 'Enter opens its page' : 'Opens its page';
 }

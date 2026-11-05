@@ -308,7 +308,7 @@ export function Today() {
               <Tip hover={hover} paper={hovered !== null ? listed.get(hovered) : undefined}
                 brief={brief.data ?? undefined} now={now} cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
                 sourceName={sourceName}
-                opens={hover.via === 'keyboard' ? undefined
+                opens={hover.via === 'keyboard' || hovered === selectedId ? undefined
                   : hovered !== null && listed.has(hovered) ? 'Chooses it in the list beside the map' : 'Opens it beside the map'} />
             )}
           </Plate>
