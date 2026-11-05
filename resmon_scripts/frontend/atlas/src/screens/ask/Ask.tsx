@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { timeTogether } from '../../lib/timeTogether';
 import { commandEnter } from '../../shell/shortcuts';
@@ -14,7 +14,7 @@ import {
   answerFooterWords, answeredWords, basisWords, callText, choiceProblem, connectionKey, connectionOf, costWords, describeCall,
   failureTitle, providerWords, reportWords, requestedWords, savedCalls, shortToolName, type Card, type LiveCall, type LiveMessage,
 } from './askModel';
-import { CHATS_KEY, STATUS_KEY, chatKey, useAsk } from './AskProvider';
+import { CHATS_KEY, chatKey, readStatusAgain, useAsk } from './AskProvider';
 
 const WHEN = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -100,9 +100,11 @@ function Rail({ selected, onSelect, answering }: { selected: number | null; onSe
 
 function Pane() {
   const { selected, status, live, answering, failure } = useAsk();
-  // Read again on every arrival: whether a connection can run changes in
-  // Settings → AI and in the keychain, and neither tells this screen.
-  useQuery({ queryKey: STATUS_KEY, queryFn: ask.status, refetchOnMount: 'always' });
+  // Read again on every arrival, with a read that starts on arrival: whether a
+  // connection can run changes in Settings → AI, in the keychain, and on the
+  // computer (a command installed or moved), and none of them tells this screen.
+  const client = useQueryClient();
+  useEffect(() => { void readStatusAgain(client); }, [client]);
   const detail = useQuery({
     queryKey: chatKey(selected ?? 0),
     queryFn: ({ signal }) => ask.detail(selected as number, signal),
