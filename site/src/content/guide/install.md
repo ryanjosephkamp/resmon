@@ -89,7 +89,7 @@ A resmon window does not run your watches. The background service does, and it r
 - On **macOS and Windows** the service is the app itself, started with `--service`: no window, no Dock icon, and the engine as its child. The unit is a launch agent on macOS and a scheduled task on Windows.
 - On **Linux** the service is the engine alone, started by a systemd user unit, because a user unit has no display for the app to open on.
 
-Only one copy of resmon runs at a time: a second launch exits, and the running one opens its window on its own engine. A window opened while the service runs uses the service's engine when their versions match. If they do not, **Settings › In the background** tells you, and **Health › This engine** says which engine a window is using. The service writes its logs to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies kept.
+Only one copy of resmon runs at a time: a second launch exits, and the running one brings its window forward, or opens one on its own engine if none is open. A launch that finds the service still starting waits for it, without stopping it; after a moment it shows a small window saying resmon is starting, since the first start after an update keeps a copy of your database, if the disk has room, and then updates it, which can take a few minutes. That window closes when the service opens resmon's. A window opened while the service runs uses the service's engine when their versions match. If they do not, **Settings › In the background** tells you, and **Health › This engine** says which engine a window is using. The service writes its logs to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies kept.
 
 ## Running from source
 

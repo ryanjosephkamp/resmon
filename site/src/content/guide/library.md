@@ -12,7 +12,7 @@ The reading queue works everywhere. **Your files** and **Projects** are unavaila
 Each card is a cover the shape of a page, then the title, one line (authors, source, and year, or a file's kind and size), one label, and its actions.
 
 - **A paper with a PDF** in your Library, linked to it, shows that PDF's first page.
-- **A paper without one** shows its piece of your collection's map: the grid cell it is in, its neighbors, its region's name, and the paper itself, crossed, over a title block with its title, authors, source, and year. A paper the map has not placed yet says so on its cover. Until the map has been drawn, the cover is the title block alone.
+- **A paper without one** shows its piece of your collection's map: the grid cell it is in, its neighbors, its region's name, and the paper itself, crossed, over a title block with its title, authors, source, and year. A paper the map has not placed yet says so on its cover. Until the map has been drawn, the cover is the title block alone. Pointing at the cover names the paper's cell and region in a tip.
 - **A text file** shows its first lines, with their numbers.
 - **A project** shows its first PDFs fanned over its name.
 

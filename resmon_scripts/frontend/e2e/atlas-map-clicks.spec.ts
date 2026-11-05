@@ -24,6 +24,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
 import { SEED, engine, mapsEnv, resize, stillView, throttle, type MapBody, type Seeded } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** The plate's frame, inside which papers are drawn; the plate's `MARGIN`, and a little more. */
 const FRAME = 34;
@@ -239,6 +240,6 @@ test('a mouse click on a paper\'s dot opens it on Today\'s map, the collection\'
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

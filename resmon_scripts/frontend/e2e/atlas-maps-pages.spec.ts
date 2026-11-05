@@ -23,6 +23,7 @@ import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fi
 import {
   SEED, chooseByKeyboard, clickCenter, engine, mapsEnv, resize, stillView, throttle, type MapBody, type Seeded,
 } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** A plate drawn, and holding still. */
 async function drawn(win: Page, canvas: string): Promise<void> {
@@ -88,7 +89,7 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     const box = await win.locator(collection).boundingBox();
     if (!box) throw new Error('the map has no box');
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(win.locator('.collection .tip b')).toContainText('Quantum');
+    await expect(win.getByRole('tooltip').locator('.chart-tip-value')).toContainText('Quantum');
     await shot(win, 'collection-paper');
     // Back returns to the results with the words kept, and the map's choice goes with the paper.
     await searchPanel.getByRole('button', { name: 'Back to the results' }).click();
@@ -234,6 +235,6 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

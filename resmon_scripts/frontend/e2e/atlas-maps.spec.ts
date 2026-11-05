@@ -22,6 +22,7 @@ import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fi
 import {
   SEED, clearFind, clickCenter, engine, findAndOpen, mapsEnv, resize, stillView, throttle, uniqueTitle, type MapBody, type Seeded,
 } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 test('the maps: any paper beside the map, a run\'s own map, and filters, colors, and find', async () => {
   test.setTimeout(300_000);
@@ -243,6 +244,6 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

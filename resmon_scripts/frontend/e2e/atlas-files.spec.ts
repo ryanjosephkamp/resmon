@@ -25,6 +25,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { findCard, shelfHolds } from './fixtures/gallery';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -173,6 +174,6 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    for (const dir of [stateDir, parent, staging]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [stateDir, parent, staging]) removeStateDir(dir);
   }
 });

@@ -2543,7 +2543,7 @@
       },
       "BackupLast": {
         "additionalProperties": true,
-        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made. ``drive_upload_retired`` is true\nwhile this database still has the removed upload to Google Drive after\neach run switched on, until ``POST\n/api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
+        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made. ``drive_upload_retired`` is true\nwhile this database still has the removed upload to Google Drive after\neach run switched on, until ``POST\n/api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.\n``pre_upgrade_copy`` is the copy of the database kept beside it before the\nlast schema upgrade, ``None`` when there is none there.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
         "properties": {
           "drive_upload_retired": {
             "title": "Drive Upload Retired",
@@ -2625,6 +2625,16 @@
             ],
             "title": "Pending Restore Runs When"
           },
+          "pre_upgrade_copy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreUpgradeCopy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "undo_copies": {
             "items": {
               "type": "string"
@@ -2641,7 +2651,8 @@
           "pending_restore_runs_on",
           "last_restore",
           "undo_copies",
-          "drive_upload_retired"
+          "drive_upload_retired",
+          "pre_upgrade_copy"
         ],
         "title": "BackupLast",
         "type": "object"
@@ -4573,7 +4584,7 @@
       },
       "DiscoveryLag": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/discovery-lag``.",
+        "description": "``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.",
         "properties": {
           "insufficient_reason": {
             "anyOf": [
@@ -4588,6 +4599,10 @@
           },
           "minimum_sample": {
             "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "not_a_day": {
+            "title": "Not A Day",
             "type": "integer"
           },
           "sample_size": {
@@ -4609,6 +4624,7 @@
         "required": [
           "sources",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "minimum_sample",
           "insufficient_reason"
@@ -4642,6 +4658,10 @@
             ],
             "title": "Median Days"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -4672,7 +4692,8 @@
           "sufficient",
           "median_days",
           "fastest_days",
-          "slowest_days"
+          "slowest_days",
+          "not_a_day"
         ],
         "title": "DiscoveryLagRow",
         "type": "object"
@@ -10353,6 +10374,36 @@
         "title": "PaperWhySource",
         "type": "object"
       },
+      "PreUpgradeCopy": {
+        "additionalProperties": true,
+        "description": "The copy of the database kept beside it before the last schema upgrade, read from the file.\n\n``schema_version`` is the schema the database was at when it was copied,\nfrom the file's name. ``written_at_utc`` is the file's modification time,\nwhich is when the copy was finished unless something has written to the\nfile since. ``bytes`` is its size. Nothing is opened or checked here.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "written_at_utc": {
+            "title": "Written At Utc",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "schema_version",
+          "written_at_utc",
+          "bytes"
+        ],
+        "title": "PreUpgradeCopy",
+        "type": "object"
+      },
       "ProfileImportBody": {
         "description": "One exported profile, or a list of them.",
         "properties": {
@@ -10385,7 +10436,7 @@
       },
       "PublicationVolume": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``.",
+        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.",
         "properties": {
           "group_by": {
             "title": "Group By",
@@ -10409,6 +10460,10 @@
             ],
             "title": "Insufficient Reason"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -10430,6 +10485,7 @@
           "groups",
           "series",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "insufficient_reason"
         ],
@@ -12631,6 +12687,10 @@
           "total_new": {
             "title": "Total New",
             "type": "integer"
+          },
+          "unrecorded_runs": {
+            "title": "Unrecorded Runs",
+            "type": "integer"
           }
         },
         "required": [
@@ -12645,6 +12705,7 @@
           "runs_since_new",
           "last_new_result_at",
           "total_new",
+          "unrecorded_runs",
           "status",
           "sample_size",
           "sufficient"
@@ -12654,10 +12715,22 @@
       },
       "RoutineHealthRun": {
         "additionalProperties": true,
+        "description": "One completed run of a watch, oldest first.",
         "properties": {
-          "new_results": {
-            "title": "New Results",
+          "execution_id": {
+            "title": "Execution Id",
             "type": "integer"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
           },
           "start_time": {
             "anyOf": [
@@ -12671,11 +12744,19 @@
             "title": "Start Time"
           },
           "total_results": {
-            "title": "Total Results",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
           }
         },
         "required": [
+          "execution_id",
           "start_time",
           "new_results",
           "total_results"
@@ -14235,7 +14316,7 @@
       },
       "RunRestarted": {
         "additionalProperties": true,
-        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``; and\nat the run limit, as there, no ``execution_id`` yet, ``queued``, its\n``queue_position``, its ``ticket``, and a ``detail``.",
+        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``; and\nat the run limit, as there, no ``execution_id`` yet, ``queued``, its\n``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only\nfor a watch's run, which runs as its watch's Run now.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -14306,6 +14387,17 @@
               }
             ],
             "title": "Restarted From"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
           },
           "ticket": {
             "anyOf": [
@@ -21398,7 +21490,7 @@
     },
     "/api/backup/last": {
       "get": {
-        "description": "The last bundle, the last restore outcome, and whether an undo copy exists.",
+        "description": "The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade.",
         "operationId": "backup_last_api_backup_last_get",
         "responses": {
           "200": {

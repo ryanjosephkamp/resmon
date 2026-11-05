@@ -21,6 +21,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { shelfHolds } from './fixtures/gallery';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SIZE = 203;
 
@@ -147,6 +148,6 @@ test('the reading queue past its first 200: drawn near the view, read as it is s
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

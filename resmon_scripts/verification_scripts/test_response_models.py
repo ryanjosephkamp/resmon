@@ -1247,6 +1247,10 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     export directory is set to a scratch folder through the storage settings
     route. Every path is checked before the first backup.
 
+    Backup is read once with nothing beside the database and once with a file
+    named as an upgrade's copy of it, so ``pre_upgrade_copy`` is drawn both
+    ways; the file is removed again.
+
     The live database is given one orphan row before the backup, so the
     foreign-key fields carry a finding, and loses it again at the end. A copy
     of the bundle with one report changed and the vault id taken out of its
@@ -1266,6 +1270,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     import shutil  # noqa: PLC0415 — only this slice needs these
     import sqlite3  # noqa: PLC0415
     from implementation_scripts import backup as backup_module  # noqa: PLC0415
+    from implementation_scripts import upgrade_copy  # noqa: PLC0415
 
     with _scratch("resmon-scenario-backup-") as root:
         state, exports, reports, elsewhere, restored = (
@@ -1309,7 +1314,17 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                                "pending_restore": None, "pending_restore_runs_when": None,
                                "pending_restore_runs_on": None,
                                "last_restore": None, "undo_copies": [],
-                               "drive_upload_retired": False}, nothing
+                               "drive_upload_retired": False, "pre_upgrade_copy": None}, nothing
+
+            # The copy an upgrade keeps beside the database, as Backup reads it.
+            kept = upgrade_copy.copy_path(_database_file(), resmon_mod.SCHEMA_VERSION - 1)
+            sqlite3.connect(kept).close()
+            try:
+                held = drive("GET", "/api/backup/last")["pre_upgrade_copy"]
+                assert (held["path"], held["schema_version"]) == (
+                    str(kept), resmon_mod.SCHEMA_VERSION - 1), held
+            finally:
+                kept.unlink()
 
             # A database from before the upload to Google Drive was removed,
             # with it switched on, as that version stored it.

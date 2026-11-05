@@ -26,6 +26,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { findCard } from './fixtures/gallery';
+import { removeStateDir } from './fixtures/cleanup';
 
 // Every sentence here is invented for this spec, and no name is a real person's.
 const SHARED = 'A thin layer of glass beads was spread across a level floor and swept by a steady fan until the '
@@ -278,6 +279,6 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
     expect(blocked).toBe('');
-    for (const dir of [stateDir, parent, staging]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [stateDir, parent, staging]) removeStateDir(dir);
   }
 });

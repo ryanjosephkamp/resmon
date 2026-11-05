@@ -273,7 +273,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
 | `POST` | `/api/backup/drive-upload-notice/acknowledge` | token | — | `DriveUploadNoticeAcknowledged` | Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
 | `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
@@ -450,7 +450,7 @@ No route. Recorded in the register as not carried forward.
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `POST` | `/api/backup/verify` | token | — | `BundleReport` | Recompute every hash and report what a restore would and would not do. |
 | `POST` | `/api/restore` | token | — | `RestoreStaged` | Verify a bundle and stage it. The restore itself happens on the next start. |
 | `POST` | `/api/restore/acknowledge` | token | — | `RestoreAcknowledged` | Dismiss the one-time "what a restore did not bring back" card. |

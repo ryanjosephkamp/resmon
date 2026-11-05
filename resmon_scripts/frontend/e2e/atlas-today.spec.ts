@@ -20,6 +20,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -183,7 +184,7 @@ test('Today lists what is new since the last look, and Mark all read starts the 
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -292,7 +293,7 @@ test('Today is kept between visits: the same answer is drawn at rest, and a new 
       .toBeLessThan(60_000);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -374,7 +375,7 @@ test('Today lists a group\'s first papers, more on request, and any paper chosen
     await expect(entries).toHaveCount(60);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -441,6 +442,6 @@ test('Today lists every new paper: the newest thousand first, then the ones befo
     expect(problems).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

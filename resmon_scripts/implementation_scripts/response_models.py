@@ -2150,11 +2150,13 @@ class RunRestarted(LosslessModel):
     """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
-    ``queue_position``, its ``ticket``, and a ``detail``."""
+    ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+    for a watch's run, which runs as its watch's Run now."""
 
     execution_id: Optional[int]
     restarted_from: Optional[int]
     ai_enabled: bool
+    routine_id: Optional[int] = None
     duplicate: Optional[bool] = None
     queued: Optional[bool] = None
     queue_position: Optional[int] = None
@@ -2994,22 +2996,28 @@ class DiscoveryLagRow(LosslessModel):
     median_days: Optional[float]
     fastest_days: Optional[float]
     slowest_days: Optional[float]
+    not_a_day: int
 
 
 class DiscoveryLag(LosslessModel):
-    """``GET /api/analytics/discovery-lag``."""
+    """``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day."""
 
     sources: list[DiscoveryLagRow]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     minimum_sample: int
     insufficient_reason: Optional[str]
 
 
 class RoutineHealthRun(LosslessModel):
+    """One completed run of a watch, oldest first."""
+
+    execution_id: int
     start_time: Optional[str]
-    new_results: int
-    total_results: int
+    # None where the run did not record the count, never 0.
+    new_results: Optional[int]
+    total_results: Optional[int]
 
 
 class RoutineHealthRow(LosslessModel):
@@ -3026,6 +3034,7 @@ class RoutineHealthRow(LosslessModel):
     runs_since_new: int
     last_new_result_at: Optional[str]
     total_new: int
+    unrecorded_runs: int
     status: str
     sample_size: int
     sufficient: bool
@@ -3051,12 +3060,13 @@ class PublicationVolumeMonth(LosslessModel):
 
 
 class PublicationVolume(LosslessModel):
-    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in."""
 
     group_by: str
     groups: list[str]
     series: list[PublicationVolumeMonth]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     insufficient_reason: Optional[str]
 
@@ -4623,6 +4633,21 @@ class BackupSummary(LosslessModel):
     fk_violations_rows: Optional[int]
 
 
+class PreUpgradeCopy(LosslessModel):
+    """The copy of the database kept beside it before the last schema upgrade, read from the file.
+
+    ``schema_version`` is the schema the database was at when it was copied,
+    from the file's name. ``written_at_utc`` is the file's modification time,
+    which is when the copy was finished unless something has written to the
+    file since. ``bytes`` is its size. Nothing is opened or checked here.
+    """
+
+    path: str
+    schema_version: int
+    written_at_utc: str
+    bytes: int
+
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------
@@ -4795,6 +4820,8 @@ class BackupLast(LosslessModel):
     while this database still has the removed upload to Google Drive after
     each run switched on, until ``POST
     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+    ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+    last schema upgrade, ``None`` when there is none there.
 
     A pointer or record edited by hand into a shape no resmon wrote matches
     neither model of its union, and this route then answers 500 rather than a
@@ -4809,6 +4836,7 @@ class BackupLast(LosslessModel):
     last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
     undo_copies: list[str]
     drive_upload_retired: bool
+    pre_upgrade_copy: Optional[PreUpgradeCopy]
 
 
 class RestoreCancelled(LosslessModel):

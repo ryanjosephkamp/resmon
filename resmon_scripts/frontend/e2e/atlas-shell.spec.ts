@@ -21,6 +21,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
 import { SCREEN_PATHS } from '../atlas/src/screenPaths';
+import { removeStateDir } from './fixtures/cleanup';
 
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -42,7 +43,7 @@ test('the app serves the Atlas shell, connected to its own backend', async () =>
     expect(port, 'the installed service port is never used').not.toBe('8742');
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -77,7 +78,7 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
     app, win, problems,
     done: async () => {
       await app.close().catch(() => { /* already gone */ });
-      fs.rmSync(root, { recursive: true, force: true });
+      removeStateDir(root);
     },
   };
 }
@@ -185,8 +186,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await win.keyboard.press(`${MOD}+BracketRight`);
     await expect.poll(() => hash(win)).toBe('#/health');
 
-    // — ⌘N: Ask, a new conversation, the caret in the composer --------------------------
-    await win.keyboard.press(`${MOD}+n`);
+    // — ⇧⌘N: Ask, a new conversation, the caret in the composer (⌘N is New Window) ----
+    await win.keyboard.press(`${MOD}+Shift+n`);
     await expect.poll(() => hash(win)).toBe('#/ask');
     const composer = win.getByRole('region', { name: 'Conversation' }).getByLabel('Message the assistant');
     await expect(win.getByRole('button', { name: 'New conversation' })).toHaveAttribute('aria-pressed', 'true');
@@ -265,10 +266,12 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
 
     // — nothing while a dialog of a screen's own is open, not even the menu's keys -----
     await openForeignDialog(win);
-    for (const key of [`${MOD}+3`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
+    for (const key of [`${MOD}+3`, `${MOD}+Shift+n`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
     await win.waitForTimeout(500);
     expect(await hash(win)).toBe('#/search');
     await expect(palette).toBeHidden();
+    // ⌘N opened no window over it either.
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
     await closeForeignDialog(win);
 
     // — the app menu carries the same keys, and its items reach the renderer -------------
@@ -277,7 +280,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
       return found ? { label: found.label, accelerator: found.accelerator ?? null } : null;
     }, id);
     const click = (id: string) => app.evaluate(({ Menu }, which) => { Menu.getApplicationMenu()?.getMenuItemById(which)?.click(); }, id);
-    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'CmdOrCtrl+N' });
+    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'Shift+CmdOrCtrl+N' });
     expect(await item('file-new-dive')).toEqual({ label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D' });
     expect(await item('file-new-sweep')).toEqual({ label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D' });
     expect((await item('app-settings'))?.accelerator).toBe('CmdOrCtrl+,');

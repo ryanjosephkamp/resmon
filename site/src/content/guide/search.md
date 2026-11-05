@@ -70,7 +70,7 @@ Beside the form are the five newest runs, with a link to the **Runs** tab.
 
 The **Runs** tab (⌘7) holds every run.
 
-- **Running now.** Each run going now, with each of its sources in the Source wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so.
+- **Running now.** Each run going now, with each of its sources in the Source wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so. Pointing at a source's mark, or reaching it from the keyboard (the marks are one stop, the arrow keys between them), says what that source has done so far, and choosing it opens the run.
 - **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't run**; a watch's run is stopped by pausing the watch.
 - **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches**, **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
 
@@ -94,7 +94,7 @@ A run's page opens when you start a search, from the Runs tab, from a watch's hi
 
 - **Header.** **Stop** (while it runs; a stop is cooperative, so the run ends at its next checkpoint), **Restart**, export buttons, **Bundle**, **Save as a search**, and **Delete this run**. The line under the name gives the kind, when it started, how long it took, its status, and the saved search or earlier run it is linked to. **Dates** states the dates the run asked for; for a watch whose window moves, they are the dates computed when it fired.
 - **Summaries** says whether the run summarized, with which connection, and what each connection it tried did.
-- **Sources.** While the run goes, the page says the stage it is at, a bar shows how many of its sources have finished, and the heading's clock ticks. Each source is drawn in the Source wall's marks; one being asked says how long, from the engine's heartbeat every two seconds, the requests sent and any retries, and what it is waiting for (the source's pace, a pause the source asked for, or the pause before asking again). Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, and a fault mark a non-answer. Each source gives a result count, or "count not recorded".
+- **Sources.** While the run goes, the page says the stage it is at, a bar shows how many of its sources have finished, and the heading's clock ticks. Each source is drawn in the Source wall's marks; one being asked says how long, from the engine's heartbeat every two seconds, the requests sent and any retries, and what it is waiting for (the source's pace, a pause the source asked for, or the pause before asking again). Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, and a fault mark a non-answer. Each source gives a result count, or "count not recorded". Pointing at the bar names the sources still being asked and those not asked yet, and pointing at a source's mark gives its outcome and count in a tip.
 - **The map.** A small map of where this run's papers sit in the collection.
 
 The tabs below hold the run's own record:
@@ -102,7 +102,7 @@ The tabs below hold the run's own record:
 | Tab | What it holds |
 |---|---|
 | **Papers** | The papers the run stored, each with **Save to read**; **Save this run's new papers** saves every paper the run was the first to find, and **Select** saves the papers you pick, or with **Select all** every paper it stored |
-| **Map** | The run's papers on the collection map, with find, filters, and colors |
+| **Map** | The run's papers on the collection map, with find, filters, and colors; a paper is named under the pointer and when chosen from the keyboard |
 | **Report** | The Markdown report as resmon wrote it, with **Save as Markdown** |
 | **Search record** | The dated, reproducible account of the search: the terms as typed, what each source's requests carried, the dates and cap, what each source returned, deduplication, and caveats, with **Save as Markdown** |
 | **Log** | The run's log |

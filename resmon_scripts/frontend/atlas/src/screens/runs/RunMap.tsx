@@ -3,7 +3,9 @@ import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
-import { Tip, findPosition } from '../Today';
+import { Tip, findPosition, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { opensWords } from '../sky/PaperSky';
 import { MAP_KEY } from '../today/freshness';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
@@ -127,6 +129,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             pointed={null}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of your whole collection puts it.`}
             onAway={() => undefined}
@@ -135,12 +138,19 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', true, hovered === selectedId)} />
             )}
           </Plate>
         ) : (
           <div className="plate plate-waiting"><p role="status">{account.waiting ?? account.sentence}</p></div>
         )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
         {sky && (
           <PlateKey showWatches={false}
             colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
+import { ChartTip, tipWords, type TipAnchor, type TipContent } from '../charts/ChartTip';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
 import { useMinute } from '../lib/useMinute';
@@ -294,6 +295,7 @@ export function Today() {
             pointed={pointedIndex}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`Map of your ${number(sky.count)} papers in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
             onAway={setAway}
@@ -307,7 +309,9 @@ export function Today() {
             {hover && (
               <Tip hover={hover} paper={hovered !== null ? listed.get(hovered) : undefined}
                 brief={brief.data ?? undefined} now={now} cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
-                sourceName={sourceName} />
+                sourceName={sourceName}
+                opens={hover.via === 'keyboard' || hovered === selectedId ? undefined
+                  : hovered !== null && listed.has(hovered) ? 'Chooses it in the list beside the map' : 'Opens it beside the map'} />
             )}
           </Plate>
         ) : (
@@ -316,6 +320,13 @@ export function Today() {
             <FirstRun />
           </div>
         )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            paper: hovered !== null ? listed.get(hovered) : undefined, brief: brief.data ?? undefined, now, sourceName,
+            cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
         <PlateKey newLabel={heading.replace(/^New/, 'new')} showWatches={shapes.length > 0}
           colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}
           extra={<DimKey look={look} finding={mapLook.find.finding} filtered={filterCount(mapLook.view) > 0} />} />
@@ -439,38 +450,42 @@ function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWo
   );
 }
 
-/** The most room a tip takes: its CSS's widest, and three lines of it. */
-const TIP_WIDTH = 300;
-const TIP_HEIGHT = 96;
-
-/** What the pointer is over on a map: the paper's line, or its grid cell while that is read. */
-export function Tip({ hover, paper, brief, now, cell, sourceName }: {
+/**
+ * What the pointer is over on a map, in the charts' tip: the paper's title,
+ * its authors, and where it came from, or its grid cell while those are read.
+ * The tip is set beside a small box drawn at the paper, so it never covers the
+ * paper it names, and over the page, so a map's edge never cuts it off.
+ */
+export function Tip({ hover, paper, brief, now, cell, sourceName, opens }: {
   hover: PlateHover; paper?: IndexPaper; brief?: Brief; now: Date; cell: string;
   sourceName: (slug: string) => string;
+  /** What a click on the paper does on this map, said only where it does something. */
+  opens?: string;
 }) {
-  const info = paper ?? brief;
-  const ago = daysAgo(info?.first_seen_at, now);
-  // Beside the paper, below and to the right, unless that runs off a small plate's edge.
-  const flipX = hover.width !== undefined && hover.screenX + 14 + TIP_WIDTH > hover.width;
-  const flipY = hover.height !== undefined && hover.screenY + 14 + TIP_HEIGHT > hover.height;
-  const place = {
-    ...(flipX ? { right: (hover.width ?? 0) - hover.screenX + 14 } : { left: hover.screenX + 14 }),
-    ...(flipY ? { bottom: (hover.height ?? 0) - hover.screenY + 14 } : { top: hover.screenY + 14 }),
-  };
+  const [at, setAt] = useState<HTMLSpanElement | null>(null);
+  // The box moves with the pointer's paper; the tip is placed beside it again on each render.
+  const anchor = useMemo<TipAnchor | null>(() => (at ? { element: at, pointer: null } : null), [at]);
   return (
-    <div className="tip" style={place} role="tooltip">
-      {info ? (
-        <>
-          <b>{paper ? `${paper.n}. ` : ''}{info.title}</b>
-          <span>{authors(info.authors)}</span>
-          <span>
-            {sourceName(info.source)} · {cell}
-            {ago !== null && ` · collected ${ago === 0 ? 'today' : ago === 1 ? 'yesterday' : `${number(ago)} days ago`}`}
-          </span>
-        </>
-      ) : <span>{cell}</span>}
-    </div>
+    <>
+      <span ref={setAt} className="plate-tip-at" style={{ left: hover.screenX, top: hover.screenY }} aria-hidden="true" />
+      <ChartTip anchor={anchor} content={paperTip({ paper, brief, now, cell, sourceName, opens })} />
+    </>
   );
+}
+
+/** A paper's tip on a map: its number and title, its authors, its source, its cell, and when it was collected. */
+export function paperTip({ paper, brief, now, cell, sourceName, opens }: {
+  paper?: IndexPaper; brief?: Brief; now: Date; cell: string; sourceName: (slug: string) => string; opens?: string;
+}): TipContent {
+  const info = paper ?? brief;
+  if (!info) return { value: cell, opens };
+  const ago = daysAgo(info.first_seen_at, now);
+  const collected = ago === null ? '' : ` · collected ${ago === 0 ? 'today' : ago === 1 ? 'yesterday' : `${number(ago)} days ago`}`;
+  return {
+    value: `${paper ? `${paper.n}. ` : ''}${info.title}`,
+    notes: [authors(info.authors), `${sourceName(info.source)} · ${cell}${collected}`].filter(Boolean),
+    opens,
+  };
 }
 
 const WILL_NOT_RUN: Record<string, string> = {

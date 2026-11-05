@@ -34,6 +34,28 @@ for _path in (_REPO_ROOT, _REPO_ROOT / "resmon_scripts"):
     if str(_path) not in sys.path:
         sys.path.insert(0, str(_path))
 
+# ---------------------------------------------------------------------------
+# The suite's own state, outside the checkout
+# ---------------------------------------------------------------------------
+#
+# ``config`` falls back to the checkout for the database (``resmon.db``), the
+# reports folder (``resmon_reports/``, which also holds a tracked figure), and
+# the port file beside the database, and reads them once, when it is first
+# imported. Set here, before anything imports it, a run writes every run log,
+# report, and default database into one temporary folder, removed when the
+# run ends, and leaves the checkout as it found it. A test that needs the
+# checkout-relative defaults (``test_state_dir_overrides.py``) starts its own
+# interpreter without these.
+import atexit  # noqa: E402
+import shutil  # noqa: E402
+import tempfile  # noqa: E402
+
+_SUITE_STATE = Path(tempfile.mkdtemp(prefix="resmon-test-suite-"))
+os.environ["RESMON_DB_PATH"] = str(_SUITE_STATE / "resmon.db")
+os.environ["RESMON_REPORTS_DIR"] = str(_SUITE_STATE / "reports")
+os.environ["RESMON_PORT_FILE"] = str(_SUITE_STATE / "resmon.port")
+atexit.register(shutil.rmtree, _SUITE_STATE, True)
+
 from resmon_scripts.verification_scripts.live_evidence import (  # noqa: E402
     LiveEvidenceWriter,
     QuarantineEntry,
@@ -378,9 +400,7 @@ from implementation_scripts import api_auth  # noqa: E402
 # discovery would read the developer's real Application Support directory —
 # and, on a machine running resmon, find a real daemon's token there. The suite
 # gets a state directory of its own; a test that needs another sets its own.
-import tempfile  # noqa: E402
-
-os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-")
+os.environ["RESMON_STATE_DIR"] = tempfile.mkdtemp(prefix="resmon-test-state-", dir=_SUITE_STATE)
 
 # The background service, likewise: a label of the suite's own, and a stand-in
 # for launchctl that holds nothing and starts nothing unless a test gives it a
