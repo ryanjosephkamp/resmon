@@ -1050,6 +1050,7 @@ FIXTURES = [
     _Fixture(21, tables=34, rows=191),
     _Fixture(25, tables=37, rows=194),
     _Fixture(26, tables=39, rows=217),
+    _Fixture(27, tables=43, rows=240),
 ]
 IDS = [f.name for f in FIXTURES]
 
