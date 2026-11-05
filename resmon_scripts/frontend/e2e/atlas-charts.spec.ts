@@ -24,6 +24,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Locator, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 import {
   SEED, chooseByKeyboard, engine, findAndOpen, mapsEnv, resize, stillView, throttle, uniqueTitle, type Seeded,
 } from './fixtures/maps';
@@ -426,7 +427,7 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -583,6 +584,6 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
     expect(blocked).toBe('');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
