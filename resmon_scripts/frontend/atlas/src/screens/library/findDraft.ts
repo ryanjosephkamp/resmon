@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { afterPause } from '../../shell/history';
 
 /** How long typing pauses before the find field's words become the address's `?q=`. */
 export const FIND_PAUSE_MS = 300;
@@ -21,8 +22,8 @@ export function useFindDraft(show: string, q: string, write: (q: string | null) 
   }
   useEffect(() => {
     if (draft.trim() === q) return undefined;
-    const settle = window.setTimeout(() => { setWritten(draft.trim()); write(draft.trim() || null); }, FIND_PAUSE_MS);
-    return () => window.clearTimeout(settle);
+    // Not once the window has gone to another page: the write would take it back to the shelf.
+    return afterPause(FIND_PAUSE_MS, () => { setWritten(draft.trim()); write(draft.trim() || null); });
   }, [draft, q, write]);
   return [draft, setDraft];
 }

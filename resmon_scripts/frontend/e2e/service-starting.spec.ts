@@ -25,6 +25,7 @@ import { execFileSync, type ChildProcess } from 'child_process';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv } from './fixtures/resmon-app';
 import { removeStateDir } from './fixtures/cleanup';
+import { capture, stepsWithin, tellWrote } from './fixtures/steps';
 
 test.describe.configure({ mode: 'serial' });
 test.skip(process.platform !== 'darwin', 'The check of the service at launch is the Mac\'s.');
@@ -93,70 +94,6 @@ function hold(child: ChildProcess): boolean {
 function release(child: ChildProcess): boolean {
   if (child.pid === undefined) return false;
   try { process.kill(child.pid, 'SIGCONT'); return true; } catch { return false; }
-}
-
-/**
- * A test's steps, each logged with when it began and held to a time of its
- * own and to the test's, less the time kept for teardown: a stall fails the
- * step it is in, with a sentence that names it, while there is still time to
- * put everything away. `run` is given the step's time, for a Playwright wait
- * to be held to it as well, so a launch that times out is stopped by
- * Playwright itself.
- */
-function stepsWithin(testTimeoutMs: number): {
-  say: (line: string) => void;
-  step: <T>(what: string, limitMs: number, run: (ms: number) => Promise<T>) => Promise<T>;
-} {
-  const begun = Date.now();
-  const deadline = begun + testTimeoutMs - TEARDOWN_MS;
-  const since = (): string => `${((Date.now() - begun) / 1000).toFixed(1)} s`;
-  const say = (line: string): void => {
-    console.log(`SERVICE STARTING ${new Date().toISOString().slice(11, 23)} +${since()} ${line}`);
-  };
-  const step = async <T>(what: string, limitMs: number, run: (ms: number) => Promise<T>): Promise<T> => {
-    const ms = Math.max(1_000, Math.min(limitMs, deadline - Date.now()));
-    say(what);
-    const work = run(ms);
-    // A step given up on may still settle later, with nobody waiting for it.
-    work.catch(() => { /* reported below while the step is waited for */ });
-    const begunStep = Date.now();
-    let timer: NodeJS.Timeout | undefined;
-    const stalled = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(`Stalled at "${what}": not done after `
-        + `${Math.round((Date.now() - begunStep) / 1000)} s, ${since()} into the test.`)), ms + 5_000);
-    });
-    try {
-      return await Promise.race([work, stalled]);
-    } catch (error) {
-      // The step's own error, its message led by the step it failed in.
-      if (error instanceof Error && !error.message.startsWith('Stalled at ')) {
-        const named = `Failed at "${what}", ${since()} into the test: ${error.message}`;
-        if (error.stack?.includes(error.message)) error.stack = error.stack.replace(error.message, named);
-        error.message = named;
-      }
-      throw error;
-    } finally {
-      clearTimeout(timer);
-    }
-  };
-  return { say, step };
-}
-
-/** What a launch writes, from the moment it is up: stdout alone, and stdout and stderr as they came. */
-function capture(app: ElectronApplication): { out: () => string; all: () => string } {
-  const out: string[] = [];
-  const all: string[] = [];
-  const child = app.process();
-  child.stdout?.on('data', (chunk: Buffer) => { out.push(chunk.toString()); all.push(chunk.toString()); });
-  child.stderr?.on('data', (chunk: Buffer) => { all.push(chunk.toString()); });
-  return { out: () => out.join(''), all: () => all.join('') };
-}
-
-/** Print what a launch wrote, its last part when it wrote a lot. */
-function tell(who: string, text: string): void {
-  const kept = text.length > 16_000 ? text.slice(-16_000) : text;
-  const part = kept.length < text.length ? ` (the last ${kept.length} of ${text.length} characters)` : '';
-  console.log(`SERVICE STARTING ${who} WROTE${part}:\n${kept.trimEnd() || '(nothing)'}`);
 }
 
 /** A process's command line, with this checkout's and the profile's long paths named, so its own words show. */
@@ -268,7 +205,7 @@ async function putAway(apps: Launched[], profileDir: string, port: number): Prom
 
 test('a launch waiting for a starting service says resmon is starting, and goes once the service opens its window', async () => {
   test.setTimeout(300_000);
-  const { say, step } = stepsWithin(300_000);
+  const { say, step } = stepsWithin('SERVICE STARTING', 300_000, TEARDOWN_MS);
   const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-service-starting-')));
   const port = await freePort();
   expect(port).not.toBe(8742);
@@ -354,7 +291,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     passed = true;
   } finally {
     if (!passed) {
-      for (const { who, all } of wrote) tell(who, all());
+      for (const { who, all } of wrote) tellWrote('SERVICE STARTING', who, all());
       tellState(stateDir, profileDir, port, launchd.calls);
     }
     if (held && apps[0]) release(apps[0].child);
@@ -366,7 +303,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
 
 test('closing the starting window stops waiting, and leaves the service starting', async () => {
   test.setTimeout(180_000);
-  const { say, step } = stepsWithin(180_000);
+  const { say, step } = stepsWithin('SERVICE STARTING', 180_000, TEARDOWN_MS);
   const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-service-starting-')));
   const port = await freePort();
   expect(port).not.toBe(8742);
@@ -398,7 +335,7 @@ test('closing the starting window stops waiting, and leaves the service starting
     passed = true;
   } finally {
     if (!passed) {
-      if (fromWaiting) tell('THE WAITING LAUNCH', fromWaiting.all());
+      if (fromWaiting) tellWrote('SERVICE STARTING', 'THE WAITING LAUNCH', fromWaiting.all());
       tellState(stateDir, profileDir, port, launchd.calls);
     }
     say('putting away what the test started');

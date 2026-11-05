@@ -261,8 +261,13 @@ test('5d: every agent CLI the backend knows about leads the provider list', asyn
     // The denominator is the backend's own list of subscription providers,
     // not two names written down here.
     const subscription = (await cliStatus(win)).map((p) => p.provider).sort();
-    const options = await win.locator('#ai-provider option')
+    // The form is drawn once the engine's settings have been read, and a read
+    // of its options does not wait, so they are read once they are there.
+    const listed = () => win.locator('#ai-provider option')
       .evaluateAll((els) => els.map((e) => (e as HTMLOptionElement).value));
+    await expect.poll(async () => (await listed()).filter((o) => o !== '').length, { timeout: 30_000 })
+      .toBeGreaterThanOrEqual(subscription.length);
+    const options = await listed();
     console.log('5d PROVIDER OPTIONS', JSON.stringify(options), 'SUBSCRIPTION', JSON.stringify(subscription));
     const real = options.filter((o) => o !== '');
     expect(real.slice(0, subscription.length).sort()).toEqual(subscription);
