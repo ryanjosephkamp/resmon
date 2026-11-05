@@ -26,6 +26,7 @@ import { test, expect, _electron as electron, type Locator, type Page } from '@p
 import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { shelfHolds } from './fixtures/gallery';
 import { engine } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -87,7 +88,6 @@ reading_queue.set_status(conn, lattice[-2], "read")
 conn.commit()
 print(json.dumps({"lattice": lattice, "crystals": crystals, "spectral": spectral, "protein": protein, "sweep": sweep}))
 `;
-import { removeStateDir } from './fixtures/cleanup';
 
 interface Seeded { lattice: number[]; crystals: number[]; spectral: number[]; protein: number[]; sweep: number }
 interface Counts { to_read: number; read: number; all: number }
