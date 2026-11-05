@@ -177,7 +177,7 @@ def test_a_find_that_names_its_sources_accounts_for_every_other():
     import resmon as resmon_mod
 
     _query, asked, not_asked = resmon_mod._find_plan(DOI, ["openalex", "crossref"])
-    assert asked == ["crossref", "openalex"]
+    assert asked == ["openalex", "crossref"]   # in the order they were named
     why = {item["source"]: item["why"] for item in not_asked}
     assert why["zenodo"] == "Left out of this find."
     assert why["arxiv"] == "arXiv can be asked by arXiv id, title, not by DOI."
