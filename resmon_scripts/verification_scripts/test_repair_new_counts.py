@@ -413,6 +413,60 @@ def test_on_an_upgrade_it_runs_after_the_copy_and_names_it(tmp_path, caplog):
     assert line.endswith(f"{copy.name}.")
 
 
+def test_a_one_point_oh_database_is_recounted_through_the_collections_upgrade(tmp_path, caplog):
+    """The 1.0 engine's own database (``fixtures/collections/schema_25.sql``) on its first start at schema 26.
+
+    The recount runs after the step to schema 26 files every paper in the default
+    collection: the runs' links come out as the rule gives them, the counts and the
+    memberships are left as that step wrote them, and the copy kept at 25 holds the
+    links as the 1.0 engine left them. The fixture's times were laid out, each
+    paper first stored before the run that links it started, so by the rule none
+    of its links is new to its run, though the fixture marks them new.
+    """
+    from verification_scripts.test_cumulative_upgrade import _as_recounted
+
+    path = tmp_path / "resmon.db"
+    conn = _open(path)
+    conn.executescript((FIXTURES / "collections" / "schema_25.sql").read_text(encoding="utf-8"))
+    conn.commit()
+    assert database.get_schema_version(conn) == 25
+    before = [tuple(r) for r in conn.execute("SELECT * FROM execution_documents ORDER BY 1, 2")]
+    counts_before = [tuple(r) for r in conn.execute("SELECT id, new_result_count FROM executions ORDER BY id")]
+    expected = _as_recounted(conn)
+    try:
+        want = [tuple(r) for r in expected.execute("SELECT * FROM execution_documents ORDER BY 1, 2")]
+    finally:
+        expected.close()
+    papers = [r[0] for r in conn.execute("SELECT id FROM documents ORDER BY id")]
+    conn.close()
+    assert before and papers
+    assert want != before, "the fixture should have links the recount corrects"
+
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        init_db(str(path))
+
+    upgraded = _open(path)
+    try:
+        assert database.get_schema_version(upgraded) == database.SCHEMA_VERSION
+        assert [tuple(r) for r in upgraded.execute(
+            "SELECT * FROM execution_documents ORDER BY 1, 2")] == want
+        assert [tuple(r) for r in upgraded.execute(
+            "SELECT id, new_result_count FROM executions ORDER BY id")] == counts_before
+        assert [r[0] for r in upgraded.execute(
+            "SELECT document_id FROM collection_documents WHERE collection_id = 1 ORDER BY document_id")] == papers
+        assert upgraded.execute(
+            "SELECT 1 FROM app_settings WHERE key = ?", (RUN_NEW_PAPERS_RECOUNTED_KEY,)).fetchone()
+    finally:
+        upgraded.close()
+    held = _open(upgrade_copy.copy_path(path, 25))
+    try:
+        assert [tuple(r) for r in held.execute("SELECT * FROM execution_documents ORDER BY 1, 2")] == before
+    finally:
+        held.close()
+    [line] = _recount_lines(caplog)
+    assert line.endswith(f"{upgrade_copy.copy_path(path, 25).name}.")
+
+
 def test_a_copy_an_earlier_upgrade_left_is_not_named_as_this_starts(tmp_path, caplog):
     """A restore starts the restored database without keeping a copy of it first."""
     path = tmp_path / "resmon.db"
