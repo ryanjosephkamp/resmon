@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { evidence } from './evidenceApi';
+import { pdfBytes } from './libraryApi';
 import {
   MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, loadPdfJs, pdfAsset,
   type PdfDocument, type PdfLoadingTask, type PdfModule, type PdfWorker,
@@ -7,8 +8,12 @@ import {
 import type { Size } from './readerModel';
 import type { FindText } from './findModel';
 
-/** The identity of the exact version being drawn, as plain values, so a project's new revision does not redraw it. */
-export interface Drawn { vault_id: string; project_id: string; file_id: string; version_id: string; sha256: string; byte_size: number }
+/**
+ * The identity of the exact version being drawn, as plain values, so a project's new revision does not redraw it.
+ * `project_id` is the Evidence project it is read through, or null for the Library's own reader, which reads it
+ * read-only straight from the Library.
+ */
+export interface Drawn { vault_id: string; project_id: string | null; file_id: string; version_id: string; sha256: string; byte_size: number }
 
 /**
  * Drawing work, a few jobs at a time and nearest first. A job's priority is
@@ -137,7 +142,7 @@ export function usePdfSession(drawn: Drawn | null, attempt: number): SessionStat
   const [state, setState] = useState<{ opening: string; said: SessionState } | null>(null);
 
   useEffect(() => {
-    if (!vault_id || !project_id || !file_id || !version_id || !sha256 || byte_size === undefined) return undefined;
+    if (!vault_id || project_id === undefined || !file_id || !version_id || !sha256 || byte_size === undefined) return undefined;
     let live = true;
     const abort = new AbortController();
     const drawer = new Drawer();
@@ -161,7 +166,9 @@ export function usePdfSession(drawn: Drawn | null, attempt: number): SessionStat
       () => fail(`Opening the PDF took longer than ${RENDER_TIMEOUT / 1000} seconds, so its worker was stopped.`), RENDER_TIMEOUT);
     void (async () => {
       try {
-        const data = await evidence.pdf({ vault_id, project_id }, { file_id, version_id, sha256, byte_size }, abort.signal);
+        const data = project_id
+          ? await evidence.pdf({ vault_id, project_id }, { file_id, version_id, sha256, byte_size }, abort.signal)
+          : await pdfBytes({ vault_id, file_id, version_id, sha256, byte_size }, abort.signal);
         if (!live) return;
         const api = await loadPdfJs();
         if (!live) return;

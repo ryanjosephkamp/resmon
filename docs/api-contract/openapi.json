@@ -5494,6 +5494,41 @@
         "title": "EmbeddingStatus",
         "type": "object"
       },
+      "EvidenceCoverFile": {
+        "additionalProperties": true,
+        "description": "One of a project's first three PDFs, for its cover in the Library's gallery.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "version_id",
+          "sha256",
+          "byte_size",
+          "media_type"
+        ],
+        "title": "EvidenceCoverFile",
+        "type": "object"
+      },
       "EvidenceFileRecord": {
         "additionalProperties": true,
         "description": "The exact Library file and version a membership or a note is pinned to.",
@@ -6124,6 +6159,13 @@
         "additionalProperties": true,
         "description": "A project row as stored, with its current counts.",
         "properties": {
+          "cover_files": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceCoverFile"
+            },
+            "title": "Cover Files",
+            "type": "array"
+          },
           "created_at_utc": {
             "title": "Created At Utc",
             "type": "string"
@@ -6142,6 +6184,10 @@
           },
           "note_count": {
             "title": "Note Count",
+            "type": "integer"
+          },
+          "passage_count": {
+            "title": "Passage Count",
             "type": "integer"
           },
           "project_id": {
@@ -6170,7 +6216,9 @@
           "created_at_utc",
           "updated_at_utc",
           "file_count",
-          "note_count"
+          "note_count",
+          "passage_count",
+          "cover_files"
         ],
         "title": "EvidenceProject",
         "type": "object"
@@ -7221,7 +7269,7 @@
       },
       "LibraryCounts": {
         "additionalProperties": true,
-        "description": "What the database records the vault holding; ``basis`` says it was not re-measured.",
+        "description": "What the database records the vault holding; ``basis`` says it was not re-measured.\n\n``removed`` counts removed files still on record. ``missing`` is how many\nrecorded files have no folder in the Library folder now; it is present only\nwhen the folder was read.",
         "properties": {
           "basis": {
             "title": "Basis",
@@ -7229,6 +7277,21 @@
           },
           "items": {
             "title": "Items",
+            "type": "integer"
+          },
+          "missing": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Missing"
+          },
+          "removed": {
+            "title": "Removed",
             "type": "integer"
           },
           "retained_bytes": {
@@ -7239,7 +7302,8 @@
         "required": [
           "items",
           "retained_bytes",
-          "basis"
+          "basis",
+          "removed"
         ],
         "title": "LibraryCounts",
         "type": "object"
@@ -7282,6 +7346,10 @@
             "title": "Paper Links",
             "type": "array"
           },
+          "project_count": {
+            "title": "Project Count",
+            "type": "integer"
+          },
           "relative_path": {
             "title": "Relative Path",
             "type": "string"
@@ -7311,6 +7379,7 @@
           "relative_path",
           "created_at_utc",
           "paper_links",
+          "project_count",
           "availability"
         ],
         "title": "LibraryFile",
@@ -7341,7 +7410,7 @@
       },
       "LibraryFiles": {
         "additionalProperties": true,
-        "description": "``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``.",
+        "description": "``GET /api/library/files``: a page under a fixed ceiling, ``through_id``, in ``sort`` order.\n\n``total`` counts the files under the ceiling that match the name filter.",
         "properties": {
           "files": {
             "items": {
@@ -7365,8 +7434,20 @@
             ],
             "title": "Next Before Id"
           },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "string"
+          },
           "through_id": {
             "title": "Through Id",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
             "type": "integer"
           },
           "vault_id": {
@@ -7384,9 +7465,42 @@
           "files",
           "through_id",
           "next_before_id",
-          "has_more"
+          "has_more",
+          "sort",
+          "offset",
+          "total"
         ],
         "title": "LibraryFiles",
+        "type": "object"
+      },
+      "LibraryForgotten": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/library/removed/{file_id}``: the record is gone; its bytes had already left.",
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "forgotten": {
+            "title": "Forgotten",
+            "type": "boolean"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "forgotten"
+        ],
+        "title": "LibraryForgotten",
         "type": "object"
       },
       "LibraryImported": {
@@ -7473,29 +7587,25 @@
       },
       "LibraryLimits": {
         "additionalProperties": true,
+        "description": "One size for keeping a file and reading it, and the free space an import leaves.",
         "properties": {
-          "batch_files": {
-            "title": "Batch Files",
-            "type": "integer"
-          },
           "file_bytes": {
             "title": "File Bytes",
             "type": "integer"
           },
-          "items": {
-            "title": "Items",
+          "free_space_floor": {
+            "title": "Free Space Floor",
             "type": "integer"
           },
-          "vault_bytes": {
-            "title": "Vault Bytes",
+          "read_bytes": {
+            "title": "Read Bytes",
             "type": "integer"
           }
         },
         "required": [
           "file_bytes",
-          "batch_files",
-          "vault_bytes",
-          "items"
+          "read_bytes",
+          "free_space_floor"
         ],
         "title": "LibraryLimits",
         "type": "object"
@@ -7560,6 +7670,129 @@
           "paper_links"
         ],
         "title": "LibraryLinked",
+        "type": "object"
+      },
+      "LibraryMoveBody": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_vault_id": {
+            "title": "Expected Vault Id",
+            "type": "string"
+          },
+          "parent_directory": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Parent Directory",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_vault_id",
+          "parent_directory"
+        ],
+        "title": "LibraryMoveBody",
+        "type": "object"
+      },
+      "LibraryMoved": {
+        "additionalProperties": true,
+        "description": "Where a move took the Library folder. ``old_folder_kept`` is the old folder's path\nwhen the move copied across disks and left it where it was, else ``None``.",
+        "properties": {
+          "old_folder_kept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Folder Kept"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "previous": {
+            "title": "Previous",
+            "type": "string"
+          },
+          "same_disk": {
+            "title": "Same Disk",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "previous",
+          "path",
+          "same_disk",
+          "old_folder_kept"
+        ],
+        "title": "LibraryMoved",
+        "type": "object"
+      },
+      "LibraryMovedStatus": {
+        "additionalProperties": true,
+        "description": "``POST /api/library/vault/move``: the status after the move, and the move itself.",
+        "properties": {
+          "changing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changing"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/LibraryCounts"
+          },
+          "limits": {
+            "$ref": "#/components/schemas/LibraryLimits"
+          },
+          "moved": {
+            "$ref": "#/components/schemas/LibraryMoved"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "vault": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LibraryVault"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault",
+          "status",
+          "counts",
+          "limits",
+          "moved"
+        ],
+        "title": "LibraryMovedStatus",
         "type": "object"
       },
       "LibraryOpenBody": {
@@ -7653,10 +7886,409 @@
         "title": "LibraryPaperLink",
         "type": "object"
       },
+      "LibraryPicture": {
+        "additionalProperties": true,
+        "description": "``PUT /api/library/files/{file_id}/picture``: the picture kept for this version.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "version_id",
+          "media_type",
+          "byte_size"
+        ],
+        "title": "LibraryPicture",
+        "type": "object"
+      },
+      "LibraryReleased": {
+        "additionalProperties": true,
+        "description": "``POST /api/library/removed/{file_id}/release``: the held file's path, for the Trash only.",
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "path"
+        ],
+        "title": "LibraryReleased",
+        "type": "object"
+      },
+      "LibraryRelinkBody": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_vault_id": {
+            "title": "Expected Vault Id",
+            "type": "string"
+          },
+          "folder": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Folder",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_vault_id",
+          "folder"
+        ],
+        "title": "LibraryRelinkBody",
+        "type": "object"
+      },
+      "LibraryRemoval": {
+        "additionalProperties": true,
+        "description": "``GET /api/library/files/{file_id}/removal``: what would go with the file.",
+        "properties": {
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRemovalLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "needs_confirmation": {
+            "title": "Needs Confirmation",
+            "type": "boolean"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRemovalProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "file_id",
+          "version_id",
+          "original_name",
+          "links",
+          "projects",
+          "needs_confirmation"
+        ],
+        "title": "LibraryRemoval",
+        "type": "object"
+      },
+      "LibraryRemovalLink": {
+        "additionalProperties": true,
+        "properties": {
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "document_id",
+          "title"
+        ],
+        "title": "LibraryRemovalLink",
+        "type": "object"
+      },
+      "LibraryRemovalProject": {
+        "additionalProperties": true,
+        "description": "A project the file is in (``member``) or has notes in, with how many of each.",
+        "properties": {
+          "member": {
+            "title": "Member",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "integer"
+          },
+          "passages": {
+            "title": "Passages",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "member",
+          "notes",
+          "passages"
+        ],
+        "title": "LibraryRemovalProject",
+        "type": "object"
+      },
+      "LibraryRemoveBody": {
+        "additionalProperties": false,
+        "properties": {
+          "cascade": {
+            "default": false,
+            "title": "Cascade",
+            "type": "boolean"
+          },
+          "expected_vault_id": {
+            "title": "Expected Vault Id",
+            "type": "string"
+          },
+          "expected_version_id": {
+            "title": "Expected Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_vault_id",
+          "expected_version_id"
+        ],
+        "title": "LibraryRemoveBody",
+        "type": "object"
+      },
+      "LibraryRemoved": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/library/files/{file_id}``: the file as it is now held.",
+        "properties": {
+          "removed": {
+            "$ref": "#/components/schemas/LibraryRemovedFile"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "removed"
+        ],
+        "title": "LibraryRemoved",
+        "type": "object"
+      },
+      "LibraryRemovedFile": {
+        "additionalProperties": true,
+        "description": "A removed file on record. ``bytes`` is ``held``, ``missing`` (none to hold when it\nwas removed) or ``gone`` (no longer in the removed folder).",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "bytes": {
+            "title": "Bytes",
+            "type": "string"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "links": {
+            "title": "Links",
+            "type": "integer"
+          },
+          "media_type": {
+            "title": "Media Type",
+            "type": "string"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "integer"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "projects": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRemovedProject"
+            },
+            "title": "Projects",
+            "type": "array"
+          },
+          "removed_at_utc": {
+            "title": "Removed At Utc",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "version_id",
+          "original_name",
+          "media_type",
+          "byte_size",
+          "sha256",
+          "removed_at_utc",
+          "bytes",
+          "links",
+          "projects",
+          "notes"
+        ],
+        "title": "LibraryRemovedFile",
+        "type": "object"
+      },
+      "LibraryRemovedList": {
+        "additionalProperties": true,
+        "description": "``GET /api/library/removed``: every removed file on record, and the bytes still held.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/LibraryRemovedFile"
+            },
+            "title": "Removed",
+            "type": "array"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "vault_id",
+          "removed",
+          "bytes"
+        ],
+        "title": "LibraryRemovedList",
+        "type": "object"
+      },
+      "LibraryRemovedProject": {
+        "additionalProperties": true,
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "notes": {
+            "title": "Notes",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "notes"
+        ],
+        "title": "LibraryRemovedProject",
+        "type": "object"
+      },
       "LibraryStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/library`` and ``POST /api/library/vault``.\n\n``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,\n``needs_attention`` or ``unavailable``; ``reason`` is present only for the\ntwo that came from a refusal.",
+        "description": "``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.\n\n``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder\nis not where it was recorded), ``mismatch``, ``needs_attention`` or\n``unavailable``; ``reason`` is present only for those that came from a\nrefusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``\nwhile the folder's place is being changed, and absent otherwise.",
         "properties": {
+          "changing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changing"
+          },
           "counts": {
             "$ref": "#/components/schemas/LibraryCounts"
           },
@@ -7705,7 +8337,7 @@
       },
       "LibraryText": {
         "additionalProperties": true,
-        "description": "``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.",
+        "description": "``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.\n\nWith ``lines``, ``text`` is only the file's first lines and ``shown_lines``\nsays how many; the file was still read and verified whole.",
         "properties": {
           "byte_size": {
             "title": "Byte Size",
@@ -7738,6 +8370,17 @@
           "sha256": {
             "title": "Sha256",
             "type": "string"
+          },
+          "shown_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shown Lines"
           },
           "text": {
             "title": "Text",
@@ -7775,7 +8418,7 @@
       },
       "LibraryVault": {
         "additionalProperties": true,
-        "description": "The vault by its id and folder name: never its absolute root.",
+        "description": "The vault by its id, its folder's name, and where that folder is recorded to be.",
         "properties": {
           "created_at_utc": {
             "title": "Created At Utc",
@@ -7783,6 +8426,10 @@
           },
           "label": {
             "title": "Label",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
             "type": "string"
           },
           "vault_id": {
@@ -7793,6 +8440,7 @@
         "required": [
           "vault_id",
           "label",
+          "path",
           "created_at_utc"
         ],
         "title": "LibraryVault",
@@ -7812,6 +8460,20 @@
           "parent_directory"
         ],
         "title": "LibraryVaultBody",
+        "type": "object"
+      },
+      "LibraryVaultIdBody": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_vault_id": {
+            "title": "Expected Vault Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_vault_id"
+        ],
+        "title": "LibraryVaultIdBody",
         "type": "object"
       },
       "LifecycleCheckError": {
@@ -9952,6 +10614,26 @@
             "title": "Document Id",
             "type": "integer"
           },
+          "found_by": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadingQueueFoundBy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pdf": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadingQueuePdf"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "read_at": {
             "anyOf": [
               {
@@ -9986,6 +10668,55 @@
         "title": "ReadingQueueEntry",
         "type": "object"
       },
+      "ReadingQueueFoundBy": {
+        "additionalProperties": true,
+        "description": "The first run that collected the paper. ``watch_name`` is ``None`` once the watch is deleted.",
+        "properties": {
+          "at": {
+            "title": "At",
+            "type": "string"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "watch_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watch Id"
+          },
+          "watch_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Watch Name"
+          }
+        },
+        "required": [
+          "execution_id",
+          "kind",
+          "watch_id",
+          "watch_name",
+          "at"
+        ],
+        "title": "ReadingQueueFoundBy",
+        "type": "object"
+      },
       "ReadingQueuePage": {
         "additionalProperties": true,
         "description": "``GET /api/reading-queue``.\n\n``status`` echoes the filter that produced the page and is ``None`` when\nthe caller asked for both, so a client can tell \"everything\" from\n\"everything that happens to be unread\".",
@@ -10007,6 +10738,14 @@
           "offset": {
             "title": "Offset",
             "type": "integer"
+          },
+          "q": {
+            "title": "Q",
+            "type": "string"
+          },
+          "sort": {
+            "title": "Sort",
+            "type": "string"
           },
           "status": {
             "anyOf": [
@@ -10030,18 +10769,63 @@
           "limit",
           "offset",
           "status",
-          "counts"
+          "counts",
+          "sort",
+          "q"
         ],
         "title": "ReadingQueuePage",
         "type": "object"
       },
+      "ReadingQueuePdf": {
+        "additionalProperties": true,
+        "description": "The Library PDF most recently linked to the paper: the person's association.",
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "original_name": {
+            "title": "Original Name",
+            "type": "string"
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "vault_id",
+          "file_id",
+          "version_id",
+          "sha256",
+          "byte_size",
+          "original_name"
+        ],
+        "title": "ReadingQueuePdf",
+        "type": "object"
+      },
       "ReadingQueueRemoval": {
         "additionalProperties": true,
-        "description": "``DELETE /api/reading-queue/{document_id}``. The paper is not touched.",
+        "description": "``DELETE /api/reading-queue/{document_id}``. The paper is not touched;\n``entry`` is the entry as it was, for Undo.",
         "properties": {
           "document_id": {
             "title": "Document Id",
             "type": "integer"
+          },
+          "entry": {
+            "$ref": "#/components/schemas/ReadingQueueEntry"
           },
           "removed": {
             "title": "Removed",
@@ -10050,9 +10834,69 @@
         },
         "required": [
           "removed",
-          "document_id"
+          "document_id",
+          "entry"
         ],
         "title": "ReadingQueueRemoval",
+        "type": "object"
+      },
+      "ReadingQueueRestoreBody": {
+        "additionalProperties": false,
+        "properties": {
+          "read_at": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "saved_at": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Saved At",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "saved_at",
+          "updated_at"
+        ],
+        "title": "ReadingQueueRestoreBody",
+        "type": "object"
+      },
+      "ReadingQueueRestored": {
+        "additionalProperties": true,
+        "description": "``POST /api/reading-queue/{document_id}/restore``. ``restored`` is false when\nthe paper was saved again since, and ``entry`` is then its entry as it is.",
+        "properties": {
+          "entry": {
+            "$ref": "#/components/schemas/ReadingQueueEntry"
+          },
+          "restored": {
+            "title": "Restored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "restored",
+          "entry"
+        ],
+        "title": "ReadingQueueRestored",
         "type": "object"
       },
       "ReadingQueueSaveBody": {
@@ -23584,6 +24428,26 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "newest",
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -23674,6 +24538,54 @@
       }
     },
     "/api/library/files/{file_id}": {
+      "delete": {
+        "description": "Take a file out of the Library. Its bytes are held in the Library folder's\n``removed/`` and its record kept, for Undo and Restore; nothing is deleted.",
+        "operationId": "library_remove_api_library_files__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryRemoveBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryRemoved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Remove"
+      },
       "get": {
         "operationId": "library_detail_api_library_files__file_id__get",
         "parameters": [
@@ -23819,6 +24731,232 @@
         "summary": "Library Link"
       }
     },
+    "/api/library/files/{file_id}/pdf": {
+      "get": {
+        "description": "A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.\n\nThe identity headers name the vault, file, version and hash the bytes were\nchecked against, so the renderer can refuse an answer about another file.",
+        "operationId": "library_read_pdf_api_library_files__file_id__pdf_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Read Pdf"
+      }
+    },
+    "/api/library/files/{file_id}/picture": {
+      "get": {
+        "description": "The first-page picture kept for this exact version, or 404 ``no_picture``.",
+        "operationId": "library_picture_api_library_files__file_id__picture_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Picture"
+      },
+      "put": {
+        "description": "Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most.",
+        "operationId": "library_keep_picture_api_library_files__file_id__picture_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryPicture"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Keep Picture"
+      }
+    },
+    "/api/library/files/{file_id}/removal": {
+      "get": {
+        "description": "What would go with this file if it were removed: its paper links, and the projects\nit is in or has notes in. ``needs_confirmation`` is true when there is a project.",
+        "operationId": "library_removal_summary_api_library_files__file_id__removal_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "expected_version_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Version Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryRemoval"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Removal Summary"
+      }
+    },
     "/api/library/files/{file_id}/shared-wording": {
       "get": {
         "description": "The last comparison of this file since the engine started, or that there is none.",
@@ -23955,6 +25093,22 @@
               "title": "Expected Version Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "lines",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lines"
+            }
           }
         ],
         "responses": {
@@ -23980,6 +25134,196 @@
           }
         },
         "summary": "Library Read Text"
+      }
+    },
+    "/api/library/removed": {
+      "get": {
+        "description": "Every removed file still on record, newest first, and whether its bytes are still held.",
+        "operationId": "library_removed_api_library_removed_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "expected_vault_id",
+            "required": true,
+            "schema": {
+              "title": "Expected Vault Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryRemovedList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Removed"
+      }
+    },
+    "/api/library/removed/{file_id}": {
+      "delete": {
+        "description": "Drop a removed file's record once its bytes have left the Library folder; refused while they are held.",
+        "operationId": "library_forget_api_library_removed__file_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryVaultIdBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryForgotten"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Forget"
+      }
+    },
+    "/api/library/removed/{file_id}/release": {
+      "post": {
+        "description": "The held file's verified path, under the name it was imported as, for the desktop's Trash.",
+        "operationId": "library_release_api_library_removed__file_id__release_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryVaultIdBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryReleased"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Release"
+      }
+    },
+    "/api/library/removed/{file_id}/restore": {
+      "post": {
+        "description": "Undo a removal: the folder, the row and every row that went with it, as they were.",
+        "operationId": "library_restore_api_library_removed__file_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryVaultIdBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryFileDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Restore"
       }
     },
     "/api/library/vault": {
@@ -24018,6 +25362,84 @@
           }
         },
         "summary": "Library Create Vault"
+      }
+    },
+    "/api/library/vault/move": {
+      "post": {
+        "description": "Move the Library folder into another folder, keeping its name. Across disks the\nfiles are copied and checked, and the old folder is left where it was.",
+        "operationId": "library_move_api_library_vault_move_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryMoveBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryMovedStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Move"
+      }
+    },
+    "/api/library/vault/relink": {
+      "post": {
+        "description": "Record where the Library folder is now, after checking it is this Library's own.",
+        "operationId": "library_relink_api_library_vault_relink_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryRelinkBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Library Relink"
       }
     },
     "/api/lifecycle": {
@@ -24924,7 +26346,7 @@
     },
     "/api/reading-queue": {
       "get": {
-        "description": "One page of saved papers. ``status`` omitted (or ``all``) means both.",
+        "description": "One page of saved papers. ``status`` omitted (or ``all``) means both.\n\n``q`` keeps the papers whose title, authors or source contain it. ``sort`` is\n``saved`` (newest save first), ``published``, ``title``, ``source`` or\n``map``; the page's own ``sort`` says which order it is in, which is\n``saved`` when ``map`` was asked for and no map is fitted yet.",
         "operationId": "list_reading_queue_api_reading_queue_get",
         "parameters": [
           {
@@ -24961,6 +26383,27 @@
               "default": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "saved",
+              "title": "Sort",
+              "type": "string"
             }
           }
         ],
@@ -25112,6 +26555,56 @@
           }
         },
         "summary": "Set Reading Queue Status"
+      }
+    },
+    "/api/reading-queue/{document_id}/restore": {
+      "post": {
+        "description": "Undo a removal: the entry back with the state and dates it had.\n\n``restored`` is false when the paper was saved again in the meantime; its\nentry now is returned unchanged rather than overwritten.",
+        "operationId": "restore_to_reading_queue_api_reading_queue__document_id__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "document_id",
+            "required": true,
+            "schema": {
+              "title": "Document Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueRestoreBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueRestored"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore To Reading Queue"
       }
     },
     "/api/renderer/heartbeat": {

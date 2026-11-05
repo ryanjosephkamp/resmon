@@ -23,7 +23,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir, selectedEvidenceTransport } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir, selectedEvidenceTransport } from './fixtures/resmon-app';
+import { findCard } from './fixtures/gallery';
 
 const FIXTURES = path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'evidence');
 const PASSAGE = 'exact passage';
@@ -110,7 +111,7 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
   const parent = path.join(root, 'parent');
   const downloads = path.join(root, 'downloads');
   for (const dir of [stateDir, parent, downloads]) fs.mkdirSync(dir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true), PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' };
+  const env = atlasEnv({ ...launchEnv(stateDir, true), PYTHON_KEYRING_BACKEND: 'keyring.backends.null.Keyring' });
   // The fake's scripts need an absolute interpreter for their shebangs.
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const fake = await selectedEvidenceTransport(root, python);
@@ -135,15 +136,15 @@ test('Answers: an exact disclosure, one answer per Send, citations that resolve,
     await library(win, '/api/settings/ai', 'PUT', { settings: { ai_cli_path: fake.cli, ai_custom_base_url: fake.base } });
 
     // — a library, a project, a saved passage and a note ---------------------------------
-    await win.evaluate(() => { window.location.hash = '#/library/files'; });
+    await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT, or MD');
+    const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['two-pages.pdf', 'unicode.txt'].map((n) => path.join(FIXTURES, n)));
-    await expect(win.locator('[data-library="imported"]')).toHaveText('2 retained, 0 exact duplicates reused.', { timeout: 60_000 });
-    await win.locator('button.library-file', { hasText: 'unicode.txt' }).click();
-    await win.getByRole('link', { name: 'Open in Evidence' }).click();
+    await expect(win.locator('[data-library="imported"]')).toHaveText('2 files added. None was already in the Library.', { timeout: 60_000 });
+    await (await findCard(win, 'unicode.txt')).getByRole('button', { name: 'Read' }).click();
+    await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     await win.getByLabel('A name for a new project').fill('Atlas answers');
     await win.getByRole('button', { name: 'Start', exact: true }).click();
     await win.getByRole('button', { name: 'Add unicode.txt to this project' }).click();

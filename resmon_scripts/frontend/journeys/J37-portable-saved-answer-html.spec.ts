@@ -45,7 +45,7 @@ journey.describe('J37 Portable saved-answer HTML', () => {
     expect(await resmon.importIntoTheLibrary([
       { name: PAPER, content: authoredPdf(PAGES) },
       { name: CHOSEN, content: CHOSEN_TEXT },
-    ])).toContain('2 retained');
+    ])).toContain('2 files added.');
     await resmon.startAnEvidenceProjectFrom(PAPER, 'J37 project');
     await resmon.addToTheEvidenceProject([CHOSEN]);
     await resmon.useAnAuthoredModelForSelectedAnswers();

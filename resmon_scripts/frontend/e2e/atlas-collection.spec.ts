@@ -130,16 +130,17 @@ test('the collection, a paper, and the reading queue', async () => {
 
     // The queue: there under To read, marked read, then removed.
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' }).click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible();
-    const row = win.locator(`.queue-row[data-document="${other}"]`);
-    await expect(row.locator('.queue-state')).toHaveText('To read');
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible();
+    const row = win.locator(`article.card[data-document="${other}"]`);
+    await expect(row).toHaveAttribute('data-status', 'to_read');
     await row.getByRole('button', { name: 'Mark read' }).click();
-    await expect(win.locator(`.queue-row[data-document="${other}"]`)).toHaveCount(0);
+    await expect(win.locator(`article.card[data-document="${other}"]`)).toHaveCount(0);
     await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /^Read/ }).click();
-    await expect(row.locator('.queue-state')).toHaveText('Read');
-    await row.getByRole('button', { name: 'Remove' }).click();
+    await expect(row).toHaveAttribute('data-status', 'read');
+    await row.hover();
+    await row.getByRole('button', { name: 'Remove from Read' }).click();
     await expect(row).toHaveCount(0);
-    await expect(win.locator('.queue-empty')).toHaveText('Nothing is marked read yet.');
+    await expect(win.locator('.lib-empty')).toHaveText('Nothing is marked read yet. Mark read on a cover in To read, or on a paper’s page.');
 
     // Saving from the run that collected it.
     await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, run);

@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, screen, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
+import { libraryRemovedFile } from './libraryTrash';
 import {
   installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
 } from './commandLineInstall';
@@ -2069,6 +2070,21 @@ app.whenReady().then(async () => {
     ipcMain.handle('resmon:reveal-path', async (_evt, targetPath: string) => {
       shell.showItemInFolder(targetPath);
       return true;
+    });
+
+    // IPC: send a file the Library holds as removed to the system's Trash,
+    // where the person can still put it back. Only a file directly inside
+    // `resmon-library-<id>/removed/<id>/` is taken: the engine hands this path
+    // over after checking it (`library_removal.release_request`), and nothing
+    // else on the disk can be sent to the Trash through this channel.
+    ipcMain.handle('resmon:trash-path', async (_evt, targetPath: string) => {
+      if (!libraryRemovedFile(targetPath)) return 'Only a file the Library holds as removed can be moved to the Trash.';
+      try {
+        await shell.trashItem(targetPath);
+        return '';
+      } catch (err) {
+        return err instanceof Error ? err.message : String(err);
+      }
     });
 
     installApplicationMenu();

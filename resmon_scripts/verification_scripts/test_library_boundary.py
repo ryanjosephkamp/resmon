@@ -1,7 +1,8 @@
 """Real HTTP Library transport in a run-owned uvicorn instance, without providers.
 
-All nine new routes are driven over a real socket. This is browser Origin
+Every Library route is driven over a real socket. This is browser Origin
 protection, not authentication of another local process forging that header.
+Every folder is the test's own temporary folder; nothing is sent to a Trash.
 """
 import hashlib
 import json
@@ -21,7 +22,9 @@ from implementation_scripts import api_auth
 TOKEN=api_auth.current_token()
 AUTH=f'Authorization: Bearer {TOKEN}\r\n'
 
-ROUTES=[('GET',''),('POST','/vault'),('GET','/files'),('POST','/files'),('GET','/files/{file}'),('POST','/files/{file}/paper-links'),('POST','/files/{file}/open'),('GET','/export'),('GET','/files/{file}/text')]
+ROUTES=[('GET',''),('POST','/vault'),('GET','/files'),('POST','/files'),('GET','/files/{file}'),('POST','/files/{file}/paper-links'),('POST','/files/{file}/open'),('GET','/export'),('GET','/files/{file}/text'),
+        ('GET','/files/{file}/pdf'),('GET','/files/{file}/picture'),('PUT','/files/{file}/picture'),('GET','/files/{file}/removal'),('DELETE','/files/{file}'),
+        ('GET','/removed'),('POST','/removed/{file}/restore'),('POST','/removed/{file}/release'),('DELETE','/removed/{file}'),('POST','/vault/relink'),('POST','/vault/move')]
 HEADERS={'Origin':'http://127.0.0.1:12345','X-Resmon-Library':'1'}
 
 
@@ -68,7 +71,7 @@ uvicorn.Server(uvicorn.Config(resmon.app,log_level='error')).run(sockets=[s])
             print('LIBRARY_HTTP_CLEANUP',json.dumps({'pid':proc.pid,'exit':code,'reaped':True}),flush=True)
 
 
-def test_all_nine_origins_refused_before_body_or_effects(http_library):
+def test_every_route_refuses_a_foreign_origin_before_body_or_effects(http_library):
     client,record,tmp=http_library
     bad=[{}, {'Origin':'null','X-Resmon-Library':'1'},{'Origin':'https://other.invalid','X-Resmon-Library':'1'}, {'Origin':'http://127.0.0.1:12345/path','X-Resmon-Library':'1'}, {'Origin':'http://user@127.0.0.1:12345','X-Resmon-Library':'1'},{'Origin':'http://127.0.0.1:12345'}]
     for method,suffix in ROUTES:
@@ -177,3 +180,74 @@ def test_real_disconnect_and_false_content_length_never_publish_partial_rows(htt
         connection.sendall(malformed); response = connection.recv(4096)
     assert b'400 Bad Request' in response
     assert client.get('/api/library', headers=HEADERS).json()['counts']['items'] == 0
+
+
+def test_pdf_picture_remove_undo_and_folder_routes_over_http(http_library):
+    from implementation_scripts import database as db
+    client,record,tmp=http_library
+    parent=tmp/'vault-parent';parent.mkdir()
+    made=client.post('/api/library/vault',headers=HEADERS,json={'parent_directory':str(parent)}).json()
+    vid=made['vault']['vault_id'];root=parent/made['vault']['label']
+    assert made['vault']['path']==str(root) and made['limits']['read_bytes']==made['limits']['file_bytes']==64*1024*1024
+    params={'expected_vault_id':vid}
+    pdf=b'%PDF-1.4\nsynthetic http pdf\n%%EOF'
+    item=client.post('/api/library/files',params={**params,'filename':'paper.pdf'},headers={**HEADERS,'Content-Type':'application/octet-stream'},content=pdf).json()['file']
+    fid,version=item['file_id'],item['version_id']
+    # The PDF's bytes, verified, with the identity they were checked against, readable cross-origin.
+    read=client.get(f'/api/library/files/{fid}/pdf',params={**params,'expected_version_id':version},headers=HEADERS)
+    assert read.status_code==200 and read.content==pdf and read.headers['cache-control']=='no-store'
+    assert (read.headers['x-resmon-file'],read.headers['x-resmon-version'],read.headers['x-resmon-sha256'])==(fid,version,hashlib.sha256(pdf).hexdigest())
+    assert 'X-Resmon-SHA256' in read.headers['access-control-expose-headers']
+    text=client.post('/api/library/files',params={**params,'filename':'n.tex'},headers={**HEADERS,'Content-Type':'application/octet-stream'},content=b'$a$').json()['file']
+    assert text['media_type']=='text/x-tex'
+    assert client.get(f"/api/library/files/{text['file_id']}/pdf",params={**params,'expected_version_id':text['version_id']},headers=HEADERS).status_code==415
+    assert client.get(f"/api/library/files/{text['file_id']}/text",params={**params,'expected_version_id':text['version_id']},headers=HEADERS).json()['text']=='$a$'
+    # The first-page picture: none, kept, read back, and refused when it is not the format it says.
+    pic={**params,'expected_version_id':version}
+    assert client.get(f'/api/library/files/{fid}/picture',params=pic,headers=HEADERS).status_code==404
+    webp=b'RIFF\x10\x00\x00\x00WEBPVP8 '+b'\x00'*8
+    kept=client.put(f'/api/library/files/{fid}/picture',params=pic,headers={**HEADERS,'Content-Type':'image/webp'},content=webp)
+    assert kept.status_code==200 and kept.json()['byte_size']==len(webp)
+    got=client.get(f'/api/library/files/{fid}/picture',params=pic,headers=HEADERS)
+    assert got.content==webp and got.headers['content-type']=='image/webp'
+    assert client.put(f'/api/library/files/{fid}/picture',params=pic,headers={**HEADERS,'Content-Type':'image/png'},content=webp).status_code==415
+    assert client.put(f'/api/library/files/{fid}/picture',params=pic,headers={**HEADERS,'Content-Type':'image/webp'},content=webp+b'\x00'*(512*1024)).status_code==413
+    # In a project with a note: asked first, removed on confirm, and put back by Undo.
+    project=client.post('/api/evidence/projects',headers=HEADERS,json={**params,'name':'HTTP'}).json()['project']
+    added=client.post(f"/api/evidence/projects/{project['project_id']}/files",headers=HEADERS,json={**params,'expected_revision':project['revision'],'file_id':fid,'version_id':version}).json()
+    client.post(f"/api/evidence/projects/{project['project_id']}/notes",headers=HEADERS,json={**params,'expected_revision':added['project']['revision'],'file_id':fid,'version_id':version,'kind':'note','body':'kept','anchor':None})
+    said=client.get(f'/api/library/files/{fid}/removal',params=pic,headers=HEADERS).json()
+    assert said['needs_confirmation'] and said['projects'][0]['notes']==1
+    body={**params,'expected_version_id':version}
+    refused=client.request('DELETE',f'/api/library/files/{fid}',headers=HEADERS,json=body)
+    assert refused.status_code==409 and refused.json()['detail']['reason']=='needs_confirmation'
+    removed=client.request('DELETE',f'/api/library/files/{fid}',headers=HEADERS,json={**body,'cascade':True})
+    assert removed.status_code==200 and removed.json()['removed']['bytes']=='held'
+    assert (root/'removed'/fid/f'{version}.pdf').read_bytes()==pdf and not (root/'files'/fid).exists()
+    assert [r['file_id'] for r in client.get('/api/library/removed',params=params,headers=HEADERS).json()['removed']]==[fid]
+    restored=client.post(f'/api/library/removed/{fid}/restore',headers=HEADERS,json=params)
+    assert restored.status_code==200 and restored.json()['file']['project_count']==1
+    assert (root/item['relative_path']).read_bytes()==pdf
+    notes=client.get(f"/api/evidence/projects/{project['project_id']}/notes",params=params,headers=HEADERS).json()['notes']
+    assert [n['body'] for n in notes]==['kept']
+    # Release hands back a path and moves nothing out; forget waits for the bytes to leave.
+    client.request('DELETE',f'/api/library/files/{fid}',headers=HEADERS,json={**body,'cascade':True})
+    released=client.post(f'/api/library/removed/{fid}/release',headers=HEADERS,json=params).json()
+    assert released['path']==str(root/'removed'/fid/'paper.pdf') and Path(released['path']).read_bytes()==pdf
+    still=client.request('DELETE',f'/api/library/removed/{fid}',headers=HEADERS,json=params)
+    assert still.status_code==409 and still.json()['detail']['reason']=='still_held'
+    os.rename(released['path'],tmp/'stand-in-trash.pdf')
+    assert client.request('DELETE',f'/api/library/removed/{fid}',headers=HEADERS,json=params).json()['forgotten'] is True
+    assert (tmp/'stand-in-trash.pdf').read_bytes()==pdf
+    # The folder moved outside resmon: missing, then found again; then moved by resmon.
+    elsewhere=tmp/'elsewhere';elsewhere.mkdir();os.rename(root,elsewhere/root.name)
+    missing=client.get('/api/library',headers=HEADERS).json()
+    assert (missing['status'],missing['reason'])==('missing','folder_missing')
+    relinked=client.post('/api/library/vault/relink',headers=HEADERS,json={**params,'folder':str(elsewhere)}).json()
+    assert relinked['status']=='ready' and relinked['vault']['path']==str(elsewhere/root.name)
+    second=tmp/'second';second.mkdir()
+    moved=client.post('/api/library/vault/move',headers=HEADERS,json={**params,'parent_directory':str(second)}).json()
+    assert moved['moved']=={'previous':str(elsewhere/root.name),'path':str(second/root.name),'same_disk':True,'old_folder_kept':None}
+    assert (second/root.name/text['relative_path']).read_bytes()==b'$a$'
+    files=client.get('/api/library/files',params={**params,'sort':'name','offset':0,'limit':500},headers=HEADERS).json()
+    assert [f['original_name'] for f in files['files']]==['n.tex'] and files['total']==1

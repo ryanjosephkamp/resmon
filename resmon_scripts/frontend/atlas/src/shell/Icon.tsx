@@ -28,6 +28,10 @@ const PATHS = {
   back: <path d="M13 8H3M7 4 3 8l4 4" />,
   download: <><path d="M8 2.5v8M4.5 7 8 10.5 11.5 7" /><path d="M2.75 13.25h10.5" /></>,
   chevron: <path d="m4.5 6.25 3.5 3.5 3.5-3.5" />,
+  sort: <path d="M5 3v10M2.5 10.5 5 13l2.5-2.5M11 13V3M8.5 5.5 11 3l2.5 2.5" />,
+  more: <><circle cx="3.5" cy="8" r=".9" fill="currentColor" /><circle cx="8" cy="8" r=".9" fill="currentColor" /><circle cx="12.5" cy="8" r=".9" fill="currentColor" /></>,
+  link: <><path d="M6.5 9.5 9.5 6.5" /><path d="M7.25 4.75 8.6 3.4a2.5 2.5 0 0 1 3.54 3.54L10.8 8.3M8.75 11.25 7.4 12.6a2.5 2.5 0 0 1-3.54-3.54L5.2 7.7" /></>,
+  folder: <path d="M2.25 4.25a1 1 0 0 1 1-1h3l1.5 1.75h5a1 1 0 0 1 1 1v6.75a1 1 0 0 1-1 1H3.25a1 1 0 0 1-1-1Z" />,
 } as const;
 
 export type IconName = keyof typeof PATHS;

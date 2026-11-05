@@ -49,7 +49,7 @@ The list's heading names the window ("New since" a day, or "New this week") with
 
 Under each watch's name is its last run: when it ran, how long it took, how many papers it found, and how many of its sources answered. If any source did not answer, one line names each source by what happened to it, with one mark for a failure and another for an unknown, and **Why** opens each source's own sentence. **Open run** leads to the run's whole record. A watch that found nothing new is listed under **Nothing new from**, with its last run, so a quiet watch and a broken one are told apart here too.
 
-Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library › Reading queue**, and the arrow opens it at its source. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
+Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library**, under **To read**, and the arrow opens it at its source. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
 
 Each group lists 25 papers at first, and **Show 50 more** lists the next 50.
 

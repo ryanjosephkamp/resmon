@@ -8,6 +8,8 @@ import { useAppearance } from '../theme/appearance';
 import { startSearch, type SearchKind } from '../screens/searchStart';
 import { CommandPalette } from './CommandPalette';
 import { EngineNotice } from './EngineNotice';
+import { Fallback } from './Fallback';
+import { PageFailed } from './PageFailed';
 import { canGo } from './history';
 import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
@@ -200,7 +202,9 @@ export function Shell() {
       <EngineNotice />
       <main className="stage">
         <ShowShortcutsContext value={showSheet}>
-          <Outlet />
+          <Fallback resetKey={`${location.pathname}?${location.search}`} fallback={(error) => <PageFailed error={error} />}>
+            <Outlet />
+          </Fallback>
         </ShowShortcutsContext>
       </main>
       <CommandPalette open={paletteOpen} onClose={closePalette} onRun={run} dialog={palette} mac={mac} />

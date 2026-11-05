@@ -24,7 +24,7 @@ import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import {
-  appRootAt, launchEnv, registerStateDir, THIS_CHECKOUT,
+  appRootAt, atlasEnv, launchEnv, registerStateDir, THIS_CHECKOUT,
 } from '../../e2e/fixtures/resmon-app';
 import type { AppRoot } from '../../e2e/fixtures/resmon-app';
 import {
@@ -280,7 +280,8 @@ function seedTheTokenizer(stateDir: string): string {
 const LANDMARK = 'nav[aria-label="Sections"]';
 
 function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
-  const env = launchEnv(stateDir, true);
+  // Held to the screen a run is held to (RESMON_E2E_SCREEN), as the e2e suite's windows are.
+  const env = atlasEnv(launchEnv(stateDir, true));
   env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);

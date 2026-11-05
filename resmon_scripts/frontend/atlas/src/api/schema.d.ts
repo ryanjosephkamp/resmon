@@ -2214,7 +2214,12 @@ export interface paths {
         get: operations["library_detail_api_library_files__file_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Library Remove
+         * @description Take a file out of the Library. Its bytes are held in the Library folder's
+         *     ``removed/`` and its record kept, for Undo and Restore; nothing is deleted.
+         */
+        delete: operations["library_remove_api_library_files__file_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -2248,6 +2253,74 @@ export interface paths {
         put?: never;
         /** Library Link */
         post: operations["library_link_api_library_files__file_id__paper_links_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Read Pdf
+         * @description A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.
+         *
+         *     The identity headers name the vault, file, version and hash the bytes were
+         *     checked against, so the renderer can refuse an answer about another file.
+         */
+        get: operations["library_read_pdf_api_library_files__file_id__pdf_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/picture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Picture
+         * @description The first-page picture kept for this exact version, or 404 ``no_picture``.
+         */
+        get: operations["library_picture_api_library_files__file_id__picture_get"];
+        /**
+         * Library Keep Picture
+         * @description Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most.
+         */
+        put: operations["library_keep_picture_api_library_files__file_id__picture_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/files/{file_id}/removal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Removal Summary
+         * @description What would go with this file if it were removed: its paper links, and the projects
+         *     it is in or has notes in. ``needs_confirmation`` is true when there is a project.
+         */
+        get: operations["library_removal_summary_api_library_files__file_id__removal_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2297,6 +2370,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/library/removed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Library Removed
+         * @description Every removed file still on record, newest first, and whether its bytes are still held.
+         */
+        get: operations["library_removed_api_library_removed_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Library Forget
+         * @description Drop a removed file's record once its bytes have left the Library folder; refused while they are held.
+         */
+        delete: operations["library_forget_api_library_removed__file_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Release
+         * @description The held file's verified path, under the name it was imported as, for the desktop's Trash.
+         */
+        post: operations["library_release_api_library_removed__file_id__release_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/removed/{file_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Restore
+         * @description Undo a removal: the folder, the row and every row that went with it, as they were.
+         */
+        post: operations["library_restore_api_library_removed__file_id__restore_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/library/vault": {
         parameters: {
             query?: never;
@@ -2308,6 +2461,47 @@ export interface paths {
         put?: never;
         /** Library Create Vault */
         post: operations["library_create_vault_api_library_vault_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/vault/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Move
+         * @description Move the Library folder into another folder, keeping its name. Across disks the
+         *     files are copied and checked, and the old folder is left where it was.
+         */
+        post: operations["library_move_api_library_vault_move_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/library/vault/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Library Relink
+         * @description Record where the Library folder is now, after checking it is this Library's own.
+         */
+        post: operations["library_relink_api_library_vault_relink_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2852,6 +3046,11 @@ export interface paths {
         /**
          * List Reading Queue
          * @description One page of saved papers. ``status`` omitted (or ``all``) means both.
+         *
+         *     ``q`` keeps the papers whose title, authors or source contain it. ``sort`` is
+         *     ``saved`` (newest save first), ``published``, ``title``, ``source`` or
+         *     ``map``; the page's own ``sort`` says which order it is in, which is
+         *     ``saved`` when ``map`` was asked for and no map is fitted yet.
          */
         get: operations["list_reading_queue_api_reading_queue_get"];
         put?: never;
@@ -2894,6 +3093,29 @@ export interface paths {
          *     interface is looking at a list somebody else already changed.
          */
         delete: operations["remove_from_reading_queue_api_reading_queue__document_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/{document_id}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore To Reading Queue
+         * @description Undo a removal: the entry back with the state and dates it had.
+         *
+         *     ``restored`` is false when the paper was saved again in the meantime; its
+         *     entry now is returned unchanged rather than overwritten.
+         */
+        post: operations["restore_to_reading_queue_api_reading_queue__document_id__restore_post"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -6484,6 +6706,24 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * EvidenceCoverFile
+         * @description One of a project's first three PDFs, for its cover in the Library's gallery.
+         */
+        EvidenceCoverFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Sha256 */
+            sha256: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * EvidenceFileRecord
          * @description The exact Library file and version a membership or a note is pinned to.
          */
@@ -6751,6 +6991,8 @@ export interface components {
          * @description A project row as stored, with its current counts.
          */
         EvidenceProject: {
+            /** Cover Files */
+            cover_files: components["schemas"]["EvidenceCoverFile"][];
             /** Created At Utc */
             created_at_utc: string;
             /** File Count */
@@ -6761,6 +7003,8 @@ export interface components {
             name: string;
             /** Note Count */
             note_count: number;
+            /** Passage Count */
+            passage_count: number;
             /** Project Id */
             project_id: string;
             /** Revision */
@@ -7223,12 +7467,20 @@ export interface components {
         /**
          * LibraryCounts
          * @description What the database records the vault holding; ``basis`` says it was not re-measured.
+         *
+         *     ``removed`` counts removed files still on record. ``missing`` is how many
+         *     recorded files have no folder in the Library folder now; it is present only
+         *     when the folder was read.
          */
         LibraryCounts: {
             /** Basis */
             basis: string;
             /** Items */
             items: number;
+            /** Missing */
+            missing?: number | null;
+            /** Removed */
+            removed: number;
             /** Retained Bytes */
             retained_bytes: number;
         } & {
@@ -7252,6 +7504,8 @@ export interface components {
             original_name: string;
             /** Paper Links */
             paper_links: components["schemas"]["LibraryPaperLink"][];
+            /** Project Count */
+            project_count: number;
             /** Relative Path */
             relative_path: string;
             /** Sha256 */
@@ -7275,7 +7529,9 @@ export interface components {
         };
         /**
          * LibraryFiles
-         * @description ``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``.
+         * @description ``GET /api/library/files``: a page under a fixed ceiling, ``through_id``, in ``sort`` order.
+         *
+         *     ``total`` counts the files under the ceiling that match the name filter.
          */
         LibraryFiles: {
             /** Files */
@@ -7284,8 +7540,30 @@ export interface components {
             has_more: boolean;
             /** Next Before Id */
             next_before_id: number | null;
+            /** Offset */
+            offset: number;
+            /** Sort */
+            sort: string;
             /** Through Id */
             through_id: number;
+            /** Total */
+            total: number;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryForgotten
+         * @description ``DELETE /api/library/removed/{file_id}``: the record is gone; its bytes had already left.
+         */
+        LibraryForgotten: {
+            /** File Id */
+            file_id: string;
+            /** Forgotten */
+            forgotten: boolean;
             /** Vault Id */
             vault_id: string;
             /** Version */
@@ -7332,16 +7610,17 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** LibraryLimits */
+        /**
+         * LibraryLimits
+         * @description One size for keeping a file and reading it, and the free space an import leaves.
+         */
         LibraryLimits: {
-            /** Batch Files */
-            batch_files: number;
             /** File Bytes */
             file_bytes: number;
-            /** Items */
-            items: number;
-            /** Vault Bytes */
-            vault_bytes: number;
+            /** Free Space Floor */
+            free_space_floor: number;
+            /** Read Bytes */
+            read_bytes: number;
         } & {
             [key: string]: unknown;
         };
@@ -7366,6 +7645,50 @@ export interface components {
             version: number;
             /** Version Id */
             version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryMoveBody */
+        LibraryMoveBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Parent Directory */
+            parent_directory: string;
+        };
+        /**
+         * LibraryMoved
+         * @description Where a move took the Library folder. ``old_folder_kept`` is the old folder's path
+         *     when the move copied across disks and left it where it was, else ``None``.
+         */
+        LibraryMoved: {
+            /** Old Folder Kept */
+            old_folder_kept: string | null;
+            /** Path */
+            path: string;
+            /** Previous */
+            previous: string;
+            /** Same Disk */
+            same_disk: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryMovedStatus
+         * @description ``POST /api/library/vault/move``: the status after the move, and the move itself.
+         */
+        LibraryMovedStatus: {
+            /** Changing */
+            changing?: string | null;
+            counts: components["schemas"]["LibraryCounts"];
+            limits: components["schemas"]["LibraryLimits"];
+            moved: components["schemas"]["LibraryMoved"];
+            /** Reason */
+            reason?: string | null;
+            /** Status */
+            status: string;
+            vault: components["schemas"]["LibraryVault"] | null;
+            /** Version */
+            version: number;
         } & {
             [key: string]: unknown;
         };
@@ -7411,14 +7734,195 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * LibraryPicture
+         * @description ``PUT /api/library/files/{file_id}/picture``: the picture kept for this version.
+         */
+        LibraryPicture: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Media Type */
+            media_type: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryReleased
+         * @description ``POST /api/library/removed/{file_id}/release``: the held file's path, for the Trash only.
+         */
+        LibraryReleased: {
+            /** File Id */
+            file_id: string;
+            /** Path */
+            path: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRelinkBody */
+        LibraryRelinkBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Folder */
+            folder: string;
+        };
+        /**
+         * LibraryRemoval
+         * @description ``GET /api/library/files/{file_id}/removal``: what would go with the file.
+         */
+        LibraryRemoval: {
+            /** File Id */
+            file_id: string;
+            /** Links */
+            links: components["schemas"]["LibraryRemovalLink"][];
+            /** Needs Confirmation */
+            needs_confirmation: boolean;
+            /** Original Name */
+            original_name: string;
+            /** Projects */
+            projects: components["schemas"]["LibraryRemovalProject"][];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemovalLink */
+        LibraryRemovalLink: {
+            /** Document Id */
+            document_id: number;
+            /** Title */
+            title: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovalProject
+         * @description A project the file is in (``member``) or has notes in, with how many of each.
+         */
+        LibraryRemovalProject: {
+            /** Member */
+            member: boolean;
+            /** Name */
+            name: string;
+            /** Notes */
+            notes: number;
+            /** Passages */
+            passages: number;
+            /** Project Id */
+            project_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemoveBody */
+        LibraryRemoveBody: {
+            /**
+             * Cascade
+             * @default false
+             */
+            cascade: boolean;
+            /** Expected Vault Id */
+            expected_vault_id: string;
+            /** Expected Version Id */
+            expected_version_id: string;
+        };
+        /**
+         * LibraryRemoved
+         * @description ``DELETE /api/library/files/{file_id}``: the file as it is now held.
+         */
+        LibraryRemoved: {
+            removed: components["schemas"]["LibraryRemovedFile"];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovedFile
+         * @description A removed file on record. ``bytes`` is ``held``, ``missing`` (none to hold when it
+         *     was removed) or ``gone`` (no longer in the removed folder).
+         */
+        LibraryRemovedFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** Bytes */
+            bytes: string;
+            /** File Id */
+            file_id: string;
+            /** Links */
+            links: number;
+            /** Media Type */
+            media_type: string;
+            /** Notes */
+            notes: number;
+            /** Original Name */
+            original_name: string;
+            /** Projects */
+            projects: components["schemas"]["LibraryRemovedProject"][];
+            /** Removed At Utc */
+            removed_at_utc: string;
+            /** Sha256 */
+            sha256: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * LibraryRemovedList
+         * @description ``GET /api/library/removed``: every removed file on record, and the bytes still held.
+         */
+        LibraryRemovedList: {
+            /** Bytes */
+            bytes: number;
+            /** Removed */
+            removed: components["schemas"]["LibraryRemovedFile"][];
+            /** Vault Id */
+            vault_id: string;
+            /** Version */
+            version: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** LibraryRemovedProject */
+        LibraryRemovedProject: {
+            /** Name */
+            name: string | null;
+            /** Notes */
+            notes: number;
+            /** Project Id */
+            project_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * LibraryStatus
-         * @description ``GET /api/library`` and ``POST /api/library/vault``.
+         * @description ``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.
          *
-         *     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
-         *     ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
-         *     two that came from a refusal.
+         *     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder
+         *     is not where it was recorded), ``mismatch``, ``needs_attention`` or
+         *     ``unavailable``; ``reason`` is present only for those that came from a
+         *     refusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``
+         *     while the folder's place is being changed, and absent otherwise.
          */
         LibraryStatus: {
+            /** Changing */
+            changing?: string | null;
             counts: components["schemas"]["LibraryCounts"];
             limits: components["schemas"]["LibraryLimits"];
             /** Reason */
@@ -7433,7 +7937,10 @@ export interface components {
         };
         /**
          * LibraryText
-         * @description ``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.
+         * @description ``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.
+         *
+         *     With ``lines``, ``text`` is only the file's first lines and ``shown_lines``
+         *     says how many; the file was still read and verified whole.
          */
         LibraryText: {
             /** Byte Size */
@@ -7452,6 +7959,8 @@ export interface components {
             normalization: string;
             /** Sha256 */
             sha256: string;
+            /** Shown Lines */
+            shown_lines?: number | null;
             /** Text */
             text: string;
             /** Vault Id */
@@ -7465,13 +7974,15 @@ export interface components {
         };
         /**
          * LibraryVault
-         * @description The vault by its id and folder name: never its absolute root.
+         * @description The vault by its id, its folder's name, and where that folder is recorded to be.
          */
         LibraryVault: {
             /** Created At Utc */
             created_at_utc: string;
             /** Label */
             label: string;
+            /** Path */
+            path: string;
             /** Vault Id */
             vault_id: string;
         } & {
@@ -7481,6 +7992,11 @@ export interface components {
         LibraryVaultBody: {
             /** Parent Directory */
             parent_directory: string;
+        };
+        /** LibraryVaultIdBody */
+        LibraryVaultIdBody: {
+            /** Expected Vault Id */
+            expected_vault_id: string;
         };
         /**
          * LifecycleCheckError
@@ -8424,6 +8940,8 @@ export interface components {
             document?: components["schemas"]["ReadingQueueDocument"] | null;
             /** Document Id */
             document_id: number;
+            found_by?: components["schemas"]["ReadingQueueFoundBy"] | null;
+            pdf?: components["schemas"]["ReadingQueuePdf"] | null;
             /** Read At */
             read_at: string | null;
             /** Saved At */
@@ -8432,6 +8950,24 @@ export interface components {
             status: string;
             /** Updated At */
             updated_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueFoundBy
+         * @description The first run that collected the paper. ``watch_name`` is ``None`` once the watch is deleted.
+         */
+        ReadingQueueFoundBy: {
+            /** At */
+            at: string;
+            /** Execution Id */
+            execution_id: number;
+            /** Kind */
+            kind: string;
+            /** Watch Id */
+            watch_id: number | null;
+            /** Watch Name */
+            watch_name: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -8451,6 +8987,10 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /** Q */
+            q: string;
+            /** Sort */
+            sort: string;
             /** Status */
             status: string | null;
             /** Total */
@@ -8459,14 +8999,59 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * ReadingQueuePdf
+         * @description The Library PDF most recently linked to the paper: the person's association.
+         */
+        ReadingQueuePdf: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Original Name */
+            original_name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ReadingQueueRemoval
-         * @description ``DELETE /api/reading-queue/{document_id}``. The paper is not touched.
+         * @description ``DELETE /api/reading-queue/{document_id}``. The paper is not touched;
+         *     ``entry`` is the entry as it was, for Undo.
          */
         ReadingQueueRemoval: {
             /** Document Id */
             document_id: number;
+            entry: components["schemas"]["ReadingQueueEntry"];
             /** Removed */
             removed: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /** ReadingQueueRestoreBody */
+        ReadingQueueRestoreBody: {
+            /** Read At */
+            read_at?: string | null;
+            /** Saved At */
+            saved_at: string;
+            /** Status */
+            status: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * ReadingQueueRestored
+         * @description ``POST /api/reading-queue/{document_id}/restore``. ``restored`` is false when
+         *     the paper was saved again since, and ``entry`` is then its entry as it is.
+         */
+        ReadingQueueRestored: {
+            entry: components["schemas"]["ReadingQueueEntry"];
+            /** Restored */
+            restored: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -15679,6 +16264,8 @@ export interface operations {
                 through_id?: number | null;
                 before_id?: number | null;
                 limit?: number;
+                sort?: string;
+                offset?: number;
             };
             header?: never;
             path?: never;
@@ -15772,6 +16359,41 @@ export interface operations {
             };
         };
     };
+    library_remove_api_library_files__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryRemoveBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemoved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     library_open_api_library_files__file_id__open_post: {
         parameters: {
             query?: never;
@@ -15829,6 +16451,142 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LibraryLinked"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_read_pdf_api_library_files__file_id__pdf_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_picture_api_library_files__file_id__picture_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_keep_picture_api_library_files__file_id__picture_put: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryPicture"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_removal_summary_api_library_files__file_id__removal_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+                expected_version_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemoval"];
                 };
             };
             /** @description Validation Error */
@@ -15916,6 +16674,7 @@ export interface operations {
             query: {
                 expected_vault_id: string;
                 expected_version_id: string;
+                lines?: number | null;
             };
             header?: never;
             path: {
@@ -15945,6 +16704,142 @@ export interface operations {
             };
         };
     };
+    library_removed_api_library_removed_get: {
+        parameters: {
+            query: {
+                expected_vault_id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryRemovedList"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_forget_api_library_removed__file_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryForgotten"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_release_api_library_removed__file_id__release_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryReleased"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_restore_api_library_removed__file_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryVaultIdBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryFileDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     library_create_vault_api_library_vault_post: {
         parameters: {
             query?: never;
@@ -15960,6 +16855,72 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_move_api_library_vault_move_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryMoveBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LibraryMovedStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    library_relink_api_library_vault_relink_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LibraryRelinkBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -16738,6 +17699,8 @@ export interface operations {
                 status?: string | null;
                 limit?: number;
                 offset?: number;
+                q?: string;
+                sort?: string;
             };
             header?: never;
             path?: never;
@@ -16851,6 +17814,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingQueueRemoval"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_to_reading_queue_api_reading_queue__document_id__restore_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueRestoreBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueRestored"];
                 };
             };
             /** @description Validation Error */
