@@ -46,7 +46,11 @@ def main(argv: list[str]) -> int:
     state.setdefault("next_pid", 4242)
 
     def save() -> None:
-        path.write_text(json.dumps(state, indent=1))
+        # Whole or not at all: a test reads the state while the app is still
+        # asking, and a file caught half-written does not parse.
+        written = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        written.write_text(json.dumps(state, indent=1))
+        os.replace(written, path)
 
     def label_of(target: str) -> str:
         return target.rsplit("/", 1)[-1]
