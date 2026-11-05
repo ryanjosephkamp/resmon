@@ -1,17 +1,17 @@
 ---
 title: "Today"
-summary: "The collection as a map, and the papers collected since you last marked all read."
+summary: "The collection as a map, and the papers that arrived since you last marked all read."
 order: 4
 ---
-**Today** is the first screen in the top bar. On the left is a map of every paper resmon holds. On the right is the list of papers collected since you last looked.
+**Today** is the first screen in the top bar. On the left is a map of every paper in the collection the window shows. On the right is the list of papers that arrived in it since you last looked.
 
 ## What counts as new
 
-A paper is new when resmon **first collected** it after the last time you pressed **Mark all read**. That is a fact about your database, not about the paper: a paper published years ago and found last night is new, and a paper published last night that resmon already had is not.
+A paper is new when a run **put it in the collection** after the last time you pressed **Mark all read** there. That is a fact about your database, not about the paper: a paper published years ago and found last night is new, and a paper published last night that the collection already held is not. Each collection has its own Today and its own **Mark all read**. A paper resmon held in another collection that a watch found again for this one is new here, because it was not here before; a paper you moved or copied in is not.
 
 Opening Today records nothing, so an accidental open does not empty tomorrow's list. Before you have ever pressed **Mark all read**, Today shows the last seven days and says so ("New this week"). **Mark all read** is the only thing that moves the line, and it deletes nothing. **Settings › Danger zone › Reset all settings** clears the mark.
 
-Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper you hold.
+Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper in the collection.
 
 ## The map
 

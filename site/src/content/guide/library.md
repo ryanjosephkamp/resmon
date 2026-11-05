@@ -24,7 +24,7 @@ The order is **Saved, newest first**, **Published**, **Title**, **Source**, or *
 
 ## To read and Read
 
-Papers get here when you press **Save to read** on a paper's page or a run's **Papers** tab, or the bookmark on a paper in Today or on the map. The label under a paper names the run that first collected it (a watch's, by its name, or a search) and the day you saved it.
+Papers get here when you press **Save to read** on a paper's page or a run's **Papers** tab, or the bookmark on a paper in Today or on the map. The label under a paper names the run that first collected it (a watch's, by its name, or a search) and the day you saved it. The queue is one list, and each collection shows the saved papers it holds: **To read** and **Read** list those of the collection the window shows, with their counts.
 
 - **Read** opens the paper's PDF in the reader when one is linked to it, and the paper's page otherwise.
 - **Mark read** moves a paper to **Read**; **Mark unread** moves it back. Marking one paper leaves every other card's controls as they are.

@@ -27,7 +27,7 @@ Each answer shows what was requested and what the runtime reported, as two separ
 
 Everything the assistant tells you comes from a tool call it made. It has no other source. When a tool returns nothing, "nothing was returned" is the answer, with the recorded reason or a statement that none was recorded. Paper text, such as titles and abstracts, is data it reports on and never an instruction it follows.
 
-The tools are the 25 below. Eighteen read: health, searching the collection (by words or by meaning), finding similar papers, listing sources, watches, and runs, reading a run and its results and its search record, explaining why a paper matched, a paper's retractions and updates, analytics, the Watchdog's findings, exporting references, and reading people and their matches. Seven change something: `run_sweep`, `create_routine`, `create_watch_profile`, `run_routine`, `activate_routine`, `deactivate_routine`, and `update_settings`. The assistant and the HTTP API call a watch a *routine*.
+The tools are the 26 below. Nineteen read: health, listing your collections, searching a collection (by words or by meaning), finding similar papers, listing sources, watches, and runs, reading a run and its results and its search record, explaining why a paper matched, a paper's retractions and updates, analytics, the Watchdog's findings, exporting references, and reading people and their matches. Seven change something: `run_sweep`, `create_routine`, `create_watch_profile`, `run_routine`, `activate_routine`, `deactivate_routine`, and `update_settings`. The assistant and the HTTP API call a watch a *routine*.
 
 When the assistant wants to use one of the seven, a card appears with the exact call, and **Allow** and **Deny** buttons. Nothing runs until you answer, and the card cannot be dismissed without an answer, because the assistant is waiting on it. This is enforced outside the model: on Claude Code the read tools are pre-approved by name and every other call goes through a permission tool that resmon serves and the model cannot invoke, and on an API key resmon runs the tool loop itself and pauses at the same card.
 
@@ -45,7 +45,7 @@ A conversation's header offers **Export Markdown**, **Export JSON**, and **Delet
 
 ## The MCP server
 
-resmon ships an MCP server, so a program you already work in can read and control resmon. The server speaks MCP over standard input and output, with the 25 tools above, and the full surface is specified in [`docs/api-contract/mcp.md`](docs/api-contract/mcp.md).
+resmon ships an MCP server, so a program you already work in can read and control resmon. The server speaks MCP over standard input and output, with the 26 tools above, and the full surface is specified in [`docs/api-contract/mcp.md`](docs/api-contract/mcp.md).
 
 It is a client of the running resmon, reaching it over `127.0.0.1`, and it never opens the database. **resmon must be running.** When it is not, every tool returns one structured error rather than an empty result, because a program told "you have no papers" because the app is closed would repeat that to you as fact.
 
