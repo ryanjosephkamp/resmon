@@ -148,6 +148,10 @@ def keywords_for_execution(execution: dict) -> list[str]:
             raw = None
     if not isinstance(raw, dict):
         return []
+    # A find looked one paper up by its DOI, id or title: what was typed is an
+    # identifier, not keywords, and checking a paper for it says nothing.
+    if raw.get("find"):
+        return []
 
     keywords = raw.get("keywords")
     if isinstance(keywords, list):
@@ -306,6 +310,16 @@ def explain_document(
 
     matched = [m for m in matches if m["matched"]]
     verdict, headline = _verdict(slug, source, matches, matched)
+    finds = [run for run in runs if run["execution_type"] == "find_paper"]
+    if finds and not matches:
+        how = conn.execute(
+            "SELECT matched_by FROM execution_find_results WHERE document_id = ? AND outcome = 'found' "
+            "ORDER BY execution_id DESC LIMIT 1", (int(document_id),)).fetchone()
+        verdict = "found_by_find"
+        headline = (
+            f"Find a paper looked it up, and {(source or {}).get('name') or slug} answered with this "
+            f"record{_FIND_MATCH_WORDS.get(how[0] if how else '', '')}. A find is not a keyword search, so "
+            "there are no keywords to check it against.")
 
     return {
         "document": {
@@ -343,6 +357,16 @@ def _describe_fields(fields: list[str]) -> str:
     if len(labels) == 2:
         return f"{labels[0]} and {labels[1]}"
     return ", ".join(labels[:-1]) + ", and " + labels[-1]
+
+
+#: How a find matched the record it kept, as the paper's account says it.
+_FIND_MATCH_WORDS = {
+    "doi": ", which carries the DOI asked for",
+    "arxiv": ", which carries the arXiv id asked for",
+    "pmid": ", which carries the PMID asked for",
+    "exact_title": ", whose title is the title asked for",
+    "close_title": ", whose title is close to the title asked for",
+}
 
 
 def _verdict(

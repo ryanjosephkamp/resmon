@@ -157,3 +157,16 @@ def test_a_later_find_links_a_new_copy_to_one_already_held(conn, engine):
     _Source.replies = {"zenodo": [_record("zenodo", "77")]}
     _find(engine, DOI, ["zenodo"])
     assert conn.execute("SELECT count(*) FROM document_links WHERE kind = 'same_paper'").fetchone()[0] == 1
+
+
+def test_a_found_papers_account_says_a_find_kept_it_and_checks_no_keywords(conn, engine):
+    """What was typed into a find is an identifier, not keywords: its account says so."""
+    from implementation_scripts import match_explain
+
+    _Source.replies = {"crossref": [_record("crossref", DOI)]}
+    _find(engine, f"https://doi.org/{DOI}", ["crossref"])
+    document_id = conn.execute("SELECT id FROM documents").fetchone()[0]
+    said = match_explain.explain_document(conn, document_id)
+    assert said["verdict"] == "found_by_find" and said["keywords"] == []
+    assert "Crossref answered with this record, which carries the DOI asked for" in said["headline"]
+    assert match_explain.keyword_contribution(conn)["keywords"] == []
