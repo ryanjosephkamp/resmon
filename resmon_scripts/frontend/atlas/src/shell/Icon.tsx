@@ -32,6 +32,14 @@ const PATHS = {
   more: <><circle cx="3.5" cy="8" r=".9" fill="currentColor" /><circle cx="8" cy="8" r=".9" fill="currentColor" /><circle cx="12.5" cy="8" r=".9" fill="currentColor" /></>,
   link: <><path d="M6.5 9.5 9.5 6.5" /><path d="M7.25 4.75 8.6 3.4a2.5 2.5 0 0 1 3.54 3.54L10.8 8.3M8.75 11.25 7.4 12.6a2.5 2.5 0 0 1-3.54-3.54L5.2 7.7" /></>,
   folder: <path d="M2.25 4.25a1 1 0 0 1 1-1h3l1.5 1.75h5a1 1 0 0 1 1 1v6.75a1 1 0 0 1-1 1H3.25a1 1 0 0 1-1-1Z" />,
+  up: <path d="M8 13V3M4 7l4-4 4 4" />,
+  down: <path d="M8 3v10M4 9l4 4 4-4" />,
+  // A handle to drag by: two columns of three dots.
+  grip: <>
+    <circle cx="6" cy="4" r=".9" fill="currentColor" /><circle cx="10" cy="4" r=".9" fill="currentColor" />
+    <circle cx="6" cy="8" r=".9" fill="currentColor" /><circle cx="10" cy="8" r=".9" fill="currentColor" />
+    <circle cx="6" cy="12" r=".9" fill="currentColor" /><circle cx="10" cy="12" r=".9" fill="currentColor" />
+  </>,
 } as const;
 
 export type IconName = keyof typeof PATHS;

@@ -105,7 +105,7 @@ def test_reset_settings_clears_the_appearance_with_everything_else(client):
 
 
 def test_the_run_monitor_is_shown_until_it_is_hidden_and_a_put_without_it_leaves_it(client):
-    """Settings › Appearance › Show the run monitor in the top bar, kept in the engine."""
+    """Settings › Top bar › Show the run monitor in the top bar, kept in the engine."""
     hidden = client.put("/api/appearance", json={"theme": "dark", "accent": None, "run_monitor": False})
     assert hidden.json() == {"theme": "dark", "accent": None, "run_monitor": False}
     # A caller that knows only the theme and the accent changes only those.

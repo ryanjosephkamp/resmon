@@ -16,6 +16,7 @@ import { LibrarySettings } from './settings/LibrarySettings';
 import { Notifications } from './settings/Notifications';
 import { Sources } from './settings/Sources';
 import { Storage } from './settings/Storage';
+import { TopBarSettings } from './settings/TopBar';
 import { Tutorials } from './settings/Tutorials';
 import { GROUPS, groupPath } from './settings/model';
 
@@ -140,6 +141,7 @@ export function Settings() {
             </section>
           )}
           {known?.slug === '' && <Appearance />}
+          {known?.slug === 'top-bar' && <TopBarSettings />}
           {known?.slug === 'background' && <Background />}
           {known?.slug === 'email' && <Email />}
           {known?.slug === 'notifications' && <Notifications />}
@@ -222,19 +224,6 @@ function Appearance() {
             <AccentProof theme="light" accent={shown.accent} />
           </div>
         </div>
-      </div>
-
-      <div className="monitor-setting" data-settings="run-monitor">
-        <h3 className="field-title">Run monitor</h3>
-        <button type="button" className="switch" role="switch" aria-checked={stored.run_monitor} data-switch="run_monitor"
-          onClick={() => save({ run_monitor: !stored.run_monitor })}>
-          <span className="switch-track"><span className="switch-knob" /></span>
-          Show the run monitor in the top bar
-        </button>
-        <p className="form-hint">
-          The mark between the sections and New search: what runs now, what waits, and what failed since you last
-          looked. Hidden, runs still notify you, and the Runs tab still lists them.
-        </p>
       </div>
 
       {(saveError || loadError) && (

@@ -5,7 +5,7 @@
  * the panel is opened). Its panel, by the keyboard and the pointer: Enter
  * opens it with the focus inside, Escape and a click elsewhere close it, and
  * the focus comes back to the mark. Its one read: the Runs tab and the
- * monitor share the active runs' poll. Hiding it in Settings › Appearance,
+ * monitor share the active runs' poll. Hiding it in Settings › Top bar,
  * kept by the engine across a reload. With reduced motion, nothing turns or
  * pulses. And at 960, 1280, and 1920 pixels, in the night theme and in light,
  * with its panel open over a running run.
@@ -239,8 +239,8 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await expect(mark).toHaveAttribute('data-monitor', 'idle');
     expect((await engine<{ failed_unseen: number[] }>(win, '/api/executions/active')).body.failed_unseen).toEqual([]);
 
-    // — Hidden in Settings › Appearance, kept by the engine across a reload ---------------------
-    await win.evaluate(() => { window.location.hash = '#/settings'; });
+    // — Hidden in Settings › Top bar, kept by the engine across a reload ------------------------
+    await win.evaluate(() => { window.location.hash = '#/settings/top-bar'; });
     const toggle = win.getByRole('switch', { name: 'Show the run monitor in the top bar' });
     await expect(toggle).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 });
     await toggle.click();

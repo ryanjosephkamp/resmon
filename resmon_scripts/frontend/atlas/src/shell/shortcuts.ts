@@ -70,23 +70,20 @@ export function shortcut(id: ShortcutId): Shortcut {
 }
 
 /**
- * The section each of ⌘1 to ⌘7 opens, by its address. ⌘1 to ⌘6 open the six
- * sections they always opened, in the order the bar first had them; Runs,
- * added after Search, takes ⌘7 rather than moving Library, Ask, and Health
- * off the keys people know.
+ * The section a ⌘1 to ⌘7 shortcut opens, by its address; null for any other
+ * shortcut. `keys` is the sections' addresses in the order the keys take
+ * them: the top bar's, as the person arranged it, the shown sections first
+ * from the left and the hidden ones after (`topBar.ts`, `Arranged.keys`).
  */
-export const SECTION_KEYS: readonly string[] = ['/today', '/watches', '/search', '/library', '/ask', '/health', '/runs'];
-
-/** The section a ⌘1 to ⌘7 shortcut opens, by its address; null for any other shortcut. */
-export function sectionPath(id: ShortcutId): string | null {
+export function sectionPath(id: ShortcutId, keys: readonly string[]): string | null {
   const match = /^section-(\d)$/.exec(id);
-  return match ? SECTION_KEYS[Number(match[1]) - 1] ?? null : null;
+  return match ? keys[Number(match[1]) - 1] ?? null : null;
 }
 
 /** The shortcut that opens a section, by its address; null for a section with none. */
-export function sectionShortcut(path: string): ShortcutId | null {
-  const at = SECTION_KEYS.indexOf(path);
-  return at < 0 ? null : (`section-${at + 1}` as ShortcutId);
+export function sectionShortcut(path: string, keys: readonly string[]): ShortcutId | null {
+  const at = keys.indexOf(path);
+  return at < 0 || at > 6 ? null : (`section-${at + 1}` as ShortcutId);
 }
 
 /** The part of a keyboard event a shortcut is matched against. */

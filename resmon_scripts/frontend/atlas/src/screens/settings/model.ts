@@ -15,6 +15,7 @@ export type BackupLast = components['schemas']['BackupLast'];
 /** Settings' groups, in the order of the rail. The first is `/settings` itself. */
 export const GROUPS = [
   { slug: '', label: 'Appearance' },
+  { slug: 'top-bar', label: 'Top bar' },
   { slug: 'background', label: 'In the background' },
   { slug: 'email', label: 'Email' },
   { slug: 'notifications', label: 'Notifications' },

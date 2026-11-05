@@ -1,10 +1,11 @@
 import { useEffect, useId, useMemo, useState, type KeyboardEvent, type RefObject } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { PLACES, SECTIONS, SETTINGS } from '../routes';
+import { PLACES, SETTINGS, sectionFor } from '../routes';
 import { bridge } from '../bridge';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
 import { Icon, type IconName } from './Icon';
 import { keysText, sectionShortcut, shortcut, type ShortcutId } from './shortcuts';
+import { useTopBar } from './useTopBar';
 
 interface Command {
   id: string;
@@ -14,6 +15,8 @@ interface Command {
   icon: IconName;
   /** Shown at the row's end: the current choice, or where it goes. */
   current?: boolean;
+  /** Shown at the row's end, quietly: a section the top bar does not show. */
+  hidden?: boolean;
   /** Shown at the row's end: the shortcut that does the same from anywhere. */
   keys?: ShortcutId;
   run: () => void;
@@ -141,19 +144,22 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
   const location = useLocation();
   const here = `${location.pathname}${location.search}`;
   const { stored, save } = useAppearance();
+  const { arranged } = useTopBar();
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const listId = useId();
 
   const commands = useMemo<Command[]>(() => [
     ...SHELL_COMMANDS.filter((c) => c.group === 'Start').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
-    ...[...SECTIONS, SETTINGS].map((section) => ({
+    // In the order of ⌘1 to ⌘7: the bar's sections from the left, then the hidden ones, which are still here.
+    ...[...arranged.keys.map(sectionFor), SETTINGS].map((section) => ({
       id: `go:${section.path}`,
       group: 'Go to',
       label: section.label,
       keywords: section.keywords,
       icon: 'arrow' as const,
-      keys: section === SETTINGS ? 'settings' as const : sectionShortcut(section.path) ?? undefined,
+      hidden: section !== SETTINGS && !arranged.shown.map(sectionFor).includes(section),
+      keys: section === SETTINGS ? 'settings' as const : sectionShortcut(section.path, arranged.keyPaths) ?? undefined,
       run: () => navigate(section.path),
     })),
     ...PLACES.map((place) => ({
@@ -193,7 +199,7 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
       run: () => save({ accent: null }),
     },
     ...SHELL_COMMANDS.filter((c) => c.group === 'Help').map((c) => ({ ...c, keys: c.id, run: () => onRun(c.id) })),
-  ], [navigate, save, stored, onRun, here, mac]);
+  ], [navigate, save, stored, onRun, here, mac, arranged]);
 
   const shown = useMemo(() => rank(commands, query), [commands, query]);
   const activeIndex = Math.min(active, Math.max(shown.length - 1, 0));
@@ -264,6 +270,7 @@ function PaletteBody({ onClose, onRun, dialog, mac }: Omit<PaletteProps, 'open'>
               <Icon name={command.icon} />
               <span className="palette-label">{command.label}</span>
               {command.current && <span className="palette-current"><Icon name="check" size={14} />Current</span>}
+              {command.hidden && <span className="palette-current">Not in the top bar</span>}
               {command.keys && <kbd className="palette-keys">{keysText(shortcut(command.keys).chord, mac)}</kbd>}
             </li>,
           ];

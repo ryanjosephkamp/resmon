@@ -4,7 +4,7 @@
  * some failed, each with the sources it asked and a stored event list of the
  * size a short run keeps.
  *
- * It checks what a person meets: the tab in the bar and on ⌘7, the history's
+ * It checks what a person meets: the tab in the bar and on ⌘4, the history's
  * first page and the count of all of them, the next pages read as the list
  * nears its end, the filters and the search with their counts, the newest
  * five beside Ask the sources, and that the history is not read again on a
@@ -85,14 +85,14 @@ conn.commit()
     const pages: string[] = [];
     win.on('request', (r) => { if (/\/api\/executions\?/.test(r.url()) && /offset=/.test(r.url())) pages.push(new URL(r.url()).search); });
 
-    // — The tab, after Search in the bar, and on ⌘7 -----------------------------------------
+    // — The tab, after Search in the bar, and on ⌘4: the keys follow the bar ----------------
     const tabs = win.getByRole('navigation', { name: 'Sections' }).getByRole('link');
     expect(await tabs.allInnerTexts()).toEqual(['Today', 'Watches', 'Search', 'Runs', 'Library', 'Ask', 'Health']);
     const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await expect(tabs.filter({ hasText: 'Runs' })).toHaveAttribute('aria-keyshortcuts', `${mod}+7`);
-    await expect(tabs.filter({ hasText: 'Library' })).toHaveAttribute('aria-keyshortcuts', `${mod}+4`);
+    await expect(tabs.filter({ hasText: 'Runs' })).toHaveAttribute('aria-keyshortcuts', `${mod}+4`);
+    await expect(tabs.filter({ hasText: 'Library' })).toHaveAttribute('aria-keyshortcuts', `${mod}+5`);
     const asked = Date.now();
-    await win.keyboard.press(`${mod}+7`);
+    await win.keyboard.press(`${mod}+4`);
     await expect.poll(() => win.evaluate(() => window.location.hash)).toBe('#/runs');
 
     // — The first page, and the count of all of them ----------------------------------------

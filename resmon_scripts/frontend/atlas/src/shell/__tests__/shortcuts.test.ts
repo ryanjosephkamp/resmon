@@ -54,13 +54,16 @@ describe('each shortcut is one key with ⌘ on macOS and Ctrl elsewhere', () => 
     expect(new Set(chords).size).toBe(chords.length);
   });
 
-  test('⌘1 to ⌘6 open the sections they always opened, and Runs, added after Search, takes ⌘7', () => {
-    expect(SHORTCUTS.map((s) => sectionPath(s.id)).filter((p) => p !== null))
-      .toEqual(['/today', '/watches', '/search', '/library', '/ask', '/health', '/runs']);
-    expect(sectionPath('new-dive')).toBeNull();
-    expect(sectionShortcut('/runs')).toBe('section-7');
-    expect(sectionShortcut('/library')).toBe('section-4');
-    expect(sectionShortcut('/settings')).toBeNull();
+  test('⌘1 to ⌘7 open the sections in the order they are given, and nothing else is a section\'s', () => {
+    const keys = ['/health', '/today', '/runs', '/watches', '/search', '/library', '/ask'];
+    expect(SHORTCUTS.map((s) => sectionPath(s.id, keys)).filter((p) => p !== null)).toEqual(keys);
+    expect(sectionPath('new-dive', keys)).toBeNull();
+    expect(sectionShortcut('/health', keys)).toBe('section-1');
+    expect(sectionShortcut('/runs', keys)).toBe('section-3');
+    expect(sectionShortcut('/settings', keys)).toBeNull();
+    // An order longer than the keys gives the rest none.
+    expect(sectionShortcut('/eighth', [...keys, '/eighth'])).toBeNull();
+    expect(sectionPath('section-7', keys.slice(0, 3))).toBeNull();
   });
 });
 

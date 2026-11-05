@@ -867,7 +867,7 @@
         "type": "object"
       },
       "AppearanceBody": {
-        "description": "The whole appearance, every time: a PUT replaces the theme and the accent.\n\n``run_monitor`` (Settings › Appearance, \"Show the run monitor in the top\nbar\") is stored when it is sent and left as it is when it is not, so a\ncaller that knows only the theme and the accent changes only those.",
+        "description": "The whole appearance, every time: a PUT replaces the theme and the accent.\n\n``run_monitor`` (Settings › Top bar, \"Show the run monitor in the top\nbar\") is stored when it is sent and left as it is when it is not, so a\ncaller that knows only the theme and the accent changes only those.",
         "properties": {
           "accent": {
             "anyOf": [

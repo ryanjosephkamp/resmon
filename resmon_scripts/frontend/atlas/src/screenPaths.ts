@@ -37,6 +37,7 @@ export const SCREEN_PATHS: readonly ScreenPath[] = [
   { path: '/health/analytics', name: 'Health › Analytics' },
   { path: '/health/engine', name: 'Health › This engine' },
   { path: '/settings', name: 'Settings › Appearance' },
+  { path: '/settings/top-bar', name: 'Settings › Top bar' },
   { path: '/settings/background', name: 'Settings › In the background' },
   { path: '/settings/email', name: 'Settings › Email' },
   { path: '/settings/notifications', name: 'Settings › Notifications' },

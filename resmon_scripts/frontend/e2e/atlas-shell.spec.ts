@@ -168,8 +168,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
   test.setTimeout(240_000);
   const { app, win, problems, done } = await launchAtlas('keys');
   try {
-    // — the six sections and Settings, in the top bar's order ------------------------
-    const sections = ['#/today', '#/watches', '#/search', '#/library', '#/ask', '#/health'];
+    // — the seven sections and Settings, in the top bar's order ----------------------
+    const sections = ['#/today', '#/watches', '#/search', '#/runs', '#/library', '#/ask', '#/health'];
     for (const [index, expected] of sections.entries()) {
       await win.keyboard.press(`${MOD}+${index + 1}`);
       await expect.poll(() => hash(win)).toBe(expected);
@@ -219,9 +219,9 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(sheet).toBeVisible();
     const mac = process.platform === 'darwin';
     await expect(sheet.locator('[data-shortcut="new-sweep"] kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
-    await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Library');
-    // Runs, after Search in the bar, takes ⌘7: the keys people know for Library, Ask, and Health stay theirs.
-    await expect(sheet.locator('[data-shortcut="section-7"] dt')).toHaveText('Runs');
+    // ⌘1 to ⌘7 follow the bar from the left: Runs, after Search, is ⌘4.
+    await expect(sheet.locator('[data-shortcut="section-4"] dt')).toHaveText('Runs');
+    await expect(sheet.locator('[data-shortcut="section-7"] dt')).toHaveText('Health');
     await expect(sheet.locator('[data-shortcut="section-7"] kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
     await expect(sheet.locator('[data-shortcut="back"] kbd')).toHaveText(mac ? ['⌘[', '⌘←'] : ['Ctrl+[', 'Alt+←']);
     await expect(sheet.locator('[data-shortcut="find"] dt')).toHaveText('Find in the file');
@@ -244,8 +244,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await expect(palette).toBeVisible();
     const row = (label: string) => palette.getByRole('option', { name: new RegExp(`^${label}`) });
     await expect(row('New Deep Sweep').locator('kbd')).toHaveText(mac ? '⇧⌘D' : 'Ctrl+Shift+D');
-    await expect(row('Health').locator('kbd')).toHaveText(mac ? '⌘6' : 'Ctrl+6');
-    await expect(row('Runs').locator('kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
+    await expect(row('Health').locator('kbd')).toHaveText(mac ? '⌘7' : 'Ctrl+7');
+    await expect(row('Runs').locator('kbd')).toHaveText(mac ? '⌘4' : 'Ctrl+4');
     await win.getByRole('combobox', { name: 'Search commands' }).fill('calendar');
     await expect(palette.getByRole('option').first()).toHaveText(/^Calendar/);
     await win.keyboard.press('Enter');

@@ -367,6 +367,8 @@ input:is([type="checkbox"], [type="radio"]):not(.sr-only):disabled:checked { opa
 .keys-list dd { margin: 0; display: inline-flex; align-items: center; gap: 6px; flex: none; }
 .keys-list .keys-words { flex: 0 1 auto; max-width: 180px; font: 400 12.5px/1.35 var(--sans); color: var(--ink-2); text-align: right; }
 .keys-or { font: 400 12px/1 var(--sans); color: var(--ink-3); }
+/* A section's shortcut that still works though the section is out of the top bar. */
+.keys-aside { margin-left: 8px; font: 400 12px/1 var(--sans); color: var(--ink-3); }
 /* ⌘↩ beside a button that ⌘Enter in its fields presses: quiet, and only where there is room. */
 .enter-hint { flex: none; align-self: center; color: var(--ink-3); background: transparent; }
 .keys-note { margin: 8px 0 0; padding: 12px 22px 18px; border-top: 1px solid var(--rule); font: 400 12.5px/1.5 var(--sans); color: var(--ink-3); }
@@ -939,6 +941,41 @@ a.active-title:hover { text-decoration: underline; text-decoration-thickness: 1p
 .mp-foot .mp-hide:hover { color: var(--ink-2); text-decoration: underline; text-underline-offset: 3px; }
 .monitor-setting { margin-top: 34px; }
 .monitor-setting .switch { margin-top: 10px; }
+
+/* Settings › Top bar (settings/TopBar.tsx): the sections as a list read from the bar's left end, each row the same
+   height so a dragged one moves by whole rows, then the start page and where the resmon name goes. */
+.bar-sections { margin-top: 26px; }
+.bar-order { list-style: none; margin: 14px 0 0; padding: 0; max-width: 580px; border-top: 1px solid var(--rule); }
+.bar-order-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; column-gap: 18px;
+  height: 46px; padding: 0 4px 0 2px; border-bottom: 1px solid var(--rule); background: var(--ground);
+  position: relative;
+}
+.bar-order-handle {
+  display: flex; align-items: center; gap: 12px; height: 100%; min-width: 0;
+  cursor: grab; touch-action: none; user-select: none;
+}
+.bar-order-handle > .icon { color: var(--ink-3); transition: color var(--dur) var(--ease-out); }
+.bar-order-handle:hover > .icon { color: var(--ink); }
+.bar-order-handle kbd { min-width: 34px; text-align: center; font-variant-numeric: tabular-nums; }
+.bar-order-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 500 14px/1.2 var(--sans); color: var(--ink); }
+.bar-order-row[data-hidden] .bar-order-name { color: var(--ink-3); }
+.bar-order-moves { display: inline-flex; gap: 2px; }
+.bar-order-moves .iconbtn[aria-disabled="true"] { color: var(--rule-2); background: transparent; cursor: default; }
+.bar-order-switch > span:last-child { min-width: 46px; }
+/* While a row is dragged, the rows it passes slide a row over to open its place; the lifted one follows the pointer. */
+.bar-order[data-dragging] .bar-order-row { transition: transform var(--dur) var(--ease-out); }
+.bar-order[data-dragging] .bar-order-row[data-lifted] {
+  z-index: 1; transition: none; border-radius: var(--r); border-bottom-color: transparent;
+  background: var(--raise); box-shadow: var(--shadow);
+}
+.bar-order[data-dragging] .bar-order-row[data-lifted] .bar-order-handle { cursor: grabbing; }
+.bar-pages { margin-top: 30px; max-width: 580px; }
+.bar-pages select { width: 100%; }
+.top-bar-settings > .form-actions .form-hint { max-width: 52ch; }
+@media (prefers-reduced-motion: reduce) {
+  .bar-order[data-dragging] .bar-order-row, .bar-order-handle > .icon { transition: none; }
+}
 
 /* A question asked in place before something that cannot be undone. */
 .confirm {

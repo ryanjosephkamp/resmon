@@ -106,6 +106,10 @@ def test_missing_sections_come_back_in_default_order_even_with_no_neighbor_left(
     _get(client)
     _store(resmon_mod._TOP_BAR_ORDER_KEY, json.dumps(["health", "ask", "library"]))
     assert _get(client)["order"] == ["today", "watches", "search", "runs", "health", "ask", "library"]
+    # Library, Ask, and Health follow Runs by default, so they go after it; Watches and Search follow Today.
+    # The renderer's own copy of the rule (``shell/topBar.ts``, ``wholeOrder``) is held to this same case.
+    _store(resmon_mod._TOP_BAR_ORDER_KEY, json.dumps(["runs", "dashboard", "runs", "today"]))
+    assert _get(client)["order"] == ["runs", "library", "ask", "health", "today", "watches", "search"]
 
 
 @pytest.mark.parametrize("body", [

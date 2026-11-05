@@ -6954,7 +6954,7 @@ _ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
 class AppearanceBody(BaseModel):
     """The whole appearance, every time: a PUT replaces the theme and the accent.
 
-    ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+    ``run_monitor`` (Settings › Top bar, "Show the run monitor in the top
     bar") is stored when it is sent and left as it is when it is not, so a
     caller that knows only the theme and the accent changes only those.
     """
