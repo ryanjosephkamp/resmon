@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, shell, systemPreferences } from 'electron';
+import { app, BrowserWindow, Menu, Notification, clipboard, dialog, ipcMain, nativeTheme, screen, shell, systemPreferences } from 'electron';
 import { installDownloads } from './downloads';
 import {
   installCommandLine, refreshInstalledArchive, systemContext, uninstallCommandLine, type Outcome,
@@ -11,6 +11,9 @@ import {
   START_WAIT_MS, disabledIn, ensureService, pidFromPrint, temporaryPlace, unitFromPlist,
   type Facts, type Running, type Unit, type World,
 } from './service';
+import {
+  RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, routeOf, tabStripHeight, type CollectionId,
+} from './windows';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, execFile, execFileSync, spawn } from 'child_process';
 import * as crypto from 'crypto';
@@ -183,7 +186,15 @@ if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
 }
 
 
-let mainWindow: BrowserWindow | null = null;
+/**
+ * The app's own windows (`windows.ts`): every one shows the renderer, on the
+ * same engine. Link windows are not among them.
+ */
+const appWindows = new WindowSet<BrowserWindow>();
+/** Which window started each run, so the run's notification shows it there. */
+const runOwners = new RunOwners();
+/** Whether the windows are in macOS's tabs, and so leave room for the tab bar. */
+const tabsMode = new TabsMode();
 let backendProcess: ChildProcess | null = null;
 // Null until attach-or-spawn has settled which backend this app is using. It
 // was initialised to the daemon's port, which meant any read before that point
@@ -633,19 +644,23 @@ function startServiceEngine(port: number, token: string, rendererOrigin: string)
 }
 
 /**
- * Post a notification the engine sent, as resmon. Clicking it opens the run.
+ * Post a notification the engine sent, as resmon. Clicking it opens the run,
+ * in the window that started it while that window is open, else in the window
+ * in front (`noticeWindow`); a window is made only when none is open.
  *
  * Under the e2e suites, and under the performance harness
  * (`RESMON_NOTICES_TO_LOG`), nothing is put on the screen of the person at the
- * Mac: the notice is written to the log, as a line a spec can read, and the
- * answer to the engine is the same as for a posted one.
+ * Mac: the notice is written to the log, as a line a spec can read, with the
+ * window a click would show it in, and the answer to the engine is the same as
+ * for a posted one.
  */
 function postNotice(notice: Notice): boolean {
   // The OS shows the app's name on every notification it posts; a title that
   // starts with it says it twice.
   const title = notice.title.replace(/^resmon:\s*/i, '') || 'resmon';
   if (isE2E() || process.env.RESMON_NOTICES_TO_LOG === '1') {
-    console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId })}`);
+    const shownIn = noticeWindow(appWindows, runOwners, notice.executionId, BrowserWindow.getFocusedWindow());
+    console.log(`[main] notice ${JSON.stringify({ title, body: notice.body, executionId: notice.executionId, window: shownIn?.id ?? null })}`);
     return true;
   }
   if (!Notification.isSupported()) return false;
@@ -655,7 +670,7 @@ function postNotice(notice: Notice): boolean {
   liveNotices.add(shown);
   shown.on('click', () => {
     liveNotices.delete(shown);
-    void showWindow(routeForNotice(notice));
+    void showWindow(routeForNotice(notice), notice.executionId);
   });
   shown.on('close', () => liveNotices.delete(shown));
   // The OS took it: the one fact about the screen this process can know.
@@ -669,27 +684,111 @@ function postNotice(notice: Notice): boolean {
 }
 
 /**
- * Bring the window up at `route`, creating it if there is none.
+ * Bring a window up at `route`, creating one only when none is open.
  *
  * A window launch has one from the start; the service makes one when it is
  * asked to (a second launch of resmon, the Dock icon, a notification clicked)
- * and takes the Dock icon and menu bar back while it is open.
+ * and takes the Dock icon and menu bar back while it is open. With windows
+ * open, the one brought up is the one that started the run a notification is
+ * about, else the one in front, else the one focused last: a second launch or a
+ * notification never opens another window beside them.
  */
-async function showWindow(route: string | null): Promise<void> {
-  if (mainWindow) {
+async function showWindow(route: string | null, executionId: number | null = null): Promise<void> {
+  const window = noticeWindow(appWindows, runOwners, executionId, BrowserWindow.getFocusedWindow());
+  if (window) {
     if (route) {
-      await mainWindow.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(`#${route}`)};`);
+      await window.webContents.executeJavaScript(`window.location.hash = ${JSON.stringify(`#${route}`)};`);
     }
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
     return;
   }
-  // Still starting: the engine is not up, so there is nothing to show yet.
-  if (backendPort === null || backendToken === null || rendererOriginValue === null) return;
+  await openAppWindow(route);
+}
+
+/** How a new window opens: beside the window it was asked from, or as a tab of it, and on which collection. */
+interface Opening {
+  /** The window it was asked from, which it opens one step down and to the right of. */
+  from?: BrowserWindow | null;
+  /** On macOS, the window whose tabs it joins. */
+  tabOf?: BrowserWindow | null;
+  collection?: CollectionId;
+}
+
+/**
+ * Open another window on the engine, at `route` or the start page. Nothing
+ * opens while the engine is still starting: there is nothing to show yet.
+ */
+async function openAppWindow(route: string | null, how: Opening = {}): Promise<BrowserWindow | null> {
+  if (backendPort === null || backendToken === null || rendererOriginValue === null) return null;
+  // Window tabs are macOS's; elsewhere a tab asked for is a window beside the one it was asked from.
+  if (how.tabOf && process.platform !== 'darwin') how = { from: how.tabOf, collection: how.collection };
   if (SERVICE && process.platform === 'darwin') app.setActivationPolicy('regular');
-  createWindow(await atlasGround(backendPort, backendToken), route);
-  if (mainWindow) installDownloads(mainWindow);
+  return createWindow(await atlasGround(backendPort, backendToken), route, how);
+}
+
+/** The app window a menu item, a key, or the tab bar acted on: the one in front, or the one focused last. */
+function actedOn(window: unknown): BrowserWindow | null {
+  return appWindows.target(window ?? BrowserWindow.getFocusedWindow());
+}
+
+/**
+ * New Tab (⌘T), and the tab bar's new-tab button: a window at the start page,
+ * in `host`'s tabs. Off macOS, where there are no window tabs, a new window.
+ */
+async function openTab(host: BrowserWindow | null): Promise<void> {
+  if (process.platform !== 'darwin' || !host) {
+    await openAppWindow(null, { from: host });
+    return;
+  }
+  await openAppWindow(null, { tabOf: host });
+}
+
+/**
+ * Merge All Windows: every window into the tabs of the one in front. Done a
+ * window at a time rather than through macOS's own merge, which acts only on
+ * the key window, and an app that is not active has none.
+ */
+function mergeAllWindows(host: BrowserWindow | null): void {
+  if (!host || process.platform !== 'darwin') return;
+  tabsMode.use();
+  for (const window of appWindows.all()) if (window !== host) host.addTabbedWindow(window);
+  windowsChanged();
+}
+
+/** What a window's renderer is told about itself: its collection, and the room to leave for the tab bar. */
+function windowState(window: BrowserWindow): { collection: CollectionId; tabStrip: number } {
+  return {
+    collection: appWindows.collectionOf(window),
+    tabStrip: tabStripHeight(process.platform, process.getSystemVersion(), tabsMode.active),
+  };
+}
+
+/**
+ * The windows or their tabs changed: tell every window, set each title again
+ * so macOS lays out its tab bar in the title bar's row (`tabStripHeight`), and
+ * write the Window menu's Show Tab Bar or Hide Tab Bar.
+ */
+function windowsChanged(): void {
+  for (const window of appWindows.all()) {
+    if (!window.webContents.isDestroyed()) window.webContents.send('resmon:window-state', windowState(window));
+  }
+  if (process.platform !== 'darwin') return;
+  if (tabsMode.active) for (const window of appWindows.all()) relayTitle(window);
+  installApplicationMenu();
+}
+
+/**
+ * Set a window's title again, changed by a trailing space, which no tab or
+ * menu shows. macOS lays out a window's tab bar in the title bar's own row
+ * only once its title changes after it joined the tabs; until then the bar
+ * sits in a second row, over the top of the page (measured on macOS 26).
+ */
+function relayTitle(window: BrowserWindow): void {
+  if (window.isDestroyed()) return;
+  const title = window.getTitle();
+  window.setTitle(title.endsWith(' ') ? title.trimEnd() : `${title} `);
 }
 
 /**
@@ -832,7 +931,7 @@ function atlasGround(port: number, token: string): Promise<string> {
   });
 }
 
-function createWindow(ground: string, route: string | null = null): void {
+function createWindow(ground: string, route: string | null = null, how: Opening = {}): BrowserWindow {
   if (rendererPort === null) {
     throw new Error('Renderer server has not been started');
   }
@@ -846,9 +945,19 @@ function createWindow(ground: string, route: string | null = null): void {
       height: Number(process.env.RESMON_E2E_HEIGHT) || 900,
     }
     : null;
-  mainWindow = new BrowserWindow({
-    width: e2eSize ? e2eSize.width : 1280,
-    height: e2eSize ? e2eSize.height : 820,
+  // A window opened from another takes its size, one step down and to the
+  // right of it, and opens maximized if that one is; the first opens maximized.
+  const from = how.tabOf ?? (appWindows.has(how.from) ? how.from : appWindows.target(BrowserWindow.getFocusedWindow()));
+  const place = from && !from.isDestroyed()
+    ? cascade(from.getNormalBounds(), screen.getDisplayMatching(from.getBounds()).workArea)
+    : null;
+  const maximize = !isE2E() && (!from || from.isDestroyed() || from.isMaximized() || from.isFullScreen());
+  // Into tabs before the window's page first asks how much room to leave for the tab bar.
+  if (how.tabOf) tabsMode.use();
+  const mainWindow = new BrowserWindow({
+    width: e2eSize ? e2eSize.width : place?.width ?? 1280,
+    height: e2eSize ? e2eSize.height : place?.height ?? 820,
+    ...(place ? { x: place.x, y: place.y } : {}),
     minWidth: 960,
     minHeight: 600,
     title: 'resmon',
@@ -868,7 +977,9 @@ function createWindow(ground: string, route: string | null = null): void {
     backgroundColor: ground,
     // Atlas draws its own top bar on macOS, with the window controls inset in
     // it, so the bar is the only chrome. Elsewhere the system frame stays.
-    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+    // Every window on macOS can join the others' tabs (New Tab, Merge All
+    // Windows, the Window menu), which the shared identifier allows.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const, tabbingIdentifier: 'resmon' } : {}),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -885,6 +996,8 @@ function createWindow(ground: string, route: string | null = null): void {
       // the synchronous `resmon:backend-connection` IPC instead.
     },
   });
+  // In the set before its page loads: its preload's first question is answered only to the set's windows.
+  appWindows.add(mainWindow, how.collection ?? null);
 
   // Every external link opens the same way: an in-app window, not the system
   // browser.
@@ -898,9 +1011,29 @@ function createWindow(ground: string, route: string | null = null): void {
   // it is where a license or a rate-limit page is usually only glanced at. The
   // window carries the URL in its title bar so it is never hidden, and a
   // right-click offers copying it or handing it to the real browser.
+  //
+  // A link to one of resmon's own pages asked for in a new window (⌘-click,
+  // Ctrl-click, a middle click) opens another window of the app there.
+  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    openLinkWindow(url);
+    const own = routeOf(url, rendererOrigin);
+    if (own) void openAppWindow(own.route, { from: mainWindow, collection: appWindows.collectionOf(mainWindow) });
+    else openLinkWindow(url, mainWindow);
     return { action: 'deny' };
+  });
+
+  // A right-click on a link to one of resmon's own pages offers it in a new
+  // window, and on macOS in a new tab. Nothing else in the page has a menu.
+  mainWindow.webContents.on('context-menu', (_event, params) => {
+    const own = routeOf(params.linkURL, rendererOrigin);
+    if (!own) return;
+    const collection = appWindows.collectionOf(mainWindow);
+    Menu.buildFromTemplate([
+      { label: 'Open in New Window', click: () => void openAppWindow(own.route, { from: mainWindow, collection }) },
+      ...(process.platform === 'darwin'
+        ? [{ label: 'Open in New Tab', click: () => void openAppWindow(own.route, { tabOf: mainWindow, collection }) }]
+        : []),
+    ]).popup({ window: mainWindow });
   });
 
   // The main window only ever shows the renderer. A navigation anywhere else —
@@ -909,13 +1042,12 @@ function createWindow(ground: string, route: string | null = null): void {
   // also what keeps the backend's token in resmon's own document: the preload
   // hands it to the main window's top frame, so that frame must never hold
   // somebody else's page.
-  const rendererOrigin = `http://127.0.0.1:${rendererPort}`;
   const keepToRenderer = (event: Electron.Event, url: string) => {
     let origin = '';
     try { origin = new URL(url).origin; } catch { /* unparseable: refuse */ }
     if (origin !== rendererOrigin) {
       event.preventDefault();
-      if (origin) openLinkWindow(url);
+      if (origin) openLinkWindow(url, mainWindow);
     }
   };
   mainWindow.webContents.on('will-navigate', keepToRenderer);
@@ -938,15 +1070,19 @@ function createWindow(ground: string, route: string | null = null): void {
     // journey, which is a different variable in a different file with nothing
     // tying the two together. `launchEnv(stateDir, false)` already exists one
     // opt-in away.
+    // Into its tabs before it is shown, so it never appears as a window of its own first.
+    const host = how.tabOf && !how.tabOf.isDestroyed() ? how.tabOf : null;
+    if (host) host.addTabbedWindow(mainWindow);
     if (isHiddenWindow()) return;
-    if (!isE2E()) mainWindow?.maximize();
+    if (maximize && !host) mainWindow.maximize();
     // `showInactive()` puts the window up without making it the key window, so
     // an automated run does not take the keyboard from the person at the Mac.
     // **This is the line that fixes the complaint** — measured, against each
     // half alone; see the table above `setActivationPolicy`. Unset, this is
     // `show()` exactly as before.
-    if (isBackgroundWindow()) mainWindow?.showInactive();
-    else mainWindow?.show();
+    if (isBackgroundWindow()) mainWindow.showInactive();
+    else mainWindow.show();
+    if (host) windowsChanged();
   });
 
   // Browser-style history navigation.
@@ -964,14 +1100,33 @@ function createWindow(ground: string, route: string | null = null): void {
   // `resmon:swipe-history`; a `swipe` that lands just after one of its moves
   // is the same gesture, and is not taken as a second.
   mainWindow.on('swipe', (_event, direction) => {
-    if (Date.now() - lastScrollSwipe < SWIPE_SETTLE_MS) return;
-    if (direction === 'left') navigateHistory('back');
-    if (direction === 'right') navigateHistory('forward');
+    if (Date.now() - (lastScrollSwipe.get(mainWindow) ?? 0) < SWIPE_SETTLE_MS) return;
+    if (direction === 'left') navigateHistory('back', mainWindow);
+    if (direction === 'right') navigateHistory('forward', mainWindow);
   });
 
+  // Each window keeps its own downloads, and is the one a notice goes to once focused.
+  installDownloads(mainWindow);
+  mainWindow.on('focus', () => appWindows.focus(mainWindow));
+  // The tab bar's new-tab button, on macOS.
+  mainWindow.on('new-window-for-tab', () => void openTab(mainWindow));
+  // A tab dragged into another window's tab bar moves its window to that
+  // group's frame, and its bar is laid out again once its title changes.
+  let settle: NodeJS.Timeout | null = null;
+  const moved = () => {
+    if (!tabsMode.active || process.platform !== 'darwin') return;
+    if (settle) clearTimeout(settle);
+    settle = setTimeout(() => { settle = null; relayTitle(mainWindow); }, 250);
+  };
+  mainWindow.on('moved', moved);
+  mainWindow.on('resized', moved);
   mainWindow.on('closed', () => {
-    mainWindow = null;
+    if (settle) clearTimeout(settle);
+    appWindows.remove(mainWindow);
+    tabsMode.windowsNow(appWindows.size);
+    windowsChanged();
   });
+  return mainWindow;
 }
 
 /**
@@ -985,7 +1140,7 @@ function createWindow(ground: string, route: string | null = null): void {
  * access to resmon's IPC bridge. It shows somebody else's page, so it gets the
  * privileges a stranger's page should have.
  */
-function openLinkWindow(url: string): void {
+function openLinkWindow(url: string, opener: BrowserWindow | null = null): void {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -997,15 +1152,17 @@ function openLinkWindow(url: string): void {
     return;
   }
 
+  const parentWindow = opener && !opener.isDestroyed() ? opener : actedOn(null);
   const win = new BrowserWindow({
     width: 900,
     height: 700,
     title: url,
-    // The main window's own ground, so the link window opens on the theme the
-    // app is showing rather than flashing another color before its page paints.
-    backgroundColor: mainWindow?.getBackgroundColor() ?? (nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff'),
+    // The ground of the window it was opened from, so the link window opens on
+    // the theme the app is showing rather than flashing another color before
+    // its page paints.
+    backgroundColor: parentWindow?.getBackgroundColor() ?? (nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff'),
     show: false,
-    parent: mainWindow ?? undefined,
+    parent: parentWindow ?? undefined,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -1065,9 +1222,13 @@ function openLinkWindow(url: string): void {
   void win.loadURL(url);
 }
 
-/** Go back or forward one page, if there is one; whether it moved. Never throws. */
-function navigateHistory(direction: 'back' | 'forward'): boolean {
-  const history = mainWindow?.webContents.navigationHistory;
+/**
+ * Go back or forward one page in a window, if there is one; whether it moved.
+ * Never throws. Each window has its own history: the History menu moves the
+ * window in front, or the one focused last.
+ */
+function navigateHistory(direction: 'back' | 'forward', window: unknown = null): boolean {
+  const history = actedOn(window)?.webContents.navigationHistory;
   if (!history) return false;
   try {
     if (direction === 'back' && history.canGoBack()) { history.goBack(); return true; }
@@ -1078,8 +1239,8 @@ function navigateHistory(direction: 'back' | 'forward'): boolean {
   return false;
 }
 
-/** When the renderer last moved for a two-finger swipe, and how long a `swipe` after it is the same gesture. */
-let lastScrollSwipe = 0;
+/** When each window's renderer last moved for a two-finger swipe, and how long a `swipe` after it is the same gesture. */
+const lastScrollSwipe = new WeakMap<BrowserWindow, number>();
 const SWIPE_SETTLE_MS = 1000;
 
 /**
@@ -1104,11 +1265,12 @@ function twoFingerSwipeNavigates(): boolean {
  * shortcut does (`atlas/src/shell/shortcuts.ts`), bringing the window forward
  * first: the menu is also there while a link window is in front.
  */
-function sendCommand(command: string): void {
-  if (!mainWindow || mainWindow.isDestroyed()) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-  mainWindow.webContents.send('resmon:command', command);
+function sendCommand(command: string, window: unknown = null): void {
+  const target = actedOn(window);
+  if (!target) return;
+  if (target.isMinimized()) target.restore();
+  target.focus();
+  target.webContents.send('resmon:command', command);
 }
 
 /**
@@ -1139,7 +1301,8 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
     detail: outcome.detail,
     buttons: ['OK'],
   };
-  if (mainWindow && !mainWindow.isDestroyed()) await dialog.showMessageBox(mainWindow, options);
+  const window = actedOn(null);
+  if (window) await dialog.showMessageBox(window, options);
   else await dialog.showMessageBox(options);
 }
 
@@ -1159,10 +1322,15 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
  * and takes them, so a menu item's accelerator runs it only when the
  * renderer left the key alone; a click is sent to the renderer, which does
  * what the key does. ⌘W stays Close Window.
+ *
+ * File opens another window (⌘N, Ctrl+N elsewhere) at the start page, and on
+ * macOS another tab of the window in front (⌘T); the Window menu there holds
+ * macOS's tab commands. Each item acts on the window in front, or on the one
+ * focused last when a link window is in front.
  */
 function installApplicationMenu(): void {
   const isMac = process.platform === 'darwin';
-  const send = (command: string) => () => sendCommand(command);
+  const send = (command: string) => (_item: Electron.MenuItem, window: unknown) => sendCommand(command, window);
   const settings: Electron.MenuItemConstructorOptions = {
     id: 'app-settings', label: isMac ? 'Settings…' : 'Settings', accelerator: 'CmdOrCtrl+,', click: send('settings'),
   };
@@ -1170,7 +1338,10 @@ function installApplicationMenu(): void {
     label: 'File',
     id: 'file-menu',
     submenu: [
-      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'CmdOrCtrl+N', click: send('new-conversation') },
+      { id: 'file-new-window', label: 'New Window', accelerator: 'CmdOrCtrl+N', click: (_item, window) => void openAppWindow(null, { from: actedOn(window) }) },
+      ...(isMac ? [{ id: 'file-new-tab', label: 'New Tab', accelerator: 'Cmd+T', click: (_item: Electron.MenuItem, window: unknown) => void openTab(actedOn(window)) }] : []),
+      { type: 'separator' },
+      { id: 'file-new-conversation', label: 'New Conversation', accelerator: 'Shift+CmdOrCtrl+N', click: send('new-conversation') },
       { id: 'file-new-dive', label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D', click: send('new-dive') },
       { id: 'file-new-sweep', label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D', click: send('new-sweep') },
       { type: 'separator' },
@@ -1217,13 +1388,13 @@ function installApplicationMenu(): void {
           id: 'history-back',
           label: 'Back',
           accelerator: isMac ? 'Cmd+[' : 'Alt+Left',
-          click: () => navigateHistory('back'),
+          click: (_item, window) => navigateHistory('back', window),
         },
         {
           id: 'history-forward',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+]' : 'Alt+Right',
-          click: () => navigateHistory('forward'),
+          click: (_item, window) => navigateHistory('forward', window),
         },
         { type: 'separator' },
         // The other pair macOS users reach for. Electron allows one accelerator
@@ -1233,19 +1404,19 @@ function installApplicationMenu(): void {
           label: 'Back',
           accelerator: isMac ? 'Cmd+Left' : 'Backspace',
           visible: false,
-          click: () => navigateHistory('back'),
+          click: (_item, window) => navigateHistory('back', window),
         },
         {
           id: 'history-forward-alt',
           label: 'Forward',
           accelerator: isMac ? 'Cmd+Right' : 'Shift+Backspace',
           visible: false,
-          click: () => navigateHistory('forward'),
+          click: (_item, window) => navigateHistory('forward', window),
         },
       ],
     },
     { role: 'viewMenu' },
-    { role: 'windowMenu' },
+    isMac ? macWindowMenu() : { role: 'windowMenu' },
     {
       role: 'help' as const,
       submenu: [
@@ -1255,6 +1426,51 @@ function installApplicationMenu(): void {
     },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/**
+ * The Window menu on macOS: the system's own items, macOS's tab commands with
+ * their usual keys, and the list of open windows, which macOS adds to the menu
+ * given the `window` role. Show Tab Bar, Merge All Windows, and Move Tab to New
+ * Window are resmon's own items rather than the system's, so the windows know
+ * to leave room for the tab bar (`TabsMode`).
+ */
+function macWindowMenu(): Electron.MenuItemConstructorOptions {
+  const acting = (act: (window: BrowserWindow | null) => void) =>
+    (_item: Electron.MenuItem, window: unknown) => act(actedOn(window));
+  return {
+    role: 'window',
+    id: 'window-menu',
+    submenu: [
+      { role: 'minimize' },
+      { role: 'zoom' },
+      { type: 'separator' },
+      { id: 'window-previous-tab', role: 'selectPreviousTab', accelerator: 'Ctrl+Shift+Tab' },
+      { id: 'window-next-tab', role: 'selectNextTab', accelerator: 'Ctrl+Tab' },
+      { id: 'window-move-tab', label: 'Move Tab to New Window', click: acting(moveTabToNewWindow) },
+      { id: 'window-merge', label: 'Merge All Windows', click: acting(mergeAllWindows) },
+      { type: 'separator' },
+      { id: 'window-tab-bar', label: tabsMode.active ? 'Hide Tab Bar' : 'Show Tab Bar', click: acting(toggleTabBar) },
+      { id: 'window-all-tabs', role: 'showAllTabs' },
+      { type: 'separator' },
+      { role: 'front' },
+    ],
+  };
+}
+
+/** Move Tab to New Window: the tab in front becomes a window of its own. */
+function moveTabToNewWindow(window: BrowserWindow | null): void {
+  if (!window || process.platform !== 'darwin') return;
+  window.moveTabToNewWindow();
+  windowsChanged();
+}
+
+/** Show Tab Bar or Hide Tab Bar, for the window in front and its tabs. */
+function toggleTabBar(window: BrowserWindow | null): void {
+  if (!window || process.platform !== 'darwin') return;
+  window.toggleTabBar();
+  tabsMode.toggleBar(appWindows.size);
+  windowsChanged();
 }
 
 // ---------------------------------------------------------------------------
@@ -1550,7 +1766,7 @@ app.whenReady().then(async () => {
 
     // IPC: the backend's port and token, for the preload only. Synchronous
     // because the renderer's `getBaseUrl()` is, and it is called during the
-    // first render. Answered only to the main window's own top frame. That
+    // first render. Answered only to an app window's own top frame. That
     // frame can only ever hold a document from the renderer origin — the
     // `will-navigate` guard in `createWindow` sends every other navigation to a
     // link window, which has no preload — so the frame check is the origin
@@ -1558,13 +1774,15 @@ app.whenReady().then(async () => {
     // it is still "" (observed under Playwright), and a handler that throws
     // never sets `returnValue`, which leaves the renderer blocked in sendSync.
     // Link windows have no preload and are refused anyway.
-    const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => {
+    // Every app window gets the same answer: one engine, one port, one token.
+    // The handlers below answer each window about itself, through
+    // `senderWindow`, the window that asked.
+    const senderWindow = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): BrowserWindow | null => {
       const frame = event.senderFrame;
-      return mainWindow !== null
-        && event.sender === mainWindow.webContents
-        && frame !== null && frame === mainWindow.webContents.mainFrame
-        && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`));
+      const window = appWindows.forSender(event.sender, frame);
+      return window && frame && (frame.url === '' || frame.url.startsWith(`${rendererOrigin}/`)) ? window : null;
     };
+    const fromRenderer = (event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean => senderWindow(event) !== null;
     ipcMain.on('resmon:backend-connection', (event) => {
       let answer: { port: string; token: string | null } | null = null;
       try {
@@ -1594,20 +1812,70 @@ app.whenReady().then(async () => {
     // is known for the same gesture. Answered only to the renderer's own frame.
     ipcMain.handle('resmon:swipe-navigation', (event) => fromRenderer(event) && twoFingerSwipeNavigates());
     ipcMain.handle('resmon:swipe-history', (event, direction: unknown) => {
-      if (!fromRenderer(event) || (direction !== 'back' && direction !== 'forward')) return false;
-      lastScrollSwipe = Date.now();
-      return navigateHistory(direction);
+      const window = senderWindow(event);
+      if (!window || (direction !== 'back' && direction !== 'forward')) return false;
+      lastScrollSwipe.set(window, Date.now());
+      return navigateHistory(direction, window);
+    });
+
+    // IPC: the windows. `resmon:window-state` is what a window's page reads
+    // before it first draws (its collection, and the room to leave for macOS's
+    // tab bar), asked synchronously like the connection; later changes are
+    // sent on the same channel. `resmon:open-window` opens another window at a
+    // page of the app, or the start page, beside the one that asked or, on
+    // macOS, in its tabs; it shows the same collection. `resmon:run-started`
+    // says which window started a run, so the run's notification shows it there.
+    ipcMain.on('resmon:window-state', (event) => {
+      let answer: ReturnType<typeof windowState> | null = null;
+      try {
+        const window = senderWindow(event);
+        if (window) answer = windowState(window);
+      } finally {
+        event.returnValue = answer;
+      }
+    });
+    ipcMain.on('resmon:open-window', (event, route: unknown, tab: unknown) => {
+      const window = senderWindow(event);
+      if (!window) return;
+      const collection = appWindows.collectionOf(window);
+      void openAppWindow(cleanRoute(route), tab === true ? { tabOf: window, collection } : { from: window, collection });
+    });
+    ipcMain.on('resmon:run-started', (event, executionId: unknown) => {
+      const window = senderWindow(event);
+      if (window) runOwners.claim(executionId, window.id);
+    });
+    // The theme the app shows (`/api/appearance`), so the parts of a window the
+    // system draws follow it: macOS's tab bar drew its titles for the system's
+    // dark theme over a light page, where they could not be read.
+    // A tab bar already drawn kept its titles in the old theme's color after a
+    // change (measured on macOS 26) until the titles were set again, after the
+    // new theme had reached the window, so they are set again then: for every
+    // window after a change, and for a window once its own page has followed.
+    ipcMain.on('resmon:theme-source', (event, theme: unknown) => {
+      const window = senderWindow(event);
+      if (!window || (theme !== 'system' && theme !== 'light' && theme !== 'dark')) return;
+      const changed = nativeTheme.themeSource !== theme;
+      if (changed) {
+        nativeTheme.themeSource = theme;
+        // Each window's own ground follows too, as `atlasGround` paints a new one.
+        const ground = nativeTheme.shouldUseDarkColors ? '#0a0a0b' : '#ffffff';
+        for (const each of appWindows.all()) each.setBackgroundColor(ground);
+      }
+      if (process.platform === 'darwin' && tabsMode.active) {
+        setTimeout(() => { for (const each of changed ? appWindows.all() : [window]) relayTitle(each); }, 800);
+      }
     });
 
     // IPC: choose a directory via native folder picker.
-    ipcMain.handle('resmon:choose-directory', async (_evt, defaultPath?: string) => {
+    ipcMain.handle('resmon:choose-directory', async (evt, defaultPath?: string) => {
       const opts: Electron.OpenDialogOptions = {
         title: 'Select folder',
         properties: ['openDirectory', 'createDirectory'],
       };
       if (defaultPath) opts.defaultPath = defaultPath;
+      // On the window that asked, as a sheet of its own.
       const result = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
+        senderWindow(evt) ?? (undefined as unknown as BrowserWindow),
         opts,
       );
       if (result.canceled || result.filePaths.length === 0) return null;
@@ -1632,14 +1900,15 @@ app.whenReady().then(async () => {
     // Both are the documented install locations resmon already probes in
     // ``ai_cli.known_locations``; a picker that cannot reach them would be a
     // button that fails for exactly the users who need it.
-    ipcMain.handle('resmon:choose-file', async (_evt, defaultPath?: string) => {
+    ipcMain.handle('resmon:choose-file', async (evt, defaultPath?: string) => {
       const opts: Electron.OpenDialogOptions = {
         title: 'Select command',
         properties: ['openFile', 'showHiddenFiles', 'treatPackageAsDirectory'],
       };
       if (defaultPath) opts.defaultPath = defaultPath;
+      // On the window that asked, as a sheet of its own.
       const result = await dialog.showOpenDialog(
-        mainWindow ?? (undefined as unknown as BrowserWindow),
+        senderWindow(evt) ?? (undefined as unknown as BrowserWindow),
         opts,
       );
       if (result.canceled || result.filePaths.length === 0) return null;
@@ -1692,7 +1961,7 @@ app.on('second-instance', (_event, argv) => {
 
 // The Dock icon clicked, or the app opened again from the Finder, on macOS.
 app.on('activate', () => {
-  if (SERVICE && BrowserWindow.getAllWindows().length === 0) void showWindow(null);
+  if (SERVICE && appWindows.size === 0) void showWindow(null);
 });
 
 // launchd and systemd stop a service with SIGTERM. Node's default is to exit on

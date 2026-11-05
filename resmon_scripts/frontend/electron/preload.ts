@@ -29,6 +29,29 @@ function askBackendConnection(): BackendConnection {
 
 const connection = askBackendConnection();
 
+/**
+ * This window, as the main process describes it: the collection it shows
+ * (null, the only one, until there are several), and how many pixels to leave
+ * above the top bar for macOS's tab bar. Asked before the first render, and
+ * kept current when the windows go into tabs or out of them.
+ */
+interface WindowState { collection: string | null; tabStrip: number }
+
+function readWindowState(value: unknown): WindowState {
+  const state = value as Partial<WindowState> | null;
+  return {
+    collection: typeof state?.collection === 'string' ? state.collection : null,
+    tabStrip: typeof state?.tabStrip === 'number' && state.tabStrip >= 0 ? state.tabStrip : 0,
+  };
+}
+
+let windowState = readWindowState(ipcRenderer.sendSync('resmon:window-state'));
+const windowStateListeners = new Set<(state: WindowState) => void>();
+ipcRenderer.on('resmon:window-state', (_event, value: unknown) => {
+  windowState = readWindowState(value);
+  for (const listener of windowStateListeners) listener(windowState);
+});
+
 contextBridge.exposeInMainWorld('resmonAPI', {
   getBackendPort: (): string => connection.port,
   getApiToken: (): string | null => connection.token,
@@ -65,4 +88,15 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   // and the move, which the main process makes.
   swipeNavigation: (): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-navigation'),
   swipeHistory: (direction: 'back' | 'forward'): Promise<boolean> => ipcRenderer.invoke('resmon:swipe-history', direction),
+  // The windows: this one's state, another window (or, on macOS, tab) at a
+  // page of the app, and the run this window started, which its notification
+  // then shows here.
+  windowState: (): WindowState => windowState,
+  onWindowState: (callback: (state: WindowState) => void): (() => void) => {
+    windowStateListeners.add(callback);
+    return () => { windowStateListeners.delete(callback); };
+  },
+  openWindow: (route: string | null, tab = false): void => ipcRenderer.send('resmon:open-window', route, tab),
+  setThemeSource: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send('resmon:theme-source', theme),
+  runStarted: (executionId: number): void => ipcRenderer.send('resmon:run-started', executionId),
 });

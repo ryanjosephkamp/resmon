@@ -40,12 +40,36 @@ const withToken: Middleware = {
   },
 };
 
+/**
+ * The routes that start a run and answer with its `execution_id`, by their
+ * address in the contract. A run started here is this window's: the main
+ * process shows the run's notification in this window (`electron/windows.ts`).
+ */
+export const STARTS_A_RUN: ReadonlySet<string> = new Set([
+  '/api/search/dive', '/api/search/sweep', '/api/routines/{routine_id}/run', '/api/executions/{exec_id}/restart',
+]);
+
+export const claimRuns: Middleware = {
+  async onResponse({ request, response, schemaPath }) {
+    const claim = bridge()?.runStarted;
+    if (!claim || request.method !== 'POST' || !response.ok || !STARTS_A_RUN.has(schemaPath)) return undefined;
+    try {
+      const id = (await response.clone().json() as { execution_id?: unknown } | null)?.execution_id;
+      if (typeof id === 'number') claim(id);
+    } catch {
+      // An answer that is not the run's is the screen's to report, not this.
+    }
+    return undefined;
+  },
+};
+
 export function engine(): Engine {
   const port = bridge()?.getBackendPort() ?? '';
   if (!port) throw new EngineError(0, 'This window has no backend connection yet.');
   if (!cached || cached.port !== port) {
     const client = createClient<paths>({ baseUrl: `http://127.0.0.1:${port}` });
     client.use(withToken);
+    client.use(claimRuns);
     cached = { port, client };
   }
   return cached.client;

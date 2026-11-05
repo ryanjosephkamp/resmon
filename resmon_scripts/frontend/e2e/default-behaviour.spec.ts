@@ -170,7 +170,8 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
 
   // Everything the flag does not control is identical across the two launches.
   expect(plainObs.title).toBe(e2eObs.title);
-  expect(plainObs.title).toBe('resmon');
+  // A window is named by its page, Today at launch; off macOS the app's name follows it.
+  expect(plainObs.title).toBe(process.platform === 'darwin' ? 'Today' : 'Today — resmon');
   expect(plainObs.hasBridge).toBe(true);
   expect(e2eObs.hasBridge).toBe(true);
   expect(plainObs.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/index\.html/);

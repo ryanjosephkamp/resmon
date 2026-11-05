@@ -8,6 +8,7 @@ import '@fontsource/spectral/400-italic.css';
 import '@fontsource/spectral/500-italic.css';
 import './theme/tokens.css';
 import './atlas.css';
+import './shell/windowFrame.css';
 import { App } from './App';
 import { keepBetweenVisits } from './screens/today/freshness';
 import {
