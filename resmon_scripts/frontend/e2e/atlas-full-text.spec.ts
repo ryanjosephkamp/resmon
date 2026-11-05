@@ -26,10 +26,11 @@ import * as http from 'http';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
-import { test, expect, _electron as electron, type Page } from '@playwright/test';
+import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { findCard } from './fixtures/gallery';
 import { writePdf } from './fixtures/pdf';
+import { showTheme } from './fixtures/theme';
 
 const DOI = '10.5555/resmon.e2e.find';
 const TITLE = 'An authored paper found in the full-text journey';
@@ -145,6 +146,38 @@ function work(id: string, title: string, doi: string | null, pdfUrl: string): Re
 
 async function shoot(win: Page, name: string): Promise<void> {
   await win.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
+}
+
+/** The window's two widths for a screenshot: a desktop window, and a phone's width. */
+const LOOKS = [['desktop', 1280, 860], ['narrow', 430, 860]] as const;
+
+/**
+ * One screen in each of its four looks, desktop and narrow, dark and light,
+ * as `atlas-<name>-<width>-<theme>.png`; then the window is put back at its
+ * size, in the dark theme.
+ */
+async function gallery(app: ElectronApplication, win: Page, name: string, subject: Locator): Promise<void> {
+  const before = await app.evaluate(({ BrowserWindow }) => {
+    const w = BrowserWindow.getAllWindows()[0]!;
+    w.setMinimumSize(390, 600);
+    return w.getSize();
+  });
+  for (const theme of ['dark', 'light'] as const) {
+    await showTheme(app, win, theme);
+    for (const [look, width, height] of LOOKS) {
+      await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]!.setSize(size.width, size.height), { width, height });
+      await expect.poll(() => win.evaluate(() => window.innerWidth), { timeout: 10_000 }).toBeLessThanOrEqual(width);
+      await expect(subject).toBeVisible({ timeout: 30_000 });
+      await subject.scrollIntoViewIfNeeded();
+      await shoot(win, `atlas-${name}-${look}-${theme}.png`);
+    }
+  }
+  await app.evaluate(({ BrowserWindow }, size) => {
+    const w = BrowserWindow.getAllWindows()[0]!;
+    w.setSize(size[0]!, size[1]!);
+    w.setMinimumSize(960, 600);
+  }, before);
+  await showTheme(app, win, 'dark');
 }
 
 test('Find a paper across the sources, Get the PDF three ways, and a watch that gets its new papers’ PDFs', async () => {
@@ -302,6 +335,8 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
       `2 of ${askedCount} sources asked hold the DOI ${found.query.value}${silent ? `; ${silent} did not answer` : ''}.`);
     expect(notice.window).toBe(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.id ?? null));
 
+    await gallery(app, win, 'find-a-paper', win.locator('[data-find="paper"]'));
+
     // — Get the PDF, from the find -----------------------------------------------------
     const getting = Date.now();
     await win.locator('[data-find="paper"] [data-fulltext="get"]').click();
@@ -322,6 +357,7 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await expect(pageGet).toBeVisible({ timeout: 30_000 });
     await expect(win.locator('.paper-main .fulltext-line')).toHaveText('Open copy at pdf.resmon.test, CC BY.');
     await shoot(win, 'atlas-paper-get-the-pdf.png');
+    await gallery(app, win, 'get-the-pdf', win.locator('.paper-main .fulltext'));
     // Saved to read first, so its card in the Library is the next way in.
     await win.getByRole('button', { name: 'Save to read' }).click();
     await expect(win.locator('.paper-actions')).toHaveAttribute('data-queue', 'to_read');
@@ -359,6 +395,7 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await expect(win.locator('[data-editor="pdfs"]')).toContainText('At most 20 a run and 100 in any 24 hours');
     await pdfSwitch.scrollIntoViewIfNeeded();
     await shoot(win, 'atlas-watch-pdfs-switch.png');
+    await gallery(app, win, 'watch-pdfs-switch', win.locator('[data-editor="pdfs"]'));
     const fired = await call('POST', `/api/routines/${made.id}/run`) as { execution_id: number };
     await expect.poll(() => stored().downloads.filter((d) => d.execution_id === fired.execution_id && d.state === 'stored').length,
       { timeout: 120_000 }).toBe(2);
@@ -381,17 +418,10 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await rules.scrollIntoViewIfNeeded();
     await shoot(win, 'atlas-settings-downloads.png');
 
-    // — Narrow: the find again, at a phone-like width -----------------------------------
-    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(720, 900));
+    // — An earlier find, opened again from its link: its answers as they were -------------
     await win.evaluate((to) => { window.location.hash = to; }, `#/search/find?run=${run!.id}`);
-    await expect(win.locator('[data-find="result"]')).toBeVisible({ timeout: 30_000 });
-    await shoot(win, 'atlas-find-result-narrow.png');
-    // And by day: the same page in the light theme.
-    await call('PUT', '/api/appearance', { theme: 'light', accent: null });
-    await win.reload();
-    await expect(win.locator('[data-find="result"]')).toBeVisible({ timeout: 60_000 });
-    await win.locator('[data-find="result"]').scrollIntoViewIfNeeded();
-    await shoot(win, 'atlas-find-result-light.png');
+    await expect(win.locator('[data-find="result"]')).toHaveAttribute('data-found', '2', { timeout: 30_000 });
+    await expect(win.locator('[data-find="paper"] [data-fulltext="read"]')).toBeVisible({ timeout: 30_000 });
 
     expect(problems).toEqual([]);
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl')) ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
