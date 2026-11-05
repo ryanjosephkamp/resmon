@@ -24,6 +24,9 @@ SCHEMA_16 = FIXTURES / "evidence" / "schema_16.sql"
 TABLES = ("evidence_projects", "evidence_project_files", "evidence_notes")
 INDEXES = ("idx_evidence_project_files_order", "idx_evidence_notes_order")
 LIBRARY_TABLES = ("library_vault", "library_files", "library_file_documents")
+# Schema 27's tables, which an upgrade from any earlier schema gains empty.
+FULL_TEXT_TABLES = {"document_open_access", "document_identifiers",
+                    "execution_find_results", "full_text_downloads"}
 NOW = "2026-09-11T12:00:00.123456+00:00"
 
 # Frozen approved schema17 DDL, intentionally independent of production values.
@@ -331,7 +334,7 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
             for name in ("create_vault", "Import", "retained", "checked_vault"):
                 scoped.setattr(library, name, forbidden_io)
             db.init_db(conn=conn)
-        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 26
+        assert db.SCHEMA_VERSION == db.get_schema_version(conn) == 27
         # ``routine_missed_fires`` is schema 20's, and empty: this file's claim
         # is that schema 17 changed nothing it owned, not that no later schema
         # ever added a table.
@@ -343,8 +346,10 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
                 # And schema 23's two, and schema 25's removed-file record.
                 | {"assistant_turn_failures", "execution_ai_models", "library_removed"}
                 # And schema 26's collections, which hold the default one.
-                | {"collections", "collection_documents"})
-        assert len(table_names(conn)) == 45
+                | {"collections", "collection_documents"}
+                # And schema 27's four full-text tables, empty.
+                | FULL_TEXT_TABLES)
+        assert len(table_names(conn)) == 49
         after_rows = contents(conn, set(before_rows),
                               {t: before_rows[t]["columns"] for t in before_rows})
         assert before_rows_hash == row_digest(before_rows), "the before snapshot itself changed"
@@ -380,6 +385,7 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
         assert {n: objects(conn)[n] for n in before_objects if n not in rebuilt} == {
             n: v for n, v in before_objects.items() if n not in rebuilt}
         assert "'interrupted'" in objects(conn)["executions"][2]
+        assert "'find_paper'" in objects(conn)["executions"][2]
         assert "'codex_cli'" in objects(conn)["assistant_session_choices"][2]
         assert "'text/x-tex'" in objects(conn)["library_files"][2]
         assert objects(conn)["routines"][2].startswith(before_objects["routines"][2].rstrip(")").rstrip())
@@ -417,8 +423,8 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
         assert evidence_shape(fresh) == expected_shape
         assert all(fresh.execute(f"SELECT count(*) FROM {table}").fetchone()[0] == 0
                    for table in (*LIBRARY_TABLES, *TABLES))
-        assert db.get_schema_version(fresh) == 26
-        assert len(table_names(fresh)) == 45
+        assert db.get_schema_version(fresh) == 27
+        assert len(table_names(fresh)) == 49
     finally:
         fresh.close()
     legacy.conn.close()
@@ -429,7 +435,7 @@ def test_fresh_upgraded_and_twice_reopened_schema_are_identical(legacy: Legacy, 
             assert contents(reopened) == expected_rows
             assert objects(reopened) == expected_objects
             assert evidence_shape(reopened) == expected_shape
-            assert db.get_schema_version(reopened) == 26
+            assert db.get_schema_version(reopened) == 27
         finally:
             reopened.close()
     assert file_census(legacy.roots) == expected_files
@@ -493,7 +499,7 @@ def test_failed_migration_preserves_marker16_and_every_preexisting_object(
         conn.execute("DROP INDEX idx_evidence_notes_order")
     conn.commit()
     db.init_db(conn=conn)
-    assert db.get_schema_version(conn) == 26
+    assert db.get_schema_version(conn) == 27
     assert_approved_shape(conn)
 
 

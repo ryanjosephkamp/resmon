@@ -108,7 +108,7 @@ def test_a_fresh_database_answers_the_duplicate_check_from_the_index(tmp_path):
     database.init_db(str(tmp_path / "fresh.db"))
     conn = _open(tmp_path / "fresh.db")
     try:
-        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 26
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 27
         plan = _plan(conn)
         assert any(INDEX in step for step in plan), plan
         assert not any(step.startswith("SCAN") for step in plan), plan
@@ -159,7 +159,9 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     24 rebuilds ``assistant_session_choices`` with its rows, schema 25 rebuilds
     ``library_files`` with its rows and adds the empty ``library_removed``,
     schema 26 adds the collections (filing every paper in the default one) and
-    ``routines.collection_id``, and the marker moves to 26. Those are those
+    ``routines.collection_id``, schema 27 rebuilds ``executions`` with
+    ``find_paper`` in its type CHECK, adds the four full-text tables and
+    ``routines.download_full_text``, and the marker moves to 27. Those are those
     steps', and are named here so that nothing else can arrive or change
     unnoticed. Any launch also recounts the runs' new papers once; the rows are
     compared with the fixture as that recount leaves it (``_as_recounted``).
@@ -186,17 +188,23 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
         # Schema 25 adds ``library_removed``; its autoindexes have no stored SQL.
         assert set(objects_after) - set(objects_before) == (
             {INDEX} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"}
-            | set(database._COLLECTIONS_TABLES) | set(database._COLLECTIONS_TRIGGERS))
+            | set(database._COLLECTIONS_TABLES) | set(database._COLLECTIONS_TRIGGERS)
+            | set(database._FULL_TEXT_DDL))
         assert set(objects_before) - set(objects_after) == set()
         # Schema 24 rebuilds ``assistant_session_choices``, schema 25 rebuilds
-        # ``library_files``, and schema 26 adds ``routines.collection_id``, on
-        # purpose; everything else is untouched.
-        rebuilt = {"assistant_session_choices", "library_files", "routines"}
+        # ``library_files``, schema 26 adds ``routines.collection_id``, and
+        # schema 27 rebuilds ``executions`` and adds
+        # ``routines.download_full_text``, on purpose; everything else is
+        # untouched.
+        rebuilt = {"assistant_session_choices", "library_files", "routines", "executions"}
         assert all(objects_after[n] == objects_before[n] for n in objects_before
                    if n not in rebuilt)
         assert "'codex_cli'" in objects_after["assistant_session_choices"]
         assert "'text/x-tex'" in objects_after["library_files"]
         assert "collection_id INTEGER REFERENCES collections(id)" in objects_after["routines"]
+        assert "download_full_text INTEGER NOT NULL DEFAULT 0" in objects_after["routines"]
+        assert objects_after["executions"] == objects_before["executions"].replace(
+            "'automated_sweep')", "'automated_sweep', 'find_paper')")
         assert [r[1] for r in conn.execute("PRAGMA table_info(library_files)")] == [
             r[1] for r in before_library_columns]
         assert objects_after[INDEX] == (
@@ -205,7 +213,7 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
         settings_before = dict(rows_before.pop("app_settings"))
         settings_after = dict(rows_after.pop("app_settings"))
         assert settings_before.pop("schema_version") == "21"
-        assert settings_after.pop("schema_version") == "26"
+        assert settings_after.pop("schema_version") == "27"
         # One-shot backfill markers this build writes on any launch, which the
         # cumulative-upgrade test names; they are not this step's doing.
         for marker in _MARKERS_A_LAUNCH_MAY_ADD:
@@ -221,7 +229,11 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
         assert [r[:3] for r in rows_after.pop("collections")] == [(1, "Your collection", 0)]
         assert sorted(r[1] for r in rows_after.pop("collection_documents")) == sorted(
             r[0] for r in rows_before["documents"])
-        assert rows_after.pop("routines") == [r + (1,) for r in rows_before.pop("routines")]
+        assert rows_after.pop("routines") == [r + (1, 0) for r in rows_before.pop("routines")]
+        # Schema 27's four tables arrive empty.
+        for table in database._FULL_TEXT_DDL:
+            if not table.startswith("idx_"):
+                assert rows_after.pop(table) == []
         assert rows_after == rows_before
 
         assert any(INDEX in step for step in _plan(conn))
@@ -232,7 +244,7 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         assert _objects(conn) == objects_after
-        assert database.get_schema_version(conn) == 26
+        assert database.get_schema_version(conn) == 27
     finally:
         conn.close()
 

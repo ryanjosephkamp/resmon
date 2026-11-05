@@ -6,6 +6,7 @@ import re
 import sqlite3
 from dataclasses import replace
 
+from . import open_access
 from .api_base import Author, NormalizedResult, as_authors
 from .database import insert_document, find_duplicates_by_hash
 from .utils import compute_metadata_hash, now_iso
@@ -166,6 +167,8 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
         publication_date=pub_date,
         url=result.url,
         categories=list(result.categories),
+        open_access=list(getattr(result, "open_access", None) or []),
+        identifiers=list(getattr(result, "identifiers", None) or []),
     )
     # Attach metadata hash as a transient attribute for dedup
     # The hash is over the *names* alone: adding an ORCID to a record must not
@@ -247,5 +250,33 @@ def deduplicate_batch(
             stats["new"] += 1
         else:
             stats["duplicates"] += 1
+        _record_open_access(conn, normalized, row_id)
 
     return stats
+
+
+def _record_open_access(conn: sqlite3.Connection, result: NormalizedResult,
+                        row_id: int | None) -> None:
+    """Store where this record says open copies are, for the paper new or already held.
+
+    A paper stored before its source sent this data gains it the next time
+    the source returns it: an insert that was ignored still records against
+    the stored row. A failure here is logged and never loses the paper.
+    """
+    if not result.open_access and not result.identifiers:
+        return
+    try:
+        if row_id is None:
+            existing = conn.execute(
+                "SELECT id FROM documents WHERE source_repository = ? AND external_id = ?",
+                (result.source_repository, result.external_id)).fetchone()
+            if existing is None:
+                return
+            row_id = int(existing[0])
+        open_access.record(conn, int(row_id), result.source_repository,
+                           result.open_access, result.identifiers)
+        conn.commit()
+    except sqlite3.Error:
+        conn.rollback()
+        logger.exception("Could not record open-access data for %s/%s",
+                         result.source_repository, result.external_id)

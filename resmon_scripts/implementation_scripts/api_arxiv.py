@@ -440,6 +440,12 @@ class ArxivClient(BaseAPIClient):
                 if term and term not in categories:
                     categories.append(term)
 
+            # The paper's arXiv id, from which its own PDF address is built
+            # (``open_access.arxiv_location``); its license is read from arXiv
+            # when the PDF is asked for, because the Atom feed does not say.
+            from . import open_access  # noqa: PLC0415
+
+            arxiv_id = open_access.bare_arxiv_id(raw_id)
             results.append(NormalizedResult(
                 source_repository="arxiv",
                 external_id=external_id,
@@ -450,6 +456,7 @@ class ArxivClient(BaseAPIClient):
                 publication_date=publication_date,
                 url=url,
                 categories=categories,
+                identifiers=[("arxiv", arxiv_id)] if arxiv_id else [],
             ))
 
         return results

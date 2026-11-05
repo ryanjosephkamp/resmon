@@ -654,8 +654,14 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # table ``collection_documents`` (a paper is stored once and can be in more
 # than one collection), and ``routines.collection_id``, where a watch's papers
 # land. The upgrade files every paper in the default collection and points
-# every watch at it.
-SCHEMA_VERSION = 26
+# every watch at it. 27 is full text: ``document_open_access`` (where a source
+# says an open copy of a paper is, and under what license),
+# ``document_identifiers`` (a paper's arXiv id, PMCID and PMID),
+# ``execution_find_results`` (what each source said to Find a paper),
+# ``full_text_downloads`` (every PDF asked for, and what came of it),
+# ``routines.download_full_text`` (a watch's opt-in), and ``executions``
+# rebuilt so a run can be a ``find_paper``.
+SCHEMA_VERSION = 27
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -767,6 +773,9 @@ def init_db(
     # Last of the schema steps: its tables reference ``documents``,
     # ``executions`` and ``routines`` in their final shapes.
     _migrate_collections(conn)
+    # After it: the full-text tables reference ``documents`` and
+    # ``executions``, and ``executions`` is rebuilt here once more.
+    _migrate_full_text(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
     # After every schema step, so it reads the tables in their final shape, and
@@ -2538,6 +2547,254 @@ def _migrate_collections(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+# ---------------------------------------------------------------------------
+# Schema 27: full text
+# ---------------------------------------------------------------------------
+#
+# ``document_open_access`` holds where a source says an open copy of a paper
+# is: a PDF address, a landing page, the license the source states for that
+# copy, which version it is, and the source that said so. A later run that
+# returns the same paper refreshes its rows (``seen_at`` moves, a license the
+# source now states is kept), so a paper stored before a source sent this
+# data gains it the next time that source returns it. ``license_basis`` says
+# where the license came from: the source's own record of this copy
+# (``record``), the host's published license for everything it publishes
+# (``host_policy``, PLOS), or the host's record of this paper read when the PDF
+# was asked for (``host_record``, arXiv).
+#
+# ``document_identifiers`` holds the identifiers a source sends that the
+# documents table has no column for: an arXiv id, a PMCID, a PMID.
+#
+# ``execution_find_results`` is Find a paper's record: for each source a find
+# named, whether it found the paper, how the copy matched (by DOI, arXiv id,
+# PMID, exact title or close title), what differs from the reference copy, and
+# why a source was not asked.
+#
+# ``full_text_downloads`` is every PDF asked for, by a person or by a watch,
+# and what came of it: stored (with the file, the address it came from after
+# every redirect, its license and when), skipped (and why, before any request),
+# or failed (and why). A stored row is the file's origin record. Its
+# ``file_id`` has no foreign key on purpose: the record of where a file came
+# from outlives the file's removal from the Library.
+#
+# ``executions`` is rebuilt for the last time in this schema's life so its
+# ``execution_type`` CHECK admits ``find_paper``. The rebuild transforms the
+# table's stored DDL rather than restating it, so a fresh install and an
+# upgrade, which reach schema 26 with the same DDL, leave it the same.
+
+_EXECUTION_TYPES_V26 = "CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep'))"
+_EXECUTION_TYPES_V27 = (
+    "CHECK(execution_type IN ('deep_dive', 'deep_sweep', 'automated_sweep', 'find_paper'))")
+
+#: Where an open copy's license was read (``document_open_access.license_basis``).
+LICENSE_BASES = ("record", "host_policy", "host_record")
+#: Which version of a paper an open copy is.
+COPY_VERSIONS = ("submitted", "accepted", "published")
+#: The identifiers ``document_identifiers`` holds.
+IDENTIFIER_SCHEMES = ("arxiv", "pmcid", "pmid")
+#: What Find a paper recorded for one source.
+FIND_OUTCOMES = ("found", "not_found", "not_asked", "did_not_answer")
+#: How a copy Find a paper kept matched the paper asked for.
+FIND_MATCHES = ("doi", "arxiv", "pmid", "exact_title", "close_title")
+#: Who asked for a PDF, and the states a request moves through.
+DOWNLOAD_REQUESTERS = ("person", "watch")
+DOWNLOAD_STATES = ("waiting", "downloading", "stored", "skipped", "failed")
+
+_FULL_TEXT_DDL = {
+    "document_open_access": """CREATE TABLE document_open_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    reported_by TEXT NOT NULL,
+    location TEXT NOT NULL,
+    pdf_url TEXT,
+    landing_url TEXT,
+    license TEXT,
+    license_basis TEXT CHECK (license_basis IS NULL OR license_basis IN ('record', 'host_policy', 'host_record')),
+    version TEXT CHECK (version IS NULL OR version IN ('submitted', 'accepted', 'published')),
+    host TEXT,
+    first_seen_at TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    CHECK (pdf_url IS NOT NULL OR landing_url IS NOT NULL),
+    CHECK (license IS NULL OR license_basis IS NOT NULL),
+    UNIQUE (document_id, reported_by, location)
+)""",
+    "idx_document_open_access_document":
+        "CREATE INDEX idx_document_open_access_document ON document_open_access(document_id)",
+    "document_identifiers": """CREATE TABLE document_identifiers (
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    scheme TEXT NOT NULL CHECK (scheme IN ('arxiv', 'pmcid', 'pmid')),
+    value TEXT NOT NULL,
+    reported_by TEXT NOT NULL,
+    seen_at TEXT NOT NULL,
+    PRIMARY KEY (document_id, scheme, value)
+)""",
+    "idx_document_identifiers_value":
+        "CREATE INDEX idx_document_identifiers_value ON document_identifiers(scheme, value)",
+    "execution_find_results": """CREATE TABLE execution_find_results (
+    execution_id INTEGER NOT NULL REFERENCES executions(id) ON DELETE CASCADE,
+    source TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    outcome TEXT NOT NULL CHECK (outcome IN ('found', 'not_found', 'not_asked', 'did_not_answer')),
+    matched_by TEXT CHECK (matched_by IS NULL OR matched_by IN ('doi', 'arxiv', 'pmid', 'exact_title', 'close_title')),
+    title_similarity REAL,
+    document_id INTEGER REFERENCES documents(id) ON DELETE SET NULL,
+    candidates INTEGER,
+    differences TEXT,
+    detail TEXT,
+    CHECK ((outcome = 'found') = (matched_by IS NOT NULL)),
+    PRIMARY KEY (execution_id, source)
+)""",
+    "full_text_downloads": """CREATE TABLE full_text_downloads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    execution_id INTEGER REFERENCES executions(id) ON DELETE SET NULL,
+    requested_by TEXT NOT NULL CHECK (requested_by IN ('person', 'watch')),
+    state TEXT NOT NULL CHECK (state IN ('waiting', 'downloading', 'stored', 'skipped', 'failed')),
+    reason TEXT,
+    detail TEXT,
+    url TEXT,
+    final_url TEXT,
+    host TEXT,
+    license TEXT,
+    version TEXT,
+    reported_by TEXT,
+    file_id TEXT,
+    byte_size INTEGER,
+    requested_at_utc TEXT NOT NULL,
+    started_at_utc TEXT,
+    finished_at_utc TEXT,
+    claimed_by TEXT,
+    CHECK ((state IN ('waiting', 'downloading') AND finished_at_utc IS NULL)
+           OR (state IN ('stored', 'skipped', 'failed') AND finished_at_utc IS NOT NULL)),
+    CHECK (state != 'stored' OR (file_id IS NOT NULL AND final_url IS NOT NULL AND license IS NOT NULL)),
+    CHECK (state NOT IN ('skipped', 'failed') OR reason IS NOT NULL)
+)""",
+    "idx_full_text_downloads_document":
+        "CREATE INDEX idx_full_text_downloads_document ON full_text_downloads(document_id, id)",
+    "idx_full_text_downloads_state":
+        "CREATE INDEX idx_full_text_downloads_state ON full_text_downloads(state, id)",
+    "idx_full_text_downloads_execution":
+        "CREATE INDEX idx_full_text_downloads_execution ON full_text_downloads(execution_id) "
+        "WHERE execution_id IS NOT NULL",
+    "idx_full_text_downloads_requested":
+        "CREATE INDEX idx_full_text_downloads_requested ON full_text_downloads(requested_at_utc)",
+}
+
+# Added with ALTER on every database, fresh or upgraded, as schema 26's column
+# was, so both carry the same stored ``CREATE TABLE routines`` text.
+_ROUTINES_FULL_TEXT_COLUMN = (
+    "ALTER TABLE routines ADD COLUMN download_full_text INTEGER NOT NULL DEFAULT 0 "
+    "CHECK (download_full_text IN (0, 1))"
+)
+
+
+def _executions_type_check_admits_find(conn: sqlite3.Connection) -> bool:
+    """True when this database's ``executions`` table is already at schema 27."""
+    row = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
+    ).fetchone()
+    return bool(row) and "'find_paper'" in (row[0] or "")
+
+
+def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
+    """Rebuild ``executions`` with ``find_paper`` in its type CHECK.
+
+    The schema-19 procedure (see ``_migrate_executions_interrupted``): foreign
+    keys off around it, so dropping the old table cannot cascade into
+    ``execution_documents``; the new table built under a temporary name and
+    renamed into place; every index and trigger replayed; the AUTOINCREMENT
+    mark restored. The new DDL is the stored DDL with the one CHECK widened.
+    """
+    stored = conn.execute(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
+    ).fetchone()[0]
+    if stored.count(_EXECUTION_TYPES_V26) != 1:
+        raise sqlite3.DatabaseError("Conflicting schema-27 shape: executions")
+    new_ddl = stored.replace(_EXECUTION_TYPES_V26, _EXECUTION_TYPES_V27)
+    head = 'CREATE TABLE "executions" ('
+    if not new_ddl.startswith(head):
+        raise sqlite3.DatabaseError("Conflicting schema-27 shape: executions")
+    new_ddl = 'CREATE TABLE executions_v27_new (' + new_ddl[len(head):]
+
+    conn.commit()
+    had_foreign_keys = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("SAVEPOINT executions_v27")
+        try:
+            seq_row = conn.execute(
+                "SELECT seq FROM sqlite_sequence WHERE name='executions'").fetchone()
+            previous_seq = int(seq_row[0]) if seq_row else None
+            carried = [
+                (row[0], row[1]) for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE tbl_name='executions' "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL").fetchall()
+            ]
+            conn.execute(new_ddl)
+            columns = ", ".join(
+                f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(executions)"))
+            conn.execute(
+                f"INSERT INTO executions_v27_new ({columns}) SELECT {columns} FROM executions")
+            conn.execute("DROP TABLE executions")
+            conn.execute("ALTER TABLE executions_v27_new RENAME TO executions")
+            for _name, sql in carried:
+                conn.execute(sql)
+            if previous_seq is not None:
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='executions'")
+                conn.execute(
+                    "INSERT INTO sqlite_sequence(name, seq) VALUES ('executions', ?)",
+                    (previous_seq,))
+            conn.execute("RELEASE executions_v27")
+        except BaseException:
+            conn.execute("ROLLBACK TO executions_v27")
+            conn.execute("RELEASE executions_v27")
+            raise
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
+
+
+def _migrate_full_text(conn: sqlite3.Connection) -> None:
+    """Make the schema-27 objects. Runs on fresh databases and on upgrades.
+
+    The ``executions`` rebuild first, outside any transaction because it turns
+    foreign keys off; then the tables, indexes and the routines column in one
+    savepoint, refused as a conflict when an object is already present in
+    another shape. Nothing is backfilled: no open-access location, identifier
+    or download was observed before this schema, and none is invented.
+    """
+    if not _executions_type_check_admits_find(conn):
+        _rebuild_executions_for_find(conn)
+
+    def shape(name: str) -> str | None:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
+        return " ".join((row[0] or "").split()) if row else None
+
+    conn.commit()
+    conn.execute("SAVEPOINT full_text_v27")
+    try:
+        for name, ddl in _FULL_TEXT_DDL.items():
+            if shape(name) is None:
+                conn.execute(ddl)
+            if shape(name) != " ".join(ddl.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-27 object: " + name)
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(routines)")}
+        if "download_full_text" not in columns:
+            conn.execute(_ROUTINES_FULL_TEXT_COLUMN)
+        conn.execute(
+            "INSERT INTO app_settings(key,value) VALUES (?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+            "WHERE CAST(app_settings.value AS INTEGER)<27",
+            (_SCHEMA_VERSION_KEY, "27"),
+        )
+        conn.execute("RELEASE full_text_v27")
+    except BaseException:
+        conn.execute("ROLLBACK TO full_text_v27")
+        conn.execute("RELEASE full_text_v27")
+        raise
+    conn.commit()
+
+
 # A DOAJ date stored with its month as a name: ``2025-January-01``,
 # ``2025-Sept.-01``. The day is optional, so ``2025-July`` is caught as well.
 _DOAJ_NAMED_MONTH = re.compile(r"^(\d{4})-([^-\d][^-]*)(?:-(\d{2}))?$")
@@ -3455,8 +3712,8 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         INSERT INTO routines
             (name, schedule_cron, parameters, intent, is_active, email_enabled,
              email_ai_summary_enabled, ai_enabled, ai_settings, storage_settings,
-             notify_on_complete, execution_location, collection_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             notify_on_complete, execution_location, collection_id, download_full_text)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     loc = routine_dict.get("execution_location", "local")
     if loc != "local":
@@ -3479,6 +3736,8 @@ def insert_routine(conn: sqlite3.Connection, routine_dict: dict) -> int:
         loc,
         # Where the watch's papers land; the default collection unless named.
         routine_dict.get("collection_id") or DEFAULT_COLLECTION_ID,
+        # Whether the watch gets its new papers' open-access PDFs (schema 27).
+        1 if routine_dict.get("download_full_text") else 0,
     ))
     conn.commit()
     return cursor.lastrowid
@@ -3490,7 +3749,7 @@ def update_routine(conn: sqlite3.Connection, routine_id: int, updates: dict) -> 
         "name", "schedule_cron", "parameters", "intent", "is_active", "email_enabled",
         "email_ai_summary_enabled", "ai_enabled", "ai_settings",
         "storage_settings", "last_executed_at", "notify_on_complete",
-        "execution_location", "collection_id",
+        "execution_location", "collection_id", "download_full_text",
     }
     filtered = {k: v for k, v in updates.items() if k in allowed}
     if not filtered:

@@ -116,7 +116,7 @@ def test_the_fixture_is_a_real_one_point_oh_database_with_enough_in_it():
 
 def test_one_launch_takes_it_to_schema_26_with_one_collection(upgraded):
     conn = upgraded["conn"]
-    assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 26
+    assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 27
     assert [tuple(r) for r in conn.execute("SELECT id, name, revision FROM collections")] == [
         (DEFAULT_COLLECTION_ID, "Your collection", 0)]
     assert pc.current(conn) == DEFAULT_COLLECTION_ID

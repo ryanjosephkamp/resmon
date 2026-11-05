@@ -442,7 +442,26 @@ class BiorxivClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories,
+            open_access=self._open_copy(item, doi),
         )
+
+    def _open_copy(self, item: dict, doi: str) -> list:
+        """The preprint's own PDF, with the license the record states (``cc_by``, ``cc_no``).
+
+        ``/details`` names each version's ``license``; ``cc_no`` (no reuse
+        without permission) is kept as stated and is not an open license.
+        """
+        from . import open_access  # noqa: PLC0415
+
+        version = str(item.get("version") or "").strip()
+        if not doi or not version.isdigit():
+            return []
+        found = open_access.location(
+            self._server,
+            pdf_url=f"https://www.{self._server}.org/content/{doi}v{version}.full.pdf",
+            landing_url=f"https://www.{self._server}.org/content/{doi}v{version}",
+            license=item.get("license"), version="submitted")
+        return [found] if found is not None else []
 
 
 class MedrxivClient(BiorxivClient):

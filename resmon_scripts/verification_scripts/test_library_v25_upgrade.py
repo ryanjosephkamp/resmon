@@ -26,6 +26,7 @@ def schema_24(path: Path, monkeypatch, tmp_path: Path) -> sqlite3.Connection:
     with monkeypatch.context() as held:
         held.setattr(db, '_migrate_library_v25', lambda conn: None)
         held.setattr(db, '_migrate_collections', lambda conn: None)
+        held.setattr(db, '_migrate_full_text', lambda conn: None)
         c = db.get_connection(path)
         c.executescript(CORPUS_21.read_text(encoding='utf-8'))
         c.commit()

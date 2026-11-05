@@ -314,6 +314,13 @@ class InspireHepClient(BaseAPIClient):
                 if isinstance(term, str) and term.strip():
                     categories.append(term.strip())
 
+        # The arXiv ids the record names (``arxiv_eprints``, already requested):
+        # each is the paper's copy at arXiv, whose license arXiv states.
+        identifiers = []
+        for eprint in metadata.get("arxiv_eprints") or []:
+            if isinstance(eprint, dict) and isinstance(eprint.get("value"), str):
+                identifiers.append(("arxiv", eprint["value"].strip()))
+
         external_id = str(control_number)
         return NormalizedResult(
             source_repository="inspire_hep",
@@ -325,6 +332,7 @@ class InspireHepClient(BaseAPIClient):
             publication_date=publication_date,
             url=f"https://inspirehep.net/literature/{external_id}",
             categories=categories,
+            identifiers=identifiers,
         )
 
 

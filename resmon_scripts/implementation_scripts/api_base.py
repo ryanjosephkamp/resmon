@@ -171,6 +171,13 @@ class NormalizedResult:
     publication_date: str | None
     url: str
     categories: list[str] = field(default_factory=list)
+    # Where this source says an open copy of the paper is
+    # (``open_access.OpenAccessLocation``), and the identifiers it sends that
+    # ``documents`` has no column for, as ``(scheme, value)``: ``arxiv``,
+    # ``pmcid``, ``pmid``. Empty for a source that says nothing, which is most
+    # of them; empty is "the source did not say", never "there is none".
+    open_access: list = field(default_factory=list)
+    identifiers: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "authors", as_authors(self.authors))

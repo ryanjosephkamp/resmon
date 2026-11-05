@@ -14,7 +14,7 @@ _S2_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
 # Unauthenticated: ~100 req / 5 min ≈ 0.33 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=0.33)
 
-_FIELDS = "paperId,externalIds,title,authors,abstract,publicationDate,url,fieldsOfStudy"
+_FIELDS = "paperId,externalIds,title,authors,abstract,publicationDate,url,fieldsOfStudy,openAccessPdf"
 
 
 class SemanticScholarClient(BaseAPIClient):
@@ -208,6 +208,7 @@ class SemanticScholarClient(BaseAPIClient):
 
         categories = paper.get("fieldsOfStudy") or []
 
+        locations, identifiers = _open_access(paper, ext_ids)
         return NormalizedResult(
             source_repository="semantic_scholar",
             external_id=paper_id,
@@ -218,7 +219,41 @@ class SemanticScholarClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories,
+            open_access=locations,
+            identifiers=identifiers,
         )
+
+
+def _open_access(paper: dict, ext_ids: dict) -> tuple[list, list]:
+    """``openAccessPdf`` and the arXiv, PubMed and PubMed Central ids in ``externalIds``.
+
+    ``openAccessPdf`` is ``{url, status, license}``: Semantic Scholar's pointer
+    to a PDF elsewhere, with the license it records for that copy (``CCBY``),
+    or none. A pointer to arXiv is recorded as the arXiv id instead, so arXiv's
+    copy is held once.
+    """
+    from . import open_access  # noqa: PLC0415
+
+    locations = []
+    identifiers: list[tuple[str, str]] = []
+    pdf = paper.get("openAccessPdf")
+    if isinstance(pdf, dict):
+        found = open_access.location("semantic_scholar", pdf_url=pdf.get("url"),
+                                     license=pdf.get("license"))
+        if found is not None:
+            arxiv_id = open_access.bare_arxiv_id(found.pdf_url or "")
+            if arxiv_id and open_access.host_of(found.pdf_url) in ("arxiv.org", "export.arxiv.org"):
+                identifiers.append(("arxiv", arxiv_id))
+            else:
+                locations.append(found)
+    for key, scheme in (("ArXiv", "arxiv"), ("PubMed", "pmid"), ("PubMedCentral", "pmcid")):
+        value = ext_ids.get(key)
+        if isinstance(value, (str, int)) and str(value).strip():
+            text = str(value).strip()
+            if scheme == "pmcid" and not text.upper().startswith("PMC"):
+                text = "PMC" + text
+            identifiers.append((scheme, text))
+    return locations, identifiers
 
 
 # ---------------------------------------------------------------------------

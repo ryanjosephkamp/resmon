@@ -1,11 +1,11 @@
-"""The whole walk at once: a schema-13 database upgraded to schema 26.
+"""The whole walk at once: a schema-13 database upgraded to schema 27.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
 16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24,
-24 -> 25, 25 -> 26. Thirteen steps, green one at a time, and none of them is
-the journey a user takes. A user whose database is at schema 13 launches a
-newer resmon once and their database crosses **all thirteen** steps in one
+24 -> 25, 25 -> 26, 26 -> 27. Fourteen steps, green one at a time, and none of
+them is the journey a user takes. A user whose database is at schema 13 launches a
+newer resmon once and their database crosses **all fourteen** steps in one
 `init_db` call, with the rows resmon wrote at schema 13 still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
@@ -31,8 +31,8 @@ What each test establishes is written on it. The short version:
     `test_cumulative_upgrade_boundary`-style style below)
   * every committed fixture is walked by today's code. Where the schema a
     fixture was written at is still the one this code ships, that walk must
-    change nothing at all; where steps have been added past it -- 13 -> 26,
-    18 -> 26, 21 -> 26 and 25 -> 26 today -- the walk is what a database at that schema
+    change nothing at all; where steps have been added past it -- 13 -> 27,
+    18 -> 27, 21 -> 27, 25 -> 27 and 26 -> 27 today -- the walk is what a database at that schema
     takes on its next launch, and every row of it has to come out the other
     side (P9).
 
@@ -100,7 +100,7 @@ FIXTURE = Path(__file__).parent / "fixtures/schema-13/corpus.sql"
 
 # The schema the fixture was written at, and the schema it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 26
+TARGET_SCHEMA_VERSION = 27
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_database_from_13_to_26(walked):
+def test_one_init_db_takes_a_database_from_13_to_27(walked):
     """The upgrade a first launch performs on a schema-13 database, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -625,6 +625,16 @@ def _template(table: str, column: str, value) -> dict:
         # Schema 26. A paper no collection holds, so the probe meets the CHECK
         # and not the primary key the walked fixture's own rows occupy.
         "collection_documents": {"collection_id": 1, "document_id": 999_999, "added_by": "run"},
+        # Schema 27. Foreign keys are off for these probes, as above.
+        "document_identifiers": {
+            "document_id": 999_999, "scheme": "arxiv", "value": "2401.99999",
+            "reported_by": "probe", "seen_at": "2026-11-05 00:00:00"},
+        "execution_find_results": {
+            "execution_id": 999_999, "source": "probe", "position": 0,
+            "outcome": "not_found", "matched_by": None},
+        "full_text_downloads": {
+            "document_id": 1, "requested_by": "person", "state": "waiting",
+            "requested_at_utc": "2026-11-05T00:00:00+00:00", "finished_at_utc": None},
         "routines": {
             "name": "probe", "schedule_cron": "0 0 * * *", "parameters": "{}",
             "execution_location": "local"},
@@ -647,6 +657,15 @@ def _template(table: str, column: str, value) -> dict:
             None if value in ("admitted", "running") else "2026-03-01T01:00:00Z")
     if table == "reading_queue" and column == "status":
         row["read_at"] = "2026-03-01T01:00:00Z" if value == "read" else None
+    if table == "execution_find_results" and column == "outcome":
+        row["matched_by"] = "doi" if value == "found" else None
+    if table == "full_text_downloads" and column == "state":
+        finished = value in ("stored", "skipped", "failed")
+        row["finished_at_utc"] = "2026-11-05T00:01:00+00:00" if finished else None
+        row["reason"] = "probe" if value in ("skipped", "failed") else None
+        if value == "stored":
+            row.update({"file_id": "f", "final_url": "https://example.org/a.pdf",
+                        "license": "cc-by"})
     if table == "evidence_notes" and column == "kind" and value == "passage":
         row.update({"page_number": 1, "extraction_contract": "pdf/v1",
                     "page_text_sha256": _SHA, "start_codepoint": 0,
@@ -1113,12 +1132,14 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
 
     While a fixture is at the schema this code still ships, its walk is
     a no-op and the whole fingerprint has to come back identical. Where a step
-    has been added past it -- 13 -> 26, 18 -> 26, 21 -> 26 and 25 -> 26 today --
-    the fingerprint legitimately changes: `executions` is rebuilt with a wider
-    `status` CHECK and six new columns, `library_files` with TeX in its CHECK,
+    has been added past it -- 13 -> 27, 18 -> 27, 21 -> 27, 25 -> 27 and
+    26 -> 27 today -- the fingerprint legitimately changes: `executions` is
+    rebuilt with a wider `status` CHECK and six new columns, and again with
+    `find_paper` in its type CHECK, `library_files` with TeX in its CHECK,
     six tables and an index arrive, schema 26's two collection tables arrive
-    with their indexes and triggers, `routines` gains `collection_id`, every
-    paper is filed in the default collection, and the schema marker moves.
+    with their indexes and triggers, `routines` gains `collection_id` and
+    `download_full_text`, every paper is filed in the default collection,
+    schema 27's four full-text tables arrive, and the schema marker moves.
     What must not change is the data: every row of every application table the
     fixture holds, column for column, and every AUTOINCREMENT high-water mark.
     The one exception on every fixture is the one-time recount of runs' new

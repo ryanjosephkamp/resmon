@@ -2341,6 +2341,8 @@ def test_inspire_search_builds_projected_date_query_and_normalizes(monkeypatch):
         publication_date="2024-04-15",
         url="https://inspirehep.net/literature/301",
         categories=["Theory-HEP", "Gravitation and Cosmology"],
+        # The record's ``arxiv_eprints``: its copy at arXiv.
+        identifiers=[("arxiv", "2404.01234")],
     )]
 
 

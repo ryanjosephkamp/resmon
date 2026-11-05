@@ -210,6 +210,7 @@ class OpenAlexClient(BaseAPIClient):
             if name:
                 categories.append(name)
 
+        locations, identifiers = _open_access(work)
         return NormalizedResult(
             source_repository="openalex",
             external_id=external_id,
@@ -220,7 +221,56 @@ class OpenAlexClient(BaseAPIClient):
             publication_date=publication_date,
             url=url,
             categories=categories[:10],  # Limit to top 10
+            open_access=locations,
+            identifiers=identifiers,
         )
+
+
+def _open_access(work: dict) -> tuple[list, list]:
+    """The open copies OpenAlex lists for a work, and its PMID, PMCID and arXiv id.
+
+    OpenAlex's ``locations`` are Unpaywall's: every place the work is hosted,
+    each with ``is_oa``, a ``pdf_url`` and a ``landing_page_url``, the
+    ``license`` OpenAlex records for that copy (``cc-by``, ``publisher-specific-oa``,
+    or none) and its ``version``. Only the ones marked open are kept;
+    ``best_oa_location`` is one of them and adds nothing. An arXiv copy names
+    its id in its address, and ``ids`` carries the PMID and PMCID as URLs.
+    """
+    from . import open_access  # noqa: PLC0415 - a cycle through api_base otherwise
+
+    locations = []
+    seen: set[str] = set()
+    identifiers: list[tuple[str, str]] = []
+    nodes = list(work.get("locations") or [])
+    best = work.get("best_oa_location")
+    if isinstance(best, dict):
+        nodes.append(best)
+    for node in nodes:
+        if not isinstance(node, dict) or node.get("is_oa") is not True:
+            continue
+        found = open_access.location(
+            "openalex", pdf_url=node.get("pdf_url"), landing_url=node.get("landing_page_url"),
+            license=node.get("license"), version=node.get("version"))
+        if found is None or found.location in seen:
+            continue
+        seen.add(found.location)
+        arxiv_id = open_access.bare_arxiv_id(found.landing_url or found.pdf_url or "")
+        if arxiv_id and open_access.host_of(found.location) in ("arxiv.org", "www.arxiv.org"):
+            # arXiv's own copy is recorded once, from the id, with its license
+            # read from arXiv; OpenAlex's record of it adds its license when
+            # OpenAlex states one.
+            identifiers.append(("arxiv", arxiv_id))
+            if found.license is None:
+                continue
+        locations.append(found)
+    ids = work.get("ids") if isinstance(work.get("ids"), dict) else {}
+    pmid = str(ids.get("pmid") or "").rstrip("/").rsplit("/", 1)[-1]
+    if pmid.isdigit():
+        identifiers.append(("pmid", pmid))
+    pmcid = str(ids.get("pmcid") or "").rstrip("/").rsplit("/", 1)[-1]
+    if pmcid.upper().startswith("PMC"):
+        identifiers.append(("pmcid", pmcid.upper()))
+    return locations, identifiers
 
 
 # ---------------------------------------------------------------------------

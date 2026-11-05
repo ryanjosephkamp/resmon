@@ -169,14 +169,19 @@ class PubmedClient(BaseAPIClient):
             if not title:
                 continue
 
-            # DOI
+            # DOI, and the PMC id: PubMed names the paper's copy in PubMed
+            # Central, and states no license for it, so it is an identifier
+            # and not an open copy.
             doi = None
+            pmcid = None
             article_data = article_el.find("PubmedData")
             if article_data is not None:
-                for id_el in article_data.findall(".//ArticleId"):
-                    if id_el.get("IdType") == "doi" and id_el.text:
+                for id_el in article_data.findall("ArticleIdList/ArticleId"):
+                    kind = id_el.get("IdType")
+                    if kind == "doi" and id_el.text and doi is None:
                         doi = id_el.text.strip()
-                        break
+                    elif kind == "pmc" and id_el.text and pmcid is None:
+                        pmcid = id_el.text.strip()
 
             # Authors
             # 2.1 — PubMed is the best of the sources for affiliation and among
@@ -236,6 +241,9 @@ class PubmedClient(BaseAPIClient):
                     if mesh.text:
                         categories.append(mesh.text.strip())
 
+            identifiers = [("pmid", pmid)] if pmid.isdigit() else []
+            if pmcid:
+                identifiers.append(("pmcid", pmcid))
             results.append(NormalizedResult(
                 source_repository="pubmed",
                 external_id=pmid,
@@ -246,6 +254,7 @@ class PubmedClient(BaseAPIClient):
                 publication_date=publication_date,
                 url=url,
                 categories=categories[:10],
+                identifiers=identifiers,
             ))
 
         return results
