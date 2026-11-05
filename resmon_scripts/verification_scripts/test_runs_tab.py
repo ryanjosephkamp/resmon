@@ -194,3 +194,12 @@ def test_a_failed_run_is_unseen_until_the_panel_is_opened(client):
     assert body["failed_unseen"] == [failed]
     db.update_execution_status(conn, failed, "failed", end_time="2001-02-01T00:00:00Z")
     assert client.get("/api/executions/active").json()["failed_unseen"] == []
+
+
+def test_a_run_that_failed_in_the_second_the_panel_opened_is_still_shown(client):
+    """Stamps are to the second; a failure in the same second as the opening counts as unseen, never as missed."""
+    seen = client.post("/api/executions/seen").json()["seen_at"]
+    conn = resmon_mod._get_db()
+    same = db.insert_execution(conn, {"execution_type": "deep_dive", "parameters": "{}", "start_time": seen})
+    db.update_execution_status(conn, same, "failed", end_time=seen)
+    assert client.get("/api/executions/active").json()["failed_unseen"] == [same]

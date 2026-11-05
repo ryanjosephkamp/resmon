@@ -2800,8 +2800,11 @@ def _failed_unseen(conn) -> tuple[list[int], Optional[str]]:
     """The runs that failed since the panel was last opened, newest first, and when that was."""
     seen = get_setting(conn, _RUNS_SEEN_KEY) or None
     since = seen or _ENGINE_STARTED_AT
+    # ``>=``: both stamps are to the second, so a run that failed in the second
+    # the panel was opened cannot be told to be before it or after. It counts as
+    # unseen: a failure shown red once too often is better than one never shown.
     rows = conn.execute(
-        "SELECT id FROM executions WHERE status = 'failed' AND end_time > ? "
+        "SELECT id FROM executions WHERE status = 'failed' AND end_time >= ? "
         "ORDER BY end_time DESC, id DESC LIMIT 20",
         (since,),
     ).fetchall()
