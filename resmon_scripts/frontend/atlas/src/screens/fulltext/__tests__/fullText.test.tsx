@@ -141,5 +141,8 @@ describe('the Find a paper page', () => {
     expect(screen.getByRole('heading', { name: 'Find a paper' })).toBeTruthy();
     expect(screen.getByRole('search', { name: 'Find a paper' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Find a paper' })).toBeTruthy();
+    // Only copies that share a DOI are linked (``paper_find.link_copies``).
+    expect(screen.getByText(/Copies that share a DOI are linked as one paper; a copy that does not carry that DOI is not\./))
+      .toBeTruthy();
   });
 });

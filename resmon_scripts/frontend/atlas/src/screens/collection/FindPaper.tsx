@@ -131,7 +131,8 @@ export function FindPaper() {
       <h1 className="page-title">Find a paper</h1>
       <p className="page-lede">
         One paper, by its DOI, arXiv id, PMID, or title, asked of every source that can look it up. Each source’s
-        answer is kept as a run, and the copies found land in {collectionName ?? 'your collection'}, linked as one paper.
+        answer is kept as a run, and the copies found land in {collectionName ?? 'your collection'}. Copies that share a DOI
+        are linked as one paper; a copy that does not carry that DOI is not.
       </p>
 
       <form className="find-form" onSubmit={submit} role="search" aria-label="Find a paper">
