@@ -291,6 +291,7 @@ def test_historical_fixture_bytes_remain_exact() -> None:
 # compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -308,7 +309,11 @@ def test_populated_16_upgrade_preserves_all_old_rows_objects_and_files(
     legacy: Legacy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     conn = legacy.conn
-    before_rows = contents(conn)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(conn)
+    before_rows = contents(recounted)
+    recounted.close()
     before_objects = objects(conn)
     before_files = file_census(legacy.roots)
     before_rows_hash = row_digest(before_rows)
