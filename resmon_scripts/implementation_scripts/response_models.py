@@ -2941,6 +2941,9 @@ class DiscoveryLag(LosslessModel):
 
 
 class RoutineHealthRun(LosslessModel):
+    """One completed run of a watch, oldest first."""
+
+    execution_id: int
     start_time: Optional[str]
     new_results: int
     total_results: int

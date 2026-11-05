@@ -9271,8 +9271,13 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** RoutineHealthRun */
+        /**
+         * RoutineHealthRun
+         * @description One completed run of a watch, oldest first.
+         */
         RoutineHealthRun: {
+            /** Execution Id */
+            execution_id: number;
             /** New Results */
             new_results: number;
             /** Start Time */

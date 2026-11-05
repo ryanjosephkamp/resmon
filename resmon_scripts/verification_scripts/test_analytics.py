@@ -161,6 +161,7 @@ def test_routine_health_flags_a_routine_that_has_gone_quiet(conn):
     routine_id = conn.execute("SELECT id FROM routines").fetchone()["id"]
 
     # One productive run, then four that found nothing.
+    run_ids = []
     for i, new_count in enumerate([7, 0, 0, 0, 0]):
         exec_id = insert_execution(conn, {
             "execution_type": "automated_sweep", "routine_id": routine_id,
@@ -168,9 +169,15 @@ def test_routine_health_flags_a_routine_that_has_gone_quiet(conn):
         })
         update_execution_status(conn, exec_id, "completed",
                                 result_count=10, new_result_count=new_count)
+        run_ids.append(exec_id)
 
     routine = analytics.routine_health(conn)["routines"][0]
 
+    # Each run in the series names its run, oldest first, so a chart's tick can open it.
+    assert [run["execution_id"] for run in routine["series"]] == run_ids
+    assert routine["series"][0] == {
+        "execution_id": run_ids[0], "start_time": "2026-02-01T08:00:00", "new_results": 7, "total_results": 10,
+    }
     assert routine["runs"] == 5
     assert routine["runs_since_new"] == 4
     assert routine["status"] == "stale"

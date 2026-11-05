@@ -224,7 +224,7 @@ def routine_health(conn: sqlite3.Connection) -> dict:
     for r in routines:
         runs = conn.execute(
             """
-            SELECT start_time, new_result_count, result_count
+            SELECT id, start_time, new_result_count, result_count
             FROM executions
             WHERE routine_id = ? AND status = 'completed'
             ORDER BY start_time ASC
@@ -232,8 +232,10 @@ def routine_health(conn: sqlite3.Connection) -> dict:
             (r["id"],),
         ).fetchall()
 
+        # Each run carries its id, so a chart's mark for it can open that run.
         series = [
             {
+                "execution_id": run["id"],
                 "start_time": run["start_time"],
                 "new_results": run["new_result_count"] or 0,
                 "total_results": run["result_count"] or 0,
