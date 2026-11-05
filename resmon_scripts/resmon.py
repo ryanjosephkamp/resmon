@@ -9134,10 +9134,11 @@ def assistant_status():
     """
     conn = _get_db()
     try:
-        status = assistant_runtime.runtime_status(
-            _assistant_settings(conn), backend_port=serving_port(),
-        )
-        status["composer_choices"] = assistant_choices.descriptor(_assistant_settings(conn), backend_port=serving_port())
+        # One read of the settings for the whole answer, so a save landing between two
+        # reads can never give a runtime and composer choices that disagree.
+        settings = _assistant_settings(conn)
+        status = assistant_runtime.runtime_status(settings, backend_port=serving_port())
+        status["composer_choices"] = assistant_choices.descriptor(settings, backend_port=serving_port())
         status["contract_version"] = _mcp_contract_version()
         return status
     finally:
