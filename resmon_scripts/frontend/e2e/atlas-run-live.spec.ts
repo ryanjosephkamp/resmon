@@ -134,8 +134,14 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await terms.press('Enter');
     await win.getByRole('button', { name: 'Any time', exact: true }).click();
     const started = win.waitForResponse((r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST');
+    // What runs now is read again as soon as the search starts, not at the run monitor's next idle read
+    // (15 s): a run that ended sooner would never be seen to run.
+    const activeReads: number[] = [];
+    win.on('request', (r) => { if (r.url().endsWith('/api/executions/active')) activeReads.push(Date.now()); });
     await win.getByRole('button', { name: 'Ask 2 sources' }).click();
+    const startedAt = Date.now();
     const { execution_id: runId } = await (await started).json() as { execution_id: number };
+    await expect.poll(() => activeReads.some((t) => t >= startedAt), { timeout: 3_000 }).toBe(true);
     const run = win.locator(`.run[data-run="${runId}"]`);
     await expect(run).toHaveAttribute('data-status', 'running', { timeout: 30_000 });
 

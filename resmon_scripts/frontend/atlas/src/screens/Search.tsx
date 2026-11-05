@@ -8,6 +8,7 @@ import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
 import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
+import { ACTIVE_KEY } from './runs/active';
 import { LatestRuns } from './runs/LatestRuns';
 import type { RunsNotice } from './runs/Runs';
 import { PlaceHelp } from './watches/people/People';
@@ -194,6 +195,8 @@ export function Search() {
     onSuccess: (started) => {
       // A started search is a run now, not a draft: Back finds the form as the address sets it.
       draft.drop();
+      // What runs now is read at once, so the run monitor shows this run even if it ends before its next read.
+      void client.invalidateQueries({ queryKey: ACTIVE_KEY });
       // One that waits for a free slot has no page yet: the Runs tab lists it under Waiting, and says so.
       if (started.execution_id === null) {
         navigate('/runs', { state: { queued: started.detail ?? 'This search waits for a free run slot.' } satisfies RunsNotice });
