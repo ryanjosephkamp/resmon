@@ -571,6 +571,41 @@ def test_admission_rechecks_frozen_preview_before_any_process(workspace,tmp_path
         value.shutdown()
 
 
+@pytest.mark.parametrize('command',['gone','present'])
+def test_send_checks_the_runtime_it_runs_on(workspace,tmp_path,monkeypatch,command):
+    """A command gone after the frozen preview's recheck starts nothing, not the ``claude`` on PATH."""
+    value,body,capture=real_lane(workspace,tmp_path)
+    ran=bare_name_on_path(tmp_path,monkeypatch)
+    binary=Path(value.settings(None)['ai_cli_path'])
+    preview=value.preview(workspace.conn,workspace.project_id,body,threading.Event())
+    send={'expected_vault_id':workspace.vault_id,'expected_runtime_id':value.runtime_id,'preview_id':preview['preview_id'],
+          'request_sha256':preview['request_sha256'],'confirmed':True}
+    original=ctx.assemble
+    def assemble_then(*args,**kwargs):
+        made=original(*args,**kwargs)
+        if command=='gone':binary.unlink()
+        return made
+    monkeypatch.setattr(ctx,'assemble',assemble_then)
+    started=record_starts(monkeypatch)
+    try:
+        if command=='gone':
+            with pytest.raises(se.ev.EvidenceError) as refusal:
+                value.send(workspace.conn,workspace.project_id,send,threading.Event())
+            assert (refusal.value.reason,refusal.value.status)==('runtime_unavailable',503)
+            assert workspace.conn.execute('SELECT count(*) FROM evidence_answers').fetchone()[0]==0
+            assert started==[] and not capture.exists()
+        else:
+            result=value.send(workspace.conn,workspace.project_id,send,threading.Event())
+            job=value.subscribe(result['answer_id'],workspace.vault_id,workspace.project_id,value.runtime_id)
+            while not job.completed.is_set():value.next_event(job)
+            saved=se.detail(workspace.conn,workspace.vault_id,workspace.project_id,result['answer_id'])
+            assert saved['state']=='succeeded' and capture.exists()
+            assert [argv[0] for argv in started]==[str(binary)]
+        assert not ran.exists()
+    finally:
+        value.shutdown()
+
+
 def test_second_subscriber_and_wrong_cancel_cannot_own_job(workspace,tmp_path):
     value,body,capture=real_lane(workspace,tmp_path)
     _,_,result=admitted(workspace,value,body)
