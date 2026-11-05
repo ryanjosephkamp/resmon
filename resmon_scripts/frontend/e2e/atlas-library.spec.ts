@@ -22,7 +22,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { inView, shelfHolds } from './fixtures/gallery';
 import { writePdf, type PdfLine } from './fixtures/pdf';
 import { resize } from './fixtures/maps';
 
@@ -136,7 +137,7 @@ The stress tensor $\tau_{ij}$ satisfies
 and the energy $E = \frac{1}{2} \int |u|^2 \, dx$ is conserved.
 `;
 
-async function shot(win: Page, name: string): Promise<void> {
+async function saveShot(win: Page, name: string): Promise<void> {
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   await win.screenshot({ path: path.join(SCREENSHOT_DIR, `library-${name}.png`), animations: 'disabled' });
 }
@@ -160,14 +161,19 @@ async function api<T>(win: Page, route: string, init?: { method?: string; body?:
   }, [route, init] as const) as Promise<T>;
 }
 
-test('Library: one gallery, covers, the PDF and rich readers, remove and undo, the folder moved and found, select, drop', async () => {
-  test.setTimeout(420_000);
+/**
+ * The whole walk, in a window of the size given (or the suite's own). Only the
+ * walk in the suite's own window saves screenshots.
+ */
+async function walk(size: [number, number] | null): Promise<void> {
+  const shot = (win: Page, name: string) => (size ? Promise.resolve() : saveShot(win, name));
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-library-'));
   const first = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-first-')));
   const elsewhere = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-moved-')));
   const second = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-second-')));
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-staging-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  // Held to the screen a run is held to (RESMON_E2E_SCREEN), as CI's macOS runner holds it.
+  const env = atlasEnv({ ...launchEnv(stateDir, true), ...(size ? { RESMON_E2E_WIDTH: String(size[0]), RESMON_E2E_HEIGHT: String(size[1]) } : {}) });
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { ids, saved } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[]; saved: number[] };
@@ -205,6 +211,8 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
       shell.trashItem = async (target: string) => { g.trashed.push(target); nodeFs.renameSync(target, nodePath.join(bin, nodePath.basename(target))); };
     }, trash);
     const win = await app.firstWindow({ timeout: 180_000 });
+    // The window is the size asked for: no wider than it, so the gallery draws fewer cards than the shelf holds.
+    if (size) expect(await win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(size[0]);
     const problems: string[] = [];
     win.on('pageerror', (e) => problems.push(e.message));
     await win.evaluate(() => { window.location.hash = '#/library'; });
@@ -215,20 +223,23 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await expect(shelf.getByRole('button', { name: /To read/ })).toHaveAttribute('aria-pressed', 'true');
     await expect(shelf.getByRole('button', { name: /To read/ })).toContainText('14');
     const cards = win.locator('article.card');
-    await expect(cards).toHaveCount(14, { timeout: 30_000 });
+    await shelfHolds(win, 14);
+    // In the small window the gallery draws only some of the fourteen, which is what this walk is for.
+    if (size) expect(await cards.count()).toBeLessThan(14);
     // The map is fitted in the background the first time it is asked for; the covers place each paper once it is.
     await expect.poll(async () => (await api<{ state: string }>(win, '/api/map')).state, { timeout: 120_000 }).toBe('ready');
     await win.reload();
     await expect(win.locator('.cov[data-placed="true"]').first()).toBeVisible({ timeout: 60_000 });
     await expect(cards.first().locator('.card-label')).toContainText(/From/);
-    await expect(win.locator('article.card .card-label .it').first()).toHaveText('quantum-error-correction');
     await shot(win, 'to-read-desktop');
+    // A paper the watch's run found is labeled with the watch's name.
+    await expect((await inView(win, `article.card[data-document="${saved[0]}"]`)).locator('.card-label .it')).toHaveText('quantum-error-correction');
 
     // — the queue's remove, and its Undo, with the entry's own dates ----------------------------
     const target = saved[0]!;
     const before = await api<{ entries: { document_id: number; saved_at: string; status: string }[] }>(win, '/api/reading-queue?limit=200');
     const was = before.entries.find((e) => e.document_id === target)!;
-    const card = win.locator(`article.card[data-document="${target}"]`);
+    const card = await inView(win, `article.card[data-document="${target}"]`);
     await card.hover();
     await card.getByRole('button', { name: 'Remove from To read' }).click();
     await expect(card).toHaveCount(0);
@@ -236,7 +247,8 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await expect(notice).toContainText('from To read.');
     await shot(win, 'remove-undo-notice');
     await notice.getByRole('button', { name: 'Undo' }).click();
-    await expect(win.locator(`article.card[data-document="${target}"]`)).toHaveCount(1, { timeout: 15_000 });
+    await shelfHolds(win, 14, 15_000);
+    await inView(win, `article.card[data-document="${target}"]`);
     const after = await api<{ entries: { document_id: number; saved_at: string; status: string }[] }>(win, '/api/reading-queue?limit=200');
     expect(after.entries.find((e) => e.document_id === target)).toEqual(expect.objectContaining({ saved_at: was.saved_at, status: was.status }));
 
@@ -245,10 +257,12 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
       if (route.request().method() === 'PUT') await new Promise((r) => setTimeout(r, 1500));
       await route.continue();
     });
-    const marking = win.locator(`article.card[data-document="${saved[1]}"]`);
+    const marking = await inView(win, `article.card[data-document="${saved[1]}"]`);
+    // Another card drawn beside it, whichever the window shows.
+    const other = win.locator(`article.card:not([data-document="${saved[1]}"])`).first();
     await marking.getByRole('button', { name: 'Mark read' }).click();
     await expect(marking.getByRole('button', { name: 'Mark read' })).toBeDisabled();
-    await expect(win.locator(`article.card[data-document="${saved[2]}"]`).getByRole('button', { name: 'Mark read' })).toBeEnabled();
+    await expect(other.getByRole('button', { name: 'Mark read' })).toBeEnabled();
     await expect(marking).toHaveCount(0, { timeout: 15_000 });
     await win.unroute('**/api/reading-queue/*');
     await expect(shelf.getByRole('button', { name: /^Read/ })).toContainText('5');
@@ -256,12 +270,13 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     // — select mode: pick a range, mark read ----------------------------------------------------
     await win.getByRole('button', { name: 'Select', exact: true }).click();
     const bar = win.getByRole('group', { name: 'The picked cards' });
+    await win.evaluate(() => { (document.querySelector('main.stage') as HTMLElement).scrollTop = 0; });
     await cards.nth(0).locator('.thumb').click();
     await cards.nth(2).locator('.thumb').click({ modifiers: ['Shift'] });
     await expect(bar).toContainText('3 of 13 picked');
     await shot(win, 'select-mode');
     await bar.getByRole('button', { name: 'Mark read' }).click();
-    await expect(cards).toHaveCount(10, { timeout: 15_000 });
+    await shelfHolds(win, 10, 15_000);
     await bar.getByRole('button', { name: 'Done' }).click();
     await expect(shelf.getByRole('button', { name: /^Read/ })).toContainText('8');
 
@@ -274,8 +289,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await expect(importer).toBeEnabled({ timeout: 30_000 });
     await importer.setInputFiles([files.moe, files.edit, files.radio, files.notes, files.tex, files.txt]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('6 files added. None was already in the Library.', { timeout: 60_000 });
-    await expect(cards).toHaveCount(6);
-    await expect(win.locator('.sheet-pdf[data-drawn="true"] img')).toHaveCount(3, { timeout: 90_000 });
+    await shelfHolds(win, 6);
     const status = await api<{ vault: { vault_id: string; path: string } }>(win, '/api/library');
     const vault = status.vault.vault_id;
     const root = status.vault.path;
@@ -285,17 +299,27 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     const byName = Object.fromEntries(listed.files.map((f) => [f.original_name, f]));
     const moe = byName[path.basename(files.moe)]!;
     expect(byName[path.basename(files.tex)]!.media_type).toBe('text/x-tex');
-    const pictures = fs.readdirSync(`${path.join(stateDir, 'resmon.db')}-library-pictures`);
-    expect(pictures).toHaveLength(3);
-    await expect(win.locator('.sheet-text li').first()).toBeVisible();
+    // Each PDF's first page, drawn once its card is in view, and kept beside the database.
+    const pdfs = [files.moe, files.edit, files.radio].map((f) => byName[path.basename(f)]!.file_id);
+    const picturesDir = `${path.join(stateDir, 'resmon.db')}-library-pictures`;
+    for (const id of pdfs) {
+      await expect((await inView(win, `article.card[data-file="${id}"]`)).locator('.sheet-pdf[data-drawn="true"] img')).toBeVisible({ timeout: 90_000 });
+    }
+    await expect.poll(() => (fs.existsSync(picturesDir) ? fs.readdirSync(picturesDir).length : 0), { timeout: 30_000 }).toBe(3);
+    await expect((await inView(win, `article.card[data-file="${byName[path.basename(files.notes)]!.file_id}"]`)).locator('.sheet-text li').first()).toBeVisible();
+    await win.evaluate(() => { (document.querySelector('main.stage') as HTMLElement).scrollTop = 0; });
     await shot(win, 'files-desktop');
 
     // A second visit reads the kept pictures and draws nothing.
     await win.reload();
-    await expect(win.locator('.sheet-pdf[data-drawn="true"] img')).toHaveCount(3, { timeout: 30_000 });
+    for (const id of pdfs) {
+      await expect((await inView(win, `article.card[data-file="${id}"]`)).locator('.sheet-pdf[data-drawn="true"] img')).toBeVisible({ timeout: 30_000 });
+    }
+    expect(fs.readdirSync(picturesDir)).toHaveLength(3);
 
     // — a PDF linked to a saved paper: chosen by searching, and its cover becomes the first page -----
-    const moeCard = win.locator(`article.card[data-file="${moe.file_id}"]`);
+    const moeSelector = `article.card[data-file="${moe.file_id}"]`;
+    const moeCard = await inView(win, moeSelector);
     await moeCard.getByRole('button', { name: 'Link to a paper' }).click();
     const picker = win.getByRole('dialog', { name: /Link .* to a paper/ });
     await picker.getByLabel('Find a paper by title, author, or words in it').fill('distribution shift');
@@ -333,7 +357,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     // — the saved paper's cover is the linked PDF's first page now ------------------------------------
     const linked = await api<{ queue_status: string | null }>(win, `/api/documents/${ids[8]}`);
     await win.evaluate((show) => { window.location.hash = `#/library?show=${show}`; }, linked.queue_status ?? 'to_read');
-    await expect(win.locator(`article.card[data-document="${ids[8]}"] .sheet-pdf[data-drawn="true"] img`)).toBeVisible({ timeout: 30_000 });
+    await expect((await inView(win, `article.card[data-document="${ids[8]}"]`)).locator('.sheet-pdf[data-drawn="true"] img')).toBeVisible({ timeout: 30_000 });
     await shot(win, `paper-with-pdf-${linked.queue_status ?? 'to_read'}`);
 
     // — a file in a project with a note: asked first, removed with both, and Undo puts all back ------
@@ -345,11 +369,11 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
       expected_vault_id: vault, expected_revision: added.project.revision, file_id: moe.file_id, version_id: moe.version_id,
       kind: 'note', body: 'Compare with our checkpoint.', anchor: null } });
     await win.evaluate(() => { window.location.hash = '#/library?show=projects'; });
-    await expect(win.locator('article.card.project')).toHaveCount(1, { timeout: 30_000 });
+    await shelfHolds(win, 1);
     await expect(win.locator('article.card.project .fan .sheet-pdf[data-drawn="true"]')).toHaveCount(1, { timeout: 30_000 });
     await shot(win, 'projects');
     await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
-    await moeCard.hover();
+    await (await inView(win, moeSelector)).hover();
     await moeCard.getByRole('button', { name: 'Remove from Your files' }).click();
     const confirm = win.getByRole('dialog', { name: /Remove Raman-2026/ });
     await expect(confirm).toContainText('Router collapse: its place in the project, 1 note');
@@ -361,14 +385,15 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     const fileNotice = win.locator('.lib-notice');
     await expect(fileNotice).toContainText('from Your files.');
     await fileNotice.getByRole('button', { name: 'Undo' }).click();
-    await expect(win.locator(`article.card[data-file="${moe.file_id}"]`)).toHaveCount(1, { timeout: 15_000 });
+    await shelfHolds(win, 6, 15_000);
+    await inView(win, moeSelector);
     expect(fs.readFileSync(path.join(root, 'files', moe.file_id, `${moe.version_id}.pdf`))).toEqual(fs.readFileSync(files.moe));
     const notes = await api<{ notes: { body: string }[] }>(win, `/api/evidence/projects/${project.project.project_id}/notes?expected_vault_id=${vault}`);
     expect(notes.notes.map((n) => n.body)).toEqual(['Compare with our checkpoint.']);
 
     // A lone text file is removed at once; Settings › Library holds it, and sends it to the Trash only when asked.
     const txt = byName[path.basename(files.txt)]!;
-    await win.locator(`article.card[data-file="${txt.file_id}"]`).getByRole('button', { name: 'Remove from Your files' }).click();
+    await (await inView(win, `article.card[data-file="${txt.file_id}"]`)).getByRole('button', { name: 'Remove from Your files' }).click();
     await expect(win.locator(`article.card[data-file="${txt.file_id}"]`)).toHaveCount(0);
 
     // — Settings › Library: the folder's path, and the removed file ---------------------------------
@@ -396,7 +421,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await shelf.getByRole('button', { name: /Your files/ }).click();
     await chooseNext(app, elsewhere);
     await missing.getByRole('button', { name: 'Choose where it is now' }).click();
-    await expect(cards).toHaveCount(5, { timeout: 30_000 });
+    await shelfHolds(win, 5);
     await win.evaluate(() => { window.location.hash = '#/settings/library'; });
     await expect(win.locator('[data-library="path"]')).toHaveText(moved);
     await chooseNext(app, second);
@@ -407,7 +432,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
 
     // — files dropped on the page are kept as Import files keeps them ---------------------------------
     await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
-    await expect(cards).toHaveCount(5, { timeout: 30_000 });
+    await shelfHolds(win, 5);
     const dropped = await win.evaluateHandle(() => {
       const transfer = new DataTransfer();
       transfer.items.add(new File(['dropped on the page\n'], 'dropped-notes.txt', { type: 'text/plain' }));
@@ -416,7 +441,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await win.dispatchEvent('.lib-page', 'dragover', { dataTransfer: dropped });
     await win.dispatchEvent('.lib-page', 'drop', { dataTransfer: dropped });
     await expect(win.locator('[data-library="imported"]')).toHaveText('1 file added. None was already in the Library.', { timeout: 30_000 });
-    await expect(cards).toHaveCount(6);
+    await shelfHolds(win, 6);
 
     // — the narrowest window a Mac gives, and the phone-width reflow -----------------------------------
     await win.evaluate(() => { window.location.hash = '#/library'; });
@@ -452,4 +477,18 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     // Every folder here was made by this spec, under the system's temporary folder.
     for (const dir of [stateDir, first, elsewhere, second, staging, trash]) fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+const TITLE = 'Library: one gallery, covers, the PDF and rich readers, remove and undo, the folder moved and found, select, drop';
+
+test(TITLE, async () => {
+  test.setTimeout(420_000);
+  await walk(null);
+});
+
+// The gallery draws only the rows near the view, so the walk is taken again in the smallest window the app
+// allows: everything it checks must hold whatever the window shows.
+test(`${TITLE}, in a 960 by 640 window`, async () => {
+  test.setTimeout(420_000);
+  await walk([960, 640]);
 });

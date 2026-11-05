@@ -23,7 +23,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
-import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { findCard, shelfHolds } from './fixtures/gallery';
 
 const SEED = String.raw`
 import json, os, sys
@@ -45,7 +46,7 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-'));
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-parent-')));
   const staging = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-files-staging-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const env = atlasEnv({ ...launchEnv(stateDir, true) });
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..')], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { doc } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { doc: number };
@@ -94,18 +95,16 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     expect(fs.readdirSync(vault).sort()).toEqual(['files', 'vault.json']);
 
     // — kept byte for byte, and one refused -------------------------------------------
-    const cards = win.locator('article.card');
-    const card = (name: string) => cards.filter({ has: win.getByRole('heading', { name, exact: true }) });
     await importer.setInputFiles([files.note, files.outline, files.paper, files.refused]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('3 files added. None was already in the Library. 1 could not be added.', { timeout: 60_000 });
     await expect(win.locator('.library-refusals')).toContainText('tool.exe');
-    await expect(cards).toHaveCount(3);
+    await shelfHolds(win, 3);
     await importer.setInputFiles([files.note]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('No files added. 1 was already in the Library.', { timeout: 60_000 });
-    await expect(cards).toHaveCount(3);
+    await shelfHolds(win, 3);
 
     // — one file's page and its record, against the disk ------------------------------
-    await card('notes.txt').getByRole('button', { name: 'Read' }).click();
+    await (await findCard(win, 'notes.txt')).getByRole('button', { name: 'Read' }).click();
     await expect(win.getByRole('heading', { name: 'notes.txt', level: 1 })).toBeVisible();
     const record = win.locator('details.lib-record');
     await record.locator('summary').click();
@@ -165,10 +164,11 @@ test('Your files: a library made where it was asked, files kept byte for byte, r
     }
     // The old address of Your files still leads there.
     await win.evaluate(() => { window.location.hash = '#/library/files'; });
-    for (const name of ['notes.txt', 'outline.md', 'paper.pdf']) await expect(card(name)).toBeVisible({ timeout: 30_000 });
+    await shelfHolds(win, 3);
+    for (const name of ['outline.md', 'paper.pdf', 'notes.txt']) await findCard(win, name);
     expect(fs.readFileSync(kept).equals(before), 'the kept copy changed through the Danger zone').toBe(true);
     // The paper it was linked to went with the corpus; the link does not outlive it.
-    await expect(card('notes.txt').locator('.card-label')).toHaveText('Not linked to a paper', { timeout: 30_000 });
+    await expect((await findCard(win, 'notes.txt')).locator('.card-label')).toHaveText('Not linked to a paper', { timeout: 30_000 });
 
     expect(problems).toEqual([]);
   } finally {

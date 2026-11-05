@@ -28,7 +28,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { findCard } from './fixtures/gallery';
 
 const FIXTURES = path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'evidence');
 const PAGE_ONE = 'Alpha evidence — exact version.';
@@ -55,7 +56,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-'));
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-parent-')));
   const downloads = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-evidence-downloads-')));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const env = atlasEnv({ ...launchEnv(stateDir, true) });
   const text = fs.readFileSync(path.join(FIXTURES, 'unicode.txt'), 'utf8');
   // The offsets this spec expects, from the fixture's own first line: the app's are compared with these.
   const prefix = text.slice(0, text.indexOf(QUOTE));
@@ -97,7 +98,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await expect(win.getByText('No project yet. Start one, then add files from your library.')).toBeVisible({ timeout: 30_000 });
     await win.getByRole('navigation', { name: 'Back to the Library' }).getByRole('link', { name: 'Library' }).click();
     await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /Your files/ }).click();
-    await win.locator('article.card', { has: win.getByRole('heading', { name: 'unicode.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    await (await findCard(win, 'unicode.txt')).getByRole('button', { name: 'Read' }).click();
     await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     const handoff = win.getByRole('region', { name: 'Brought from Your files' });
     await expect(handoff).toContainText('unicode.txt');
@@ -251,7 +252,7 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
 
     // — brought again: an exact version already held is said to be held ------------------
     await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
-    await win.locator('article.card', { has: win.getByRole('heading', { name: 'unicode.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    await (await findCard(win, 'unicode.txt')).getByRole('button', { name: 'Read' }).click();
     await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     await win.locator('button.ev-project', { hasText: 'Atlas evidence, renamed' }).click();
     await expect(handoff.getByText('This exact version is already in the project.')).toBeVisible({ timeout: 30_000 });

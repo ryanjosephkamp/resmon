@@ -24,7 +24,8 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { findCard } from './fixtures/gallery';
 
 // Every sentence here is invented for this spec, and no name is a real person's.
 const SHARED = 'A thin layer of glass beads was spread across a level floor and swept by a steady fan until the '
@@ -136,7 +137,7 @@ sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
 `);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const env = atlasEnv({ ...launchEnv(stateDir, true) });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
 
@@ -244,7 +245,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles([notes]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('1 file added. None was already in the Library.', { timeout: 60_000 });
-    await win.locator('article.card', { has: win.getByRole('heading', { name: 'tank-notes.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    await (await findCard(win, 'tank-notes.txt')).getByRole('button', { name: 'Read' }).click();
     const detail = win.locator('.lib-file');
     await expect(detail.getByRole('heading', { name: 'tank-notes.txt', level: 1 })).toBeVisible();
     await detail.locator('details.lib-record summary').click();

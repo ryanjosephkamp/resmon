@@ -19,7 +19,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { shelfHolds } from './fixtures/gallery';
 
 const SIZE = 203;
 
@@ -60,7 +61,7 @@ async function api<T>(win: Page, route: string, method = 'GET'): Promise<T> {
 test('the reading queue past its first 200: drawn near the view, read as it is scrolled, picked, exported, marked, taken out', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-queue-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const env = atlasEnv({ ...launchEnv(stateDir, true) });
   const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', SEED, path.join(FRONTEND_ROOT, '..'), String(SIZE)], { env, encoding: 'utf8' });
   expect(seeded.status, seeded.stderr).toBe(0);
   const { ids } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[] };
@@ -140,7 +141,7 @@ test('the reading queue past its first 200: drawn near the view, read as it is s
 
     // — Read holds the one marked read ------------------------------------------------
     await show.getByRole('button', { name: /^Read/ }).click();
-    await expect(cards).toHaveCount(1, { timeout: 30_000 });
+    await shelfHolds(win, 1);
     await expect(card(second)).toBeVisible();
 
     expect(problems).toEqual([]);
