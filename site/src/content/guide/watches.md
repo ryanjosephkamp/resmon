@@ -53,7 +53,7 @@ The dates a run asks for are computed when it fires and recorded with the run. A
 
 **When a run finishes.** **Notify me**, **Email the report**, and **Attach its results to the email**. The email goes through the account under **Settings › Email**, and notifications follow **Settings › Notifications**. **Start watching when saved** is on by default for a new watch.
 
-**PDFs.** **Get its new papers' open-access PDFs**, off unless you turn it on. After each run, resmon asks for the PDF of each new paper a source states an open license for, by the rules of [Get the PDF](/resmon/guide/library/#get-the-pdf), at most 20 a run. The run's page lists what it got into the Library, what it skipped, and why. A watch on retractions finds no new papers, so it has no PDFs to get.
+**PDFs.** **Get its new papers' open-access PDFs**, off unless you turn it on. After each run, resmon asks for the PDF of each new paper a source states an open license for, by the rules of [Get the PDF](/resmon/guide/library/#get-the-pdf), at most 20 a run. The run's page lists what it got into the Library, what it skipped, and why. An arXiv PDF a watch gets comes from export.arxiv.org, the site arXiv asks tools that fetch on their own to use, at arXiv's pace of one request every three seconds; Get the PDF on a paper's page asks arxiv.org, as arXiv asks that people be sent there. A watch on retractions finds no new papers, so it has no PDFs to get.
 
 **Summarize each paper.** Off, or on with the connection from **Settings › AI** or one just for this watch. See [AI settings](/resmon/guide/ai-summarization/).
 

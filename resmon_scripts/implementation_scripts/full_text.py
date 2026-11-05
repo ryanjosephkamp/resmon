@@ -526,6 +526,12 @@ class Worker:
         self._connect = connect
 
     def limiter(self, host: str) -> RateLimiter:
+        """The pace for *host*: its own, three seconds apart, or arXiv's for export.arxiv.org,
+        which arXiv's API, its license records, and a watch's arXiv PDFs share."""
+        if host == open_access.ARXIV_EXPORT_HOST:
+            from . import api_arxiv  # noqa: PLC0415
+
+            return api_arxiv._RATE_LIMITER
         with self._lock:
             found = self._limiters.get(host)
             if found is None:
@@ -686,7 +692,8 @@ class Worker:
         target = staging / "download.pdf"
         try:
             fetched = fulltext_download.fetch_pdf(
-                url, target, before_request=lambda host: self.limiter(host).acquire())
+                open_access.fetch_address(url, row["requested_by"]), target,
+                before_request=lambda host: self.limiter(host).acquire())
         except fulltext_download.DownloadRefused as refused:
             self._finish(conn, row["id"], "failed", reason=refused.reason, detail=refused.detail)
             return

@@ -28,7 +28,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 #: The licenses resmon reads a copy as open under, in the few words a person
 #: reads. A license outside this table is recorded as the source said it and
@@ -258,6 +258,39 @@ def location(reported_by: str, *, pdf_url: object = None, landing_url: object = 
     return OpenAccessLocation(
         reported_by=reported_by, pdf_url=pdf, landing_url=landing, license=slug,
         license_basis=basis if slug else None, version=normalize_version(version))
+
+
+#: Where a watch's automatic fetch of an arXiv PDF goes. Checked on arXiv's own
+#: pages on November 5, 2026:
+#:
+#: * arXiv Bulk Data Access (https://info.arxiv.org/help/bulk_data.html) asks
+#:   that tools that harvest use the dedicated site export.arxiv.org, and links
+#:   full-text tools back to arXiv for downloads.
+#: * Terms of Use for arXiv APIs (https://info.arxiv.org/help/api/tou.html): no
+#:   more than one request every three seconds, on a single connection, across
+#:   all of a user's machines; and direct users to arxiv.org for e-print content.
+#: * arxiv.org's robots.txt (https://arxiv.org/robots.txt) says indiscriminate
+#:   automated downloads are not permitted, with a 15-second crawl delay for
+#:   crawlers. export.arxiv.org's robots.txt (https://export.arxiv.org/robots.txt)
+#:   disallows every path to crawlers; resmon is not one: it fetches only the PDFs
+#:   a watch's new papers have, at most ``full_text.PER_RUN_CAP`` a run.
+#:
+#: So a watch's fetch, which no person clicked, goes to export.arxiv.org, paced
+#: by the one limiter every request there shares (``api_arxiv._RATE_LIMITER``,
+#: three seconds apart); a person's Get the PDF stays on arxiv.org, where arXiv
+#: asks that people be sent.
+ARXIV_EXPORT_HOST = "export.arxiv.org"
+
+
+def fetch_address(url: str, requested_by: str) -> str:
+    """Where a download fetches *url* from: a watch's arXiv PDF from export.arxiv.org, anything else as it is."""
+    if requested_by != "watch" or host_of(url) != "arxiv.org":
+        return url
+    parts = urlsplit(url)
+    if not parts.path.startswith("/pdf/"):
+        return url
+    netloc = ARXIV_EXPORT_HOST + (f":{parts.port}" if parts.port else "")
+    return urlunsplit(("https", netloc, parts.path, parts.query, ""))
 
 
 def arxiv_location(arxiv_id: str, reported_by: str) -> OpenAccessLocation:

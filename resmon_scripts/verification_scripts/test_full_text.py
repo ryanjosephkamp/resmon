@@ -22,7 +22,7 @@ import pytest
 from implementation_scripts import database, full_text, fulltext_download as fd, library, open_access
 from verification_scripts.tls_loopback import TEST_HOSTS, LoopbackHTTPS, pdf_body
 
-HOSTS = (*TEST_HOSTS, "arxiv.org")
+HOSTS = (*TEST_HOSTS, "arxiv.org", "export.arxiv.org")
 
 
 def _resolve(host, port, *args, **kwargs):
@@ -616,6 +616,34 @@ def test_an_arxiv_copy_is_fetched_once_arxiv_states_its_license(db, server, oai)
     assert not any(r["path"] == "/pdf/2601.00003" for r in server.requests)
     stored = open_access.locations_for(db, [papers[0]])[0]
     assert (stored["license"], stored["license_basis"]) == ("cc-by", "host_record")
+
+
+def test_a_watchs_arxiv_pdf_is_fetched_from_export_arxiv_org_and_a_persons_from_arxiv_org(db, server, oai):
+    """arXiv asks tools that harvest to use export.arxiv.org; a person's click stays on arxiv.org."""
+    oai["oai:arXiv.org:2601.00011"] = "http://creativecommons.org/licenses/by/4.0/"
+    oai["oai:arXiv.org:2601.00012"] = "http://creativecommons.org/licenses/by/4.0/"
+    _serve(server, "/pdf/2601.00011")
+    _serve(server, "/pdf/2601.00012")
+    watched, clicked = _paper(db, 90), _paper(db, 91)
+    open_access.record(db, watched, "arxiv", [], [("arxiv", "2601.00011")])
+    open_access.record(db, clicked, "arxiv", [], [("arxiv", "2601.00012")])
+    db.execute("UPDATE document_open_access SET pdf_url = replace(pdf_url, 'https://arxiv.org/', ?)",
+               (f"https://arxiv.org:{server.port}/",))
+    db.commit()
+    _routine, run = _watch_run(db)
+    by_watch = full_text.request(db, watched, requested_by="watch", execution_id=run)
+    by_person = full_text.request(db, clicked)
+    _settle(db)
+    hosts = {r["path"]: r["host"] for r in server.requests}
+    assert hosts["/pdf/2601.00011"] == f"export.arxiv.org:{server.port}"
+    assert hosts["/pdf/2601.00012"] == f"arxiv.org:{server.port}"
+    assert _row(db, by_watch["id"])["final_url"] == f"https://export.arxiv.org:{server.port}/pdf/2601.00011"
+    assert _row(db, by_person["id"])["final_url"] == f"https://arxiv.org:{server.port}/pdf/2601.00012"
+    # Every request to export.arxiv.org keeps arXiv's one pace.
+    from implementation_scripts import api_arxiv
+    assert full_text.worker.limiter("export.arxiv.org") is api_arxiv._RATE_LIMITER
+    assert open_access.fetch_address("https://arxiv.org/abs/2601.00011", "watch") == "https://arxiv.org/abs/2601.00011"
+    assert open_access.fetch_address("https://www.nature.com/x.pdf", "watch") == "https://www.nature.com/x.pdf"
 
 
 def test_the_rules_state_the_caps_and_the_license_rule():
