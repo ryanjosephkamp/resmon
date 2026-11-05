@@ -239,7 +239,7 @@ Every Library route needs the header `X-Resmon-Library: 1`, and a vault id the c
 | `GET` | `/api/library/files/{file_id}/removal` | What would go with a file if it were removed: its links, and the projects it is in or has notes in. |
 | `POST` | `/api/library/files/{file_id}/open` | Verify the stored copy and answer with the path to open. |
 | `POST` | `/api/library/files/{file_id}/paper-links` | Link a file to a paper in your collection. |
-| `GET` | `/api/library/files/{file_id}/text` | A TXT, MD, or TeX file as literal text, within its bounds. |
+| `GET` | `/api/library/files/{file_id}/text` | A TXT, MD, or TeX file as literal text, within its bounds; with `lines`, only its first lines. |
 | `GET` | `/api/library/files/{file_id}/pdf` | A kept PDF's bytes, verified, for the reader. |
 | `GET` | `/api/library/files/{file_id}/picture` | The first-page picture kept for a PDF. |
 | `PUT` | `/api/library/files/{file_id}/picture` | Keep the first-page picture the app drew of a PDF. |

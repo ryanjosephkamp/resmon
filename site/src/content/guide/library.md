@@ -47,6 +47,8 @@ A file's **Read** opens its own page:
 - **A TeX file** opens as its source, with commands, comments, and braces set apart and its math drawn in place; **Plain text** shows it literally.
 - **A text file** shows its literal text with line numbers.
 
+The rich view draws a file's first 2,000 formulas and shows the rest as written, and says so. A formula that defines a macro (`\def`, `\newcommand`, and their kin) or runs over 2 KB is shown as written rather than drawn, and quotes and lists nested more than 16 deep are shown as written from there on. If a file's rich view cannot be drawn at all, its plain text is shown instead.
+
 The engine reads only what it verified against the recorded size and hash, and refuses a text file over 256 KiB or 5,000 lines instead of showing part of it. A file that large stays kept; open it in the system's viewer instead.
 
 A file's page also has **Open in the system's viewer**, **Show in Finder** (or **Show in its folder**), **Link to a paper**, **Open in Evidence**, and **Compare with your collection**, which looks for shared wording: the engine reads the file page by page and compares each page with your collection's abstracts and with the other files in this Library, and lists the pages that share a passage of 20 words or more, outside common phrasing. Its record (kind, when it was kept, its SHA-256, file id, version id, and place in the folder) is at the bottom of the page.
@@ -57,7 +59,7 @@ A file's page also has **Open in the system's viewer**, **Show in Finder** (or *
 
 ### Removing a file, and Undo
 
-**Remove** takes a file out of Your files. A file in an Evidence project, or with notes, asks first and lists what goes with it (its place in each project, its passages and notes, and its links); nothing is removed until you confirm. A notice can **Undo** the removal for ten seconds, and puts back the file and everything that went with it as it was.
+**Remove** takes a file out of Your files. A file in an Evidence project, or with notes, asks first and lists what goes with it (its place in each project, its passages and notes, and its links); nothing is removed until you confirm. A notice can **Undo** the removal for ten seconds, and puts back the file and everything that went with it as it was. When several are removed and one cannot be, the rest still go, and the notice names the one that stayed and why.
 
 resmon never deletes your file. A removed file is moved, whole, into a `removed` folder inside the Library folder, and **Settings › Library** lists it under **Removed files**: **Put back** restores it later, and **Move to the Trash** hands it to your system's Trash, from which the Finder can still put it back. Once its bytes have left the Library folder, resmon forgets the record.
 
@@ -70,9 +72,11 @@ A file deleted or moved outside resmon is said to be missing on its own card; th
 ### Changing the folder
 
 - **Choose where it is now** is for a folder you moved or renamed yourself, or one on a disk mounted under another name. Choose the folder, or the folder it is in: resmon checks that it is this Library's folder, by its `vault.json`, and changes nothing in it.
-- **Move it to another folder** moves the Library folder for you, keeping its name. On the same disk it is one rename. On another disk every file is copied and checked against its recorded hash, the new place is recorded only once every byte is there, and the old folder is left where it was for you to delete when you are sure.
+- **Move it to another folder** moves the Library folder for you, keeping its name. On the same disk it is one rename. On another disk every file is copied and checked against its recorded hash, the new place is recorded only once every byte is there, and the old folder is left where it was for you to delete when you are sure. A move to another disk is refused before anything is copied unless that disk has room for every file and 512 MB to spare.
 
-If the Library folder is not where it was recorded (moved, renamed, deleted, or on a disk that is not connected), **Your files** says so and offers **Choose where it is now**; your reading queue keeps working meanwhile. If it was deleted, put it back from the Trash first. If the folder is not the one the database recorded, needs attention, or has an import still finishing, **Your files** says so and changes nothing. resmon never adopts or repairs a Library folder on its own.
+Only one of the two runs at a time. While the folder is being moved, both buttons wait, on this page and when you come back to it, and **Your files** says the folder is being moved.
+
+If the Library folder is not where it was recorded (moved, renamed, deleted, or on a disk that is not connected), **Your files** says so and offers **Choose where it is now**; your reading queue keeps working meanwhile. If it was deleted, put it back from the Trash first. If the folder is not the one the database recorded, needs attention, or has an import still finishing, **Your files** says so and changes nothing. resmon never adopts or repairs a Library folder on its own. Files your system writes into a folder it shows, such as the Finder's `.DS_Store`, are passed over.
 
 ## Backups and erasures
 
