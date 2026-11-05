@@ -1,8 +1,8 @@
 import { buildSky, type MapRegion } from '../../today/model';
 import { cropFor, VIEW } from '../coverChart';
 import {
-  columnsFor, fileLabel, firstLines, goesWith, paperLabel, pick, pickedWords, projectCounts, removedWords, rowEstimate,
-  shortWho, showFrom, sortFrom, sourceUrl, yearOf,
+  columnsFor, fileLabel, firstLines, goesWith, movesStageAsItMeasures, paperLabel, pick, pickedWords, projectCounts, removedWords,
+  rowEstimate, shortWho, showFrom, sortFrom, sourceUrl, yearOf,
 } from '../galleryModel';
 
 test('the shelf and its order come from the address, with the defaults for anything else', () => {
@@ -22,6 +22,20 @@ test('covers fit the row at their least width, and two a row under the phone wid
   expect(columnsFor(1840)).toBe(7);
   // A row's height is a page's at the column's width, and its caption.
   expect(rowEstimate(1328, 5)).toBeGreaterThan(Math.round(((1328 - 96) / 5) * (792 / 612)));
+});
+
+test('a row measured above the view moves the stage by what it grew, except while Back\'s place is held on it', () => {
+  const row = { start: 3600, end: 4080, offset: 3900, backward: false };
+  // Measured for the first time with its top above the view, cut by the top edge or wholly above it.
+  expect(movesStageAsItMeasures({ ...row, held: false, first: true })).toBe(true);
+  expect(movesStageAsItMeasures({ ...row, held: false, first: true, start: 3950, end: 4430 })).toBe(false);
+  // Measured again: only wholly above the view, and not while the view moves up.
+  expect(movesStageAsItMeasures({ ...row, held: false, first: false })).toBe(false);
+  expect(movesStageAsItMeasures({ ...row, held: false, first: false, end: 3880 })).toBe(true);
+  expect(movesStageAsItMeasures({ ...row, held: false, first: false, end: 3880, backward: true })).toBe(false);
+  // Held, the stage puts the row it names back itself, and the gallery leaves the stage where it is.
+  expect(movesStageAsItMeasures({ ...row, held: true, first: true })).toBe(false);
+  expect(movesStageAsItMeasures({ ...row, held: true, first: false, end: 3880 })).toBe(false);
 });
 
 test('a paper says the run that first found it and the day it was saved, and never where it was saved from', () => {
