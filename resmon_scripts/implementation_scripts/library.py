@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import sqlite3
@@ -492,11 +493,66 @@ def read_bytes(conn: sqlite3.Connection, expected: str, file_id: str, version: s
         return row, bytes(data)
 
 
+logger = logging.getLogger(__name__)
+
+#: How many imports hold the Library's ``.import.lock`` in this process now.
+_imports_running = 0
+_imports_lock = threading.Lock()
+
+
+def imports_running() -> int:
+    """How many imports this process is in the middle of."""
+    with _imports_lock:
+        return _imports_running
+
+
+def recover_stale_import_lock(conn: sqlite3.Connection, started_at: float) -> list[str]:
+    """At an engine's start: remove an import lock, and its unpublished bytes, that a stopped import left.
+
+    An import that was stopped (resmon quit or crashed in the middle of one)
+    leaves ``.import.lock`` behind, and the Library then reads busy for good,
+    with every import refused. A lock is stale when it is older than this
+    engine's start (*started_at*, as ``time.time()``) and this process is not
+    importing: no import that is still going wrote it. Its ``.staging-*`` files,
+    the bytes of an import that was never published, go with it when they are
+    as old. Returns the names removed; nothing when there is no Library folder,
+    or none can be read.
+    """
+    try:
+        vault = vault_row(conn)
+    except LibraryError:
+        return []
+    removed: list[str] = []
+    try:
+        with checked_vault(conn, vault['vault_id']) as (_, root):
+            if imports_running():
+                return []
+            names = os.listdir(root)
+            if '.import.lock' not in names:
+                return []
+            if os.stat('.import.lock', dir_fd=root, follow_symlinks=False).st_mtime >= started_at:
+                return []
+            for name in sorted(n for n in names if n.startswith('.staging-')):
+                info = os.stat(name, dir_fd=root, follow_symlinks=False)
+                if stat.S_ISREG(info.st_mode) and info.st_mtime < started_at:
+                    os.unlink(name, dir_fd=root)
+                    removed.append(name)
+            os.unlink('.import.lock', dir_fd=root)
+            removed.append('.import.lock')
+    except (LibraryError, OSError):
+        logger.warning("The Library's import lock could not be checked at the start", exc_info=True)
+        return removed
+    logger.warning("Removed what an import that stopped left in the Library folder: %s", ", ".join(removed))
+    return removed
+
+
 class Import:
     """One streamed upload owns a lock, temp file, and publication transaction.
 
-    A crash can strand its lock/bytes. Caught failures remove only this operation's
-    unpublished bytes. Committed copies are never removed or overwritten.
+    A crash can strand its lock/bytes; the next engine's start removes them
+    (``recover_stale_import_lock``). Caught failures remove only this
+    operation's unpublished bytes. Committed copies are never removed or
+    overwritten.
     """
     def __init__(self, conn: sqlite3.Connection, expected: str, filename: str, document_id: int | None = None):
         self.conn, self.expected, self.filename, self.document_id = conn, expected, filename, document_id
@@ -518,10 +574,14 @@ class Import:
         self.vault_context = checked_vault(self.conn, self.expected)
         _, self.root = self.vault_context.__enter__()
         try:
-            try:
-                self.lock = _regular('.import.lock', self.root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
-            except FileExistsError:
-                raise LibraryError('busy', 'An import lock exists. No stale-lock recovery is automatic.') from None
+            global _imports_running
+            with _imports_lock:
+                try:
+                    self.lock = _regular('.import.lock', self.root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                except FileExistsError:
+                    raise LibraryError('busy', 'An import lock exists: another import is under way, or one that '
+                                      'stopped left it, which resmon removes when it next starts.') from None
+                _imports_running += 1
             self.conn.execute('BEGIN IMMEDIATE')
             _catalog_tree(self.conn, self.root, locked=True)
             if self.document_id is not None:
@@ -609,6 +669,12 @@ class Import:
         self.committed = True
         return result
 
+    def _released(self) -> None:
+        global _imports_running
+        with _imports_lock:
+            _imports_running -= 1
+        self.lock = None
+
     def __exit__(self, exc_type, exc, tb) -> None:
         try:
             if not self.committed:
@@ -622,8 +688,11 @@ class Import:
                 if self.temp_name in os.listdir(self.root):
                     os.unlink(self.temp_name, dir_fd=self.root)
             if self.lock is not None:
-                os.close(self.lock)
-                os.unlink('.import.lock', dir_fd=self.root)
+                try:
+                    os.close(self.lock)
+                    os.unlink('.import.lock', dir_fd=self.root)
+                finally:
+                    self._released()
         finally:
             if self.folder is not None:
                 os.close(self.folder)

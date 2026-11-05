@@ -49,6 +49,13 @@ MAX_PARALLEL = 3
 STALE_SECONDS = 600
 #: Tries at the Library's import while another import holds its lock.
 _IMPORT_TRIES = 20
+#: How long an engine that is stopping waits for a PDF going into the Library:
+#: an import cut short would leave the Library's lock behind.
+SHUTDOWN_IMPORT_WAIT = 60.0
+#: Where a PDF is fetched to before the Library keeps it, in the system's
+#: temporary folder: ``resmon-download-<pid>-…``, so a folder a stopped engine
+#: left can be told from one an engine still running is using.
+STAGING_PREFIX = "resmon-download-"
 
 #: What each reason a request did not produce a PDF means, in the words a
 #: person reads. ``fulltext_download.DownloadRefused`` supplies its own
@@ -419,6 +426,32 @@ def adopt_interrupted(conn: sqlite3.Connection) -> int:
     return adopted
 
 
+def clear_stale_staging(base: str | Path | None = None) -> list[str]:
+    """At an engine's start: remove the staging folders an engine that stopped left. Returns their names.
+
+    Only a folder named for a pid that no longer answers: one an engine still
+    running is fetching into is left, as is anything else in the folder.
+    """
+    root = Path(base if base is not None else tempfile.gettempdir())
+    removed: list[str] = []
+    try:
+        entries = list(root.iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        if not entry.name.startswith(STAGING_PREFIX):
+            continue
+        pid_text = entry.name[len(STAGING_PREFIX):].split("-", 1)[0]
+        if not pid_text.isdigit() or int(pid_text) == os.getpid():
+            continue
+        if runtime_identity.process_is_alive(int(pid_text)):
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry, ignore_errors=True)
+            removed.append(entry.name)
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # arXiv's license, read when its PDF is asked for
 # ---------------------------------------------------------------------------
@@ -482,6 +515,9 @@ class Worker:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._active: dict[int, threading.Thread] = {}
+        #: Downloads going into the Library now, which a stopping engine waits for.
+        self._importing = 0
+        self._imports_done = threading.Condition(self._lock)
         self._limiters: dict[str, RateLimiter] = {}
         self._connect: Callable[[], sqlite3.Connection] | None = None
 
@@ -510,8 +546,17 @@ class Worker:
                 self._thread.start()
 
     def shutdown(self, timeout: float = 5.0) -> None:
-        self._stop.set()
-        self._wake.set()
+        """Stop taking requests; wait for a PDF going into the Library, then for the threads.
+
+        A download not yet in the Library goes back to waiting (``_held_for_stop``)
+        and is fetched at the next start.
+        """
+        with self._lock:
+            self._stop.set()
+            self._wake.set()
+            if not self._imports_done.wait_for(lambda: self._importing == 0, timeout=SHUTDOWN_IMPORT_WAIT):
+                logger.warning("A PDF was still going into the Library after %.0f s as the engine stopped",
+                               SHUTDOWN_IMPORT_WAIT)
         thread = self._thread
         if thread is not None:
             thread.join(timeout)
@@ -573,7 +618,7 @@ class Worker:
 
     def _run(self, row: dict) -> None:
         conn = self._connect()
-        staging = Path(tempfile.mkdtemp(prefix="resmon-download-"))
+        staging = Path(tempfile.mkdtemp(prefix=f"{STAGING_PREFIX}{os.getpid()}-"))
         try:
             self._download(conn, row, staging)
         except Exception:
@@ -592,6 +637,12 @@ class Worker:
             values.append(value)
         values.append(int(download_id))
         conn.execute(f"UPDATE full_text_downloads SET {', '.join(sets)} WHERE id = ?", values)
+        conn.commit()
+
+    def _held_for_stop(self, conn: sqlite3.Connection, download_id: int) -> None:
+        """The engine is stopping: the request goes back to waiting, and the next start fetches it."""
+        conn.execute("UPDATE full_text_downloads SET state = 'waiting', started_at_utc = NULL, claimed_by = NULL "
+                     "WHERE id = ? AND state = 'downloading'", (int(download_id),))
         conn.commit()
 
     def _download(self, conn: sqlite3.Connection, row: dict, staging: Path) -> None:
@@ -629,6 +680,9 @@ class Worker:
                 return
             conn.execute("UPDATE full_text_downloads SET license = ? WHERE id = ?", (license_slug, row["id"]))
             conn.commit()
+        if self._stop.is_set():
+            self._held_for_stop(conn, row["id"])
+            return
         target = staging / "download.pdf"
         try:
             fetched = fulltext_download.fetch_pdf(
@@ -641,25 +695,40 @@ class Worker:
             self._finish(conn, row["id"], "failed", reason="no_library")
             return
         name = _file_name(conn, row["document_id"])
-        for attempt in range(_IMPORT_TRIES):
-            try:
-                with library.Import(conn, vault, name, document_id=int(row["document_id"])) as receipt, \
-                        open(target, "rb") as source:
-                    while True:
-                        chunk = source.read(fulltext_download.CHUNK_BYTES)
-                        if not chunk:
-                            break
-                        receipt.write(chunk)
-                    kept = receipt.finish()
-                break
-            except library.LibraryError as exc:
-                if exc.reason == "busy" and attempt + 1 < _IMPORT_TRIES:
-                    time.sleep(0.25)
-                    continue
-                self._finish(conn, row["id"], "failed", reason="library_refused", detail=str(exc))
-                return
-        self._finish(conn, row["id"], "stored", file_id=kept["file"]["file_id"],
-                     final_url=fetched.final_url, byte_size=fetched.byte_size)
+        # Checked and counted under one lock with ``shutdown``: either the
+        # engine is stopping and this PDF waits for the next start, or the
+        # import begins and a stopping engine waits for it to end.
+        with self._lock:
+            stopping = self._stop.is_set()
+            if not stopping:
+                self._importing += 1
+        if stopping:
+            self._held_for_stop(conn, row["id"])
+            return
+        try:
+            for attempt in range(_IMPORT_TRIES):
+                try:
+                    with library.Import(conn, vault, name, document_id=int(row["document_id"])) as receipt, \
+                            open(target, "rb") as source:
+                        while True:
+                            chunk = source.read(fulltext_download.CHUNK_BYTES)
+                            if not chunk:
+                                break
+                            receipt.write(chunk)
+                        kept = receipt.finish()
+                    break
+                except library.LibraryError as exc:
+                    if exc.reason == "busy" and attempt + 1 < _IMPORT_TRIES and not self._stop.is_set():
+                        time.sleep(0.25)
+                        continue
+                    self._finish(conn, row["id"], "failed", reason="library_refused", detail=str(exc))
+                    return
+            self._finish(conn, row["id"], "stored", file_id=kept["file"]["file_id"],
+                         final_url=fetched.final_url, byte_size=fetched.byte_size)
+        finally:
+            with self._lock:
+                self._importing -= 1
+                self._imports_done.notify_all()
 
 
 worker = Worker()

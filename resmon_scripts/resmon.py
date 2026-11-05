@@ -157,13 +157,22 @@ def _ensure_clients_loaded_on_startup() -> None:
         logging.getLogger(__name__).exception("Could not load the source clients at startup")
 
 
+def _recover_library_on_startup(started_at: float) -> None:
+    """Remove an import lock, and its unpublished bytes, that an import a stopped engine was in left behind."""
+    try:
+        library.recover_stale_import_lock(_get_db(), started_at)
+    except Exception:
+        logging.getLogger(__name__).exception("Could not check the Library's import lock at startup")
+
+
 def _init_full_text_on_startup() -> None:
     """Give the PDF worker its connections, record downloads a stopped engine left as interrupted,
-    and start the worker if requests are waiting from before."""
+    remove the staging folders it left, and start the worker if requests are waiting from before."""
     try:
         full_text.worker.configure(_open_connection)
         conn = _get_db()
         full_text.adopt_interrupted(conn)
+        full_text.clear_stale_staging()
         if conn.execute("SELECT 1 FROM full_text_downloads WHERE state = 'waiting' LIMIT 1").fetchone():
             full_text.worker.wake()
     except Exception:
@@ -180,6 +189,9 @@ async def _lifespan(_app: FastAPI):
     reads routines and therefore needs the database ready). The handlers stay as
     ordinary module-level functions so tests can still call them directly.
     """
+    # This engine's start: an import lock older than it was left by an import
+    # that stopped (``_recover_library_on_startup``).
+    started_at = time.time()
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.
     _apply_pending_restore_on_startup()
@@ -195,6 +207,8 @@ async def _lifespan(_app: FastAPI):
     # After the scheduler, because a routine that fires the moment it starts
     # should find a drain already running rather than wait for the idle poll.
     _init_delivery_on_startup()
+    # Before the PDF worker, which imports into the Library.
+    _recover_library_on_startup(started_at)
     _init_full_text_on_startup()
     _selected_startup()
     try:

@@ -460,6 +460,102 @@ def test_a_paper_the_library_got_meanwhile_is_not_downloaded_again(db, server, t
     assert server.requests == []
 
 
+def _vault_root(conn, tmp_path):
+    return tmp_path / "parent" / f"resmon-library-{library.vault_row(conn)['vault_id']}"
+
+
+def test_an_engine_stopping_before_the_import_puts_the_pdf_back_to_wait(db, server, tmp_path, monkeypatch):
+    """The worker's threads never looked at the stop, so a quit could cut an import short."""
+    _serve(server, "/stop.pdf")
+    paper = _paper(db, 80, url=server.url("/stop.pdf"))
+    asked = full_text.request(db, paper, wake=False)
+    claimed = full_text.worker._claim(db)
+    fetch = fd.fetch_pdf
+
+    def fetched_then_stopped(*args, **kwargs):
+        got = fetch(*args, **kwargs)
+        full_text.worker._stop.set()
+        return got
+
+    monkeypatch.setattr(fd, "fetch_pdf", fetched_then_stopped)
+    full_text.worker._download(db, claimed, tmp_path)
+    row = _row(db, asked["id"])
+    assert (row["state"], row["started_at_utc"], row["claimed_by"]) == ("waiting", None, None)
+    assert full_text.library_pdf(db, paper) is None
+    assert not (_vault_root(db, tmp_path) / ".import.lock").exists()
+
+
+def test_a_stopping_engine_waits_for_a_pdf_going_into_the_library(db, server, tmp_path, monkeypatch):
+    """Shutdown waited five seconds for nothing in particular; an import cut short left its lock behind."""
+    _serve(server, "/slow.pdf")
+    paper = _paper(db, 81, url=server.url("/slow.pdf"))
+    finish = library.Import.finish
+    importing = threading.Event()
+
+    def slow_finish(self):
+        importing.set()
+        time.sleep(1.0)
+        return finish(self)
+
+    monkeypatch.setattr(library.Import, "finish", slow_finish)
+    asked = full_text.request(db, paper)
+    assert importing.wait(20)
+    full_text.worker.shutdown(timeout=0.05)
+    assert _row(db, asked["id"])["state"] == "stored"
+    assert not (_vault_root(db, tmp_path) / ".import.lock").exists()
+
+
+def test_staging_folders_a_stopped_engine_left_are_removed_at_the_start(tmp_path):
+    gone = tmp_path / f"{full_text.STAGING_PREFIX}{_ended_pid()}-abc"
+    mine = tmp_path / f"{full_text.STAGING_PREFIX}{os.getpid()}-def"
+    running = tmp_path / f"{full_text.STAGING_PREFIX}{os.getppid()}-ghi"
+    other = tmp_path / f"{full_text.STAGING_PREFIX}notapid"
+    for folder in (gone, mine, running, other):
+        folder.mkdir()
+        (folder / "download.pdf").write_bytes(b"%PDF-1.7")
+    assert full_text.clear_stale_staging(tmp_path) == [gone.name]
+    assert not gone.exists() and mine.exists() and running.exists() and other.exists()
+
+
+def test_an_import_lock_left_by_a_stopped_import_is_removed_when_the_next_engine_starts(db, tmp_path, monkeypatch):
+    """The Library read busy for good after a quit in the middle of an import."""
+    import resmon as resmon_mod
+
+    root = _vault_root(db, tmp_path)
+    (root / ".import.lock").write_bytes(b"")
+    (root / ".staging-00000000-0000-4000-8000-000000000000").write_bytes(b"%PDF-1.7 half")
+    old = time.time() - 3600
+    for name in (".import.lock", ".staging-00000000-0000-4000-8000-000000000000"):
+        os.utime(root / name, (old, old))
+    assert library.status(db)["status"] == "busy"
+    monkeypatch.setattr(resmon_mod, "_get_db", lambda: db)
+    resmon_mod._recover_library_on_startup(time.time() - 60)
+    assert sorted(p.name for p in root.iterdir()) == ["files", "vault.json"]
+    assert library.status(db)["status"] == "ready"
+    vault = library.vault_row(db)["vault_id"]
+    with library.Import(db, vault, "after.pdf") as receipt:
+        receipt.write(pdf_body(1000))
+        receipt.finish()
+
+
+def test_an_import_lock_this_engine_may_hold_is_left(db, tmp_path):
+    root = _vault_root(db, tmp_path)
+    vault = library.vault_row(db)["vault_id"]
+    # Newer than the engine's start: an import that may still be going wrote it.
+    (root / ".import.lock").write_bytes(b"")
+    assert library.recover_stale_import_lock(db, time.time() - 60) == []
+    assert (root / ".import.lock").exists()
+    (root / ".import.lock").unlink()
+    # An import running in this process holds it, however old the start says it is.
+    with library.Import(db, vault, "held.pdf") as receipt:
+        assert library.imports_running() == 1
+        assert library.recover_stale_import_lock(db, time.time() + 60) == []
+        assert (root / ".import.lock").exists()
+        receipt.write(pdf_body(1000))
+        receipt.finish()
+    assert library.imports_running() == 0 and not (root / ".import.lock").exists()
+
+
 class _OAI(http.server.BaseHTTPRequestHandler):
     answers: dict[str, str] = {}
 
