@@ -16,7 +16,7 @@
 export type Inline =
   | { t: 'text'; v: string }
   | { t: 'code'; v: string }
-  | { t: 'math'; v: string }
+  | { t: 'math'; v: string; asWritten?: true }
   | { t: 'strong'; c: Inline[] }
   | { t: 'em'; c: Inline[] }
   | { t: 'del'; c: Inline[] }
@@ -28,83 +28,186 @@ export type Block =
   | { t: 'heading'; level: number; c: Inline[] }
   | { t: 'para'; c: Inline[] }
   | { t: 'code'; lang: string; v: string }
-  | { t: 'math'; v: string }
+  | { t: 'math'; v: string; asWritten?: true }
   | { t: 'quote'; c: Block[] }
   | { t: 'list'; ordered: boolean; start: number; items: { task: boolean | null; c: Block[] }[] }
   | { t: 'table'; align: ('left' | 'center' | 'right' | null)[]; head: Inline[][]; rows: Inline[][][] }
   | { t: 'rule' };
 
 const SAFE_LINK = /^(https?:\/\/|mailto:)/i;
+/** A code span opened by more backticks than this is text: every length is one more delimiter to look for. */
+const LONGEST_TICKS = 16;
+/** How deep quotes and lists nest before the rest is shown as it is written. */
+export const DEEPEST = 16;
+/**
+ * The most formulas one view draws; the rest are shown as written. Each takes
+ * KaTeX a quarter of a millisecond or so, so a file of nothing but `$x$` (64,000
+ * of them in 256 KiB) would hold the window for seconds.
+ */
+export const MOST_FORMULAS = 2000;
 
-/** Inline Markdown: code first (nothing inside it is read), then math, links, emphasis. */
+/**
+ * Where a delimiter next appears after a place, remembered. Once one search
+ * has found the next occurrence (or that there is none), a later search that
+ * starts before that occurrence has the same answer, so each delimiter's text
+ * is scanned once rather than once for every opener: a file of 128,000
+ * unclosed `\(` reads in one pass, not 128,000.
+ */
+function finder(text: string): (needle: string, from: number) => number {
+  const seen = new Map<string, { from: number; at: number }>();
+  return (needle, from) => {
+    const last = seen.get(needle);
+    if (last && last.from <= from && (last.at < 0 || last.at >= from)) return last.at;
+    const at = text.indexOf(needle, from);
+    seen.set(needle, { from, at });
+    return at;
+  };
+}
+
+/** The same, for the next place that passes a test: an unescaped bracket, a space, a non-space. */
+function scanner(text: string, test: (i: number) => boolean): (from: number) => number {
+  let last: { from: number; at: number } | null = null;
+  return (from) => {
+    if (last && last.from <= from && (last.at < 0 || last.at >= from)) return last.at;
+    let i = from;
+    while (i < text.length && !test(i)) i += 1;
+    last = { from, at: i < text.length ? i : -1 };
+    return last.at;
+  };
+}
+
+function space(ch: string | undefined): boolean {
+  if (ch === undefined) return false;
+  return ch <= ' ' ? ch === ' ' || ch === '\n' || ch === '\t' || ch === '\r' || ch === '\f' || ch === '\v' : ch >= '\u0080' && /\s/.test(ch);
+}
+
+/** Which characters a backslash before them escapes, reading from the start: `\\]` is a backslash and a bracket. */
+function escapes(text: string): Uint8Array {
+  const escaped = new Uint8Array(text.length + 1);
+  for (let k = 1; k < text.length; k += 1) if (text[k - 1] === '\\' && !escaped[k - 1]) escaped[k] = 1;
+  return escaped;
+}
+
+/**
+ * Where a link's or an image's `(destination "title")` ends, one past its `)`,
+ * for openers at ever later places. Each kind of opener has one of these, with
+ * its own remembered searches, so the two never undo each other's memory.
+ */
+function destinations(text: string): (open: number) => { end: number; href: string } | null {
+  const find = finder(text);
+  const nextSpace = scanner(text, (k) => space(text[k]));
+  const nextNonSpace = scanner(text, (k) => !space(text[k]));
+  return (open) => {
+    if (text[open] !== '(') return null;
+    const paren = find(')', open + 1);
+    const gap = nextSpace(open + 1);
+    const stop = paren < 0 ? gap : gap < 0 ? paren : Math.min(paren, gap);
+    if (stop < 0) return null;
+    const href = text.slice(open + 1, stop);
+    if (text[stop] === ')') return { end: stop + 1, href };
+    const title = nextNonSpace(stop);
+    if (title < 0 || text[title] !== '"') return null;
+    const quote = find('"', title + 1);
+    return quote >= 0 && text[quote + 1] === ')' ? { end: quote + 2, href } : null;
+  };
+}
+
+/**
+ * Inline Markdown: code first (nothing inside it is read), then math, links,
+ * emphasis. Every search for a closing delimiter is remembered (`finder`), so
+ * the read is linear in the text whatever it holds.
+ */
 export function inline(text: string): Inline[] {
   const out: Inline[] = [];
   let plain = '';
   const flush = () => { if (plain) { out.push({ t: 'text', v: plain }); plain = ''; } };
+  const find = finder(text);
+  let escaped: Uint8Array | null = null;
+  const nextBracket = scanner(text, (k) => text[k] === ']' && !(escaped ??= escapes(text))[k]);
+  const nextSpace = scanner(text, (k) => space(text[k]));
+  const linkTarget = destinations(text);
+  const imageTarget = destinations(text);
   let i = 0;
   while (i < text.length) {
     const ch = text[i]!;
-    const rest = text.slice(i);
     if (ch === '\\' && i + 1 < text.length) {
       const next = text[i + 1]!;
       if (next === '(') {
-        const end = text.indexOf('\\)', i + 2);
+        const end = find('\\)', i + 2);
         if (end > 0) { flush(); out.push({ t: 'math', v: text.slice(i + 2, end) }); i = end + 2; continue; }
       }
       if (next === '\n') { flush(); out.push({ t: 'br' }); i += 2; continue; }
       if (/[!-/:-@[-`{-~]/.test(next)) { plain += next; i += 2; continue; }
     }
     if (ch === '`') {
-      const run = /^`+/.exec(rest)![0];
-      const end = text.indexOf(run, i + run.length);
-      if (end > 0) { flush(); out.push({ t: 'code', v: text.slice(i + run.length, end).replace(/^ (.*) $/s, '$1') }); i = end + run.length; continue; }
-      plain += run; i += run.length; continue;
+      let length = 1;
+      while (text[i + length] === '`') length += 1;
+      const run = '`'.repeat(length);
+      const end = length <= LONGEST_TICKS ? find(run, i + length) : -1;
+      if (end > 0) { flush(); out.push({ t: 'code', v: text.slice(i + length, end).replace(/^ (.*) $/s, '$1') }); i = end + length; continue; }
+      plain += run; i += length; continue;
     }
     if (ch === '$' && text[i + 1] !== '$') {
       // `$x$`: not `$ ` and not ` $`, the rule pandoc keeps, so "$5 and $6" stays text.
-      const close = /^\$([^\s$](?:[^$]*?[^\s$\\])?)\$(?!\d)/.exec(rest);
-      if (close) { flush(); out.push({ t: 'math', v: close[1]! }); i += close[0].length; continue; }
+      const end = find('$', i + 1);
+      if (end > i + 1 && !space(text[i + 1]) && (end === i + 2 || (!space(text[end - 1]) && text[end - 1] !== '\\'))
+        && !/\d/.test(text[end + 1] ?? '')) {
+        flush(); out.push({ t: 'math', v: text.slice(i + 1, end) }); i = end + 1; continue;
+      }
     }
     if (ch === '$' && text[i + 1] === '$') {
-      const end = text.indexOf('$$', i + 2);
+      const end = find('$$', i + 2);
       if (end > i + 2) { flush(); out.push({ t: 'math', v: text.slice(i + 2, end) }); i = end + 2; continue; }
     }
     if (ch === '!' && text[i + 1] === '[') {
-      const image = /^!\[([^\]]*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/.exec(rest);
-      if (image) { flush(); out.push({ t: 'image', alt: image[1]! }); i += image[0].length; continue; }
+      const close = find(']', i + 2);
+      const target = close > 0 ? imageTarget(close + 1) : null;
+      if (target) { flush(); out.push({ t: 'image', alt: text.slice(i + 2, close) }); i = target.end; continue; }
     }
     if (ch === '[') {
-      const link = /^\[((?:[^\]\\]|\\.)*)\]\(([^)\s]*)(?:\s+"[^"]*")?\)/.exec(rest);
-      if (link) {
+      const close = nextBracket(i + 1);
+      const target = close > 0 ? linkTarget(close + 1) : null;
+      if (target) {
         flush();
-        const label = inline(link[1]!);
-        if (SAFE_LINK.test(link[2]!)) out.push({ t: 'link', href: link[2]!, c: label });
+        const label = inline(text.slice(i + 1, close));
+        if (SAFE_LINK.test(target.href)) out.push({ t: 'link', href: target.href, c: label });
         else out.push(...label);
-        i += link[0].length;
+        i = target.end;
         continue;
       }
     }
-    if (ch === '<') {
-      const auto = /^<((?:https?:\/\/|mailto:)[^\s>]+)>/i.exec(rest);
-      if (auto) { flush(); out.push({ t: 'link', href: auto[1]!, c: [{ t: 'text', v: auto[1]! }] }); i += auto[0].length; continue; }
+    const scheme = ch === '<' ? /^(?:https?:\/\/|mailto:)/i.exec(text.slice(i + 1, i + 9)) : null;
+    if (scheme) {
+      const angle = find('>', i + 1);
+      const gap = nextSpace(i + 1);
+      if (angle > i + 1 + scheme[0].length && (gap < 0 || angle < gap)) {
+        const href = text.slice(i + 1, angle);
+        flush(); out.push({ t: 'link', href, c: [{ t: 'text', v: href }] }); i = angle + 1; continue;
+      }
     }
     if (ch === '~' && text[i + 1] === '~') {
-      const end = text.indexOf('~~', i + 2);
+      const end = find('~~', i + 2);
       if (end > i + 2) { flush(); out.push({ t: 'del', c: inline(text.slice(i + 2, end)) }); i = end + 2; continue; }
     }
     if ((ch === '*' || ch === '_') && text[i + 1] === ch) {
-      const end = text.indexOf(ch + ch, i + 2);
+      const end = find(ch + ch, i + 2);
       if (end > i + 2) { flush(); out.push({ t: 'strong', c: inline(text.slice(i + 2, end)) }); i = end + 2; continue; }
     }
     if (ch === '*' || (ch === '_' && (i === 0 || /[\s(]/.test(text[i - 1]!)))) {
-      const end = text.indexOf(ch, i + 1);
-      if (end > i + 1 && !/\s/.test(text[i + 1]!) && !/\s/.test(text[end - 1]!)
+      const end = find(ch, i + 1);
+      if (end > i + 1 && !space(text[i + 1]) && !space(text[end - 1])
         && (ch === '*' || end + 1 >= text.length || /[\s.,;:!?)]/.test(text[end + 1]!))) {
         flush(); out.push({ t: 'em', c: inline(text.slice(i + 1, end)) }); i = end + 1; continue;
       }
     }
     if (ch === '\n') {
-      if (/ {2,}$/.test(plain)) { plain = plain.replace(/ +$/, ''); flush(); out.push({ t: 'br' }); } else plain += ' ';
+      if (plain.endsWith('  ')) {
+        let cut = plain.length;
+        while (cut > 0 && plain[cut - 1] === ' ') cut -= 1;
+        plain = plain.slice(0, cut);
+        flush();
+        out.push({ t: 'br' });
+      } else plain += ' ';
       i += 1;
       continue;
     }
@@ -120,7 +223,8 @@ const HEADING = /^ {0,3}(#{1,6})(?:\s+(.*?))?\s*#*\s*$/;
 const RULE = /^ {0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const BULLET = /^( {0,12})([-*+])\s+(.*)$/;
 const ORDERED = /^( {0,12})(\d{1,9})[.)]\s+(.*)$/;
-const TABLE_RULE = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+// Tested on the trimmed line: a leading `\s*` beside `\|?\s*` let a line of spaces take time in its square.
+const TABLE_RULE = /^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$/;
 
 function cells(line: string): string[] {
   let body = line.trim();
@@ -137,12 +241,60 @@ function cells(line: string): string[] {
   return out;
 }
 
-/** Markdown blocks, read line by line. */
+/** Markdown blocks, read line by line, with the formulas past `MOST_FORMULAS` marked to be shown as written. */
 export function markdown(source: string): Block[] {
-  return blocks(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n'));
+  const read = blocks(source.replace(/\r\n?/g, '\n').replace(/\t/g, '    ').split('\n'), 0);
+  let left = MOST_FORMULAS;
+  const formula = (math: { asWritten?: true }) => { if (left > 0) left -= 1; else math.asWritten = true; };
+  const inlines = (parts: readonly Inline[]) => {
+    for (const part of parts) {
+      if (part.t === 'math') formula(part);
+      else if ('c' in part) inlines(part.c);
+    }
+  };
+  const walk = (list: readonly Block[]) => {
+    for (const block of list) {
+      if (block.t === 'heading' || block.t === 'para') inlines(block.c);
+      else if (block.t === 'math') formula(block);
+      else if (block.t === 'quote') walk(block.c);
+      else if (block.t === 'list') for (const item of block.items) walk(item.c);
+      else if (block.t === 'table') for (const row of [block.head, ...block.rows]) for (const cell of row) inlines(cell);
+    }
+  };
+  walk(read);
+  return read;
 }
 
-function blocks(lines: string[]): Block[] {
+/** How many formulas a read holds, and how many of them are shown as written. */
+export function formulaCount(read: readonly Block[] | readonly TexPart[]): { all: number; asWritten: number } {
+  const count = { all: 0, asWritten: 0 };
+  const formula = (math: { asWritten?: true }) => { count.all += 1; if (math.asWritten) count.asWritten += 1; };
+  const inlines = (parts: readonly Inline[]) => {
+    for (const part of parts) {
+      if (part.t === 'math') formula(part);
+      else if ('c' in part) inlines(part.c);
+    }
+  };
+  const walk = (list: readonly (Block | TexPart)[]) => {
+    for (const block of list) {
+      if (block.t === 'math') formula(block);
+      else if (block.t === 'heading' || block.t === 'para') inlines(block.c);
+      else if (block.t === 'quote') walk(block.c);
+      else if (block.t === 'list') for (const item of block.items) walk(item.c);
+      else if (block.t === 'table') for (const row of [block.head, ...block.rows]) for (const cell of row) inlines(cell);
+    }
+  };
+  walk(read);
+  return count;
+}
+
+/** What is nested deeper than `DEEPEST`: shown as it is written, one paragraph of text. */
+function asWritten(lines: readonly string[]): Block[] {
+  return [{ t: 'para', c: [{ t: 'text', v: lines.join('\n') }] }];
+}
+
+function blocks(lines: string[], depth: number): Block[] {
+  if (depth > DEEPEST) return asWritten(lines);
   const out: Block[] = [];
   let i = 0;
   const startsBlock = (line: string) => !line.trim() || FENCE.test(line) || HEADING.test(line) || RULE.test(line)
@@ -199,7 +351,7 @@ function blocks(lines: string[]): Block[] {
         body.push(lines[i]!.replace(/^ {0,3}> ?/, ''));
         i += 1;
       }
-      out.push({ t: 'quote', c: blocks(body) });
+      out.push({ t: 'quote', c: blocks(body, depth + 1) });
       continue;
     }
     const listStart = BULLET.exec(line) ?? ORDERED.exec(line);
@@ -228,12 +380,12 @@ function blocks(lines: string[]): Block[] {
         }
         const task = /^\[([ xX])\]\s+/.exec(body[0]!);
         if (task) body[0] = body[0]!.slice(task[0].length);
-        items.push({ task: task ? task[1] !== ' ' : null, c: blocks(body) });
+        items.push({ task: task ? task[1] !== ' ' : null, c: blocks(body, depth + 1) });
       }
       out.push({ t: 'list', ordered, start: ordered ? Number(listStart[2]) : 1, items });
       continue;
     }
-    if (line.includes('|') && i + 1 < lines.length && TABLE_RULE.test(lines[i + 1]!) && lines[i + 1]!.includes('-')) {
+    if (line.includes('|') && i + 1 < lines.length && TABLE_RULE.test(lines[i + 1]!.trim()) && lines[i + 1]!.includes('-')) {
       const head = cells(line);
       const align = cells(lines[i + 1]!).map((c) => (c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : null));
       i += 2;
@@ -262,37 +414,43 @@ export type TexPart =
   | { t: 'command'; v: string }
   | { t: 'comment'; v: string }
   | { t: 'brace'; v: string }
-  | { t: 'math'; v: string; source: string; display: boolean };
+  | { t: 'math'; v: string; source: string; display: boolean; asWritten?: true };
 
 const DISPLAY_ENVIRONMENTS = 'equation|equation\\*|align|align\\*|gather|gather\\*|multline|multline\\*|eqnarray|eqnarray\\*|displaymath|alignat|alignat\\*|flalign|flalign\\*';
-const ENVIRONMENT = new RegExp(`^\\\\begin\\{(${DISPLAY_ENVIRONMENTS})\\}`);
+const ENVIRONMENT = new RegExp(`\\\\begin\\{(${DISPLAY_ENVIRONMENTS})\\}`, 'y');
+const COMMAND = /\\(?:[A-Za-z@]+\*?|.)/y;
 
 /**
  * TeX source cut into what the highlighted view colors, with every formula
  * found: `$…$`, `$$…$$`, `\(…\)`, `\[…\]`, and the display environments KaTeX
- * draws. Everything else is source, shown as written.
+ * draws. Everything else is source, shown as written. Every search for a
+ * closing delimiter is remembered, as in Markdown, so the read is linear.
  */
 export function tex(source: string): TexPart[] {
   const text = source.replace(/\r\n?/g, '\n');
   const out: TexPart[] = [];
   let plain = '';
   const flush = () => { if (plain) { out.push({ t: 'text', v: plain }); plain = ''; } };
+  const find = finder(text);
+  const escaped = escapes(text);
+  const nextDollar = scanner(text, (k) => text[k] === '$' && !escaped[k]);
+  const nextDoubleDollar = scanner(text, (k) => text[k] === '$' && text[k + 1] === '$' && !escaped[k]);
   let i = 0;
   while (i < text.length) {
     const ch = text[i]!;
-    const rest = text.slice(i);
     if (ch === '%') {
-      const end = text.indexOf('\n', i);
+      const end = find('\n', i);
       flush();
       out.push({ t: 'comment', v: text.slice(i, end < 0 ? text.length : end) });
       i = end < 0 ? text.length : end;
       continue;
     }
     if (ch === '\\') {
-      const environment = ENVIRONMENT.exec(rest);
+      ENVIRONMENT.lastIndex = i;
+      const environment = ENVIRONMENT.exec(text);
       if (environment) {
         const close = `\\end{${environment[1]}}`;
-        const end = text.indexOf(close, i);
+        const end = find(close, i);
         if (end > 0) {
           const whole = text.slice(i, end + close.length);
           flush();
@@ -306,17 +464,18 @@ export function tex(source: string): TexPart[] {
           continue;
         }
       }
-      if (rest.startsWith('\\[') || rest.startsWith('\\(')) {
-        const close = rest[1] === '[' ? '\\]' : '\\)';
-        const end = text.indexOf(close, i + 2);
+      if (text[i + 1] === '[' || text[i + 1] === '(') {
+        const display = text[i + 1] === '[';
+        const end = find(display ? '\\]' : '\\)', i + 2);
         if (end > 0) {
           flush();
-          out.push({ t: 'math', v: text.slice(i + 2, end).trim(), source: text.slice(i, end + 2), display: rest[1] === '[' });
+          out.push({ t: 'math', v: text.slice(i + 2, end).trim(), source: text.slice(i, end + 2), display });
           i = end + 2;
           continue;
         }
       }
-      const command = /^\\(?:[A-Za-z@]+\*?|.)/.exec(rest);
+      COMMAND.lastIndex = i;
+      const command = COMMAND.exec(text);
       if (command) {
         flush();
         out.push({ t: 'command', v: command[0] });
@@ -327,11 +486,11 @@ export function tex(source: string): TexPart[] {
     if (ch === '$') {
       const display = text[i + 1] === '$';
       const open = display ? 2 : 1;
-      let end = -1;
-      for (let j = i + open; j < text.length; j += 1) {
-        if (text[j] === '\\') { j += 1; continue; }
-        if (text[j] === '$' && (!display || text[j + 1] === '$')) { end = j; break; }
-        if (!display && text[j] === '\n' && text[j + 1] === '\n') break;
+      let end = display ? nextDoubleDollar(i + 2) : nextDollar(i + 1);
+      // `$…$` stops at a blank line, as TeX's own inline math does.
+      if (!display && end >= 0) {
+        const blank = find('\n\n', i + 1);
+        if (blank >= 0 && blank < end) end = -1;
       }
       if (end > i + open - 1) {
         flush();
@@ -355,5 +514,16 @@ export function tex(source: string): TexPart[] {
     const before = out[n - 1]!, part = out[n]!;
     if (before.t === 'math' && before.display && part.t === 'text' && part.v.startsWith('\n')) out[n] = { t: 'text', v: part.v.slice(1) };
   }
-  return out.filter((p) => p.t !== 'text' || p.v !== '');
+  // Neighbors of one kind are one piece: `\alpha\beta` reads the same as two, and a file of 100,000
+  // braces is one element on the page, not 100,000.
+  const merged: TexPart[] = [];
+  let left = MOST_FORMULAS;
+  for (const part of out) {
+    if (part.t === 'math') { if (left > 0) left -= 1; else part.asWritten = true; }
+    if (part.t === 'text' && part.v === '') continue;
+    const last = merged[merged.length - 1];
+    if (last && last.t === part.t && part.t !== 'math' && last.t !== 'math') merged[merged.length - 1] = { t: part.t, v: last.v + part.v };
+    else merged.push(part);
+  }
+  return merged;
 }

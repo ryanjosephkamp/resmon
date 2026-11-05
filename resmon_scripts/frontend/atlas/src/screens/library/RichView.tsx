@@ -1,6 +1,6 @@
 import { memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react';
 import katex from 'katex';
-import { markdown, tex, type Block, type Inline, type TexPart } from './richText';
+import { formulaCount, markdown, MOST_FORMULAS, tex, type Block, type Inline, type TexPart } from './richText';
 
 /**
  * The rich view of a kept Markdown or TeX file. Loaded on its own, with
@@ -13,28 +13,73 @@ import { markdown, tex, type Block, type Inline, type TexPart } from './richText
  * builds the elements and sets their positions through the style object,
  * which the content policy allows, rather than through markup. Commands that
  * reach outside the formula (`\href`, `\url`, `\includegraphics`, `\htmlId`
- * and the rest) are refused by `trust: false`, and macros are bounded. A
- * formula KaTeX cannot read is shown as its source, marked, never dropped.
+ * and the rest) are refused by `trust: false`. A formula KaTeX cannot read is
+ * shown as its source, marked, never dropped, and so is one it is not asked to
+ * draw (`drawable`).
  */
 export function RichMarkdown({ text }: { text: string }) {
   const parsed = useMemo(() => markdown(text), [text]);
-  return <div className="rich md-rich">{parsed.map((b, i) => <BlockView key={i} block={b} />)}</div>;
+  return (
+    <>
+      <MostFormulas read={parsed} />
+      <div className="rich md-rich">{parsed.map((b, i) => <BlockView key={i} block={b} />)}</div>
+    </>
+  );
 }
 
 export function TexView({ text }: { text: string }) {
   const parts = useMemo(() => tex(text), [text]);
-  return <pre className="rich tex-rich">{parts.map((p, i) => <TexPiece key={i} part={p} />)}</pre>;
+  return (
+    <>
+      <MostFormulas read={parts} />
+      <pre className="rich tex-rich">{parts.map((p, i) => <TexPiece key={i} part={p} />)}</pre>
+    </>
+  );
+}
+
+/** Said above a view with more formulas than one view draws. */
+function MostFormulas({ read }: { read: readonly Block[] | readonly TexPart[] }) {
+  const { all, asWritten } = useMemo(() => formulaCount(read), [read]);
+  if (!asWritten) return null;
+  return (
+    <p className="record-cap" data-library="most-formulas">
+      This file holds {all.toLocaleString('en-US')} formulas. The first {MOST_FORMULAS.toLocaleString('en-US')} are drawn, and
+      the rest are shown as written.
+    </p>
+  );
 }
 
 const OPTIONS = { throwOnError: false, trust: false, strict: 'ignore', maxSize: 40, maxExpand: 500, output: 'htmlAndMathml' } as const;
 
+/** The longest formula KaTeX is asked to draw, in characters. */
+export const LONGEST_FORMULA = 2048;
+const DEFINES = /\\(?:[gex]?def|let|futurelet|(?:re)?newcommand|providecommand|(?:re)?newenvironment|global)(?![A-Za-z])/;
+
+/**
+ * Whether KaTeX is asked to draw a formula. Not one that defines a macro:
+ * `maxExpand` counts expansions, not what they produce, so a 2 KB `\def` of a
+ * thousand characters used 499 times took 89 seconds and 5.5 MB, all while
+ * the window could do nothing else. Not one over `LONGEST_FORMULA`, which no
+ * formula in a paper comes near. Either is shown as its source.
+ */
+export function drawable(source: string): boolean {
+  return source.length <= LONGEST_FORMULA && !DEFINES.test(source);
+}
+
 /** One formula, drawn by KaTeX into its own element. */
-export const Formula = memo(function Formula({ source, display, title }: { source: string; display: boolean; title?: string }) {
+export const Formula = memo(function Formula({ source, display, title, asWritten = false }: {
+  source: string; display: boolean; title?: string; asWritten?: boolean;
+}) {
   const ref = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
     node.replaceChildren();
+    if (asWritten || !drawable(source)) {
+      node.textContent = source;
+      node.dataset.drawn = 'false';
+      return;
+    }
     try {
       katex.render(source, node, { ...OPTIONS, displayMode: display });
       node.dataset.drawn = 'true';
@@ -42,7 +87,7 @@ export const Formula = memo(function Formula({ source, display, title }: { sourc
       node.textContent = source;
       node.dataset.drawn = 'false';
     }
-  }, [source, display]);
+  }, [source, display, asWritten]);
   return (
     <span ref={ref} className={display ? 'formula display' : 'formula'} title={title ?? source}
       role="math" aria-label={source} />
@@ -54,7 +99,7 @@ function inlines(parts: readonly Inline[]): ReactNode[] {
     switch (p.t) {
       case 'text': return p.v;
       case 'code': return <code key={i}>{p.v}</code>;
-      case 'math': return <Formula key={i} source={p.v} display={false} />;
+      case 'math': return <Formula key={i} source={p.v} display={false} asWritten={p.asWritten} />;
       case 'strong': return <strong key={i}>{inlines(p.c)}</strong>;
       case 'em': return <em key={i}>{inlines(p.c)}</em>;
       case 'del': return <del key={i}>{inlines(p.c)}</del>;
@@ -76,7 +121,7 @@ function BlockView({ block }: { block: Block }) {
     }
     case 'para': return <p>{inlines(block.c)}</p>;
     case 'code': return <pre className="rich-code" data-lang={block.lang || undefined}><code>{block.v}</code></pre>;
-    case 'math': return <div className="rich-math"><Formula source={block.v} display /></div>;
+    case 'math': return <div className="rich-math"><Formula source={block.v} display asWritten={block.asWritten} /></div>;
     case 'quote': return <blockquote>{block.c.map((b, i) => <BlockView key={i} block={b} />)}</blockquote>;
     case 'rule': return <hr />;
     case 'list': {
@@ -115,8 +160,8 @@ function TexPiece({ part }: { part: TexPart }) {
     case 'brace': return <span className="tx-brace">{part.v}</span>;
     case 'math':
       return part.display
-        ? <span className="tx-display"><Formula source={part.v} display title={part.source} /></span>
-        : <Formula source={part.v} display={false} title={part.source} />;
+        ? <span className="tx-display"><Formula source={part.v} display title={part.source} asWritten={part.asWritten} /></span>
+        : <Formula source={part.v} display={false} title={part.source} asWritten={part.asWritten} />;
     default: return null;
   }
 }

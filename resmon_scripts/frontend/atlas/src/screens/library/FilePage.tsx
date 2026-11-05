@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { bridge, isMac, systemName } from '../../bridge';
+import { Fallback } from '../../shell/Fallback';
 import { Icon } from '../../shell/Icon';
 import { blockingDialogOpen, FIND_CHORD, isTyping, keysText, pressed } from '../../shell/shortcuts';
 import { count, number, when } from '../today/format';
@@ -217,16 +218,26 @@ function TextReader({ file, vault }: { file: LibraryFile; vault: string }) {
       </div>
       {text.isPending && <p className="record-cap">Reading the text.</p>}
       {text.isError && <p className="field-error" role="alert">{errorWords(text.error)}</p>}
-      {text.data && view === 'plain' && (
-        <ol className="lib-lines">{lines.map((line, i) => <li key={i}><span className="lib-line">{line || ' '}</span></li>)}</ol>
-      )}
+      {text.data && view === 'plain' && <PlainLines lines={lines} />}
       {text.data && view === 'rich' && (
-        <Suspense fallback={<p className="record-cap">Opening the rich view.</p>}>
-          <RichView text={text.data.text} media={file.media_type} />
-        </Suspense>
+        // A file whose rich view cannot be drawn shows its plain text instead of taking the page with it.
+        <Fallback resetKey={file.version_id} fallback={() => (
+          <>
+            <p className="field-error" role="alert" data-library="rich-failed">This file’s rich view could not be drawn, so its plain text is shown.</p>
+            <PlainLines lines={lines} />
+          </>
+        )}>
+          <Suspense fallback={<p className="record-cap">Opening the rich view.</p>}>
+            <RichView text={text.data.text} media={file.media_type} />
+          </Suspense>
+        </Fallback>
       )}
     </section>
   );
+}
+
+function PlainLines({ lines }: { lines: readonly string[] }) {
+  return <ol className="lib-lines">{lines.map((line, i) => <li key={i}><span className="lib-line">{line || ' '}</span></li>)}</ol>;
 }
 
 function inertOutside(keep: HTMLElement): () => void {
