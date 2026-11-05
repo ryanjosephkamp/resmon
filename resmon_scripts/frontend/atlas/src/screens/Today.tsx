@@ -43,7 +43,8 @@ interface Earlier {
  * `/api/today` answers the newest 1,000 new papers; the index's List earlier
  * papers reads the ones before them from `/api/today/papers`, a page at a time,
  * until every new paper is listed. Pages read are kept while the first page
- * ends where it did; when new papers move its end, they are read again.
+ * ends where it did; when new papers move its end, the list starts again from
+ * the first page, and the earlier papers are listed again on request.
  */
 export function Today() {
   const client = useQueryClient();

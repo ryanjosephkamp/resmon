@@ -6,7 +6,7 @@ date, and free text across titles and abstracts.
 
 Scale
 -----
-The design target is a corpus of ~100,000 papers, and three decisions follow
+The design target is a corpus of ~100,000 papers, and four decisions follow
 from it. Each is a deliberate trade, not a default:
 
 **Free text goes through FTS5, not LIKE.** ``LIKE '%term%'`` has no usable
@@ -26,8 +26,9 @@ of truth; these are derived.
 **Pagination is keyset, not OFFSET.** ``LIMIT 50 OFFSET 90000`` makes SQLite
 walk ninety thousand rows to discard them. A cursor on the sort key seeks
 directly instead, so page 1,800 costs what page 1 costs. The price is that
-pages must be walked in order rather than jumped to, which suits a "load more"
-list and is why the interface is built that way.
+pages must be walked in order rather than jumped to by number, which suits a
+list that reads more as it scrolls and is why the interface is built that way.
+A jump goes to a date instead (``start_date``), which the same seek reaches.
 
 **Counts are exact, within a time budget** (:data:`COUNT_BUDGET_S`). Counting
 every match is the one remaining full scan, and at 100,000 papers the broadest

@@ -203,7 +203,7 @@ function shadingImage(field: Field, ink: string): HTMLCanvasElement {
 
 export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const {
-    sky, regions, shapes, field, arrivals, firstNumber = 1, opening = NO_OPENING, selected, pointed, onSelect, onHover, paletteKey,
+    sky, regions, shapes, field, arrivals, opening = NO_OPENING, selected, pointed, onSelect, onHover, paletteKey,
     label, children, onAway, toolsAt = 'left', look = null, whole = 'the whole collection', onOpen, wheel: wheelMode = 'zoom',
   } = props;
   const keysId = useId();
