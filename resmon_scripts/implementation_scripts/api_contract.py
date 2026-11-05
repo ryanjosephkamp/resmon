@@ -408,6 +408,7 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("GET", "/api/executions/{exec_id}/document-ids"): ("J47",),
     ("POST", "/api/documents/briefs"): ("J47", "J48"),
     ("GET", "/api/today"): ("J48",),
+    ("GET", "/api/today/papers"): ("J48",),
     ("POST", "/api/today/looked"): ("J48",),
     ("PUT", "/api/appearance"): ("J46",),
     ("GET", "/api/shared-wording"): ("J49",),

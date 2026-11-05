@@ -40,6 +40,11 @@ interface Props {
   field: Field;
   /** Sky indices of the new papers, in the order they were collected: ring 1 first. */
   arrivals: readonly number[];
+  /**
+   * The number the first arrival is labeled with: 1 unless earlier new papers
+   * have not been read yet, when the labels go on from where they would be.
+   */
+  firstNumber?: number;
   /** Today's opening, which lights the arrivals in turn; without one every arrival is lit. */
   opening?: Opening;
   selected: number | null;
@@ -529,7 +534,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ctx.arc(sx, sy, Math.min(1.6, ring * 0.3), 0, Math.PI * 2);
       ctx.fillStyle = chosen ? p.onFill : out ? p.dim : p.ink;
       ctx.fill();
-      const text = String(k + 1);
+      const text = String(k + (latest.current.firstNumber ?? 1));
       const tw = ctx.measureText(text).width;
       if (chosen || free(sx + 6, sy - 15, tw + 2, 12)) {
         placed.push([sx + 6, sy - 15, tw + 2, 12]);

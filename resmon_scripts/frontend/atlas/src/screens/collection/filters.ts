@@ -237,36 +237,34 @@ export function dateRangeProblem(f: Filters): string | null {
     : null;
 }
 
-/** The sentence above the list: how many papers, and against what. */
-export function countSentence(page: { total: number; total_is_capped: boolean }, filtered: boolean, query: string): string {
-  const papers = `${number(page.total)}${page.total_is_capped ? '+' : ''} ${page.total === 1 ? 'paper' : 'papers'}`;
+/**
+ * The sentence above the list: how many papers, and against what. A count
+ * that ran out of time is the number it reached, said as "at least".
+ */
+export function countSentence(page: { total: number; total_is_exact: boolean }, filtered: boolean, query: string): string {
+  const noun = page.total === 1 ? 'paper' : 'papers';
+  const papers = page.total_is_exact ? `${number(page.total)} ${noun}` : `At least ${number(page.total)} ${noun}`;
   if (filtered) return `${papers} matching your filters${query ? ' and these words' : ''}`;
-  return `${papers} ${query ? 'match' : 'in your collection'}`;
+  return `${papers} ${query || !page.total_is_exact ? 'match' : 'in your collection'}`;
 }
 
 // ----------------------------------------------------------------- export
 
 /**
  * What an export of the collection will hold, said before the file is asked
- * for. The engine writes every paper the search counts, up to its cap
- * (`explorer.matching_ids`, bounded by `COUNT_CAP`, the `count_cap` a search
- * reports), the newest first. Past the cap the newest that fit are written and
- * the rest are left out, which the note says before anyone saves.
+ * for: every paper the search matches, however many (`POST
+ * /api/explorer/export` writes the file as it reads them, the newest first).
+ * Where the count ran out of time the number is not known yet, so the offer
+ * names every match and the engine's own count is said once the file is made.
  */
 export function exportWords(
-  page: { total: number; total_is_capped: boolean; count_cap: number },
+  page: { total: number; total_is_exact: boolean },
   ranking: Ranking,
 ): { lead: string; note: string | null } | null {
-  if (page.total === 0) return null;
+  if (page.total === 0 && page.total_is_exact) return null;
   const order = ranking === 'similarity' ? 'The file lists them newest first, not in order of meaning.' : null;
-  if (!page.total_is_capped) {
-    return { lead: `Export ${page.total === 1 ? 'this paper' : `these ${count(page.total, 'paper')}`} as`, note: order };
-  }
-  const cap = number(page.count_cap);
-  return {
-    lead: `Export the newest ${cap} as`,
-    note: `An export holds at most ${cap} papers, so this file will hold the newest ${cap} of the ${cap}+ that match; narrow the filters to reach the rest.${order ? ` ${order}` : ''}`,
-  };
+  if (!page.total_is_exact) return { lead: 'Export every match as', note: order };
+  return { lead: `Export ${page.total === 1 ? 'this paper' : `these ${count(page.total, 'paper')}`} as`, note: order };
 }
 
 /** Said once the engine has written the file and the system has it. */

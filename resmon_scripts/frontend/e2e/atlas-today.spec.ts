@@ -377,3 +377,70 @@ test('Today lists a group\'s first papers, more on request, and any paper chosen
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
+
+/** More new papers than Today's first read holds (1,000), all from one search, numbered in the order they arrived. */
+const MORE_THAN_A_PAGE = String.raw`
+import json, os, sys
+from datetime import datetime, timedelta, timezone
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import init_db, get_connection, insert_execution, update_execution_status, set_setting
+now = datetime.now(timezone.utc)
+fmt = lambda t: t.strftime("%Y-%m-%d %H:%M:%S")
+path = os.environ["RESMON_DB_PATH"]
+init_db(path)
+conn = get_connection(path)
+words = "protein folding residue amino chain conformation binding structure".split()
+conn.executemany(
+    "INSERT INTO documents (source_repository, external_id, title, authors, abstract, metadata_hash, first_seen_at) "
+    "VALUES ('arxiv', ?, ?, 'Ada Lovelace', ?, ?, ?)",
+    [(f"page-{n}", f"Study {n + 1} of {words[n % 8]} {words[(n + 3) % 8]}",
+      " ".join(words[(n + k) % 8] for k in range(30)) + ".", f"page-{n}", fmt(now - timedelta(minutes=2000 - n)))
+     for n in range(1050)],
+)
+ids = [r[0] for r in conn.execute("SELECT id FROM documents ORDER BY id")]
+e = insert_execution(conn, {"execution_type": "deep_sweep", "parameters": json.dumps({"repositories": ["arxiv"]}),
+    "start_time": fmt(now - timedelta(days=2))})
+conn.executemany("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 1)", [(e, d) for d in ids])
+update_execution_status(conn, e, "completed", end_time=fmt(now - timedelta(days=2)), result_count=1050, new_result_count=1050)
+set_setting(conn, "today_looked_at", fmt(now - timedelta(days=3)))
+conn.commit()
+`;
+
+test('Today lists every new paper: the newest thousand first, then the ones before them on request', async () => {
+  test.setTimeout(240_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-today-pages-'));
+  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const seeded = spawnSync(env.RESMON_PYTHON ?? 'python3', ['-c', MORE_THAN_A_PAGE, path.join(FRONTEND_ROOT, '..')],
+    { env, encoding: 'utf8' });
+  expect(seeded.status, seeded.stderr).toBe(0);
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await expect(win.locator('.plate-canvas')).toBeVisible({ timeout: 120_000 });
+    await expect(win.getByRole('heading', { name: '1,050 new papers' })).toBeVisible();
+    // It listed the newest 1,000 and said the plate showed the rest; the rest were nowhere on Today.
+    const earlier = win.locator('[data-today="earlier"]');
+    await expect(earlier).toContainText('The newest 1,000 of 1,050 are listed and ringed on the plate.');
+    const group = win.getByRole('region', { name: 'From your own searches' });
+    await expect(group.locator('.gsub')).toContainText('1,000 of them are among the newest 1,000 listed; the rest arrived before them.');
+    // Numbered over every new paper: the first listed is the 51st to arrive, not the first.
+    await expect(group.locator('.entry').first().locator('.badge')).toHaveText('51');
+    await expect(group.locator('.entry').first().locator('.entry-title')).toHaveText(/^Study 51 of /);
+
+    await earlier.getByRole('button', { name: 'List the 50 before them' }).click();
+    await expect(earlier).toHaveCount(0, { timeout: 30_000 });
+    await expect(group.locator('.gsub')).toHaveCount(0);
+    await expect(group.locator('.entry').first().locator('.badge')).toHaveText('1');
+    await expect(group.locator('.entry').first().locator('.entry-title')).toHaveText(/^Study 1 of /);
+    expect(problems).toEqual([]);
+  } finally {
+    await app.close().catch(() => { /* already gone */ });
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});

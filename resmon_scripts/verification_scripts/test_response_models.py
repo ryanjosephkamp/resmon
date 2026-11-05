@@ -151,6 +151,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "today": (
         ("GET", "/api/today"),
+        ("GET", "/api/today/papers"),
         ("POST", "/api/today/looked"),
     ),
     "document briefs": (
@@ -1509,6 +1510,18 @@ def _drive_today(drive: Drive) -> None:
     scenario's papers, routines and runs in it, then the window after a look,
     which is empty."""
     first = drive("GET", "/api/today")
+    # A later page: with a page one paper long, the first page's cursor reads the next.
+    from urllib.parse import quote  # noqa: PLC0415
+    from implementation_scripts import today as today_mod  # noqa: PLC0415
+    page = today_mod.PAPER_PAGE
+    today_mod.PAPER_PAGE = 1
+    try:
+        one = drive("GET", "/api/today")
+        assert one["next_cursor"], "the scenario has more than one new paper"
+        later = drive("GET", f"/api/today/papers?cursor={quote(one['next_cursor'])}")
+        assert later["papers"] and later["papers"][0]["id"] != one["papers"][0]["id"]
+    finally:
+        today_mod.PAPER_PAGE = page
     drive("POST", "/api/today/looked")
     drive("GET", "/api/today")
     # Briefs for the papers Today listed, and for an id that is not there.

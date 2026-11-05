@@ -948,6 +948,16 @@ input:is([type="checkbox"], [type="radio"]):not(.sr-only):disabled:checked { opa
 .result-list { list-style: none; margin: 0; padding: 0; }
 .result { padding: 12px 0; border-top: 1px solid var(--rule); }
 .result:first-child { border-top: 0; }
+/* Drawn as a window over every row read: each row is placed by its measured offset. */
+.result-list.virtual { position: relative; }
+.result-list.virtual > .result { position: absolute; top: 0; left: 0; width: 100%; }
+.result-list.virtual > .result:first-child { border-top: 1px solid var(--rule); }
+.result-list.virtual > .result[data-index="0"] { border-top: 0; }
+.results-status { flex: none; padding: 0 22px 0 28px; }
+.results-status:empty { display: none; }
+.results-status > :last-child { margin-bottom: 12px; }
+.jump-to input { height: 30px; }
+.jump-note { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 12px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink-2); }
 .result-title { font: 500 14.5px/1.4 var(--sans); color: var(--ink); text-decoration: none; }
 .result-title:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--ink-3); }
 .result-distance { margin-left: auto; color: var(--accent-ink); }
@@ -2521,3 +2531,8 @@ button.ai-link {
   margin: 6px 0 0; padding: 6px 10px; border-radius: var(--r); background: var(--accent-wash);
   font: italic 400 14px/1.5 var(--serif); color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* Today: the newest new papers listed, and a button that lists the ones that arrived before them. */
+.index-cap.earlier { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.index-cap.earlier p { margin: 0; }
+.index-cap.earlier .field-error { flex-basis: 100%; }

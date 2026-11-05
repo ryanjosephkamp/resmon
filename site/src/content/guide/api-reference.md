@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 209 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 210 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -124,7 +124,8 @@ Saved Deep Dives, saved Deep Sweeps, and the copy kept of every watch. Imports a
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/today` | The papers first collected since Today was last marked read, by watch, with each watch's last run. |
+| `GET` | `/api/today` | The papers first collected since Today was last marked read, by watch, with each watch's last run: the first 1,000, newest first, and a cursor to the rest. |
+| `GET` | `/api/today/papers` | The next 1,000 of Today's new papers, after the cursor the page before gave. |
 | `POST` | `/api/today/looked` | Mark all read: the next window starts now. |
 | `GET` | `/api/map` | Where every paper sits on the plate, the basis it was placed on, and the regions. |
 | `GET` | `/api/map/facets` | What the map's filters and colors read about every paper: source, dates, reading state, whether it is new, and its watches. |
@@ -141,9 +142,9 @@ Searching what resmon holds, one paper, links between records of the same work, 
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/api/explorer/search` | Search the whole collection by words or by meaning, with filters. POST because the filter set is a structure. |
+| `POST` | `/api/explorer/search` | Search the whole collection by words or by meaning, with filters, counting every match (a count that runs out of time says so) and, in the newest order, starting at a date. POST because the filter set is a structure. |
 | `POST` | `/api/explorer/facets` | The filter values available under the current filters, with counts. |
-| `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown. |
+| `POST` | `/api/explorer/export` | Export everything matching the current filters, not only the page shown, however many: the file is sent as it is written. |
 | `GET` | `/api/documents/{doc_id}` | One paper as stored, and its place in the reading queue. |
 | `GET` | `/api/documents/{doc_id}/why` | What is locally verifiable about why a paper is in the collection, and what resmon cannot see. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | Retractions, concerns, corrections, and newer versions recorded against one paper. |

@@ -167,7 +167,7 @@ def test_similarity_returns_the_same_total_and_id_set_as_newest(field, conn, mix
     assert {r["id"] for r in ranked["results"]} == {r["id"] for r in newest["results"]}, (
         f"{field}: the similarity sort changed which papers match"
     )
-    assert ranked["total_is_capped"] == newest["total_is_capped"]
+    assert ranked["total_is_exact"] is newest["total_is_exact"] is True
     assert ranked["sort"] == "similarity" and newest["sort"] == "newest"
 
 
@@ -356,3 +356,102 @@ def test_neighbours_are_never_drawn_from_another_model(conn):
     vector_index.rebuild(conn, MODEL)
     result = explorer.similar_to(conn, a, MODEL, k=5)
     assert [n["id"] for n in result["neighbours"]] == [b]
+
+
+# ---------------------------------------------------------------------------
+# Every match ranked, however many
+# ---------------------------------------------------------------------------
+
+
+def _embedded_many(conn: sqlite3.Connection, n: int) -> list[int]:
+    """*n* papers, each with a distinct 3-dimension vector, written at once."""
+    conn.executemany(
+        "INSERT INTO documents (source_repository, external_id, title, publication_date, metadata_hash) "
+        "VALUES ('arxiv', ?, ?, '2026-01-01', ?)",
+        [(f"m{i}", f"Paper {i}", f"m{i}") for i in range(n)],
+    )
+    ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents ORDER BY id")]
+    # Paper k sits at angle k on a circle, so its distance from (1, 0, 0) grows with k.
+    import math  # noqa: PLC0415
+    conn.executemany(
+        "INSERT INTO document_embeddings (document_id, model, dims, vector, fields) VALUES (?, ?, 3, ?, 'title')",
+        [(doc_id, MODEL, vector_index.pack_vector([math.cos(k / n), math.sin(k / n), 0.0]))
+         for k, doc_id in enumerate(ids)],
+    )
+    conn.commit()
+    return ids
+
+
+def test_a_ranking_past_vec0s_largest_k_ranks_every_paper(conn):
+    """vec0 refuses k > 4,096, and a ranking that asked for more came back empty:
+    every paper listed as "not embedded yet" in the newest order."""
+    n = vector_index.KNN_K_MAX + 104
+    ids = _embedded_many(conn, n)
+    page = explorer.search(conn, limit=200, sort="similarity", query_vector=_v(1.0, 0.0, 0.0), model=MODEL)
+    assert (page["ranked_count"], page["unranked_count"]) == (n, 0)
+    assert [r["id"] for r in page["results"]] == ids[:200], "closest first"
+    distances = [r["distance"] for r in page["results"]]
+    assert all(d is not None for d in distances) and distances == sorted(distances)
+
+
+def test_a_ranking_past_ten_thousand_ranks_and_counts_every_paper(conn):
+    """The ranking read the newest 10,000 matches and no others."""
+    ids = _embedded_many(conn, 10_050)
+    last = explorer.search(conn, limit=50, cursor="10000", sort="similarity",
+                           query_vector=_v(1.0, 0.0, 0.0), model=MODEL)
+    assert (last["total"], last["total_is_exact"], last["ranked_count"]) == (10_050, True, 10_050)
+    assert [r["id"] for r in last["results"]] == ids[10_000:], "the furthest are ranked too, last"
+    assert last["has_more"] is False
+
+
+def test_the_distances_of_the_full_ranking_are_the_indexs(conn, mixed_corpus):
+    """The same paper is the same distance from a phrase whichever way it is ranked."""
+    query = _v(0.6, 0.8, 0.0)
+    whole = dict(vector_index.rank_all(conn, MODEL, query))
+    nearest = dict(vector_index.nearest(conn, MODEL, query, k=10))
+    assert set(whole) == set(nearest)
+    for doc_id, distance in nearest.items():
+        assert whole[doc_id] == pytest.approx(distance, abs=1e-6)
+
+
+def test_a_later_page_of_a_ranking_reuses_it(conn, monkeypatch):
+    ids = _embedded_many(conn, 120)
+    calls: list[int] = []
+    real = vector_index.rank_all
+
+    def ranking(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(vector_index, "rank_all", ranking)
+    first = explorer.search(conn, limit=50, sort="similarity", query_vector=_v(1.0, 0.0, 0.0), model=MODEL)
+    second = explorer.search(conn, limit=50, cursor=first["next_cursor"], sort="similarity",
+                             query_vector=_v(1.0, 0.0, 0.0), model=MODEL)
+    assert len(calls) == 1, "Show more slices the first page's ranking"
+    assert [r["id"] for r in first["results"] + second["results"]] == ids[:100]
+    other = explorer.search(conn, limit=50, cursor=first["next_cursor"], sort="similarity",
+                            query_vector=_v(0.0, 1.0, 0.0), model=MODEL)
+    assert len(calls) == 2 and other["results"], "another phrase is another ranking"
+
+
+def test_a_watch_past_vec0s_largest_k_is_audited_over_every_paper(conn):
+    """The coverage audit asked vec0 for k = the watch's paper count, and past 4,096
+    it read as "none of this watch's papers are embedded yet"."""
+    from implementation_scripts import coverage_audit  # noqa: PLC0415
+
+    n = vector_index.KNN_K_MAX + 104
+    ids = _embedded_many(conn, n)
+    cursor = conn.execute(
+        "INSERT INTO routines (name, schedule_cron, parameters) VALUES ('Big', '0 0 * * *', '{\"query\": \"x\"}')")
+    routine_id = int(cursor.lastrowid)
+    run = int(conn.execute(
+        "INSERT INTO executions (execution_type, routine_id, status, start_time, parameters) "
+        "VALUES ('automated_sweep', ?, 'completed', '2026-01-01T00:00:00Z', '{}')", (routine_id,)).lastrowid)
+    conn.executemany("INSERT INTO execution_documents (execution_id, document_id) VALUES (?, ?)",
+                     [(run, doc_id) for doc_id in ids])
+    conn.commit()
+    routine = dict(conn.execute("SELECT * FROM routines WHERE id = ?", (routine_id,)).fetchone())
+    audit = coverage_audit.audit_routine(conn, routine, MODEL, _v(1.0, 0.0, 0.0))
+    assert audit["results"] == n
+    assert audit["results_embedded"] == n
+    assert audit["distribution"]["count"] == n

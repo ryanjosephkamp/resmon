@@ -1,15 +1,21 @@
-import { count, number } from '../today/format';
+import { number } from '../today/format';
+
+/** What a search page says about its count: every match, or how far counting got in its time. */
+export interface Counted { total: number; total_is_exact: boolean; count_budget_ms: number }
+
+/** "1.5 seconds", from the engine's budget in milliseconds. */
+function seconds(ms: number): string {
+  const s = ms / 1000;
+  return `${number(s)} ${s === 1 ? 'second' : 'seconds'}`;
+}
 
 /**
- * What a capped count does not say, said beside it: where the search stops
- * counting (`explorer.COUNT_CAP`), and, for the whole collection unfiltered,
- * how many papers it holds, which is a plain count of every record and not
- * a search. Null when the count is exact.
+ * Said beside a count that ran out of time (`explorer.COUNT_BUDGET_S`): when
+ * counting stopped, and that the list and the export are not limited by it,
+ * which they are not (the list pages to the last match and the export counts
+ * every one). Null when the count is exact.
  */
-export function capWords(page: { total_is_capped: boolean; count_cap: number }, holds: number | null): string | null {
-  if (!page.total_is_capped) return null;
-  const stops = `Search stops counting at ${number(page.count_cap)}`;
-  return holds !== null && holds > page.count_cap
-    ? `${stops}; your collection holds ${count(holds, 'paper')} in all.`
-    : `${stops}.`;
+export function stoppedWords(page: Counted): string | null {
+  if (page.total_is_exact) return null;
+  return `Counting stopped after ${seconds(page.count_budget_ms)}; the list and the export still hold every match.`;
 }

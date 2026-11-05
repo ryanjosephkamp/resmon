@@ -11,7 +11,7 @@ A paper is new when resmon **first collected** it after the last time you presse
 
 Opening Today records nothing, so an accidental open does not empty tomorrow's list. Before you have ever pressed **Mark all read**, Today shows the last seven days and says so ("New this week"). **Mark all read** is the only thing that moves the line, and it deletes nothing. **Settings › Danger zone › Reset all settings** clears the mark.
 
-Papers are listed newest first, up to 1,000. When there are more, the list says "The newest N of M are listed here; the plate shows them all." The map always shows every one.
+Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper you hold.
 
 ## The map
 
@@ -24,7 +24,7 @@ A map flattens many dimensions into two, so it is a drawing of similarities, not
 
 ### Reading the plate
 
-- **Rings and numbers.** A new paper is ringed, and its number is the order it was collected in: 1 is the first to arrive. The same number is on its entry in the list.
+- **Rings and numbers.** A listed new paper is ringed, and its number is the order it was collected in, counted over every new paper: 1 is the first to arrive, so a paper keeps its number as earlier ones are listed. The same number is on its entry in the list.
 - **Size and brightness** show how long ago resmon collected a paper. The key under the plate steps through 0, 7, 30, 90, and 180 days since collected.
 - **A dashed outline** encloses one watch's papers.
 - **Shading** marks where more papers sit nearby.

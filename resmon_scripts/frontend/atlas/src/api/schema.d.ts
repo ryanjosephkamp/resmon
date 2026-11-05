@@ -1943,8 +1943,13 @@ export interface paths {
          * Explorer Export
          * @description Export everything matching the current filters, not just the page shown.
          *
-         *     Reuses the same renderers as the per-execution export; only the way the
-         *     documents are selected differs.
+         *     Every match, however many: the papers are read from the database a batch at
+         *     a time and the file is sent as it is written, so the engine never holds the
+         *     whole of it (measured: `python -m perf scale`). The count in
+         *     ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+         *     connection of the export's own, so the header is exactly what the file holds
+         *     even while a run is storing papers. Reuses the same renderers as the
+         *     per-execution export; only the way the documents are selected differs.
          */
         post: operations["explorer_export_api_explorer_export_post"];
         delete?: never;
@@ -3103,8 +3108,11 @@ export interface paths {
          *
          *     Ids only, newest run first and each paper once, because what a screen does
          *     with them is mark them on the collection map; a page of records is the
-         *     Explorer's job. ``total`` counts all of them, so a screen whose ``limit``
-         *     cut the list short can say so rather than imply the marks are complete.
+         *     Explorer's job. Every one unless ``limit`` asks for fewer: ids are a few
+         *     bytes each, and a constellation drawn from the first 2,000 of a watch's
+         *     papers left the rest off the map. ``total`` counts all of them, so a screen
+         *     whose ``limit`` cut the list short can say so rather than imply the marks
+         *     are complete.
          */
         get: operations["routine_documents_api_routines__routine_id__documents_get"];
         put?: never;
@@ -3750,6 +3758,29 @@ export interface paths {
          * @description Record that Today was looked at now: the next window starts here.
          */
         post: operations["mark_today_looked_api_today_looked_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/today/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Today Papers
+         * @description The next page of Today's new papers, after the page before it.
+         *
+         *     ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
+         *     listed, a page at a time, however many there are.
+         */
+        get: operations["get_today_papers_api_today_papers_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6739,12 +6770,18 @@ export interface components {
          * ExplorerPage
          * @description ``POST /api/explorer/search``.
          *
-         *     ``total`` is the count of every match, capped at ``count_cap`` when
-         *     ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
-         *     filtered set rather than filtering it, and ``ranked_count``,
-         *     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
-         *     why a requested ranking was refused and the page fell back to newest.
-         *     Each of those four is absent when it does not apply.
+         *     ``total`` is the count of every match when ``total_is_exact``; when it is
+         *     false, counting ran out of its time budget (``count_budget_ms``) and
+         *     ``total`` is how many it had counted, which the matches are at least. Under
+         *     ``sort == "similarity"`` the phrase ranks the filtered set rather than
+         *     filtering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;
+         *     ``similarity_unavailable`` says why a requested ranking was refused and the
+         *     page fell back to newest. Each of those four is absent when it does not
+         *     apply.
+         *
+         *     ``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present
+         *     when the request jumped to a date: the page starts at the newest match
+         *     published on or before it, and ``newer_count`` matches were published after.
          *
          *     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
          *     ``include`` named them: what ``/api/links/for-documents``,
@@ -6752,8 +6789,8 @@ export interface components {
          *     answer for this page's papers, so a page and its marks arrive together.
          */
         ExplorerPage: {
-            /** Count Cap */
-            count_cap: number;
+            /** Count Budget Ms */
+            count_budget_ms: number;
             /** Has More */
             has_more: boolean;
             lifecycle?: components["schemas"]["LifecycleForDocuments"] | null;
@@ -6761,6 +6798,10 @@ export interface components {
             matches?: components["schemas"]["WatchProfileMatchesByDocument"] | null;
             /** Model */
             model?: string | null;
+            /** Newer Count */
+            newer_count?: number | null;
+            /** Newer Count Is Exact */
+            newer_count_is_exact?: boolean | null;
             /** Next Cursor */
             next_cursor: unknown | null;
             /** Page Size */
@@ -6773,10 +6814,12 @@ export interface components {
             similarity_unavailable?: string | null;
             /** Sort */
             sort: string;
+            /** Start Date */
+            start_date?: string | null;
             /** Total */
             total: number;
-            /** Total Is Capped */
-            total_is_capped: boolean;
+            /** Total Is Exact */
+            total_is_exact: boolean;
             /** Unranked Count */
             unranked_count?: number | null;
             /** Used Full Text Index */
@@ -6859,6 +6902,8 @@ export interface components {
              * @default []
              */
             sources: string[];
+            /** Start Date */
+            start_date?: string | null;
         };
         /**
          * FactoryReset
@@ -8954,14 +8999,15 @@ export interface components {
          * @description ``GET /api/routines/{routine_id}/documents``: the papers this routine's
          *     runs collected, newest run first, each once.
          *
-         *     ``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:
+         *     ``total`` counts every one; ``document_ids`` holds every one, or stops at
+         *     ``limit`` where the request set one (``None`` when it did not). Only ids:
          *     what a screen marks on the collection map, not a page of records.
          */
         RoutineDocuments: {
             /** Document Ids */
             document_ids: number[];
             /** Limit */
-            limit: number;
+            limit: number | null;
             /** Routine Id */
             routine_id: number;
             /** Total */
@@ -11239,12 +11285,16 @@ export interface components {
          *
          *     ``window`` is ``since_last_look`` when a look is recorded and
          *     ``first_look`` when none is, in which case ``since`` is seven days before
-         *     ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
-         *     first; ``total`` counts them all.
+         *     ``now`` and the interface says so. ``papers`` is the first page of them, up
+         *     to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
+         *     (``None`` when the page holds every one) reads the next page from
+         *     ``GET /api/today/papers``.
          */
         Today: {
             /** From Searches */
             from_searches: number;
+            /** Next Cursor */
+            next_cursor: string | null;
             /** Now */
             now: string;
             /** Papers */
@@ -11303,6 +11353,19 @@ export interface components {
             url: string | null;
             /** Watches */
             watches: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TodayPapersPage
+         * @description ``GET /api/today/papers``: the page of Today's new papers after a cursor,
+         *     in the same order and shape, and the cursor after it (``None`` at the end).
+         */
+        TodayPapersPage: {
+            /** Next Cursor */
+            next_cursor: string | null;
+            /** Papers */
+            papers: components["schemas"]["TodayPaper"][];
         } & {
             [key: string]: unknown;
         };
@@ -17036,7 +17099,7 @@ export interface operations {
     routine_documents_api_routines__routine_id__documents_get: {
         parameters: {
             query?: {
-                limit?: number;
+                limit?: number | null;
             };
             header?: never;
             path: {
@@ -17952,6 +18015,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodayLooked"];
+                };
+            };
+        };
+    };
+    get_today_papers_api_today_papers_get: {
+        parameters: {
+            query: {
+                cursor: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodayPapersPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

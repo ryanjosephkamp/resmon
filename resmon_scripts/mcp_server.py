@@ -805,10 +805,10 @@ def t_search_corpus(args: dict) -> Any:
         "count": len(rows),
         "next_cursor": data.get("next_cursor"),
         "has_more": data.get("has_more"),
-        # The backend caps its own count; passing the cap through means a
-        # harness cannot mistake "at least this many" for an exact total.
+        # The count is exact unless it ran out of time; passing that through
+        # means a harness cannot mistake "at least this many" for an exact total.
         "total": data.get("total"),
-        "total_is_capped": data.get("total_is_capped"),
+        "total_is_exact": data.get("total_is_exact"),
         "mode": served,
     }
     if served == "semantic":
