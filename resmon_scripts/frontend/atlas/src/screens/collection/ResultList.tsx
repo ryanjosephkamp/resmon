@@ -6,6 +6,7 @@ import { authors, count, publishedWords } from '../today/format';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 import { standingInFor } from './fold';
+import { PickBox, useRowKeys } from '../selection/SelectBar';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 export type Marks = {
@@ -35,7 +36,19 @@ interface Props {
   scroller: RefObject<HTMLDivElement | null>;
   /** More pages, and asking for the next one. */
   more: { has: boolean; reading: boolean; read: () => void };
+  /** Select mode: whether a row is picked, and picking by a row's place in `rows`. */
+  picking?: Picking | null;
 }
+
+export interface Picking {
+  has: (id: number) => boolean;
+  onPick: (index: number, range: boolean) => void;
+  /** Shift and an arrow: the row at `to`, and every row back to the last one picked, or to `from`. */
+  onRange: (to: number, from: number) => void;
+  onAll: () => void;
+}
+
+const NO_PICKING = { onRange: () => undefined, onAll: () => undefined };
 
 /**
  * The collection's results, as many as have been read, drawn as a window: only
@@ -44,8 +57,13 @@ interface Props {
  * in list order, so Tab and a screen reader go through them in order, and each
  * row says its place in the whole (`aria-posinset`). The next page is read as
  * the view nears the last row; Show more reads it too, for a keyboard.
+ *
+ * In select mode each row has its box. The arrows move between the boxes, a
+ * row not drawn yet brought into view first, and Shift with an arrow picks as
+ * it goes; Space picks, and Shift+Space or Shift-click picks every row back to
+ * the last one picked.
  */
-export function ResultList({ rows, total, marks, folded, showFolded, ranking, sourceName, scroller, more }: Props) {
+export function ResultList({ rows, total, marks, folded, showFolded, ranking, sourceName, scroller, more, picking = null }: Props) {
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,
@@ -54,6 +72,10 @@ export function ResultList({ rows, total, marks, folded, showFolded, ranking, so
     getItemKey: (index) => rows[index]?.id ?? index,
   });
   const items = virtual.getVirtualItems();
+  const { attach, onKeyDown: rowKeys } = useRowKeys({
+    count: rows.length, ...(picking ?? NO_PICKING),
+    scrollTo: (index) => virtual.scrollToIndex(index, { align: 'auto' }),
+  });
   const last = items.length ? (items[items.length - 1]?.index ?? -1) : -1;
   const { has, reading, read } = more;
   useEffect(() => {
@@ -62,17 +84,24 @@ export function ResultList({ rows, total, marks, folded, showFolded, ranking, so
 
   return (
     <>
-      <ol className="result-list virtual" style={{ height: virtual.getTotalSize() }}>
+      <ol className="result-list virtual" style={{ height: virtual.getTotalSize() }}
+        ref={attach} onKeyDown={picking ? rowKeys : undefined}>
         {items.map((item) => {
           const paper = rows[item.index];
           if (!paper) return null;
           const also = marks.links[String(paper.id)] ?? [];
           const people = marks.matches[String(paper.id)] ?? [];
           const standing = folded ? standingInFor(folded, paper.id) : 0;
+          const picked = picking?.has(paper.id) ?? false;
           return (
-            <li key={item.key} ref={virtual.measureElement} data-index={item.index} className="result" data-document={paper.id}
+            <li key={item.key} ref={virtual.measureElement} data-index={item.index} data-document={paper.id}
+              className={picking ? (picked ? 'result picking picked' : 'result picking') : 'result'}
               aria-posinset={item.index + 1} aria-setsize={total ?? -1}
               style={{ transform: `translateY(${item.start}px)` }}>
+              {picking && (
+                <PickBox picked={picked} label={`Select “${paper.title}”`} index={item.index}
+                  onPick={(range) => picking.onPick(item.index, range)} />
+              )}
               <Link to={`/papers/${paper.id}`} className="result-title">{paper.title}</Link>
               <LifecycleMarks events={marks.events[String(paper.id)]} />
               <div className="meta">
