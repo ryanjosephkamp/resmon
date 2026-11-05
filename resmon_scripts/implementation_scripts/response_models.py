@@ -698,6 +698,7 @@ class Appearance(LosslessModel):
 
     theme: Literal["system", "light", "dark"]
     accent: Optional[str]
+    run_monitor: bool
 
 
 class ExecutionSettingsSaved(LosslessModel):
@@ -2016,7 +2017,13 @@ class ActiveRuns(LosslessModel):
     ``active_ids`` is the running runs' ids, as it always was. ``running`` is
     each of them in the order it started; ``waiting`` the queue, next first.
     ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
-    background sets, as this engine holds them.
+    background sets, as this engine holds them. ``failed_unseen`` is the runs
+    that failed since the run monitor's panel was last opened (``seen_at``,
+    null before it ever was; failures since this engine started count then),
+    newest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the
+    newest run's id and the latest any run ended (null with no runs): a
+    reader that lists runs reads again when either changes, which catches a
+    run that started and ended between two reads of this route.
     """
 
     active_ids: list[int]
@@ -2024,6 +2031,16 @@ class ActiveRuns(LosslessModel):
     waiting: list[WaitingRun]
     max_concurrent: int
     queue_limit: int
+    failed_unseen: list[int]
+    seen_at: Optional[str]
+    newest_run_id: Optional[int]
+    last_ended_at: Optional[str]
+
+
+class RunsSeen(LosslessModel):
+    """``POST /api/executions/seen``: when the run monitor's panel was opened, as stored."""
+
+    seen_at: str
 
 
 class RunReport(LosslessModel):

@@ -225,7 +225,7 @@
       },
       "ActiveRuns": {
         "additionalProperties": true,
-        "description": "``GET /api/executions/active``: the runs this backend is running now, and those waiting.\n\n``active_ids`` is the running runs' ids, as it always was. ``running`` is\neach of them in the order it started; ``waiting`` the queue, next first.\n``max_concurrent`` and ``queue_limit`` are the limits Settings › In the\nbackground sets, as this engine holds them.",
+        "description": "``GET /api/executions/active``: the runs this backend is running now, and those waiting.\n\n``active_ids`` is the running runs' ids, as it always was. ``running`` is\neach of them in the order it started; ``waiting`` the queue, next first.\n``max_concurrent`` and ``queue_limit`` are the limits Settings › In the\nbackground sets, as this engine holds them. ``failed_unseen`` is the runs\nthat failed since the run monitor's panel was last opened (``seen_at``,\nnull before it ever was; failures since this engine started count then),\nnewest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the\nnewest run's id and the latest any run ended (null with no runs): a\nreader that lists runs reads again when either changes, which catches a\nrun that started and ended between two reads of this route.",
         "properties": {
           "active_ids": {
             "items": {
@@ -234,9 +234,38 @@
             "title": "Active Ids",
             "type": "array"
           },
+          "failed_unseen": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Failed Unseen",
+            "type": "array"
+          },
+          "last_ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ended At"
+          },
           "max_concurrent": {
             "title": "Max Concurrent",
             "type": "integer"
+          },
+          "newest_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Run Id"
           },
           "queue_limit": {
             "title": "Queue Limit",
@@ -248,6 +277,17 @@
             },
             "title": "Running",
             "type": "array"
+          },
+          "seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen At"
           },
           "waiting": {
             "items": {
@@ -262,7 +302,11 @@
           "running",
           "waiting",
           "max_concurrent",
-          "queue_limit"
+          "queue_limit",
+          "failed_unseen",
+          "seen_at",
+          "newest_run_id",
+          "last_ended_at"
         ],
         "title": "ActiveRuns",
         "type": "object"
@@ -800,6 +844,10 @@
             ],
             "title": "Accent"
           },
+          "run_monitor": {
+            "title": "Run Monitor",
+            "type": "boolean"
+          },
           "theme": {
             "enum": [
               "system",
@@ -812,13 +860,14 @@
         },
         "required": [
           "theme",
-          "accent"
+          "accent",
+          "run_monitor"
         ],
         "title": "Appearance",
         "type": "object"
       },
       "AppearanceBody": {
-        "description": "The whole appearance, every time: a PUT replaces both values.",
+        "description": "The whole appearance, every time: a PUT replaces the theme and the accent.\n\n``run_monitor`` (Settings › Appearance, \"Show the run monitor in the top\nbar\") is stored when it is sent and left as it is when it is not, so a\ncaller that knows only the theme and the accent changes only those.",
         "properties": {
           "accent": {
             "anyOf": [
@@ -831,6 +880,17 @@
               }
             ],
             "title": "Accent"
+          },
+          "run_monitor": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Monitor"
           },
           "theme": {
             "enum": [
@@ -13715,6 +13775,21 @@
         "title": "RunStarted",
         "type": "object"
       },
+      "RunsSeen": {
+        "additionalProperties": true,
+        "description": "``POST /api/executions/seen``: when the run monitor's panel was opened, as stored.",
+        "properties": {
+          "seen_at": {
+            "title": "Seen At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seen_at"
+        ],
+        "title": "RunsSeen",
+        "type": "object"
+      },
       "RuntimeIdentity": {
         "additionalProperties": true,
         "description": "Which backend, over which corpus — the attach-or-spawn answer.\n\nThis is the shape that exists because an MCP server once fell back to the\ndefault port and answered every question truthfully about the wrong corpus.\n``corpus_id`` and ``build_id`` are ``None`` where the install has not\nrecorded one; ``runtime_id`` is per process and always present.",
@@ -22350,6 +22425,25 @@
           }
         },
         "summary": "Export Executions"
+      }
+    },
+    "/api/executions/seen": {
+      "post": {
+        "description": "The run monitor's panel was opened: every run that has failed until now is seen.\n\nClears the monitor's red mark (``failed_unseen`` on ``/active``) until a\nrun fails again. Nothing about any run changes.",
+        "operationId": "mark_runs_seen_api_executions_seen_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunsSeen"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mark Runs Seen"
       }
     },
     "/api/executions/waiting/{ticket}": {

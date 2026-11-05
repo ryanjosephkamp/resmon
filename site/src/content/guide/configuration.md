@@ -33,7 +33,7 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 
 | Group | What it holds |
 |---|---|
-| **Appearance** | Theme and accent color |
+| **Appearance** | Theme, accent color, and the run monitor |
 | **In the background** | The background service, and how many runs go at once |
 | **Email** | The mail account watches send reports through |
 | **Notifications** | When resmon posts a desktop notification |
@@ -47,6 +47,8 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 ### Appearance
 
 **Theme** is **Follow the system**, **Light**, or **Dark**. **Accent color** is used for the rings around new papers, the current tab, links, and the main button on each screen. Any color works. Where one would be hard to read, resmon draws it lighter or deeper in that theme and shows you the contrast it measured for links, rings, and button text. Both are kept in resmon's database, so they are the same on every launch and come back with a backup. The command palette changes both too.
+
+**Show the run monitor in the top bar** shows or hides the run monitor. Hidden, runs still notify you, and the **Runs** tab still lists them. The switch is kept in resmon's database too.
 
 ### In the background
 

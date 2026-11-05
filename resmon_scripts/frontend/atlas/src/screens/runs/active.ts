@@ -35,11 +35,16 @@ export function useActiveRuns() {
 
 /**
  * What changes when a run starts, ends, joins the queue, or leaves it: the
- * run log is read again when this does, and at no other time on its own.
+ * run log is read again when this does, and at no other time on its own. The
+ * newest run and the latest end are in it, so a run that started and ended
+ * between two reads still changes it.
  */
 export function activeSignature(data: ActiveRuns | undefined): string {
   if (!data) return '';
-  return `${data.running.map((run) => run.id).join(',')}|${data.waiting.map((run) => run.ticket).join(',')}`;
+  return [
+    data.running.map((run) => run.id).join(','), data.waiting.map((run) => run.ticket).join(','),
+    data.newest_run_id ?? '', data.last_ended_at ?? '',
+  ].join('|');
 }
 
 /** A running run's sources, folded from its events as its own page folds them. */

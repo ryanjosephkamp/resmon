@@ -2773,6 +2773,50 @@ def _active_events(events: list[dict]) -> list[dict]:
     return [events[at] for at in sorted(keep)]
 
 
+# When the run monitor's panel was last opened: a run that failed after it is
+# the monitor's red mark until the panel is opened again. Kept in the engine,
+# so it holds across launches; until the panel is first opened, failures since
+# this engine started count.
+_RUNS_SEEN_KEY = "runs_seen_at"
+
+
+def _run_stamp() -> str:
+    """Now, as the sweep engine writes a run's ``end_time``, so the two compare as text."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_ENGINE_STARTED_AT = _run_stamp()
+
+
+def _failed_unseen(conn) -> tuple[list[int], Optional[str]]:
+    """The runs that failed since the panel was last opened, newest first, and when that was."""
+    seen = get_setting(conn, _RUNS_SEEN_KEY) or None
+    since = seen or _ENGINE_STARTED_AT
+    rows = conn.execute(
+        "SELECT id FROM executions WHERE status = 'failed' AND end_time > ? "
+        "ORDER BY end_time DESC, id DESC LIMIT 20",
+        (since,),
+    ).fetchall()
+    return [int(row[0]) for row in rows], seen
+
+
+@app.post("/api/executions/seen", response_model=response_models.RunsSeen,
+          response_model_exclude_unset=True)
+def mark_runs_seen():
+    """The run monitor's panel was opened: every run that has failed until now is seen.
+
+    Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+    run fails again. Nothing about any run changes.
+    """
+    conn = _get_db()
+    try:
+        at = _run_stamp()
+        set_setting(conn, _RUNS_SEEN_KEY, at)
+        return {"seen_at": at}
+    finally:
+        _close_db(conn)
+
+
 @app.get("/api/executions/active", response_model=response_models.ActiveRuns,
          response_model_exclude_unset=True)
 def active_executions():
@@ -2807,12 +2851,22 @@ def active_executions():
                 "events": _active_events(progress_store.get_events(exec_id)),
             })
         running.sort(key=lambda run: (run["start_time"] or "", run["id"]))
+        failed, seen = _failed_unseen(conn)
+        # What changes when any run starts or ends, here or in another engine
+        # on the same database: a run that starts and ends between two reads
+        # of this route changes nothing above, and the run log would not know
+        # to read itself again.
+        newest, ended = conn.execute("SELECT MAX(id), MAX(end_time) FROM executions").fetchone()
         return {
             "active_ids": ids,
             "running": running,
             "waiting": admission.waiting(),
             "max_concurrent": admission.max(),
             "queue_limit": admission.queue_limit(),
+            "failed_unseen": failed,
+            "seen_at": seen,
+            "newest_run_id": newest,
+            "last_ended_at": ended,
         }
     finally:
         _close_db(conn)
@@ -6505,15 +6559,24 @@ def update_notification_settings(body: SettingsBody):
 
 _APPEARANCE_THEME_KEY = "ui_theme"
 _APPEARANCE_ACCENT_KEY = "ui_accent"
+# Whether the top bar shows the run monitor: "0" hides it, anything else (and
+# nothing stored) shows it.
+_APPEARANCE_RUN_MONITOR_KEY = "ui_run_monitor"
 _APPEARANCE_THEMES = ("system", "light", "dark")
 _ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 class AppearanceBody(BaseModel):
-    """The whole appearance, every time: a PUT replaces both values."""
+    """The whole appearance, every time: a PUT replaces the theme and the accent.
+
+    ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+    bar") is stored when it is sent and left as it is when it is not, so a
+    caller that knows only the theme and the accent changes only those.
+    """
 
     theme: Literal["system", "light", "dark"]
     accent: Optional[str] = Field(..., pattern=_ACCENT_PATTERN)
+    run_monitor: Optional[bool] = None
 
 
 def _read_appearance(conn) -> dict:
@@ -6524,6 +6587,7 @@ def _read_appearance(conn) -> dict:
     return {
         "theme": theme if theme in _APPEARANCE_THEMES else "system",
         "accent": accent if re.fullmatch(_ACCENT_PATTERN, accent) else None,
+        "run_monitor": str(get_setting(conn, _APPEARANCE_RUN_MONITOR_KEY) or "1") != "0",
     }
 
 
@@ -6544,6 +6608,8 @@ def update_appearance(body: AppearanceBody):
     try:
         set_setting(conn, _APPEARANCE_THEME_KEY, body.theme)
         set_setting(conn, _APPEARANCE_ACCENT_KEY, (body.accent or "").lower())
+        if body.run_monitor is not None:
+            set_setting(conn, _APPEARANCE_RUN_MONITOR_KEY, "1" if body.run_monitor else "0")
         return _read_appearance(conn)
     finally:
         _close_db(conn)

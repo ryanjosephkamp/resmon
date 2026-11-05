@@ -338,7 +338,7 @@ test('no screen scrolls sideways, from the window\'s 960-pixel minimum up, and t
       await expect(trigger).toBeVisible();
       await expect(search).toBeVisible();
       expect(await trigger.locator('.newsearch-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1200);
-      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1000);
+      expect(await search.locator('.cmdk-label').evaluate((n) => n.getBoundingClientRect().width > 1)).toBe(inner >= 1100);
       if (inner < 1200) {
         fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
         await win.screenshot({ path: path.join(SCREENSHOT_DIR, `atlas-shell-bar-${inner}.png`) });

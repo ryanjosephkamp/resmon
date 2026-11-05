@@ -49,6 +49,7 @@ export function RunMark({ state, orbits = [], pulse = 0, className }: {
       )}
       {(state === 'running' || state === 'runfail') && (
         <>
+          {pulse > 0 && <circle key={pulse} className="rm-pulse" cx="12" cy="12" r="6" />}
           {shown.map((orbit, i) => {
             const r = RADII[i] as number;
             const around = 2 * Math.PI * r;

@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { HOME, SECTIONS, SETTINGS } from '../routes';
 import { bridge, isMac } from '../bridge';
 import { useAsk } from '../screens/ask/AskProvider';
+import { RunMonitor } from '../screens/runs/RunMonitor';
+import { useAppearance } from '../theme/appearance';
 import { startSearch, type SearchKind } from '../screens/searchStart';
 import { CommandPalette } from './CommandPalette';
 import { EngineNotice } from './EngineNotice';
@@ -43,6 +45,8 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { answering, requestFocus, select } = useAsk();
+  // Settings › Appearance can hide the run monitor; runs still notify, and the Runs tab still lists them.
+  const { stored: appearance } = useAppearance();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret
@@ -171,6 +175,7 @@ export function Shell() {
           </ul>
         </nav>
         <span className="spacer" />
+        {appearance.run_monitor && <RunMonitor />}
         <NewSearch mac={mac} onStart={newSearch} />
         <button
           type="button"

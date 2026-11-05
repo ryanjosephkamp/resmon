@@ -145,7 +145,9 @@ def test_the_runs_going_now_with_their_events_folded_and_the_queue(client):
         ]:
             progress_store.emit(running, event)
         body = client.get("/api/executions/active").json()
-        assert list(body) == ["active_ids", "running", "waiting", "max_concurrent", "queue_limit"]
+        assert list(body) == ["active_ids", "running", "waiting", "max_concurrent", "queue_limit", "failed_unseen", "seen_at",
+                              "newest_run_id", "last_ended_at"]
+        assert body["newest_run_id"] == running and body["last_ended_at"] is None
         assert body["active_ids"] == [running]
         assert body["waiting"] == [] and body["max_concurrent"] == resmon_mod.admission.max()
         [run] = body["running"]
@@ -164,3 +166,31 @@ def test_the_runs_going_now_with_their_events_folded_and_the_queue(client):
         progress_store.mark_complete(running)
         progress_store.cleanup(running)
     assert client.get("/api/executions/active").json()["running"] == []
+
+
+def test_a_failed_run_is_unseen_until_the_panel_is_opened(client):
+    """The run monitor's red mark: runs that failed since its panel was last opened."""
+    body = client.get("/api/executions/active").json()
+    assert body["failed_unseen"] == [] and body["seen_at"] is None
+    conn = resmon_mod._get_db()
+    failed = db.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": "{}", "start_time": "2099-01-01T09:00:00Z"})
+    db.update_execution_status(conn, failed, "failed", end_time="2099-01-01T09:05:00Z")
+    done = db.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": "{}", "start_time": "2099-01-01T09:00:00Z"})
+    db.update_execution_status(conn, done, "completed", end_time="2099-01-01T09:06:00Z")
+    # A failure from before this engine started is not this session's news until the panel is opened once.
+    old = db.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": "{}", "start_time": "2001-01-01T09:00:00Z"})
+    db.update_execution_status(conn, old, "failed", end_time="2001-01-01T09:05:00Z")
+    assert client.get("/api/executions/active").json()["failed_unseen"] == [failed]
+    seen = client.post("/api/executions/seen")
+    assert seen.status_code == 200
+    at = seen.json()["seen_at"]
+    assert at.endswith("Z") and len(at) == 20
+    body = client.get("/api/executions/active").json()
+    assert body["seen_at"] == at
+    # The run "failed" in 2099, after the panel was opened, so it still counts; one before it does not.
+    assert body["failed_unseen"] == [failed]
+    db.update_execution_status(conn, failed, "failed", end_time="2001-02-01T00:00:00Z")
+    assert client.get("/api/executions/active").json()["failed_unseen"] == []

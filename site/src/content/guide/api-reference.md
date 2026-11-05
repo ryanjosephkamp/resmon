@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 210 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 211 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -43,8 +43,9 @@ Every run, whether you started it or a watch fired it. A run's progress is read 
 | Method | Path | What it does |
 |---|---|---|
 | `GET` | `/api/executions` | One page of runs, newest first, with each run's coverage. Filter by `type` and `status` (one value or several, comma-separated) and by `q` (a run's terms, sources, watch, saved search, or number); the `X-Resmon-Total` header says how many match. |
-| `GET` | `/api/executions/active` | The runs going now, each with its search and its events so far, and the runs waiting for a free slot, next first. |
+| `GET` | `/api/executions/active` | The runs going now, each with its search and its events so far; the runs waiting for a free slot, next first; and the runs that failed since the run monitor's panel was last opened. |
 | `DELETE` | `/api/executions/waiting/{ticket}` | Take a run you asked for out of the queue before it starts. A watch's run is not taken out here. |
+| `POST` | `/api/executions/seen` | The run monitor's panel was opened: runs that failed until now are seen, and `failed_unseen` on `/api/executions/active` is empty until another fails. |
 | `GET` | `/api/executions/{exec_id}` | One run: its kind, status, parameters, times, counts, coverage, and the summary connections it tried. |
 | `DELETE` | `/api/executions/{exec_id}` | Delete a run's record. Its report and log files stay where they were written, and its papers stay in the collection. |
 | `POST` | `/api/executions/{exec_id}/cancel` | Ask a running run to stop at its next checkpoint. |
@@ -293,8 +294,8 @@ A credential's value is never returned. The engine reports only whether one is s
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/appearance` | The theme and accent. |
-| `PUT` | `/api/appearance` | Store the theme and accent. |
+| `GET` | `/api/appearance` | The theme, the accent, and whether the top bar shows the run monitor. |
+| `PUT` | `/api/appearance` | Store the theme and accent, and the run monitor's switch when it is sent. |
 | `GET` | `/api/settings/ai` | Summary settings, including the connection chain. |
 | `PUT` | `/api/settings/ai` | Store them. |
 | `GET` | `/api/settings/ai/cli-status` | Whether each command can be found, and where. |

@@ -201,6 +201,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/executions/{exec_id}/documents"),
         ("GET", "/api/executions/{exec_id}/document-ids"),
         ("DELETE", "/api/executions/waiting/{ticket}"),
+        ("POST", "/api/executions/seen"),
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
@@ -1738,6 +1739,9 @@ def _drive_runs(drive: Drive) -> None:
         assert [entry["ticket"] for entry in waiting] == ["runs-slice-queued", repeat["ticket"]]
         drive("DELETE", "/api/executions/waiting/runs-slice-queued")
         drive("DELETE", f"/api/executions/waiting/{repeat['ticket']}")
+        # The run monitor's panel opened: the failures until now are seen, and /active says when.
+        seen = drive("POST", "/api/executions/seen")
+        assert drive("GET", "/api/executions/active")["seen_at"] == seen["seen_at"]
     finally:
         admission.note_finished(9_999_999)
         admission.set_max(cap)

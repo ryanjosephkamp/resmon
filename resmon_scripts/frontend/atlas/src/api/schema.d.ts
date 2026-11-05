@@ -1648,6 +1648,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Runs Seen
+         * @description The run monitor's panel was opened: every run that has failed until now is seen.
+         *
+         *     Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+         *     run fails again. Nothing about any run changes.
+         */
+        post: operations["mark_runs_seen_api_executions_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions/waiting/{ticket}": {
         parameters: {
             query?: never;
@@ -3953,17 +3976,31 @@ export interface components {
          *     ``active_ids`` is the running runs' ids, as it always was. ``running`` is
          *     each of them in the order it started; ``waiting`` the queue, next first.
          *     ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
-         *     background sets, as this engine holds them.
+         *     background sets, as this engine holds them. ``failed_unseen`` is the runs
+         *     that failed since the run monitor's panel was last opened (``seen_at``,
+         *     null before it ever was; failures since this engine started count then),
+         *     newest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the
+         *     newest run's id and the latest any run ended (null with no runs): a
+         *     reader that lists runs reads again when either changes, which catches a
+         *     run that started and ended between two reads of this route.
          */
         ActiveRuns: {
             /** Active Ids */
             active_ids: number[];
+            /** Failed Unseen */
+            failed_unseen: number[];
+            /** Last Ended At */
+            last_ended_at: string | null;
             /** Max Concurrent */
             max_concurrent: number;
+            /** Newest Run Id */
+            newest_run_id: number | null;
             /** Queue Limit */
             queue_limit: number;
             /** Running */
             running: components["schemas"]["ActiveRun"][];
+            /** Seen At */
+            seen_at: string | null;
             /** Waiting */
             waiting: components["schemas"]["WaitingRun"][];
         } & {
@@ -4245,6 +4282,8 @@ export interface components {
         Appearance: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor: boolean;
             /**
              * Theme
              * @enum {string}
@@ -4255,11 +4294,17 @@ export interface components {
         };
         /**
          * AppearanceBody
-         * @description The whole appearance, every time: a PUT replaces both values.
+         * @description The whole appearance, every time: a PUT replaces the theme and the accent.
+         *
+         *     ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+         *     bar") is stored when it is sent and left as it is when it is not, so a
+         *     caller that knows only the theme and the accent changes only those.
          */
         AppearanceBody: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor?: boolean | null;
             /**
              * Theme
              * @enum {string}
@@ -9857,6 +9902,16 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * RunsSeen
+         * @description ``POST /api/executions/seen``: when the run monitor's panel was opened, as stored.
+         */
+        RunsSeen: {
+            /** Seen At */
+            seen_at: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * RuntimeIdentity
          * @description Which backend, over which corpus — the attach-or-spawn answer.
          *
@@ -14817,6 +14872,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_runs_seen_api_executions_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsSeen"];
                 };
             };
         };
