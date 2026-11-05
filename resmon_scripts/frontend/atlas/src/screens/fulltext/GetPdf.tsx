@@ -9,16 +9,27 @@ import {
 /**
  * Re-reads the Library's lists once a request this page watched has
  * finished, so its card becomes a PDF card without a reload.
+ *
+ * A request is seen to finish two ways. One that was read waiting or
+ * downloading and is not now; and one whose paper the Library did not hold
+ * and now does. The second is a download quicker than a read: Get the PDF
+ * answers "waiting", and by the time the statuses are read again the PDF is
+ * already in the Library, so it is never read as going.
  */
 export function useLanded(statuses: ReadonlyMap<number, FullTextStatus> | undefined) {
   const refresh = useLandedRefresh();
   const going = useRef(new Set<number>());
+  const held = useRef(new Map<number, boolean>());
   useEffect(() => {
     if (!statuses) return;
     let landed = false;
     for (const status of statuses.values()) {
-      if (pending(status.download)) going.current.add(status.document_id);
-      else if (going.current.delete(status.document_id)) landed = true;
+      const id = status.document_id;
+      if (pending(status.download)) going.current.add(id);
+      else if (going.current.delete(id)) landed = true;
+      const holds = !!status.in_library;
+      if (holds && held.current.get(id) === false) landed = true;
+      held.current.set(id, holds);
     }
     if (landed) refresh();
   }, [statuses, refresh]);
