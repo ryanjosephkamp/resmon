@@ -701,6 +701,12 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           <h3>When a run finishes</h3>
           {!sends && <p>Nothing is sent. Its runs and reports are kept here.</p>}
           {form.notify && <p>A notification, if {systemName()} lets resmon post them. Clicking it opens the run.</p>}
+          {form.pdfs && form.follows !== 'retractions' && (
+            <p data-will="pdfs">
+              The open-access PDF of each new paper a source states an open license for goes into the Library, within the
+              limits under PDFs; the run’s page says what it got and skipped.
+            </p>
+          )}
           {form.email && !emailOff && (
             <p>
               An email with the report{form.attach ? ', and its results attached' : ''}, to{' '}
