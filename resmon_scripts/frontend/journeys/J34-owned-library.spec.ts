@@ -69,8 +69,8 @@ journey.describe('J34 Owned Library', () => {
 
     const imported = await resmon.importIntoTheLibrary(IMPORTS);
     console.log(`[J34] the page's own account of the import: ${JSON.stringify(imported)}`);
-    expect(imported).toContain(`${IMPORTS.length} retained`);
-    expect(imported).toContain('0 exact duplicates');
+    expect(imported).toContain(`${IMPORTS.length} files added.`);
+    expect(imported).toContain('None was already in the Library.');
 
     // What the person can see about each item, from its own detail.
     const items = await resmon.readTheLibraryItems();

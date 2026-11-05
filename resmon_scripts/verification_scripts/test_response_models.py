@@ -162,6 +162,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/reading-queue"),
         ("PUT", "/api/reading-queue/{document_id}"),
         ("DELETE", "/api/reading-queue/{document_id}"),
+        ("POST", "/api/reading-queue/{document_id}/restore"),
     ),
     "watchdog": (
         ("GET", "/api/watchdog"),
@@ -278,6 +279,15 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("POST", "/api/library/files/{file_id}/open"),
         ("GET", "/api/library/export"),
         ("GET", "/api/library/files/{file_id}/text"),
+        ("PUT", "/api/library/files/{file_id}/picture"),
+        ("GET", "/api/library/files/{file_id}/removal"),
+        ("DELETE", "/api/library/files/{file_id}"),
+        ("GET", "/api/library/removed"),
+        ("POST", "/api/library/removed/{file_id}/restore"),
+        ("POST", "/api/library/removed/{file_id}/release"),
+        ("DELETE", "/api/library/removed/{file_id}"),
+        ("POST", "/api/library/vault/relink"),
+        ("POST", "/api/library/vault/move"),
     ),
     "evidence projects": (
         ("GET", "/api/evidence/projects"),
@@ -826,7 +836,53 @@ def _drive_library(drive: Drive, document_id: int) -> tuple[str, str, str]:
     text = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
                  f"&expected_version_id={version_id}", headers=library)
     assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
+    head = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
+                 f"&expected_version_id={version_id}&lines=1", headers=library)
+    assert (head["text"], head["shown_lines"], head["line_count"]) == ("Perovskite notes", 1, 3)
+    _drive_library_lifecycle(drive, vault, parent, document_id)
     return vault, file_id, version_id
+
+
+def _drive_library_lifecycle(drive: Drive, vault: str, parent: str, document_id: int) -> None:
+    """A PDF's picture, a removal and its undo, a release and a forget, and the folder found again and moved.
+
+    Its own file, so the file the Evidence slice uses next is untouched. Every
+    folder is a scratch folder of this run; the release's path is moved out of
+    the Library folder here, where the desktop's Trash would take it.
+    """
+    from conftest import TEST_RENDERER_ORIGIN  # noqa: PLC0415
+    library = {"Origin": TEST_RENDERER_ORIGIN, "X-Resmon-Library": "1"}
+    raw = {**library, "Content-Type": "application/octet-stream"}
+    pdf = drive("POST", f"/api/library/files?expected_vault_id={vault}&filename=scenario.pdf&document_id={document_id}",
+                expect=201, headers=raw, content=b"%PDF-1.4\nscenario\n%%EOF")["file"]
+    file_id, version = pdf["file_id"], pdf["version_id"]
+    query = f"expected_vault_id={vault}&expected_version_id={version}"
+    drive("PUT", f"/api/library/files/{file_id}/picture?{query}",
+          headers={**library, "Content-Type": "image/png"}, content=b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+    summary = drive("GET", f"/api/library/files/{file_id}/removal?{query}", headers=library)
+    assert summary["needs_confirmation"] is False and summary["links"], "a link gives the list a row"
+    drive("DELETE", f"/api/library/files/{file_id}", headers=library,
+          json={"expected_vault_id": vault, "expected_version_id": version})
+    listed = drive("GET", f"/api/library/removed?expected_vault_id={vault}", headers=library)
+    assert [r["file_id"] for r in listed["removed"]] == [file_id]
+    drive("POST", f"/api/library/removed/{file_id}/restore", headers=library, json={"expected_vault_id": vault})
+    drive("DELETE", f"/api/library/files/{file_id}", headers=library,
+          json={"expected_vault_id": vault, "expected_version_id": version})
+    released = drive("POST", f"/api/library/removed/{file_id}/release", headers=library,
+                     json={"expected_vault_id": vault})
+    os.rename(released["path"], os.path.join(parent, "stand-in-trash.pdf"))
+    drive("DELETE", f"/api/library/removed/{file_id}", headers=library, json={"expected_vault_id": vault})
+    # The folder moved outside resmon, found again, then moved back by resmon.
+    status = drive("GET", "/api/library", headers=library)
+    root = status["vault"]["path"]
+    elsewhere = os.path.join(parent, "elsewhere")
+    os.mkdir(elsewhere)
+    os.rename(root, os.path.join(elsewhere, os.path.basename(root)))
+    assert drive("GET", "/api/library", headers=library)["status"] == "missing"
+    drive("POST", "/api/library/vault/relink", headers=library, json={"expected_vault_id": vault, "folder": elsewhere})
+    moved = drive("POST", "/api/library/vault/move", headers=library,
+                  json={"expected_vault_id": vault, "parent_directory": parent})
+    assert moved["vault"]["path"] == root and moved["moved"]["same_disk"] is True
 
 
 def _drive_shared_wording(drive: Drive, vault: str) -> None:
@@ -1915,6 +1971,16 @@ def _drive_reading_queue(drive: Drive, document_id: int) -> None:
     filtered = drive("GET", "/api/reading-queue?status=to_read")
     assert filtered["status"] == "to_read"
     drive("PUT", f"/api/reading-queue/{document_id}", json={"status": "read"})
+    searched = drive("GET", "/api/reading-queue?q=a&sort=title")
+    assert searched["sort"] == "title"
+    # Map order with no fitted map says the order it is really in.
+    assert drive("GET", "/api/reading-queue?sort=map")["sort"] in ("map", "saved")
+    removed = drive("DELETE", f"/api/reading-queue/{document_id}")
+    entry = removed["entry"]
+    back = drive("POST", f"/api/reading-queue/{document_id}/restore", json={
+        "status": entry["status"], "saved_at": entry["saved_at"],
+        "updated_at": entry["updated_at"], "read_at": entry["read_at"]})
+    assert back["restored"] is True and back["entry"] == entry
     drive("DELETE", f"/api/reading-queue/{document_id}")
 
 

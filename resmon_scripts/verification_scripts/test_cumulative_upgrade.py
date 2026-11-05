@@ -1,11 +1,11 @@
-"""The whole walk at once: a schema-13 database upgraded to schema 24.
+"""The whole walk at once: a schema-13 database upgraded to schema 25.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
-16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24. Eleven
-steps, green one at a time, and none of them is the journey a user takes. A
-user whose database is at schema 13 launches a newer resmon once and their
-database crosses **all eleven** steps in one `init_db` call, with the rows
+16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24,
+24 -> 25. Twelve steps, green one at a time, and none of them is the journey a
+user takes. A user whose database is at schema 13 launches a newer resmon once
+and their database crosses **all twelve** steps in one `init_db` call, with the rows
 resmon wrote at schema 13 still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
@@ -30,8 +30,8 @@ What each test establishes is written on it. The short version:
     `test_cumulative_upgrade_boundary`-style style below)
   * every committed fixture is walked by today's code. Where the schema a
     fixture was written at is still the one this code ships, that walk must
-    change nothing at all; where steps have been added past it -- 13 -> 24,
-    18 -> 24 and 21 -> 24 today -- the walk is what a database at that schema
+    change nothing at all; where steps have been added past it -- 13 -> 25,
+    18 -> 25 and 21 -> 25 today -- the walk is what a database at that schema
     takes on its next launch, and every row of it has to come out the other
     side (P9).
 
@@ -99,7 +99,7 @@ FIXTURE = Path(__file__).parent / "fixtures/schema-13/corpus.sql"
 
 # The schema the fixture was written at, and the schema it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 24
+TARGET_SCHEMA_VERSION = 25
 
 
 # ---------------------------------------------------------------------------
@@ -236,7 +236,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_database_from_13_to_24(walked):
+def test_one_init_db_takes_a_database_from_13_to_25(walked):
     """The upgrade a first launch performs on a schema-13 database, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -603,6 +603,10 @@ def _template(table: str, column: str, value) -> dict:
             "file_id": "f", "version_id": "v", "vault_id": "vault", "sha256": _SHA,
             "byte_size": 1, "media_type": "text/plain", "original_name": "a.txt",
             "relative_path": "a.txt", "created_at_utc": "2026-03-01T00:00:00Z"},
+        "library_removed": {
+            "file_id": "f", "version_id": "v", "vault_id": "vault", "original_name": "a.txt",
+            "media_type": "text/plain", "byte_size": 1, "sha256": _SHA, "bytes_state": "held",
+            "record_json": "{}", "removed_at_utc": "2026-03-01T00:00:00Z"},
         "reading_queue": {"document_id": 1, "status": "to_read", "read_at": None},
         "routines": {
             "name": "probe", "schedule_cron": "0 0 * * *", "parameters": "{}",
@@ -949,6 +953,7 @@ FIXTURES = [
     _Fixture(13, tables=21, rows=116),
     _Fixture(18, tables=31, rows=171),
     _Fixture(21, tables=34, rows=191),
+    _Fixture(25, tables=37, rows=194),
 ]
 IDS = [f.name for f in FIXTURES]
 
@@ -1031,10 +1036,10 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
 
     While a fixture is at the schema this code still ships, its walk is
     a no-op and the whole fingerprint has to come back identical. Where a step
-    has been added past it -- 13 -> 24, 18 -> 24 and 21 -> 24 today -- the
+    has been added past it -- 13 -> 25, 18 -> 25 and 21 -> 25 today -- the
     fingerprint legitimately changes: `executions` is rebuilt with a wider
-    `status` CHECK and six new columns, five tables and an index arrive, and the
-    schema marker moves.
+    `status` CHECK and six new columns, `library_files` with TeX in its CHECK,
+    six tables and an index arrive, and the schema marker moves.
     What must not change is the data: every row of every application table the
     fixture holds, column for column, and every AUTOINCREMENT high-water mark.
 

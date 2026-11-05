@@ -635,6 +635,8 @@ def test_run_again_on_a_watchs_run_is_the_watchs_run_now_and_never_overlaps_it(c
     body = resp.json()
     new_id = body["execution_id"]
     assert body["restarted_from"] is None
+    # Named as the watch's, so a window that asked finds the run by its watch when it was queued.
+    assert body["routine_id"] == watch
     new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
     assert new_row["execution_type"] == "automated_sweep" and new_row["routine_id"] == watch
     assert new_row["restarted_from"] is None

@@ -34,6 +34,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
+from implementation_scripts import library_folder, library_removal, library_thumbs
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
 from implementation_scripts import delivery
 from implementation_scripts.config import (
@@ -3310,8 +3311,10 @@ def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
     queue, a window it cannot read) is refused here in its words.
     """
     ran = run_routine_now(routine_id, response)
+    # ``routine_id`` says the run is the watch's: queued, it is found again by its
+    # watch, since a watch's fire carries no request id its ``ticket`` could match.
     answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
-                    "ai_enabled": bool(watch.get("ai_enabled"))}
+                    "ai_enabled": bool(watch.get("ai_enabled")), "routine_id": routine_id}
     if ran.get("queued"):
         ticket = next((w["ticket"] for w in admission.waiting()
                        if w["kind"] == "watch" and w["routine_id"] == routine_id), None)
@@ -4027,18 +4030,58 @@ def _reading_queue_status(value: Optional[str]) -> Optional[str]:
     return value
 
 
+def _map_order(conn, wanted: set[int]) -> Optional[dict[int, tuple]]:
+    """A sort key per paper the collection's map has placed, keeping its neighbors together.
+
+    The map's own regions first, then a Hilbert curve through each region's
+    stretch of the plate, so papers next to each other on the map are next to
+    each other in the list. ``None`` when there is no fitted map to read; the
+    queue then says it is in saved order.
+    """
+    from implementation_scripts import collection_map  # noqa: PLC0415 - see the imports
+    fit = collection_map._current(collection_map.cache_path(conn))
+    if fit is None or not len(fit.ids):
+        return None
+    side = 1024
+    keep = [i for i, paper in enumerate(fit.ids.tolist()) if paper in wanted]
+    cells = ((fit.xy[keep] + 1.0) / 2.0 * (side - 1)).clip(0, side - 1).astype("int64")
+    order: dict[int, tuple] = {}
+    for paper, region, (x, y) in zip(fit.ids[keep].tolist(), fit.region[keep].tolist(), cells.tolist()):
+        d, s = 0, side // 2
+        while s > 0:
+            rx, ry = int((x & s) > 0), int((y & s) > 0)
+            d += s * s * ((3 * rx) ^ ry)
+            if ry == 0:
+                if rx == 1:
+                    x, y = side - 1 - x, side - 1 - y
+                x, y = y, x
+            s //= 2
+        order[int(paper)] = (int(region), d)
+    return order
+
+
 @app.get("/api/reading-queue", response_model=response_models.ReadingQueuePage,
          response_model_exclude_unset=True)
 def list_reading_queue(
     status: Optional[str] = None,
     limit: int = reading_queue.DEFAULT_PAGE_SIZE,
     offset: int = 0,
+    q: str = Query("", max_length=200),
+    sort: str = "saved",
 ):
-    """One page of saved papers. ``status`` omitted (or ``all``) means both."""
+    """One page of saved papers. ``status`` omitted (or ``all``) means both.
+
+    ``q`` keeps the papers whose title, authors or source contain it. ``sort`` is
+    ``saved`` (newest save first), ``published``, ``title``, ``source`` or
+    ``map``; the page's own ``sort`` says which order it is in, which is
+    ``saved`` when ``map`` was asked for and no map is fitted yet.
+    """
     conn = _get_db()
     try:
         return reading_queue.list_entries(
-            conn, status=_reading_queue_status(status), limit=limit, offset=offset,
+            conn, status=_reading_queue_status(status), limit=limit, offset=offset, q=q, sort=sort,
+            map_order=_map_order(conn, {r[0] for r in conn.execute("SELECT document_id FROM reading_queue")})
+            if sort == "map" else None,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from None
@@ -4094,10 +4137,42 @@ def remove_from_reading_queue(document_id: int):
     """
     conn = _get_db()
     try:
-        if not reading_queue.remove(conn, document_id):
+        entry = reading_queue.remove(conn, document_id)
+        if entry is None:
             raise HTTPException(
                 404, f"Document {document_id} is not in the reading queue")
-        return {"removed": True, "document_id": document_id}
+        # The entry as it was, for Undo: ``POST .../restore`` puts it back as it is here.
+        return {"removed": True, "document_id": document_id, "entry": entry}
+    finally:
+        _close_db(conn)
+
+
+class ReadingQueueRestoreBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    status: str
+    saved_at: str = Field(min_length=1, max_length=40)
+    updated_at: str = Field(min_length=1, max_length=40)
+    read_at: Optional[str] = Field(default=None, max_length=40)
+
+
+@app.post("/api/reading-queue/{document_id}/restore",
+          response_model=response_models.ReadingQueueRestored,
+          response_model_exclude_unset=True)
+def restore_to_reading_queue(document_id: int, body: ReadingQueueRestoreBody):
+    """Undo a removal: the entry back with the state and dates it had.
+
+    ``restored`` is false when the paper was saved again in the meantime; its
+    entry now is returned unchanged rather than overwritten.
+    """
+    conn = _get_db()
+    try:
+        entry, restored = reading_queue.restore(
+            conn, document_id, body.status, body.saved_at, body.updated_at, body.read_at)
+        return {"restored": restored, "entry": entry}
+    except reading_queue.UnknownDocument as exc:
+        raise HTTPException(404, str(exc)) from None
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(400, str(exc)) from None
     finally:
         _close_db(conn)
 
@@ -4114,7 +4189,7 @@ class LibraryOriginGuard:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         import re
         path = scope.get("path", "")
-        if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/text", path) or path.startswith("/api/evidence/")):
+        if scope.get("type") == "http" and (re.fullmatch(r"/api/library/files/[^/]+/(?:text|pdf|picture)", path) or path.startswith("/api/evidence/")):
             original_send = send
 
             async def text_send(message):
@@ -4126,12 +4201,14 @@ class LibraryOriginGuard:
                     if path.startswith("/api/evidence/"):
                         message["headers"].append((b"access-control-expose-headers",
                             b"Content-Disposition, Content-Length, X-Resmon-Evidence-Contract, X-Resmon-Vault, X-Resmon-Project, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256, X-Resmon-Revision, X-Resmon-Bundle"))
+                    elif not path.endswith("/text"):
+                        message["headers"].append((b"access-control-expose-headers",
+                            b"Content-Length, Content-Type, X-Resmon-Vault, X-Resmon-File, X-Resmon-Version, X-Resmon-SHA256"))
                 await original_send(message)
 
             send = text_send
         protected = scope.get("type") == "http" and scope.get("method") != "OPTIONS" and (
-            path in ("/api/library", "/api/library/vault", "/api/library/files", "/api/library/export")
-            or re.fullmatch(r"/api/library/files/[^/]+(?:/(?:paper-links|open|text|shared-wording))?", path)
+            path == "/api/library" or path.startswith("/api/library/")
             or path.startswith("/api/evidence/")
         )
         if protected:
@@ -4246,10 +4323,11 @@ def library_create_vault(request: Request, body: LibraryVaultBody):
 
 @app.get("/api/library/files", response_model=response_models.LibraryFiles, response_model_exclude_unset=True)
 def library_list(request: Request, expected_vault_id: str, q: str = "",
-                 through_id: int | None = None, before_id: int | None = None, limit: int = 50):
-    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit"))
+                 through_id: int | None = None, before_id: int | None = None, limit: int = 50,
+                 sort: str = "newest", offset: int = 0):
+    _library_query(request, ("expected_vault_id", "q", "through_id", "before_id", "limit", "sort", "offset"))
     with _library_connection() as conn:
-        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit)
+        return library.list_files(conn, expected_vault_id, q, through_id, before_id, limit, sort, offset)
 
 
 @app.post("/api/library/files", response_model=response_models.LibraryImported, response_model_exclude_unset=True)
@@ -4299,11 +4377,148 @@ def library_inventory(request: Request, expected_vault_id: str, format: str = "j
 
 @app.get("/api/library/files/{file_id}/text", response_model=response_models.LibraryText, response_model_exclude_unset=True)
 def library_read_text(request: Request, response: Response, file_id: str,
-                      expected_vault_id: str, expected_version_id: str):
-    _library_query(request, ("expected_vault_id", "expected_version_id"))
+                      expected_vault_id: str, expected_version_id: str, lines: int | None = None):
+    _library_query(request, ("expected_vault_id", "expected_version_id", "lines"))
     response.headers["Cache-Control"] = "no-store"
     with _library_connection() as conn:
-        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id)
+        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id, lines)
+
+
+@app.get("/api/library/files/{file_id}/pdf", response_model=None)
+def library_read_pdf(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit.
+
+    The identity headers name the vault, file, version and hash the bytes were
+    checked against, so the renderer can refuse an answer about another file.
+    """
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        row, data = library.read_bytes(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type="application/octet-stream", headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id,
+        "X-Resmon-Version": expected_version_id, "X-Resmon-SHA256": row["sha256"]})
+
+
+@app.get("/api/library/files/{file_id}/picture", response_model=None)
+def library_picture(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str) -> Response:
+    """The first-page picture kept for this exact version, or 404 ``no_picture``."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        media, data = library_thumbs.read(conn, expected_vault_id, file_id, expected_version_id)
+    return Response(data, media_type=media, headers={
+        "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        "X-Resmon-Vault": expected_vault_id, "X-Resmon-File": file_id, "X-Resmon-Version": expected_version_id})
+
+
+@app.put("/api/library/files/{file_id}/picture", response_model=response_models.LibraryPicture,
+         response_model_exclude_unset=True)
+async def library_keep_picture(request: Request, file_id: str, expected_vault_id: str,
+                               expected_version_id: str) -> dict:
+    """Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+    raw = bytearray()
+    async for chunk in request.stream():
+        if len(raw) + len(chunk) > library_thumbs.MAX_PICTURE_BYTES:
+            raise HTTPException(413, {"reason": "picture_limit", "message": "A picture is limited to 512 KiB."})
+        raw.extend(chunk)
+    with _library_connection() as conn:
+        return library_thumbs.write(conn, expected_vault_id, file_id, expected_version_id, media, bytes(raw))
+
+
+class LibraryRemoveBody(LibraryOpenBody):
+    # True only after the person was shown what goes with the file (its
+    # projects and notes) and confirmed. Undo puts every one of them back.
+    cascade: bool = False
+
+
+class LibraryVaultIdBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected_vault_id: str
+
+
+class LibraryRelinkBody(LibraryVaultIdBody):
+    folder: str = Field(min_length=1, max_length=4096)
+
+
+class LibraryMoveBody(LibraryVaultIdBody):
+    parent_directory: str = Field(min_length=1, max_length=4096)
+
+
+@app.get("/api/library/files/{file_id}/removal", response_model=response_models.LibraryRemoval,
+         response_model_exclude_unset=True)
+def library_removal_summary(request: Request, file_id: str, expected_vault_id: str, expected_version_id: str):
+    """What would go with this file if it were removed: its paper links, and the projects
+    it is in or has notes in. ``needs_confirmation`` is true when there is a project."""
+    _library_query(request, ("expected_vault_id", "expected_version_id"))
+    with _library_connection() as conn:
+        return library_removal.summary(conn, expected_vault_id, file_id, expected_version_id)
+
+
+@app.delete("/api/library/files/{file_id}", response_model=response_models.LibraryRemoved,
+            response_model_exclude_unset=True)
+def library_remove(request: Request, file_id: str, body: LibraryRemoveBody):
+    """Take a file out of the Library. Its bytes are held in the Library folder's
+    ``removed/`` and its record kept, for Undo and Restore; nothing is deleted."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.remove(conn, body.expected_vault_id, file_id, body.expected_version_id, body.cascade)
+
+
+@app.get("/api/library/removed", response_model=response_models.LibraryRemovedList,
+         response_model_exclude_unset=True)
+def library_removed(request: Request, expected_vault_id: str):
+    """Every removed file still on record, newest first, and whether its bytes are still held."""
+    _library_query(request, ("expected_vault_id",))
+    with _library_connection() as conn:
+        return library_removal.list_removed(conn, expected_vault_id)
+
+
+@app.post("/api/library/removed/{file_id}/restore", response_model=response_models.LibraryFileDetail,
+          response_model_exclude_unset=True)
+def library_restore(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Undo a removal: the folder, the row and every row that went with it, as they were."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.restore(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/removed/{file_id}/release", response_model=response_models.LibraryReleased,
+          response_model_exclude_unset=True)
+def library_release(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """The held file's verified path, under the name it was imported as, for the desktop's Trash."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.release_request(conn, body.expected_vault_id, file_id)
+
+
+@app.delete("/api/library/removed/{file_id}", response_model=response_models.LibraryForgotten,
+            response_model_exclude_unset=True)
+def library_forget(request: Request, file_id: str, body: LibraryVaultIdBody):
+    """Drop a removed file's record once its bytes have left the Library folder; refused while they are held."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_removal.forget(conn, body.expected_vault_id, file_id)
+
+
+@app.post("/api/library/vault/relink", response_model=response_models.LibraryStatus,
+          response_model_exclude_unset=True)
+def library_relink(request: Request, body: LibraryRelinkBody):
+    """Record where the Library folder is now, after checking it is this Library's own."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.relink(conn, body.expected_vault_id, body.folder)
+
+
+@app.post("/api/library/vault/move", response_model=response_models.LibraryMovedStatus,
+          response_model_exclude_unset=True)
+def library_move(request: Request, body: LibraryMoveBody):
+    """Move the Library folder into another folder, keeping its name. Across disks the
+    files are copied and checked, and the old folder is left where it was."""
+    _library_query(request, ())
+    with _library_connection() as conn:
+        return library_folder.move(conn, body.expected_vault_id, body.parent_directory)
 
 
 def _library_connection_factory():

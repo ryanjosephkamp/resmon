@@ -355,9 +355,9 @@ def overlong_text(codepoints: int = 200001) -> bytes:
     return text_pages(["X" * codepoints])
 
 
-def oversized_input(payload_bytes: int = 16 * MIB + 1) -> bytes:
+def oversized_input(payload_bytes: int = 64 * MIB + 1) -> bytes:
     """E08: valid envelope with a large unreferenced stream; input guard first."""
-    _integer(payload_bytes, 16 * MIB + 1, 17 * MIB, "payload_bytes")
+    _integer(payload_bytes, 64 * MIB + 1, 65 * MIB, "payload_bytes")
     pdf = _Pdf()
     catalog, pages = pdf.reserve(), pdf.reserve()
     font = _font(pdf)

@@ -103,7 +103,7 @@ test('the top bar: its name goes home, and a click leaves no ring for the next k
     const bar = win.locator('header.bar');
     const library = win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' });
     await library.click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
     // A toolbar keeps no focus: Shift (part of the screenshot keys) then rings nothing in the bar.
     await win.keyboard.press('Shift');
     expect(await bar.evaluate((node) => node.querySelectorAll(':focus-visible').length)).toBe(0);
@@ -185,8 +185,8 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     await win.keyboard.press(`${MOD}+BracketRight`);
     await expect.poll(() => hash(win)).toBe('#/health');
 
-    // — ⌘N: Ask, a new conversation, the caret in the composer --------------------------
-    await win.keyboard.press(`${MOD}+n`);
+    // — ⇧⌘N: Ask, a new conversation, the caret in the composer (⌘N is New Window) ----
+    await win.keyboard.press(`${MOD}+Shift+n`);
     await expect.poll(() => hash(win)).toBe('#/ask');
     const composer = win.getByRole('region', { name: 'Conversation' }).getByLabel('Message the assistant');
     await expect(win.getByRole('button', { name: 'New conversation' })).toHaveAttribute('aria-pressed', 'true');
@@ -265,10 +265,12 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
 
     // — nothing while a dialog of a screen's own is open, not even the menu's keys -----
     await openForeignDialog(win);
-    for (const key of [`${MOD}+3`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
+    for (const key of [`${MOD}+3`, `${MOD}+Shift+n`, `${MOD}+n`, `${MOD}+BracketLeft`, `${MOD}+k`]) await win.keyboard.press(key);
     await win.waitForTimeout(500);
     expect(await hash(win)).toBe('#/search');
     await expect(palette).toBeHidden();
+    // ⌘N opened no window over it either.
+    expect(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length)).toBe(1);
     await closeForeignDialog(win);
 
     // — the app menu carries the same keys, and its items reach the renderer -------------
@@ -277,7 +279,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
       return found ? { label: found.label, accelerator: found.accelerator ?? null } : null;
     }, id);
     const click = (id: string) => app.evaluate(({ Menu }, which) => { Menu.getApplicationMenu()?.getMenuItemById(which)?.click(); }, id);
-    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'CmdOrCtrl+N' });
+    expect(await item('file-new-conversation')).toEqual({ label: 'New Conversation', accelerator: 'Shift+CmdOrCtrl+N' });
     expect(await item('file-new-dive')).toEqual({ label: 'New Deep Dive', accelerator: 'CmdOrCtrl+D' });
     expect(await item('file-new-sweep')).toEqual({ label: 'New Deep Sweep', accelerator: 'Shift+CmdOrCtrl+D' });
     expect((await item('app-settings'))?.accelerator).toBe('CmdOrCtrl+,');

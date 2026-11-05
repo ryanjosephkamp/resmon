@@ -64,7 +64,7 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
     path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
     widths = column_names(c)
     db.init_db(conn=c)
-    assert db.get_schema_version(c) == 24
+    assert db.get_schema_version(c) == 25
     after = contents(c, widths)
     assert ({k for k, _ in after['app_settings']}
             - {k for k, _ in before['app_settings']}) == BACKFILL_MARKERS
@@ -72,15 +72,16 @@ def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tm
                              for k, v in after['app_settings'] if k not in BACKFILL_MARKERS]
     assert after == before
     ddl = objects(c)
-    assert len(ddl) == 4
-    assert [x[0] for x in ddl.values()].count('table') == 3
+    # Schema 16's three tables and index, and schema 25's removed-file record.
+    assert len(ddl) == 5
+    assert [x[0] for x in ddl.values()].count('table') == 4
     assert [x[0] for x in ddl.values()].count('index') == 1
-    for table in ('library_vault', 'library_files', 'library_file_documents'):
+    for table in ('library_vault', 'library_files', 'library_file_documents', 'library_removed'):
         assert c.execute(f'SELECT count(*) FROM {table}').fetchone()[0] == 0
     c.close(); db.init_db(path); db.init_db(path)
     with db.get_connection(path) as reopened:
         assert objects(reopened) == ddl
-        assert db.get_schema_version(reopened) == 24
+        assert db.get_schema_version(reopened) == 25
     assert not list(tmp_path.glob('resmon-library-*'))
     fresh = db.get_connection(tmp_path / 'fresh.db'); db.init_db(conn=fresh)
     assert objects(fresh) == ddl

@@ -375,7 +375,8 @@ def test_wrong_version_vault_and_project_never_attach_a_note(workspace: Workspac
 
 
 def test_actual_project_quota_refuses_without_truncation(workspace: Workspace) -> None:
-    assert (ev.MAX_PROJECTS, ev.MAX_MEMBERS, ev.MAX_NOTES, ev.MAX_BODY) == (100, 1000, 5000, 20000)
+    # A project's files have no cap of their own since schema 25's Library (``evidence.MAX_MEMBERS``).
+    assert (ev.MAX_PROJECTS, ev.MAX_MEMBERS, ev.MAX_NOTES, ev.MAX_BODY) == (100, None, 5000, 20000)
     for index in range(99):
         ev.create_project(workspace.conn, workspace.vault_id, f"Project {index}")
     before = sql_snapshot(workspace.conn)
@@ -387,7 +388,7 @@ def test_actual_project_quota_refuses_without_truncation(workspace: Workspace) -
 def test_reduced_member_and_note_quota_preserves_existing_data_and_membership_noop(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    assert (ev.MAX_MEMBERS, ev.MAX_NOTES) == (1000, 5000)
+    assert (ev.MAX_MEMBERS, ev.MAX_NOTES) == (None, 5000)
     new = put_file(workspace, "over-member-limit.txt", b"New file remains in Library", member=False)
     monkeypatch.setattr(ev, "MAX_MEMBERS", 4)
     before = sql_snapshot(workspace.conn)

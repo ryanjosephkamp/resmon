@@ -34,7 +34,7 @@ Under the button, resmon says what it already knows about this particular ask: w
 
 The run opens on its own page. While it runs, each source's line changes as its answer arrives. When it ends, the page lists the **recorded outcome of each source** and a sentence summing them up. Below that are tabs: **Papers**, **Map**, **Report**, **Search record**, **Log**, **Metadata**, and **Progress**. See [Search](/resmon/guide/search/).
 
-Press **Save to read** on a paper to put it in your **Library › Reading queue**.
+Press **Save to read** on a paper to put it in your **Library**, under **To read**.
 
 ## 3. Make it a watch
 

@@ -27,6 +27,7 @@ import type { ElectronApplication } from '@playwright/test';
 import {
   launchResmon, ATLAS_LANDMARK, WINDOW_WIDTH, WINDOW_HEIGHT, fittedWindowSize,
 } from './fixtures/resmon-app';
+import { windowTitle } from '../atlas/src/windowTitle';
 
 interface Observed {
   bounds: { width: number; height: number };
@@ -170,7 +171,8 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
 
   // Everything the flag does not control is identical across the two launches.
   expect(plainObs.title).toBe(e2eObs.title);
-  expect(plainObs.title).toBe('resmon');
+  // A window is named by its page, Today at launch, by the app's own rule (the app's name follows off macOS).
+  expect(plainObs.title).toBe(windowTitle('/today', process.platform === 'darwin'));
   expect(plainObs.hasBridge).toBe(true);
   expect(e2eObs.hasBridge).toBe(true);
   expect(plainObs.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/index\.html/);
