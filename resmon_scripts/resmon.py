@@ -342,7 +342,9 @@ def _get_db():
         _db_generation += 1
         _shared_conn = _open_connection()
         if not _db_initialized:
-            init_db(conn=_shared_conn)
+            # ``":memory:"`` stands for a throwaway database (a temporary file
+            # here), which keeps no copy of itself before an upgrade.
+            init_db(conn=_shared_conn, keep_upgrade_copy=_db_path != ":memory:")
             _db_initialized = True
 
     conn = getattr(_db_local, "conn", None)
@@ -8965,7 +8967,10 @@ def _apply_pending_restore_on_startup() -> dict | None:
             _backup_state_dir(),
             Path(db_path),
             this_schema_version=SCHEMA_VERSION,
-            init_db=lambda path: init_db(path),
+            # The backup being restored is the copy of this database from
+            # before its upgrade, so none is made beside it; and making one
+            # would delete the copy from before the last update.
+            init_db=lambda path: init_db(path, keep_upgrade_copy=False),
             daemon_lock_held=another_process_holds_it,
         )
     except Exception:

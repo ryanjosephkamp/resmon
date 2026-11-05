@@ -255,6 +255,11 @@ def test_choices_blocking_objects_roll_back_partial_upgrade(tmp_path, blocker):
         database.init_db(conn=c)
     assert database.get_schema_version(c) == 14
     assert choices_objects(c) == before
+    # The copy taken before the first step is beside it, and so is the file
+    # that says the upgrade is unfinished, so the start that finishes it keeps
+    # that copy.
+    assert (tmp_path / 'blocked-before-schema-14.db').is_file()
+    assert (tmp_path / 'blocked.db-upgrade-unfinished').read_text() == 'blocked-before-schema-14.db'
     # The markers are excluded, not forgiven: they were written and committed
     # by an earlier step that succeeded, so putting them back is not what the
     # blocked step's rollback is for.
