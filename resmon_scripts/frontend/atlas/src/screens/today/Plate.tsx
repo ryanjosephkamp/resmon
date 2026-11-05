@@ -236,6 +236,8 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   // The paper the keyboard chose, while it is what a tip follows, and where it was last said to be.
   const keyed = useRef<number | null>(null);
   const keyedAt = useRef('');
+  // Where the pointer last was in the window: a move the browser makes up when the page changes under a still pointer is not the pointer moving.
+  const pointerAt = useRef('');
   const palette = useRef<Palette | null>(null);
   const shading = useRef<HTMLCanvasElement | null>(null);
   const reduced = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
@@ -773,8 +775,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   };
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
     const [x, y] = local(event);
-    // The pointer takes over from the keyboard: its tip is the pointer's now.
-    if (keyed.current !== null) { keyed.current = null; reportKeyed(); }
+    // The pointer takes over from the keyboard when it moves: its tip is the pointer's now.
+    const at = `${event.clientX}:${event.clientY}`;
+    if (at !== pointerAt.current && keyed.current !== null) { keyed.current = null; reportKeyed(); }
+    pointerAt.current = at;
     let d = drag.current;
     // A press whose release never reached the plate (the window lost the
     // pointer between them) ends at the first move with no button held: as the
