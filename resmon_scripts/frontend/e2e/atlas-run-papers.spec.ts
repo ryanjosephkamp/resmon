@@ -70,8 +70,8 @@ print(run)
     await more.click();
     await expect(page.locator('.paper-row')).toHaveCount(400);
     await expect(page.locator('.run-panel .record-cap')).toHaveText('The first 400 of 2,500 papers this run stored.');
-    // One read of every id for the map; the papers only as the tab asked for them.
-    expect(asked.filter((a) => a === '/document-ids')).toHaveLength(1);
+    // One read of every id for the map, which is the shown collection's; the papers only as the tab asked for them.
+    expect(asked.filter((a) => a.startsWith('/document-ids'))).toEqual(['/document-ids?collection=1']);
     expect(asked.filter((a) => a.startsWith('/documents?')).sort()).toEqual([
       '/documents?limit=200&offset=0', '/documents?limit=200&offset=200',
     ]);
