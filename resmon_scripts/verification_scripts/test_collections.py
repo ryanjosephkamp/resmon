@@ -707,9 +707,12 @@ def test_every_read_takes_a_collection_and_an_absent_one_is_the_default(http):
     _paper(conn, "z", source="pubmed")
     a = _paper(conn, "a")
     p = _paper(conn, "p", collection_id=physics)
+    # The clock a read reports moves between two reads; the rest is the collection's.
+    def read(path, **params):
+        return {k: v for k, v in client.get(path, params=params).json().items() if k not in ("now", "since")}
+
     for path in ("/api/today", "/api/map/facets", "/api/analytics/overview"):
-        mine, absent, by_name = (client.get(path, params={"collection": str(physics)}).json(),
-                                 client.get(path).json(), client.get(path, params={"collection": "Physics"}).json())
+        mine, absent, by_name = read(path, collection=str(physics)), read(path), read(path, collection="Physics")
         assert mine == by_name, path
         assert mine != absent, path
     assert client.get("/api/today", params={"collection": "Physics"}).json()["papers"][0]["id"] == p
