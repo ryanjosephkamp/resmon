@@ -338,7 +338,9 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await mark(first).click();
     await seen;
     await expect(mark(first)).toHaveAttribute('data-monitor', 'idle');
-    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 15_000 });
+    // The other window learns it at its next read of the running runs, which comes every 15 s
+    // while nothing runs; twice that leaves room for a read that had just gone out.
+    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 30_000 });
     expect((await api<{ failed_unseen: number[] }>(second, '/api/executions/active')).failed_unseen).not.toContain(broken.execution_id);
     await first.keyboard.press('Escape');
 
