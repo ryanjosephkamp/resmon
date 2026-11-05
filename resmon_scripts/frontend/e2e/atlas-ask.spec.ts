@@ -161,5 +161,6 @@ test('Ask: the keyboard, a tool row, a card that really allows, a turn that outl
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });

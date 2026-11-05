@@ -279,5 +279,6 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
     expect(problems, 'the renderer threw').toEqual([]);
   } finally {
     await app.close().catch(() => {});
+    fs.rmSync(root, { recursive: true, force: true });
   }
 });
