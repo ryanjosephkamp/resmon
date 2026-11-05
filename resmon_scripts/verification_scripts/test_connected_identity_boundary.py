@@ -157,7 +157,7 @@ def test_two_actual_processes_http_stdio_and_same_state_restart(tmp_path):
             tool("health", expected_runtime_id="bad"),
             tool("get_execution", exec_id=999999, expected_runtime_id=aid)])
         tools = replies[1]["result"]["tools"]
-        assert len(tools) == 25
+        assert len(tools) == 26
         assert {t["name"] for t in tools if "expected_runtime_id" in t["inputSchema"]["properties"]} == {"health", "get_execution"}
         assert payload(replies[3])["identity"]["runtime_id"] == aid
         assert payload(replies[4])["id"] == eid
