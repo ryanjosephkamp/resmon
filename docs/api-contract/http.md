@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-210 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+222 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 117 of 210 routes that have one. The remaining 93 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 129 of 222 routes that have one. The remaining 93 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 174 of 210 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 36 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 184 of 222 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -305,6 +305,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/reading-queue` | token | — | `ReadingQueueEntry` | Save a stored paper. Saving one already saved returns it unchanged. |
 | `DELETE` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueRemoval` | Take a paper out of the queue. The paper itself is not touched. |
 | `PUT` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueEntry` | Mark a saved paper read or unread. |
+| `POST` | `/api/reading-queue/{document_id}/restore` | token | — | `ReadingQueueRestored` | Undo a removal: the entry back with the state and dates it had. |
 
 ## J29 — Recorded-source coverage
 
@@ -351,13 +352,24 @@ No route. Recorded in the register as not carried forward.
 | `GET` | `/api/library/export` | token | — | `LibraryInventory` | *Library Inventory* |
 | `GET` | `/api/library/files` | token | — | `LibraryFiles` | *Library List* |
 | `POST` | `/api/library/files` | token | — | `LibraryImported` | *Library Import* |
+| `DELETE` | `/api/library/files/{file_id}` | token | — | `LibraryRemoved` | Take a file out of the Library. Its bytes are held in the Library folder's |
 | `GET` | `/api/library/files/{file_id}` | token | — | `LibraryFileDetail` | *Library Detail* |
 | `POST` | `/api/library/files/{file_id}/open` | token | — | `LibraryOpened` | *Library Open* |
 | `POST` | `/api/library/files/{file_id}/paper-links` | token | — | `LibraryLinked` | *Library Link* |
+| `GET` | `/api/library/files/{file_id}/pdf` | token | — | — | A kept PDF's bytes, for the reader outside Evidence: verified, up to the one read limit. |
+| `GET` | `/api/library/files/{file_id}/picture` | token | — | — | The first-page picture kept for this exact version, or 404 `no_picture`. |
+| `PUT` | `/api/library/files/{file_id}/picture` | token | — | `LibraryPicture` | Keep the first-page picture the renderer drew of this version: WebP, PNG or JPEG, 512 KiB at most. |
+| `GET` | `/api/library/files/{file_id}/removal` | token | — | `LibraryRemoval` | What would go with this file if it were removed: its paper links, and the projects |
 | `GET` | `/api/library/files/{file_id}/shared-wording` | token | — | `SharedWordingLibrary` | The last comparison of this file since the engine started, or that there is none. |
 | `POST` | `/api/library/files/{file_id}/shared-wording` | token | — | `SharedWordingLibrary` | Compare this file, page by page, with the abstracts and the other Library files. |
 | `GET` | `/api/library/files/{file_id}/text` | token | — | `LibraryText` | *Library Read Text* |
+| `GET` | `/api/library/removed` | token | — | `LibraryRemovedList` | Every removed file still on record, newest first, and whether its bytes are still held. |
+| `DELETE` | `/api/library/removed/{file_id}` | token | — | `LibraryForgotten` | Drop a removed file's record once its bytes have left the Library folder; refused while they are held. |
+| `POST` | `/api/library/removed/{file_id}/release` | token | — | `LibraryReleased` | The held file's verified path, under the name it was imported as, for the desktop's Trash. |
+| `POST` | `/api/library/removed/{file_id}/restore` | token | — | `LibraryFileDetail` | Undo a removal: the folder, the row and every row that went with it, as they were. |
 | `POST` | `/api/library/vault` | token | — | `LibraryStatus` | *Library Create Vault* |
+| `POST` | `/api/library/vault/move` | token | — | `LibraryMovedStatus` | Move the Library folder into another folder, keeping its name. Across disks the |
+| `POST` | `/api/library/vault/relink` | token | — | `LibraryStatus` | Record where the Library folder is now, after checking it is this Library's own. |
 
 ## J35 — Evidence workspace
 
@@ -449,7 +461,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 210 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 222 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 

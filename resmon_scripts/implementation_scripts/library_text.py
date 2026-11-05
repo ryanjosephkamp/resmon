@@ -17,8 +17,8 @@ def read_text(conn: sqlite3.Connection, vault_id: str, file_id: str, version_id:
     # for a guessed item/version. Open and text use the same retained resolver.
     with library.checked_vault(conn, vault_id):
         row = library.file_row(conn, file_id, version_id)
-        if row['media_type'] not in ('text/plain', 'text/markdown'):
-            raise library.LibraryError('unsupported_text', 'PDF is retained but cannot be read here. Use verified external Open.', 415)
+        if row['media_type'] not in library.TEXT_MEDIA:
+            raise library.LibraryError('unsupported_text', 'A PDF is read by the PDF reader, not as text.', 415)
     with library.retained(conn, vault_id, file_id, version_id, MAX_TEXT_BYTES) as (row, fd, _):
         raw = bytearray()
         while len(raw) <= MAX_TEXT_BYTES:

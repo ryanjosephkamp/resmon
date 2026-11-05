@@ -151,7 +151,9 @@ def choices_rows(c, widths=None):
                                   # missed-fire table is: nothing to seed from.
                                   'routine_delivery_targets', 'deliveries',
                                   # Schema 23's two, empty for the same reason.
-                                  'assistant_turn_failures', 'execution_ai_models')]
+                                  'assistant_turn_failures', 'execution_ai_models',
+                                  # Schema 25's removed-file record, empty too.
+                                  'library_removed')]
     result = {}
     for name in tables:
         columns = [r[1] for r in c.execute('PRAGMA table_info("' + name + '")')]
@@ -210,7 +212,7 @@ def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     after['app_settings'] = [(k, '14' if k == 'schema_version' else v) for k, v in after['app_settings']]
     assert minus_markers(after) == before
     assert [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")] == fts
-    assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"} | set(database._JOBS_V20_DDL) | set(database._DELIVERY_V21_DDL) | {"idx_documents_metadata_hash"} | set(database._ANSWER_RECORDS_V23_DDL)
+    assert set(choices_objects(c)) - set(old_objects) == set(database._ASSISTANT_CHOICES_DDL) | set(database._LIBRARY_DDL) | set(database._EVIDENCE_DDL) | {"evidence_answers", "idx_evidence_answers_project_order"} | set(database._JOBS_V20_DDL) | set(database._DELIVERY_V21_DDL) | {"idx_documents_metadata_hash"} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"}
     for name, ddl in old_objects.items():
         if name == 'executions':
             # The one object schema 19 rebuilds on purpose. Asserted on rather
@@ -320,7 +322,7 @@ def test_schema_24_keeps_every_binding_and_admits_codex(tmp_path):
     before = [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')]
     columns = [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')]
     database.init_db(conn=c)
-    assert database.get_schema_version(c) == 24
+    assert database.get_schema_version(c) == 25
     assert [tuple(r) for r in c.execute('SELECT * FROM assistant_session_choices ORDER BY session_id')] == before
     assert [tuple(r) for r in c.execute('PRAGMA table_info(assistant_session_choices)')] == columns
     assert c.execute('PRAGMA foreign_key_check').fetchall() == []

@@ -27,7 +27,9 @@ def put(c, vid, name='paper.txt', content=b'authored text', document_id=None):
 
 
 def test_constants_and_no_implicit_creation(tmp_path):
-    assert (lib.MAX_FILE_BYTES, lib.MAX_BATCH_FILES, lib.MAX_VAULT_BYTES, lib.MAX_ITEMS) == (67108864, 20, 1073741824, 10000)
+    assert (lib.MAX_FILE_BYTES, lib.MAX_READ_BYTES, lib.MAX_BATCH_FILES, lib.FREE_SPACE_FLOOR) == (67108864, 67108864, 20, 536870912)
+    # No count or size cap of the Library's own: the disk is the limit.
+    assert not hasattr(lib, 'MAX_ITEMS') and not hasattr(lib, 'MAX_VAULT_BYTES')
     assert library_export.MAX_EXPORT_BYTES == 8388608
     c = db.get_connection(tmp_path / 'empty.db'); db.init_db(conn=c)
     assert lib.status(c)['status'] == 'unconfigured'
@@ -69,11 +71,15 @@ def test_real_stream_bound_capacity_duplicate_and_original(vault, tmp_path, monk
     with pytest.raises(lib.LibraryError, match='64 MiB'):
         with lib.Import(c, vid, 'overflow.txt') as stream:
             stream.write(b'abc'); stream.write(b'def')
-    monkeypatch.setattr(lib, 'MAX_ITEMS', 1)
-    monkeypatch.setattr(lib, 'MAX_VAULT_BYTES', 4)
+    # A disk with less free than the floor refuses a new copy; the same bytes again are reused.
+    class Full:
+        f_bavail, f_frsize = 1, 4096
+    monkeypatch.setattr(lib.os, 'statvfs', lambda fd: Full())
     assert put(c, vid, content=b'abcd')['duplicate']
-    with pytest.raises(lib.LibraryError, match='capacity'):
+    with pytest.raises(lib.LibraryError, match='512 MB free') as refused:
         put(c, vid, content=b'new')
+    assert refused.value.reason == 'disk_full'
+    assert lib.counts(c)['items'] == 1
     assert original.read_bytes() == old
     assert (root / first['file']['relative_path']).read_bytes() == old
 
@@ -267,12 +273,50 @@ def test_managed_components_and_nonregular_objects_refuse(vault, tmp_path, compo
     else: assert stored.read_bytes() == b'authored text'
 
 
-def test_changed_retained_size_blocks_import_without_rewriting_prior_bytes(vault):
+def test_a_changed_retained_file_is_refused_when_read_and_never_rewritten(vault):
+    # The status read lists the folders and does not open every file (at 30,000
+    # files that took 3 s a read). A changed file is caught where it could do
+    # harm, when it is read, and is never rewritten; other files keep importing.
     c, vid, root = vault; item = put(c, vid)['file']; retained = root / item['relative_path']
     retained.write_bytes(b'authored external size change, kept for owner inspection')
     altered = retained.read_bytes()
-    assert lib.status(c)['status'] == 'needs_attention'
-    with pytest.raises(lib.LibraryError, match='recorded quota'):
-        put(c, vid, 'another.txt', b'new selection')
-    assert lib.counts(c)['items'] == 1 and retained.read_bytes() == altered
+    assert lib.status(c)['status'] == 'ready'
+    with pytest.raises(lib.LibraryError, match='differs from the catalog'):
+        lib.open_request(c, vid, item['file_id'], item['version_id'])
+    put(c, vid, 'another.txt', b'new selection')
+    assert lib.counts(c)['items'] == 2 and retained.read_bytes() == altered
     assert not (root / '.import.lock').exists()
+
+
+def test_a_file_deleted_outside_resmon_is_missing_alone(vault):
+    c, vid, root = vault
+    gone, kept = put(c, vid, 'gone.txt', b'gone')['file'], put(c, vid, 'kept.txt', b'kept')['file']
+    import shutil
+    shutil.rmtree(root / 'files' / gone['file_id'])
+    status = lib.status(c)
+    assert status['status'] == 'ready' and status['counts']['missing'] == 1
+    listed = {f['file_id']: f['availability'] for f in lib.list_files(c, vid)['files']}
+    assert listed == {gone['file_id']: 'missing', kept['file_id']: 'not_checked'}
+    with pytest.raises(lib.LibraryError) as refused:
+        lib.open_request(c, vid, gone['file_id'], gone['version_id'])
+    assert refused.value.reason == 'missing_file'
+    assert lib.open_request(c, vid, kept['file_id'], kept['version_id'])['path'].endswith('.txt')
+    put(c, vid, 'more.txt', b'more')
+    assert lib.counts(c)['items'] == 3
+
+
+def test_tex_is_kept_as_strict_text_and_sorts_list(vault):
+    c, vid, root = vault
+    tex = put(c, vid, 'proof.tex', rb'\section{A} $e^{i\pi}+1=0$')['file']
+    assert tex['media_type'] == 'text/x-tex' and tex['relative_path'].endswith('.tex')
+    with pytest.raises(lib.LibraryError):
+        put(c, vid, 'bad.tex', b'\xff')
+    put(c, vid, 'b-small.txt', b'b'); put(c, vid, 'a-large.md', b'a' * 50)
+    names = lambda **kw: [f['original_name'] for f in lib.list_files(c, vid, **kw)['files']]
+    assert names(sort='name') == ['a-large.md', 'b-small.txt', 'proof.tex']
+    assert names(sort='size')[0] == 'a-large.md'
+    assert names(sort='oldest') == ['proof.tex', 'b-small.txt', 'a-large.md']
+    page = lib.list_files(c, vid, sort='name', limit=2, offset=2)
+    assert [f['original_name'] for f in page['files']] == ['proof.tex'] and page['total'] == 3 and not page['has_more']
+    with pytest.raises(lib.LibraryError):
+        lib.list_files(c, vid, sort='name', before_id=1)

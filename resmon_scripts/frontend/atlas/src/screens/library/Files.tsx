@@ -79,7 +79,7 @@ function Setup({ limits }: { limits: LibraryStatus['limits'] }) {
         a <code className="path">files</code> folder. Nothing is uploaded anywhere.
       </p>
       <ul className="setup-facts">
-        <li>Up to {sizeWords(limits.file_bytes)} a file, {number(limits.batch_files)} files at a time, {number(limits.items)} files in all.</li>
+        <li>Up to {sizeWords(limits.file_bytes)} a file, {number(limits.batch_files)} files at a time.</li>
         <li>Each file is kept exactly as given, under an id of its own; importing the same bytes again reuses that copy.</li>
       </ul>
       <div className="setup-row">

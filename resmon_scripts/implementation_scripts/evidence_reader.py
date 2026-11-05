@@ -21,7 +21,7 @@ def pdf_bytes(conn: sqlite3.Connection, expected: str, project_id: str, file_id:
                 break
             data.extend(chunk)
         if len(data) > evidence_pdf.MAX_INPUT:
-            evidence.refuse('pdf_limit', 'This PDF exceeds 16 MiB; nothing was truncated.', 413)
+            evidence.refuse('pdf_limit', 'This PDF exceeds 64 MiB; nothing was truncated.', 413)
         if len(data) != row['byte_size'] or hashlib.sha256(data).hexdigest() != row['sha256']:
             evidence.refuse('changed_content', 'Retained bytes changed during the read.')
         return file, bytes(data)

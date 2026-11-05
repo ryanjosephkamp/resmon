@@ -15,7 +15,8 @@ import sys
 from pypdf import PdfReader, apply_configuration
 from pypdf.errors import DependencyError, LimitReachedError, PdfReadError
 
-MAX_INPUT = 16 * 1024 * 1024
+# The parent's ``evidence_pdf.MAX_INPUT``; this process imports nothing of the app.
+MAX_INPUT = 64 * 1024 * 1024
 MAX_OUTPUT = 1024 * 1024
 MAX_CODEPOINTS = 200000
 CONFIGURATION = {

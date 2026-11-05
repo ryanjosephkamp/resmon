@@ -15,7 +15,10 @@ from typing import Iterator
 from . import library
 
 MAX_PROJECTS = 100
-MAX_MEMBERS = 1000
+# No cap on a project's files. Each list is a page of 50 under an id ceiling, a
+# project's counts are indexed counts, and an answer or an export takes the files
+# and passages a person selected (20 at most), never the whole project.
+MAX_MEMBERS = None
 MAX_NOTES = 5000
 MAX_BODY = 20000
 FILE_FIELDS = ('file_id', 'version_id', 'vault_id', 'sha256', 'byte_size',
@@ -106,9 +109,16 @@ def project(conn: sqlite3.Connection, expected: str, project_id: str) -> dict:
 
 
 def project_view(conn: sqlite3.Connection, row: dict) -> dict:
+    """A project with its counts, and the first three PDFs it holds, for its cover in the Library."""
     counts = {key: conn.execute(f'SELECT count(*) FROM {table} WHERE project_id=?', (row['project_id'],)).fetchone()[0]
               for key, table in [('file_count', 'evidence_project_files'), ('note_count', 'evidence_notes')]}
-    return {**row, **counts}
+    passages = conn.execute("SELECT count(*) FROM evidence_notes WHERE project_id=? AND kind='passage'",
+                            (row['project_id'],)).fetchone()[0]
+    covers = [dict(r) for r in conn.execute(
+        "SELECT f.file_id, f.version_id, f.sha256, f.byte_size, f.media_type FROM evidence_project_files m "
+        "JOIN library_files f ON f.file_id=m.file_id AND f.version_id=m.version_id "
+        "WHERE m.project_id=? AND f.media_type='application/pdf' ORDER BY m.id LIMIT 3", (row['project_id'],))]
+    return {**row, **counts, 'passage_count': passages, 'cover_files': covers}
 
 
 def detail(conn: sqlite3.Connection, expected: str, project_id: str) -> dict:
@@ -225,8 +235,9 @@ def add_file(conn: sqlite3.Connection, expected: str, project_id: str, revision:
     with write(conn, expected, project_id, revision):
         current = member(conn, expected, project_id, file_id, version_id, required=False)
         if current is None:
-            if conn.execute('SELECT count(*) FROM evidence_project_files WHERE project_id=?', (project_id,)).fetchone()[0] >= MAX_MEMBERS:
-                refuse('member_limit', 'This project has reached 1,000 files.', 413)
+            if MAX_MEMBERS is not None and conn.execute(
+                    'SELECT count(*) FROM evidence_project_files WHERE project_id=?', (project_id,)).fetchone()[0] >= MAX_MEMBERS:
+                refuse('member_limit', f'This project has reached {MAX_MEMBERS:,} files.', 413)
             conn.execute('INSERT INTO evidence_project_files(project_id,file_id,version_id,added_at_utc) VALUES (?,?,?,?)',
                          (project_id, file_id, version_id, utc_now()))
             changed(conn, project_id)
