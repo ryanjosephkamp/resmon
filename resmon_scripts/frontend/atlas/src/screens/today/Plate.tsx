@@ -30,8 +30,13 @@ export interface PlateHandle {
   focus: () => void;
 }
 
-/** The paper under the pointer, where it is on the plate, and the plate's size, so a tip can stay inside it. */
-export interface PlateHover { index: number; screenX: number; screenY: number; width?: number; height?: number }
+/**
+ * The paper under the pointer, or the one the keyboard chose (`via`), where it
+ * is on the plate, and the plate's size, so a tip can stay inside it.
+ */
+export interface PlateHover {
+  index: number; screenX: number; screenY: number; width?: number; height?: number; via?: 'pointer' | 'keyboard';
+}
 
 interface Props {
   sky: Sky;
@@ -55,6 +60,13 @@ interface Props {
   /** Enter on the paper already chosen: where a page opens papers elsewhere, it opens it. */
   onOpen?: (index: number) => void;
   onHover: (hover: PlateHover | null) => void;
+  /**
+   * The paper the keyboard chose, and where it is drawn, so a tip can follow
+   * the keyboard as it follows the pointer: said again when the map moves
+   * under it, and as null when it leaves the plate, the choice is cleared, the
+   * map loses the keyboard, or the pointer moves over the map.
+   */
+  onKeyed?: (hover: PlateHover | null) => void;
   /** Read when the theme or accent changes, so the canvas redraws in it. */
   paletteKey: string;
   label: string;
@@ -221,6 +233,9 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   const glide = useRef<{ from: View; to: View; start: number } | null>(null);
   const drag = useRef<{ x: number; y: number; moved: boolean; view: View } | null>(null);
   const hoverIndex = useRef<number | null>(null);
+  // The paper the keyboard chose, while it is what a tip follows, and where it was last said to be.
+  const keyed = useRef<number | null>(null);
+  const keyedAt = useRef('');
   const palette = useRef<Palette | null>(null);
   const shading = useRef<HTMLCanvasElement | null>(null);
   const reduced = useMemo(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches, []);
@@ -280,6 +295,26 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
     }
     return count;
   }, [sky, hash, toPlate]);
+
+  /** Say where the keyboard's paper is drawn now, if that changed: off the plate, or put away, is null. */
+  const reportKeyed = useCallback(() => {
+    const report = latest.current.onKeyed;
+    if (!report) return;
+    const i = keyed.current;
+    let where = '';
+    let hover: PlateHover | null = null;
+    if (i !== null) {
+      const [sx, sy] = toScreen(sky.x[i] ?? 0, sky.y[i] ?? 0);
+      if (sx >= MARGIN && sx <= size.w - MARGIN && sy >= MARGIN && sy <= size.h - MARGIN) {
+        where = `${i}:${Math.round(sx)}:${Math.round(sy)}`;
+        hover = { index: i, screenX: sx, screenY: sy, width: size.w, height: size.h, via: 'keyboard' };
+      } else where = 'off';
+    }
+    if (where === keyedAt.current) return;
+    const was = keyedAt.current;
+    keyedAt.current = where;
+    if (hover || (was && was !== 'off')) report(hover);
+  }, [toScreen, sky, size]);
 
   const draw = useCallback(() => {
     frame.current = 0;
@@ -629,8 +664,10 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       node.dataset.frameMs = (performance.now() - started).toFixed(1);
       node.dataset.view = `${v.cx} ${v.cy} ${v.scale}`;
     }
+    // The keyboard's paper is said where it comes to rest, not on each frame of a glide.
+    if (!glide.current) reportKeyed();
     if (glide.current) frame.current = requestAnimationFrame(() => drawRef.current());
-  }, [size, toScreen, arrivalRank, occupied, papersUnder, paint]);
+  }, [size, toScreen, arrivalRank, occupied, papersUnder, paint, reportKeyed]);
   useEffect(() => { drawRef.current = draw; }, [draw]);
 
   const schedule = useCallback(() => {
@@ -736,6 +773,8 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   };
   const onPointerMove = (event: PointerEvent<HTMLCanvasElement>) => {
     const [x, y] = local(event);
+    // The pointer takes over from the keyboard: its tip is the pointer's now.
+    if (keyed.current !== null) { keyed.current = null; reportKeyed(); }
     let d = drag.current;
     // A press whose release never reached the plate (the window lost the
     // pointer between them) ends at the first move with no button held: as the
@@ -821,6 +860,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
   /** Choose a paper from the keyboard, and keep it on the screen. */
   const choose = (i: number | null) => {
     if (i === null) return;
+    keyed.current = i;
     onSelect(i, 'keyboard');
     const [sx, sy] = toScreen(sky.x[i] ?? 0, sky.y[i] ?? 0);
     const edge = MARGIN + 30;
@@ -885,7 +925,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
       ArrowRight: () => go({ ...v, cx: v.cx + step }),
       ArrowUp: () => go({ ...v, cy: v.cy + step }),
       ArrowDown: () => go({ ...v, cy: v.cy - step }),
-      Escape: () => onSelect(null, 'keyboard'),
+      Escape: () => { keyed.current = null; reportKeyed(); onSelect(null, 'keyboard'); },
     };
     const move = moves[event.key];
     if (move) { event.preventDefault(); move(); }
@@ -909,6 +949,7 @@ export const Plate = forwardRef<PlateHandle, Props>(function Plate(props, ref) {
         onPointerLeave={onPointerLeave}
         onDoubleClick={(event) => { const [x, y] = local(event); zoomAt(2, x, y); }}
         onKeyDown={onKeyDown}
+        onBlur={() => { keyed.current = null; reportKeyed(); }}
       />
       <p id={keysId} className="sr-only">
         Plus and minus zoom, the arrow keys move, zero returns to {whole}. Enter chooses the paper nearest the

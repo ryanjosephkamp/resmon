@@ -88,7 +88,7 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     const box = await win.locator(collection).boundingBox();
     if (!box) throw new Error('the map has no box');
     await win.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await expect(win.locator('.collection .tip b')).toContainText('Quantum');
+    await expect(win.getByRole('tooltip').locator('.chart-tip-value')).toContainText('Quantum');
     await shot(win, 'collection-paper');
     // Back returns to the results with the words kept, and the map's choice goes with the paper.
     await searchPanel.getByRole('button', { name: 'Back to the results' }).click();

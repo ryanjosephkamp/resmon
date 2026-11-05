@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
-import { Tip } from '../Today';
+import { Tip, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
 import { MAP_KEY } from '../today/freshness';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
@@ -212,6 +213,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
             onSelect={onSelect}
             onOpen={onChoose ? undefined : open}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`${said} ${onChoose ? 'Choose a paper to open it beside the map.' : 'Choose a paper to open its page.'}`}
             onAway={() => undefined}
@@ -221,7 +223,8 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', !!onChoose, hovered === focus)} />
             )}
           </Plate>
         ) : (
@@ -232,10 +235,28 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
           </div>
         )}
       </div>
+      {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+      <p className="sr-only" aria-live="polite" data-map-said="">
+        {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+          brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          opens: opensWords('keyboard', !!onChoose, hovered === focus),
+        })) : ''}
+      </p>
       <figcaption>{said}</figcaption>
     </figure>
   );
 });
+
+/**
+ * What choosing a paper does on a map, for its tip: opens it beside the map,
+ * or opens its page (from the keyboard, Enter does, once it is chosen). The
+ * page's own paper opens nothing, and its tip says nothing of it.
+ */
+export function opensWords(via: 'pointer' | 'keyboard', beside: boolean, isFocus: boolean): string | undefined {
+  if (isFocus) return undefined;
+  if (beside) return via === 'keyboard' ? undefined : 'Opens it beside the map';
+  return via === 'keyboard' ? 'Enter opens its page' : 'Opens its page';
+}
 
 /** "placed by shared wording" or "placed by meaning", for a caption. */
 export function basisWords(basis: SkyFacts['basis']): string {
