@@ -24,7 +24,7 @@ import { jumpWords, monthEnd, readJump, withJump } from './jump';
 import { ResultList, type Marks } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
-import { useCollection } from '../../collections/current';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import { MoveCopy } from '../../collections/MoveCopy';
 import { PickBar, usePicking } from '../../collections/PickBar';
 
@@ -75,6 +75,8 @@ export function Collection() {
   const [params, setParams] = useSearchParams();
   // The collection this window shows: every read below names it.
   const { id: collection, name: collectionName } = useCollection();
+  // How a sentence names it: "your collection" while it is the only one, its name where there are several.
+  const words = useCollectionWords();
   const within = useMemo(() => (collection === null ? {} : { collection }), [collection]);
   const filters = useMemo(() => readFilters(params), [params]);
   const filtered = filterCount(filters) > 0;
@@ -115,9 +117,13 @@ export function Collection() {
     return () => clearTimeout(settle);
   }, [draft, query]);
 
-  const status = useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: () => answer(engine().GET('/api/embeddings/status')) });
+  // The vectors of the papers in this collection, counted for it (`collection_coverage`).
+  const status = useQuery({
+    queryKey: [...EMBEDDING_STATUS_KEY, collection],
+    queryFn: () => answer(engine().GET('/api/embeddings/status', { params: { query: collectionParam(collection) } })),
+  });
   const canRank = status.data?.capability.available === true;
-  const rank = status.data ? rankingWords(status.data) : null;
+  const rank = status.data ? rankingWords(status.data, words) : null;
   const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
   // A month jumped to, in the newest order only: a ranking by meaning is not in date order.
   const at = readJump(params);
@@ -199,7 +205,7 @@ export function Collection() {
 
   const total = first?.total ?? 0;
   const busy = pages.isFetching || (fold && folded.isFetching);
-  const said = first ? countSentence(first, filtered, query) : '';
+  const said = first ? countSentence(first, filtered, query, words) : '';
   const stopped = first ? stoppedWords(first) : null;
   const offer = first ? exportWords(first, served) : null;
   const jumped = first?.start_date ? jumpWords(first, at ?? first.start_date) : null;
@@ -217,7 +223,7 @@ export function Collection() {
         label="Where the matches sit in the collection"
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
-          if (!query && !filtered) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
+          if (!query && !filtered) return `Every paper in ${words.name}, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
           const listed = ids.length < total || first?.total_is_exact === false
             ? `the first ${number(ids.length)} of ${first?.total_is_exact === false ? 'at least ' : ''}${number(total)} matches`
@@ -254,7 +260,7 @@ export function Collection() {
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') setQuery(draft.trim()); }}
               placeholder="Words in a title, an abstract, or an author's name"
-              aria-label="Search your collection"
+              aria-label={`Search ${words.name}`}
               autoComplete="off"
               spellCheck={false}
             />
@@ -385,9 +391,9 @@ export function Collection() {
           {first && !rows.length && (
             <p className="index-empty">
               {jumped ? 'Nothing that matches was published on or before then.'
-                : query ? `Nothing in ${collectionName ?? 'your collection'} matches "${query}"${filtered ? ' within these filters' : ''}.`
-                : filtered ? `Nothing in ${collectionName ?? 'your collection'} matches these filters.`
-                : `${collectionName ?? 'Your collection'} holds no papers yet.`}
+                : query ? `Nothing in ${words.name} matches "${query}"${filtered ? ' within these filters' : ''}.`
+                : filtered ? `Nothing in ${words.name} matches these filters.`
+                : words.named ? `${words.Name} holds no papers yet.` : 'Your collection is empty.'}
             </p>
           )}
         </div>

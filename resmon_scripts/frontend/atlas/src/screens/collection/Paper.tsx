@@ -57,7 +57,7 @@ export function Paper() {
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
   });
-  const { id: collection, name: collectionName } = useCollection();
+  const { id: collection, name: collectionName, several } = useCollection();
   const map = useQuery({ queryKey: mapKey(collection), queryFn: () => readMap(collection) });
 
   // Nearest on the map: by distance between map positions, which is what the
@@ -105,7 +105,7 @@ export function Paper() {
     return (
       <div className="page">
         <h1 className="page-title">Paper {raw} could not be read</h1>
-        <p className="page-lede">{paper.error?.message ?? 'There is no such paper in your collection.'}</p>
+        <p className="page-lede">{paper.error?.message ?? (several ? 'There is no such paper in any collection.' : 'There is no such paper in your collection.')}</p>
         <p><Link to="/search" className="btn">Back to Search</Link></p>
       </div>
     );
@@ -203,7 +203,7 @@ export function Paper() {
 
         {shares.length > 0 && (
           <section className="paper-section" aria-label="Shared wording" data-wording="paper-note">
-            <h2>Shared wording <span>with other abstracts in your collection, from the last scan</span></h2>
+            <h2>Shared wording <span>with other abstracts {several ? 'in resmon, in every collection' : 'in your collection'}, from the last scan</span></h2>
             <ul className="paper-links">
               {shares.map((pair) => {
                 const other = pair.left.id === data.id ? pair.right : pair.left;

@@ -25,7 +25,7 @@ import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from '.
 import {
   CALENDAR_KEY, WATCHES_KEY, instant, missedFireWords, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
 } from './model';
-import { useCollection } from '../../collections/current';
+import { useCollection, useCollectionWords } from '../../collections/current';
 
 const TABS = ['What it finds', 'Where reports go', 'Schedule'] as const;
 type Tab = typeof TABS[number];
@@ -56,6 +56,7 @@ function WatchPage({ raw }: { raw: string }) {
   const id = Number(raw);
   const client = useQueryClient();
   const collections = useCollection();
+  const shown = useCollectionWords();
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
   /**
@@ -258,9 +259,11 @@ function WatchPage({ raw }: { raw: string }) {
           caption={({ placed, ready, basis }) => {
             if (!papers.data) return 'Reading this watch\'s papers.';
             const { total, document_ids: ids } = papers.data;
-            if (!total) return 'This watch has not collected any papers yet.';
-            if (!ready) return `The collection map is not ready yet; this watch's ${count(total, 'paper')} are marked once it is.`;
-            const of = ids.length < total ? `the latest ${number(ids.length)} of ${count(total, 'paper')}` : count(total, 'paper');
+            // Its papers in the collection shown, which this map is; named where there are several.
+            const there = shown.named ? ` in ${shown.name}` : '';
+            if (!total) return shown.named ? `This watch has no papers in ${shown.name}.` : 'This watch has not collected any papers yet.';
+            if (!ready) return `The ${shown.named ? `map of ${shown.name}` : 'collection map'} is not ready yet; this watch's ${count(total, 'paper')}${there} are marked once it is.`;
+            const of = ids.length < total ? `the latest ${number(ids.length)} of ${count(total, 'paper')}${there}` : `${count(total, 'paper')}${there}`;
             const night = latest && ringed.length ? ` Ringed: the ${count(ringed.length, 'paper')} from its latest run.` : '';
             const share = placed === ids.length ? `${of}, ${basisWords(basis)}` : `${number(placed ?? 0)} of ${of} on the map (the rest are not placed yet)`;
             return `Its papers: ${share}.${night}`;

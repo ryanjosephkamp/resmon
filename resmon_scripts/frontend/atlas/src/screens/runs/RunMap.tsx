@@ -5,7 +5,8 @@ import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
 import { Tip, findPosition } from '../Today';
 import { mapKey, readMap } from '../today/freshness';
-import { useCollection } from '../../collections/current';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
+import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
@@ -41,6 +42,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
   const { theme, shown } = useAppearance();
   const [now] = useState(() => new Date());
   const { id: collection } = useCollection();
+  const shownWords = useCollectionWords();
   const map = useQuery({
     queryKey: mapKey(collection),
     queryFn: () => readMap(collection),
@@ -49,10 +51,13 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
       return data && (data.state === 'fitting' || data.refitting) ? 2_000 : false;
     },
   });
+  // The map is the shown collection's, so the run's papers are those in it.
   const ids = useQuery({
-    queryKey: ['run-ids', runId, settledAt],
+    queryKey: ['run-ids', runId, settledAt, collection],
     enabled: !running,
-    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', { params: { path: { exec_id: runId } } })),
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', {
+      params: { path: { exec_id: runId }, query: collectionParam(collection) },
+    })),
   });
   // A run that has just finished stored papers the map was read without: the
   // run's page reports it (`useRunEnding`), which reads the map again and places them.
@@ -105,7 +110,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
   const placed = built?.sky.count ?? null;
   const selectedIndex = selectedId !== null && sky ? sky.indexOf.get(selectedId) ?? null : null;
   const look = mapLook.look;
-  const account = placementWords(current ? map.data : undefined, total, placed);
+  const account = placementWords(current ? map.data : undefined, total, placed, shownWords);
 
   return (
     <div className="run-map" data-run-map={runId} data-placed={placed ?? ''} data-total={total ?? ''}>
@@ -128,7 +133,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
-            label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of your whole collection puts it.`}
+            label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of ${shownWords.named ? shownWords.name : 'your whole collection'} puts it.`}
             onAway={() => undefined}
             whole="all of this run's papers"
             look={mapLook.plateLook}
@@ -167,7 +172,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             {sky && (
               <>
                 <p className="run-map-note">
-                  Each paper sits where the map of your whole collection puts it, {basisWords(map.data)}, and the
+                  Each paper sits where the map of {shownWords.named ? shownWords.name : 'your whole collection'} puts it, {basisWords(map.data)}, and the
                   frame is drawn around this run&rsquo;s papers alone, so they fill it. Region names are the whole
                   map&rsquo;s.
                 </p>
@@ -195,23 +200,26 @@ function basisWords(map: CollectionMap | undefined): string {
  * to place, or, on a map drawn from an embedding model, when the model has not
  * read it yet. The map does not say which of the two each one is.
  */
-export function placementWords(map: CollectionMap | undefined, total: number | null, placed: number | null): {
+export function placementWords(map: CollectionMap | undefined, total: number | null, placed: number | null,
+  shown: CollectionWords = YOUR_COLLECTION): {
   sentence: string; unplaced: string | null; waiting: string | null;
 } {
+  // The run's papers counted are those in the collection shown; where it is named, the sentences say so.
+  const stored = shown.named ? `this run stored in ${shown.name}` : 'this run stored';
   if (!map || total === null) return { sentence: 'Reading the run’s papers and the map.', unplaced: null, waiting: 'Reading the map.' };
   if (map.state === 'fitting') {
     return {
-      sentence: 'The map of your collection is being drawn; this run’s papers are placed on it when it is done.',
-      unplaced: null, waiting: 'Drawing the map of your collection. A large collection takes up to half a minute.',
+      sentence: `The map of ${shown.name} is being drawn; this run’s papers are placed on it when it is done.`,
+      unplaced: null, waiting: `Drawing the map of ${shown.name}. A large collection takes up to half a minute.`,
     };
   }
   if (map.state === 'failed') {
     return { sentence: `The map could not be drawn: ${map.error ?? 'the engine gave no reason'}.`, unplaced: null, waiting: null };
   }
-  if (total === 0) return { sentence: 'This run stored no papers that are still in your collection.', unplaced: null, waiting: null };
+  if (total === 0) return { sentence: `This run stored no papers that are still in ${shown.name}.`, unplaced: null, waiting: null };
   const on = placed ?? 0;
   if (on === total) {
-    return { sentence: `All ${count(total, 'paper')} this run stored are on the map.`, unplaced: null, waiting: null };
+    return { sentence: `All ${count(total, 'paper')} ${stored} are on the map.`, unplaced: null, waiting: null };
   }
   const off = total - on;
   const why = map.basis === 'embeddings'
@@ -219,8 +227,8 @@ export function placementWords(map: CollectionMap | undefined, total: number | n
     : 'they have too little text in their titles and abstracts to place by wording';
   return {
     sentence: on === 0
-      ? `None of the ${count(total, 'paper')} this run stored is on the map.`
-      : `${number(on)} of the ${count(total, 'paper')} this run stored are on the map.`,
+      ? `None of the ${count(total, 'paper')} ${stored} is on the map.`
+      : `${number(on)} of the ${count(total, 'paper')} ${stored} are on the map.`,
     unplaced: `${number(off)} ${off === 1 ? 'is' : 'are'} not: ${why}. ${off === 1 ? 'It is' : 'They are'} still in the Papers tab.`,
     waiting: null,
   };

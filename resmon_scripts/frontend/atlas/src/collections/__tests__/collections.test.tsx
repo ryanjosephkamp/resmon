@@ -9,6 +9,12 @@ import { MoveCopy } from '../MoveCopy';
 import { CollectionsSettings } from '../CollectionsSettings';
 import { changedWords, type PapersChanged } from '../papers';
 import { pickedWords, usePicking } from '../PickBar';
+import { collectionWords, YOUR_COLLECTION } from '../words';
+import { countSentence, facetCaption, facetEmptyWords } from '../../screens/collection/filters';
+import { embeddedWords, missingWords, ranking, type EmbeddingStatus } from '../../screens/settings/embeddingWords';
+import { coverageSentences } from '../../screens/lifecycle/model';
+import { placementWords } from '../../screens/runs/RunMap';
+import { runSkyCaption } from '../../screens/runs/RunSky';
 
 const LIST: CollectionList = {
   collections: [
@@ -195,4 +201,65 @@ test('deleting a collection asks first, and says what happens to its papers and 
   await screen.findByText(/Deleted Fluid dynamics\./);
   expect(screen.getByText(/Deleted Fluid dynamics\./)).toHaveTextContent(
     'Deleted Fluid dynamics. 300 papers only it held are kept in Your collection. 40 papers stay in the other collections they are in. 1 watch now puts papers in Your collection.');
+});
+
+describe('the words that name the collection shown, and count its papers', () => {
+  // Two collections of different sizes: 1,200 papers in the default one, 2 in Photonics, 1,202 in all.
+  const photonics = collectionWords('Photonics', true);
+  const only = collectionWords('Your collection', false);
+  const status = (collection: { embedded: number; total: number } | null): EmbeddingStatus => ({
+    run: { running: false, model: null, processed: 0, total: 0, skipped_no_text: 0, started_at: null, finished_at: null, cancelled: false, reason: null },
+    coverage: { embedded: 0, total: 1202, model: null },
+    extension: { extension: 'v0.1.9', reason: null },
+    index: { model: null, dims: null, rows: 0 },
+    lane: null,
+    capability: { available: false, extension: 'v0.1.9', reason: 'Nothing is embedded yet.', model: null, indexed: 0 },
+    ...(collection ? { collection_coverage: { ...collection, model: null } } : {}),
+  });
+
+  test('"your collection" while it is the only one, its name where there are several', () => {
+    expect(only).toMatchObject({ named: false, name: 'your collection', Name: 'Your collection' });
+    expect(only.papers(5)).toBe('your 5 papers');
+    expect(photonics).toMatchObject({ named: true, name: 'Photonics', Name: 'Photonics' });
+    expect(photonics.papers(2)).toBe('the 2 papers in Photonics');
+    expect(YOUR_COLLECTION).toMatchObject({ named: false, name: 'your collection' });
+  });
+
+  test("Search's count line and its menus name the collection", () => {
+    const page = { total: 2, total_is_exact: true };
+    expect(countSentence(page, false, '', photonics)).toBe('2 papers in Photonics');
+    expect(countSentence({ total: 1200, total_is_exact: true }, false, '', only)).toBe('1,200 papers in your collection');
+    expect(facetCaption('source', { words: false, others: false }, 1, 50, photonics)).toMatch(/^Each number counts the papers .* in Photonics\./);
+    expect(facetEmptyWords('author', { words: false, others: false }, 0, photonics)).toBe('Photonics has no papers yet, so there is no author to choose.');
+  });
+
+  test("the ranking note counts the shown collection's papers, not every paper resmon holds", () => {
+    expect(ranking(status({ embedded: 0, total: 2 }), photonics).sentence)
+      .toBe('Ranking by meaning is off: no embedding model is set up, so none of the 2 papers in Photonics has a vector.');
+    expect(ranking(status({ embedded: 0, total: 1200 }), only).sentence)
+      .toBe('Ranking by meaning is off: no embedding model is set up, so none of your 1,200 papers has a vector.');
+    // Read without a collection, the note counts what the engine counted: every paper.
+    expect(ranking(status(null)).sentence).toContain('none of your 1,202 papers');
+  });
+
+  test('Settings says its numbers are every collection\'s, as a backfill embeds every paper', () => {
+    const withModel = { ...status(null), coverage: { embedded: 2, total: 1202, model: 'nomic-embed-text' } };
+    expect(embeddedWords(withModel, true)).toBe('2 of 1,202 papers in every collection, with nomic-embed-text.');
+    expect(embeddedWords(withModel)).toBe('2 of 1,202 papers, with nomic-embed-text.');
+    expect(missingWords(withModel, true)).toMatch(/^1,200 papers in every collection have no vector from nomic-embed-text yet\./);
+    const lifecycle = { corpus: 1202, checked: 0, unchecked: 1202, errored: 0, no_identifier: 0, last_checked_at: null, recheck_after_days: 30 };
+    expect(coverageSentences(lifecycle, new Date(), true)[0])
+      .toBe('None of the 1,202 papers in every collection has been checked yet.');
+  });
+
+  test("a run's map and a watch's count the run's papers in the collection shown", () => {
+    const map = { state: 'ready', basis: 'words', error: null } as Parameters<typeof placementWords>[0];
+    expect(placementWords(map, 0, 0, photonics).sentence).toBe('This run stored no papers that are still in Photonics.');
+    expect(placementWords(map, 2, 2, photonics).sentence).toBe('All 2 papers this run stored in Photonics are on the map.');
+    expect(placementWords(map, 2, 2).sentence).toBe('All 2 papers this run stored are on the map.');
+    const facts = { placed: 2, total: 2, ready: true, basis: 'words' } as Parameters<typeof runSkyCaption>[0];
+    expect(runSkyCaption(facts, false, photonics)).toBe('All 2 papers from this run in Photonics, marked where they sit in it.');
+    expect(runSkyCaption({ ...facts, total: 0, placed: 0 }, false, photonics)).toBe('None of the papers this run stored is in Photonics.');
+    expect(runSkyCaption({ ...facts, total: 0, placed: 0 }, false)).toBe('This run stored no papers.');
+  });
 });

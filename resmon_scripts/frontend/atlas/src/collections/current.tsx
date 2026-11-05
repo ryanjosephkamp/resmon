@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tansta
 import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
 import { bridge } from '../bridge';
+import { collectionWords, type CollectionWords } from './words';
 
 export type CollectionSummary = components['schemas']['CollectionSummary'];
 export type CollectionList = components['schemas']['CollectionList'];
@@ -105,4 +106,10 @@ const OUTSIDE: CurrentCollection = {
 /** The `collection` a read sends: the shown one's id, or nothing (the default one) before it is known. */
 export function collectionParam(id: number | null): { collection?: string } {
   return id === null ? {} : { collection: String(id) };
+}
+
+/** The words that name the collection this window shows (see `words.ts`). */
+export function useCollectionWords(): CollectionWords {
+  const { name, several } = useCollection();
+  return useMemo(() => collectionWords(name, several), [name, several]);
 }

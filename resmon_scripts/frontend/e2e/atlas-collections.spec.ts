@@ -200,7 +200,10 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     // — Only its papers: Search, Today, and the map ---------------------------
     await win.evaluate(() => { window.location.hash = '#/search'; });
     expect(await listed(win)).toEqual(found);
-    await expect(win.locator('.count-sentence')).toContainText('2');
+    // Every count names Photonics and is its own: 2 papers here, of the 5 resmon holds.
+    await expect(win.locator('.count-sentence')).toHaveText('2 papers in Photonics');
+    await expect(win.locator('[data-collection="ranking"]')).toContainText('none of the 2 papers in Photonics has a vector');
+    await expect(win.locator('.collection figcaption')).toHaveText(/^Every paper in Photonics, /, { timeout: 90_000 });
     await win.screenshot({ path: path.join(shots, 'search-photonics-dark.png') });
 
     await win.evaluate(() => { window.location.hash = '#/today'; });
@@ -215,6 +218,10 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect(win.locator('.plate-waiting')).toHaveCount(0, { timeout: 60_000 });
     await win.screenshot({ path: path.join(shots, 'today-photonics-dark.png') });
 
+    // Settings › AI › Embeddings counts every paper resmon holds, as a backfill embeds them, and says so.
+    await win.evaluate(() => { window.location.hash = '#/settings/ai?focus=embeddings'; });
+    await expect(win.locator('[data-embeddings="missing"]')).toContainText('5 papers in every collection');
+
     // — Back to the default: only its papers ----------------------------------
     await scope.click();
     await menu.getByRole('menuitemradio', { name: /Your collection/ }).click();
@@ -222,6 +229,8 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.evaluate(() => { window.location.hash = '#/search'; });
     await expect(win.getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible();
     expect(await listed(win)).toEqual([...corpus].sort((a, b) => a - b));
+    await expect(win.locator('.count-sentence')).toHaveText('3 papers in your collection');
+    await expect(win.locator('[data-collection="ranking"]')).toContainText('none of your 3 papers has a vector');
     await expect.poll(async () => {
       const map = await engine<{ state: string; points: { id: number[] } }>(win, '/api/map');
       return map.state === 'ready' ? [...map.points.id].sort((a, b) => a - b) : map.state;

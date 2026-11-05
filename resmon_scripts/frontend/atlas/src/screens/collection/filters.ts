@@ -1,5 +1,6 @@
 import type { components } from '../../api/schema';
 import { count, number } from '../today/format';
+import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 
 /**
  * What narrows Search › Your collection, held in the address: `?source=`,
@@ -163,12 +164,13 @@ const EACH: Record<FacetKey, { noun: string; with: string; widen: string }> = {
  * group are ticked, and the sentence says so rather than leaving it to look
  * like a fault.
  */
-export function facetCaption(key: FacetKey, scope: { words: boolean; others: boolean }, listedCount: number, max: number): string {
+export function facetCaption(key: FacetKey, scope: { words: boolean; others: boolean }, listedCount: number, max: number,
+  shown: CollectionWords = YOUR_COLLECTION): string {
   const each = EACH[key];
   const against = scope.words && scope.others ? 'that match your words and your other filters'
     : scope.words ? 'that match your words'
       : scope.others ? 'that match your other filters'
-        : 'in your collection';
+        : `in ${shown.name}`;
   const cut = listedCount >= max ? ` Only the ${number(max)} ${each.noun} with the most papers are listed.` : '';
   return `Each number counts the papers ${each.with} ${against}. ${each.widen}${cut}`;
 }
@@ -180,15 +182,16 @@ export function facetCaption(key: FacetKey, scope: { words: boolean; others: boo
  * count: a group with nothing listed has none of its own values ticked, so
  * the list is narrowed by exactly what the group's counts are.
  */
-export function facetEmptyWords(key: FacetKey, scope: { words: boolean; others: boolean }, matches: number | null): string {
+export function facetEmptyWords(key: FacetKey, scope: { words: boolean; others: boolean }, matches: number | null,
+  shown: CollectionWords = YOUR_COLLECTION): string {
   const noun = { source: 'source', category: 'category', author: 'author' }[key];
   if (matches === 0) {
     const against = scope.words && scope.others ? 'your words and your other filters'
       : scope.words ? 'your words' : scope.others ? 'your other filters' : null;
     return against ? `Nothing matches ${against}, so there is no ${noun} to choose.`
-      : `Your collection has no papers yet, so there is no ${noun} to choose.`;
+      : `${shown.Name} has no papers yet, so there is no ${noun} to choose.`;
   }
-  return `No paper ${scope.words || scope.others ? 'that matches' : 'in your collection'} has ${key === 'author' ? 'an' : 'a'} ${noun} recorded.`;
+  return `No paper ${scope.words || scope.others ? 'that matches' : `in ${shown.name}`} has ${key === 'author' ? 'an' : 'a'} ${noun} recorded.`;
 }
 
 // ------------------------------------------------------------------ words
@@ -239,13 +242,15 @@ export function dateRangeProblem(f: Filters): string | null {
 
 /**
  * The sentence above the list: how many papers, and against what. A count
- * that ran out of time is the number it reached, said as "at least".
+ * that ran out of time is the number it reached, said as "at least". The
+ * collection is named where there are several ("2 papers in Photonics").
  */
-export function countSentence(page: { total: number; total_is_exact: boolean }, filtered: boolean, query: string): string {
+export function countSentence(page: { total: number; total_is_exact: boolean }, filtered: boolean, query: string,
+  shown: CollectionWords = YOUR_COLLECTION): string {
   const noun = page.total === 1 ? 'paper' : 'papers';
   const papers = page.total_is_exact ? `${number(page.total)} ${noun}` : `At least ${number(page.total)} ${noun}`;
   if (filtered) return `${papers} matching your filters${query ? ' and these words' : ''}`;
-  return `${papers} ${query || !page.total_is_exact ? 'match' : 'in your collection'}`;
+  return `${papers} ${query || !page.total_is_exact ? 'match' : `in ${shown.name}`}`;
 }
 
 // ----------------------------------------------------------------- export

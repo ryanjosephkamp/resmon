@@ -28,6 +28,7 @@ import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
 import { commandEnter } from '../shell/shortcuts';
 import { useMinute } from '../lib/useMinute';
+import { collectionParam, useCollection } from '../collections/current';
 import { useNow } from '../lib/useNow';
 import { elapsedWords, liveStage, secondsSince, sourcesFinished } from './runs/live';
 
@@ -130,6 +131,8 @@ export function Run() {
   const navigate = useNavigate();
   const client = useQueryClient();
   const now = useMinute();
+  // The run's small map is the shown collection's, so it reads the run's papers in that collection.
+  const { id: collection } = useCollection();
   const [tab, setTab] = useState<Tab>('Papers');
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
   const openMap = () => {
@@ -189,9 +192,11 @@ export function Run() {
     ? { papers: papers.data.pages.flatMap((page) => page.papers), total: papers.data.pages[0]?.total ?? 0 }
     : null), [papers.data]);
   const runIds = useQuery({
-    queryKey: ['run-ids', id, settledAt],
+    queryKey: ['run-ids', id, settledAt, collection],
     enabled: run.isSuccess && !running,
-    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', { params: { path: { exec_id: id } } })),
+    queryFn: () => answer(engine().GET('/api/executions/{exec_id}/document-ids', {
+      params: { path: { exec_id: id }, query: collectionParam(collection) },
+    })),
   });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,

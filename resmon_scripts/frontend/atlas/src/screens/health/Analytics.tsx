@@ -8,7 +8,7 @@ import {
   type KeywordContribution, type Overview,
 } from './analyticsModel';
 import { HealthTabs } from './HealthTabs';
-import { collectionParam, useCollection } from '../../collections/current';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import { instantOf } from './model';
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -46,6 +46,7 @@ function OwnAndShared({ own, shared }: { own: string; shared: string }) {
  */
 export function Analytics() {
   const { id: collection } = useCollection();
+  const shown = useCollectionWords();
   const overview = useQuery({
     queryKey: [...ANALYTICS_KEY, collection],
     queryFn: () => answer(engine().GET('/api/analytics/overview', { params: { query: collectionParam(collection) } })),
@@ -62,7 +63,7 @@ export function Analytics() {
     <div className="page health analytics-page" aria-busy={overview.isFetching}>
       <HealthTabs />
       <p className="page-lede">
-        What your collection holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
+        What {shown.name} holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
         A view with too little to go on says so instead of drawing a chart.
       </p>
       {overview.isPending && <p className="page-lede">Counting.</p>}
@@ -106,6 +107,7 @@ function Corpus({ summary }: { summary: Overview['summary'] }) {
 }
 
 function Sources({ view, nameOf }: { view: Overview['source_contribution']; nameOf: (slug: string) => string }) {
+  const shown = useCollectionWords();
   const largest = Math.max(0, ...view.sources.map((s) => s.total));
   return (
     <section className="chart-card" data-analytics="sources">
@@ -116,7 +118,7 @@ function Sources({ view, nameOf }: { view: Overview['source_contribution']; name
       <ol className="bar-rows">
         {view.sources.map((row) => (
           <li key={row.source} className="bar-row" data-source={row.source}>
-            <Link to={collectionFor({ source: row.source })} className="bar-name" title={`Show ${nameOf(row.source)}’s papers in your collection`}>
+            <Link to={collectionFor({ source: row.source })} className="bar-name" title={`Show ${nameOf(row.source)}’s papers in ${shown.name}`}>
               {nameOf(row.source)}
             </Link>
             {view.sufficient && (
@@ -138,6 +140,7 @@ function Sources({ view, nameOf }: { view: Overview['source_contribution']; name
 function Keywords() {
   const [asked, setAsked] = useState(false);
   const { id: collection } = useCollection();
+  const shown = useCollectionWords();
   const yieldQuery = useQuery({
     queryKey: ['keyword-contribution', collection],
     enabled: asked,
@@ -149,8 +152,8 @@ function Keywords() {
     <section className="chart-card" data-analytics="keywords" aria-busy={yieldQuery.isFetching}>
       <h2 className="group-title">Which keywords earn their place</h2>
       <p className="chart-note">
-        Of the papers each term matched, how many no other term did. This view reads every paper in your collection
-        once, so it does not run automatically.
+        Of the papers each term matched, how many no other term did. This view reads every paper in {shown.name} once,
+        so it does not run automatically.
       </p>
       {!data && (
         <button type="button" className="btn" data-analytics="measure" disabled={yieldQuery.isFetching} onClick={() => setAsked(true)}>

@@ -5,7 +5,7 @@ import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
 import { Tip } from '../Today';
 import { mapKey, readMap } from '../today/freshness';
-import { useCollection } from '../../collections/current';
+import { useCollection, useCollectionWords } from '../../collections/current';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
 import { collectionSky } from './collectionSky';
@@ -124,6 +124,7 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
   const navigate = useNavigate();
   const { shown, theme } = useAppearance();
   const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
     queryKey: mapKey(collection),
     queryFn: () => readMap(collection),
@@ -229,8 +230,8 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
         ) : (
           <div className="sky-empty">
             {map.isPending || (map.data?.state === 'ready' && !current) ? 'Reading the map.'
-              : map.data?.state === 'fitting' ? 'Drawing the map of your collection.'
-                : 'The collection map has no papers placed yet.'}
+              : map.data?.state === 'fitting' ? `Drawing the map of ${place.name}.`
+                : place.named ? `The map of ${place.name} has no papers placed yet.` : 'The collection map has no papers placed yet.'}
           </div>
         )}
       </div>

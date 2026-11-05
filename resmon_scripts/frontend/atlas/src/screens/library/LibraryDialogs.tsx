@@ -6,7 +6,7 @@ import { errorWords } from './Cards';
 import { evidence, type Project } from './evidenceApi';
 import { goesWith, shortWho } from './galleryModel';
 import { LIBRARY, type LibraryRemoval } from './libraryApi';
-import { useCollection } from '../../collections/current';
+import { useCollection, useCollectionWords } from '../../collections/current';
 
 /** A sheet over the page, as the shortcuts sheet is: Escape or a click outside closes it, and the keyboard stays inside. */
 export function Sheet({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -35,6 +35,7 @@ export function Sheet({ title, onClose, children, wide = false }: { title: strin
 export function ConfirmRemoval({ summaries, onConfirm, onCancel, busy }: {
   summaries: readonly LibraryRemoval[]; onConfirm: () => void; onCancel: () => void; busy: boolean;
 }) {
+  const { several } = useCollection();
   const one = summaries.length === 1;
   return (
     <Sheet title={one ? `Remove ${summaries[0]!.original_name}?` : `Remove ${count(summaries.length, 'file')}?`} onClose={onCancel}>
@@ -46,7 +47,7 @@ export function ConfirmRemoval({ summaries, onConfirm, onCancel, busy }: {
       {summaries.map((s) => (
         <section key={s.file_id} className="lib-goes" data-file={s.file_id}>
           {!one && <h3>{s.original_name}</h3>}
-          <ul>{goesWith(s).map((line) => <li key={line}>{line}</li>)}</ul>
+          <ul>{goesWith(s, several).map((line) => <li key={line}>{line}</li>)}</ul>
         </section>
       ))}
       <div className="lib-sheet-acts">
@@ -76,6 +77,7 @@ export function PaperPicker({ vault, file, onClose, onLinked }: {
   }, [draft]);
   // Searched in the collection this window shows; a paper of another is found there.
   const { id: collection } = useCollection();
+  const shown = useCollectionWords();
   const found = useQuery({
     queryKey: ['library-link-search', collection, q],
     enabled: q.length >= 2,
@@ -92,7 +94,7 @@ export function PaperPicker({ vault, file, onClose, onLinked }: {
   const results = found.data?.results ?? [];
   return (
     <Sheet title={`Link ${file.original_name} to a paper`} onClose={onClose} wide>
-      <p className="lib-sheet-lede">Find the paper in your collection. A link is your association; resmon does not check that the file is that paper.</p>
+      <p className="lib-sheet-lede">Find the paper in {shown.name}. A link is your association; resmon does not check that the file is that paper.</p>
       <label className="sr-only" htmlFor={field}>Find a paper by title, author, or words in it</label>
       <div className="map-find lib-find wide">
         <svg className="icon" width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5 14 14" /></svg>
@@ -102,7 +104,7 @@ export function PaperPicker({ vault, file, onClose, onLinked }: {
       <div className="lib-pick-list" aria-live="polite" aria-busy={found.isFetching}>
         {q.length < 2 && <p className="record-cap">Type two letters or more.</p>}
         {found.isError && <p className="field-error" role="alert">{errorWords(found.error)}</p>}
-        {found.data && !results.length && <p className="record-cap">No paper in your collection matches “{q}”.</p>}
+        {found.data && !results.length && <p className="record-cap">No paper in {shown.name} matches “{q}”.</p>}
         <ul>
           {results.map((paper) => (
             <li key={paper.id}>
