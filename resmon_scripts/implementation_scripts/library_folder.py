@@ -232,7 +232,9 @@ def _room_for(conn: sqlite3.Connection, expected: str, old_root: int, new_parent
 
 
 def _words(size: int) -> str:
-    for unit, scale in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+    # Powers of 1,000, as Finder and the Library's screens count them, so a size said here is the one the
+    # person sees for the same disk.
+    for unit, scale in (('GB', 1000 ** 3), ('MB', 1000 ** 2), ('KB', 1000)):
         if size >= scale:
             return f'{size / scale:,.1f} {unit}'.replace('.0 ', ' ')
     return f'{size:,} bytes'

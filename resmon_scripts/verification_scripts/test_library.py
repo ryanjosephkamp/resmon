@@ -27,7 +27,7 @@ def put(c, vid, name='paper.txt', content=b'authored text', document_id=None):
 
 
 def test_constants_and_no_implicit_creation(tmp_path):
-    assert (lib.MAX_FILE_BYTES, lib.MAX_READ_BYTES, lib.FREE_SPACE_FLOOR) == (67108864, 67108864, 536870912)
+    assert (lib.MAX_FILE_BYTES, lib.MAX_READ_BYTES, lib.FREE_SPACE_FLOOR) == (67108864, 67108864, 512_000_000)
     # No limit is reported that nothing enforces: a batch of files is as many as the person drops.
     assert set(lib.limits()) == {'file_bytes', 'read_bytes', 'free_space_floor'}
     # No count or size cap of the Library's own: the disk is the limit.

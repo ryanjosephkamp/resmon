@@ -32,7 +32,7 @@ MAX_READ_BYTES = MAX_FILE_BYTES
 #: An import that would leave less than this free on the Library folder's disk is
 #: refused. The Library has no count or size cap of its own: the folder is the
 #: person's, on their disk, and the disk is the limit that matters.
-FREE_SPACE_FLOOR = 512 * 1024 * 1024
+FREE_SPACE_FLOOR = 512 * 1000 * 1000
 MARKER_LIMIT = 4096
 MEDIA = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown", "tex": "text/x-tex"}
 #: The kinds read as UTF-8 text: everything but a PDF.

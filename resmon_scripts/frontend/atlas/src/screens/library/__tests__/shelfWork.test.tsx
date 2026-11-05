@@ -83,7 +83,7 @@ const STATUS: LibraryStatus = {
   version: 1, status: 'busy', changing: 'moving',
   vault: { vault_id: '0f3a9c1e-5b2d-4c8e-9a71-2d6e8f4b1c03', label: 'resmon-library-x', path: '/tmp/resmon-library-x', created_at_utc: '2026-11-04T00:00:00Z' },
   counts: { items: 3, retained_bytes: 300, basis: 'recorded_metadata', removed: 0 },
-  limits: { file_bytes: 67108864, read_bytes: 67108864, free_space_floor: 536870912 },
+  limits: { file_bytes: 67108864, read_bytes: 67108864, free_space_floor: 512000000 },
 };
 
 test('while the engine says the folder is being moved, neither way to change it can be started, on any visit', () => {
