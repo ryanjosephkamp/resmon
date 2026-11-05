@@ -54,7 +54,7 @@ Every run, whether you started it or a watch fired it. A run's progress is read 
 | `GET` | `/api/executions/{exec_id}/log` | The run's log text. |
 | `GET` | `/api/executions/{exec_id}/search-record` | The complete, dated account of one search, as JSON or Markdown. |
 | `GET` | `/api/executions/{exec_id}/documents` | One page of the papers the run stored, each with its stored id and its place in the reading queue. |
-| `GET` | `/api/executions/{exec_id}/document-ids` | Every paper the run stored that is still in the collection, by id. |
+| `GET` | `/api/executions/{exec_id}/document-ids` | Every paper the run stored that is in the collection named (`?collection=`, the default one when none is), by id. |
 | `GET` | `/api/executions/{exec_id}/references` | Export one run's papers as BibTeX, RIS, CSV, or JSON. JSON can include stored ids with `include_ids=true`. |
 | `GET` | `/api/executions/{exec_id}/progress/events` | The run's events so far, live or as saved after it ended; `since` skips the ones already read. |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | The same events as server-sent events, with resumption from a cursor. |
@@ -232,7 +232,7 @@ Ranking by meaning and placing papers on the map by meaning.
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/embeddings/status` | How many papers are embedded with which model, the state of a backfill, the index, and the extension. |
+| `GET` | `/api/embeddings/status` | How many papers are embedded with which model, the state of a backfill, the index, and the extension. The counts are every paper resmon holds; with `?collection=`, `collection_coverage` counts that collection's papers too. |
 | `GET` | `/api/embeddings/estimate` | What a backfill would cost, before it starts. |
 | `POST` | `/api/embeddings/probe` | Ask the configured or supplied lane to embed one short string. |
 | `POST` | `/api/embeddings/backfill` | Embed every paper without a vector for the active model. |

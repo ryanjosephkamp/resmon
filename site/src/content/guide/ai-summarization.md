@@ -82,7 +82,7 @@ With **An API key**, the default provider is the one summaries use. Codex gets r
 
 ## Embeddings
 
-**Embed papers so Search can rank them by meaning** turns the feature on. Once a model is saved, each run embeds the papers it collects. The papers already in your collection are embedded only when you start that.
+**Embed papers so Search can rank them by meaning** turns the feature on. Once a model is saved, each run embeds the papers it collects. The papers already in your collection are embedded only when you start that. The backfill and its counts cover every paper resmon holds, in every collection.
 
 Four facts are always shown, so the feature never claims more than it has:
 
