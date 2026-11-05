@@ -1781,7 +1781,10 @@ def _drive_full_text(drive: Drive, doc_ids: list[int]) -> None:
     finally:
         api_crossref.safe_request = original
     found = drive("GET", f"/api/executions/{started['execution_id']}/find")
-    assert [s["outcome"] for s in found["sources"]] == ["found", "not_asked"]
+    outcomes = {s["source"]: s["outcome"] for s in found["sources"]}
+    # Crossref holds it; arXiv cannot look up a DOI; every other source was left out.
+    assert outcomes.pop("crossref") == "found" and outcomes.pop("arxiv") == "not_asked"
+    assert set(outcomes.values()) == {"not_asked"}
     drive("GET", f"/api/executions/{started['execution_id']}/full-text")
 
 
