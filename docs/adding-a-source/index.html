@@ -326,7 +326,7 @@ or the endpoint was down), the source is asked by nothing and the entry says why
 source’s request and an authored reply in its shape to <code>test_paper_find.py</code>’s <code>CASES</code>.</p>
 <h3 id="open-copies-and-identifiers">Open copies and identifiers</h3>
 <p>If the source’s record says where an open copy of the paper is, or names an identifier the
-documents table has no column for (an arXiv id, a PMCID, a PMID), put it on the result:
+documents table has no column for (an arXiv id, a PMCID, or a PMID), put it on the result:
 <code>open_access=[open_access.location(...)]</code> with the license <strong>the record states for that
 copy</strong>, never one inferred, and <code>identifiers=[("arxiv", "...")]</code>. A copy with no stated
 license is still recorded; it is just never downloaded. Do not record a link the source’s terms

@@ -59,6 +59,13 @@ class PaperQuery:
         return {"kind": self.kind, "value": self.value, "typed": self.typed}
 
 
+def listed(words: list[str]) -> str:
+    """"DOI", "DOI and title", "DOI, PMID, and title": a list as a sentence gives it."""
+    if len(words) < 3:
+        return " and ".join(words)
+    return f"{', '.join(words[:-1])}, and {words[-1]}"
+
+
 def parse(typed: str) -> PaperQuery:
     """What a person typed into Find a paper, read as the identifier it is, else as a title."""
     text = re.sub(r"\s+", " ", str(typed or "")).strip()
@@ -99,7 +106,7 @@ def plan(query: PaperQuery, sources: Iterable[str]) -> tuple[list[str], list[dic
             why = (capability.established if capability and capability.established
                    else f"resmon cannot look a paper up at {name}.")
         elif query.kind not in capability.kinds:
-            kinds = ", ".join(KIND_WORDS[k] for k in capability.kinds)
+            kinds = listed([KIND_WORDS[k] for k in capability.kinds])
             why = f"{name} can be asked by {kinds}, not by {KIND_WORDS[query.kind]}."
         elif slug in ("biorxiv", "medrxiv") and not query.value.lower().startswith("10.1101/"):
             why = f"{name}'s DOIs all begin 10.1101/, and this one does not."

@@ -254,7 +254,7 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await picks.locator('[data-source="zenodo"]').click();
     await expect(picks.locator('[data-source="zenodo"]')).toHaveAttribute('aria-pressed', 'false');
     await win.locator('details.find-not-asked summary').click();
-    await expect(win.locator('details.find-not-asked')).toContainText('arXiv can be asked by arXiv id, title, not by DOI.');
+    await expect(win.locator('details.find-not-asked')).toContainText('arXiv can be asked by arXiv id and title, not by DOI.');
     await shoot(win, 'atlas-find-plan.png');
 
     const started = Date.now();

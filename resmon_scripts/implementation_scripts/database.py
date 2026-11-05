@@ -2564,7 +2564,7 @@ def _migrate_collections(conn: sqlite3.Connection) -> None:
 # was asked for (``host_record``, arXiv).
 #
 # ``document_identifiers`` holds the identifiers a source sends that the
-# documents table has no column for: an arXiv id, a PMCID, a PMID.
+# documents table has no column for: an arXiv id, a PMCID, or a PMID.
 #
 # ``execution_find_results`` is Find a paper's record: for each source a find
 # named, whether it found the paper, how the copy matched (by DOI, arXiv id,

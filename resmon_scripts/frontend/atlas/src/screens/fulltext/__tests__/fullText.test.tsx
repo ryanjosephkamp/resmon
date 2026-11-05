@@ -76,6 +76,10 @@ describe('a find, in words', () => {
       { field: 'year', this: '2025', reference: '2026' },
       { field: 'doi', this: null, reference: '10.5555/x' },
     ] }))).toBe('title “A preprint”, year 2025, not 2026, and no DOI');
+    expect(differencesWords(source({ differences: [
+      { field: 'year', this: '2025', reference: '2026' },
+      { field: 'doi', this: null, reference: '10.5555/x' },
+    ] }))).toBe('year 2025, not 2026 and no DOI');
     expect(differencesWords(source({}))).toBeNull();
     expect(differencesWords(source({ reference: true }))).toBe('The copy the others are compared with');
     expect(differenceWords({ field: 'year', this: '2026', reference: null })).toBe('year 2026, where the reference copy gives none');

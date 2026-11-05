@@ -61,9 +61,18 @@ def test_a_source_is_asked_only_by_a_kind_its_capability_names():
                                        ["arxiv", "crossref", "inspire_hep", "core", "dryad", "semantic_scholar"])
     assert asked == ["arxiv", "inspire_hep", "semantic_scholar"]
     why = {item["source"]: item["why"] for item in not_asked}
-    assert "Crossref can be asked by DOI, title, not by arXiv id." == why["crossref"]
+    assert "Crossref can be asked by DOI and title, not by arXiv id." == why["crossref"]
     assert "CORE requires a key" in why["core"]
     assert "datasets" in why["dryad"]
+
+
+def test_the_kinds_a_source_can_be_asked_by_read_as_a_list_with_its_and():
+    assert paper_find.listed(["DOI"]) == "DOI"
+    assert paper_find.listed(["DOI", "title"]) == "DOI and title"
+    assert paper_find.listed(["DOI", "PMID", "title"]) == "DOI, PMID, and title"
+    _asked, not_asked = paper_find.plan(paper_find.parse("arXiv:1706.03762"), ["europepmc"])
+    assert not_asked == [{"source": "europepmc",
+                          "why": "EuropePMC can be asked by DOI, PMID, and title, not by arXiv id."}]
 
 
 def test_biorxiv_is_asked_only_about_its_own_dois():

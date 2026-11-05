@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
+import { listWords } from '../today/format';
 import { errorWords, hostWords, pending, requestWords } from './fullText';
 
 /** How often the list is read again while one of its PDFs is still being got. */
@@ -33,10 +34,10 @@ export function RunPdfs({ runId }: { runId: number }) {
     going ? `${going} still being got` : null,
     n('skipped') ? `${n('skipped')} skipped` : null,
     n('failed') ? `${n('failed')} failed` : null,
-  ].filter(Boolean);
+  ].filter((part): part is string => part !== null);
   return (
     <section className="run-pdfs" aria-labelledby="run-pdfs" data-run="pdfs">
-      <h2 id="run-pdfs" className="run-pdfs-head">PDFs <span>{parts.join(', ')}</span></h2>
+      <h2 id="run-pdfs" className="run-pdfs-head">PDFs <span>{listWords(parts)}</span></h2>
       <ul className="run-pdfs-list">
         {asked.data.requests.map((r) => (
           <li key={r.id ?? r.document_id} data-state={r.state} data-reason={r.reason ?? undefined}>

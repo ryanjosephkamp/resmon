@@ -122,7 +122,7 @@ def test_a_find_is_a_run_with_each_sources_answer_and_its_copies_linked(conn, en
     assert by_source["europepmc"]["outcome"] == "not_found"
     assert by_source["semantic_scholar"]["outcome"] == "did_not_answer"
     assert by_source["arxiv"]["outcome"] == "not_asked"
-    assert "arXiv can be asked by arXiv id, title, not by DOI." == by_source["arxiv"]["why_not_asked"]
+    assert "arXiv can be asked by arXiv id and title, not by DOI." == by_source["arxiv"]["why_not_asked"]
     assert by_source["core"]["outcome"] == "not_asked"
     assert result["counts"] == {"found": 2, "not_found": 1, "did_not_answer": 1, "not_asked": 2}
     assert result["reference_document_id"] == by_source["crossref"]["document_id"]
@@ -180,7 +180,7 @@ def test_a_find_that_names_its_sources_accounts_for_every_other():
     assert asked == ["openalex", "crossref"]   # in the order they were named
     why = {item["source"]: item["why"] for item in not_asked}
     assert why["zenodo"] == "Left out of this find."
-    assert why["arxiv"] == "arXiv can be asked by arXiv id, title, not by DOI."
+    assert why["arxiv"] == "arXiv can be asked by arXiv id and title, not by DOI."
     from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
     assert set(asked) | set(why) == {entry.slug for entry in REPOSITORY_CATALOG}
 
@@ -202,7 +202,7 @@ def test_a_find_no_named_source_can_answer_is_refused_with_why(http):
     refused = http.post("/api/find", json={"query": "arXiv:2601.00001", "repositories": ["crossref"]})
     assert refused.status_code == 400
     assert refused.json()["detail"].startswith(
-        "No source named can look up an arXiv id. Crossref can be asked by DOI, title, not by arXiv id.")
+        "No source named can look up an arXiv id. Crossref can be asked by DOI and title, not by arXiv id.")
     assert http.get("/api/executions/1/find").status_code == 404
     unknown = http.post("/api/documents/999/full-text")
     assert unknown.status_code == 404

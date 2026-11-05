@@ -265,7 +265,7 @@ source's request and an authored reply in its shape to `test_paper_find.py`'s `C
 ### Open copies and identifiers
 
 If the source's record says where an open copy of the paper is, or names an identifier the
-documents table has no column for (an arXiv id, a PMCID, a PMID), put it on the result:
+documents table has no column for (an arXiv id, a PMCID, or a PMID), put it on the result:
 `open_access=[open_access.location(...)]` with the license **the record states for that
 copy**, never one inferred, and `identifiers=[("arxiv", "...")]`. A copy with no stated
 license is still recorded; it is just never downloaded. Do not record a link the source's terms

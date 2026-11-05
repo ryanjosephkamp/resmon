@@ -10,6 +10,7 @@ import { useCallback } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
+import { listWords } from '../today/format';
 
 export type FullTextStatus = components['schemas']['FullTextStatus'];
 export type FullTextRequest = components['schemas']['FullTextRequest'];
@@ -172,8 +173,7 @@ export function differenceWords(d: FindDifference): string {
 export function differencesWords(source: Pick<FindSourceResult, 'differences' | 'reference'>): string | null {
   if (source.reference) return 'The copy the others are compared with';
   if (!source.differences.length) return null;
-  const parts = source.differences.map(differenceWords);
-  return parts.length === 1 ? parts[0]! : `${parts.slice(0, -1).join(', ')}, and ${parts[parts.length - 1]}`;
+  return listWords(source.differences.map(differenceWords));
 }
 
 /** A sentence that begins with a capital, whatever the engine's phrase began with. */
