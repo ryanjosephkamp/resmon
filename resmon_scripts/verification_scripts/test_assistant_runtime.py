@@ -440,8 +440,16 @@ def test_an_unrecognised_failure_says_it_is_unrecognised(tmp_path):
     assert "exit code 3" in events[-1]["message"]
 
 
-def test_a_missing_binary_is_an_error_event_not_an_exception(tmp_path):
-    """Nothing escapes ``run_turn``. A streaming response cannot become a 500."""
+def test_a_missing_binary_is_an_error_event_not_an_exception(tmp_path, monkeypatch):
+    """Nothing escapes ``run_turn``. A streaming response cannot become a 500.
+
+    With no command found, the runtime falls back to a bare ``claude``, which
+    is looked up on PATH; PATH is an empty folder here, so the command is
+    really missing rather than the developer's own.
+    """
+    empty = tmp_path / "empty-bin"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
     runtime = ar.ClaudeCliRuntime(cli_path=str(tmp_path / "no-such-binary"))
     events = list(runtime.run_turn(1, "SAY:x", cli_session_id="s", resume=False))
     assert [e["type"] for e in events] == ["error"]
