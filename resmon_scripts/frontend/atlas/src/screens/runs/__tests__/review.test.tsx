@@ -4,7 +4,8 @@
  * itself again; the history's read-ahead never calls off its own reading and
  * never asks for a failing page in a loop; the monitor's end ring plays once;
  * the question asked in place gives the focus back; and opening the panel
- * always tells the engine the failures until now are seen.
+ * always tells the engine the failures until now are seen; and Restart,
+ * weighed from the history, says what the run was set to do with summaries.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -130,6 +131,33 @@ describe('the history’s read-ahead', () => {
     // Older runs asks once more, by hand.
     fireEvent.click(screen.getByRole('button', { name: /^Older runs/ }));
     await waitFor(() => expect(offsets(GET).filter((o) => o === 1)).toHaveLength(2));
+  });
+});
+
+describe('Restart weighed from the history', () => {
+  beforeEach(() => {
+    (window as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class {
+      observe() {}
+      disconnect() {}
+    };
+  });
+
+  test('says a failed run set to summarize is restarted with summaries on, from its ai_choice, though no lane was tried', async () => {
+    const failed = { ...run(31), status: 'failed', error_message: 'Unknown repository: crossref' } as RunRow;
+    const GET = jest.fn((route: string) => {
+      if (route === '/api/executions/active') return reply(active(31));
+      if (route === '/api/routines') return reply([]);
+      if (route === '/api/executions/{exec_id}/progress/events') {
+        return reply([{ type: 'execution_start' }, { type: 'ai_choice', enabled: true, lane_source: 'settings', lanes: [], adjusted: [] }]);
+      }
+      return reply([failed], 1);
+    });
+    (engine as jest.Mock).mockReturnValue({ GET });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(withClient(client, <RunHistory filter="all" words="" watchName={() => null} notice={null} />));
+    fireEvent.click(await screen.findByRole('button', { name: /^Restart…/ }));
+    expect(await screen.findByText(/^This run was set to summarize, so Restart does too/)).toBeTruthy();
+    expect(GET).toHaveBeenCalledWith('/api/executions/{exec_id}/progress/events', { params: { path: { exec_id: 31 } } });
   });
 });
 

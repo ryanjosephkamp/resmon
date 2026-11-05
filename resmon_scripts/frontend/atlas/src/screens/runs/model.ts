@@ -495,76 +495,69 @@ export function absentRecordWords(
   }
 }
 
-/** Runs that can be started again with the same parameters. */
+/** Runs that Restart is offered on: those that did not finish. */
 export const RESTARTABLE: ReadonlySet<string> = new Set(['interrupted', 'failed', 'cancelled']);
 
-/** A setting the run's stored parameters record as on or off, or null when they do not record it. */
-function recordedFlag(parameters: string | null | undefined, key: string): boolean | null {
-  if (!parameters) return null;
-  try {
-    const parsed: unknown = JSON.parse(parameters);
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
-    const value = (parsed as Record<string, unknown>)[key];
-    return typeof value === 'boolean' ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-function emailThen(email: boolean | null): string {
-  return email === null ? 'Not recorded with this run.' : `Email was ${email ? 'on' : 'off'} when this run started, as its parameters record.`;
-}
-
-/** What Restart does with a run's AI summaries and with its email and deliveries. */
+/** What Restart does with a run's search, its AI summaries, and its email and deliveries. */
 export interface RestartFacts {
+  asks: string;
   ai: string;
   delivery: string;
-  /** A watch's run: the watch whose settings decide where a restarted run is sent. */
+  /** A watch's run: the watch that Restart runs, and whose settings decide where the run is sent. */
   watchId: number | null;
 }
 
+const SUMMARIZES_TOO = 'so Restart does too, with what Settings › AI holds now. A connection or wording set for this run '
+  + 'alone is not carried over.';
+
 /**
  * What a person needs to know before pressing Restart, from what the run
- * recorded and from what Restart does (`restart_execution`). It copies the
- * search verbatim; it summarizes only when the run recorded an attempt to,
- * with today's AI settings; and the delivery hook sends only a watch's run,
- * as that watch is set when the run finishes, never a search asked by hand.
- * A watch's run whose watch has since been deleted keeps its kind and loses
- * its `routine_id`, and a restart of it has no watch to be sent as, so it is
- * not emailed or delivered either. The run's parameters hold the search
- * alone, so whether AI or email was on is said to be not recorded unless they
- * hold it. Where the run's summary lanes are known (`ai_lanes`, one row per
- * connection it tried), they are exactly what Restart reads, so whether it
- * summarizes is said outright.
+ * recorded and from what Restart does (`restart_execution`).
+ *
+ * A watch's run is restarted as that watch's Run now: the watch's current
+ * settings, not the old run's copy, sent as the watch is set, and not while
+ * the watch is already running. A Deep Dive's or Deep Sweep's run is copied
+ * as a new run and never emailed or delivered; so is a watch's run whose
+ * watch has since been deleted (it keeps its kind and loses its
+ * `routine_id`), since there is no watch to run or to be sent as.
+ *
+ * A copy summarizes as the run was set to, which its `ai_choice` event
+ * recorded when it started (`setTo`, read from the run's events): not as far
+ * as it got, so a run set to summarize that failed before any paper was
+ * summarized is restarted with summaries on. A run without the event is read
+ * from its summary lanes (`ai_lanes`, one row per connection it tried), as the
+ * engine reads it. `setTo` is null when the events were read and hold no
+ * choice, and undefined while they are not read yet.
  */
 export function restartFacts(
-  run: Pick<RunRow, 'parameters' | 'execution_type' | 'routine_id'> & { ai_lanes?: readonly unknown[] },
+  run: Pick<RunRow, 'execution_type' | 'routine_id'> & { ai_lanes?: readonly unknown[] },
+  setTo?: boolean | null,
 ): RestartFacts {
-  const ai = recordedFlag(run.parameters, 'ai_enabled');
-  const email = recordedFlag(run.parameters, 'email_enabled');
   const ofAWatch = run.execution_type === 'automated_sweep';
-  const watchRun = ofAWatch && run.routine_id !== null;
-  const aiThen = ai === null ? 'Not recorded with this run.' : `${ai ? 'On' : 'Off'} when this run started, as its parameters record.`;
-  const delivery = watchRun
-    ? `${emailThen(email)} A restarted run is emailed and delivered as its watch is set when the run finishes.`
-    : ofAWatch
-      ? 'None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.'
-      : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.';
-  const watchId = watchRun ? run.routine_id : null;
-  if (run.ai_lanes) {
+  if (ofAWatch && run.routine_id !== null) {
     return {
-      ai: run.ai_lanes.length
-        ? 'This run tried to summarize, so Restart does too, with what Settings › AI holds now. A connection or wording set for this run alone is not carried over.'
-        : 'This run recorded no attempt to summarize, so Restart does not summarize.',
-      delivery,
-      watchId,
+      asks: 'The watch’s Run now, with the watch’s current settings: its sources, terms, and dates as the watch holds '
+        + 'them now, not this run’s copy. It does not start while the watch is already running.',
+      ai: 'As the watch is set now: the run summarizes only if the watch is set to, as the watch’s own runs do.',
+      delivery: 'Emailed and delivered as the watch is set when the run finishes.',
+      watchId: run.routine_id,
     };
   }
-  return {
-    ai: `${aiThen} Restart summarizes only if this run recorded an attempt to, using what Settings › AI holds now.`,
-    delivery,
-    watchId,
-  };
+  const delivery = ofAWatch
+    ? 'None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.'
+    : 'None. resmon emails and delivers only a watch’s runs, and this search was asked by hand.';
+  const tried = run.ai_lanes ? run.ai_lanes.length > 0 : null;
+  let ai: string;
+  if (setTo === true) ai = `This run was set to summarize, ${SUMMARIZES_TOO}`;
+  else if (setTo === false) ai = 'This run was set not to summarize, so Restart does not either.';
+  else if (tried) ai = `This run tried to summarize, ${SUMMARIZES_TOO}`;
+  else if (setTo === null && tried === false) {
+    ai = 'This run recorded neither what it was set to nor an attempt to summarize, so Restart does not summarize.';
+  } else if (setTo === null) {
+    ai = 'This run did not record what it was set to, so Restart summarizes only if it recorded an attempt to, with what '
+      + 'Settings › AI holds now.';
+  } else ai = 'Restart summarizes only if this run was set to, with what Settings › AI holds now.';
+  return { asks: 'The same sources, terms, dates, and cap this run recorded, as a new run.', ai, delivery, watchId: null };
 }
 
 /** "run 4", "runs 4 and 9", "runs 4, 9, and 12": by number, whatever order the runs were chosen or drawn in. */

@@ -433,7 +433,7 @@ export function Run() {
         )}
         {data.status === 'interrupted' && <p className="run-note">{interruptedSentence(data)}</p>}
         {data.status === 'failed' && data.error_message && <p className="run-note">{data.error_message}</p>}
-        {RESTARTABLE.has(data.status) && <RestartFacts run={data} />}
+        {RESTARTABLE.has(data.status) && <RestartFacts run={data} setTo={events.isSuccess ? choice?.enabled ?? null : undefined} />}
         {!running && (
           <p id="run-bundle-what" className="sr-only">
             The run&rsquo;s bundle: its report, with a PDF and LaTeX where they could be made, the log, the metadata, and the

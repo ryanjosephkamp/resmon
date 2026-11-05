@@ -35,16 +35,16 @@ describe('Run again', () => {
   test('asks first, saying what it starts and how it summarizes', () => {
     expect(runAgainQuestion([run(4)], { free: 3, cap: 3 })).toBe(
       'Run 4, “terms 4”, again, with its own terms, dates, limit, and sources, as a new run linked back to it? It '
-      + 'summarizes only if its run tried to, with what Settings › AI holds now.');
+      + 'summarizes only if its run was set to, with what Settings › AI holds now.');
   });
 
   test('says how many would wait, that a watch’s run is its watch’s Run now, and leaves a running run alone', () => {
     const chosen = [run(4), run(5), run(6, { execution_type: 'automated_sweep', routine_id: 2 }), run(7, { status: 'running' })];
     expect(runAgainQuestion(chosen, { free: 1, cap: 3 })).toBe(
       'Run 3 runs again? A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
-      + 'summarizes only if its run tried to, with what Settings › AI holds now. A watch’s run (run 6) runs as its '
-      + 'watch’s Run now: with the watch’s current terms, sources, and dates, emailed and delivered as the watch is set, '
-      + 'and not while the watch is already running. resmon runs 3 at once, so 2 wait for a free slot, under Waiting '
+      + 'summarizes only if its run was set to, with what Settings › AI holds now. A watch’s run (run 6) runs as its '
+      + 'watch’s Run now: with the watch’s current settings (its terms, sources, dates, and summaries), emailed and '
+      + 'delivered as the watch is set, and not while the watch is already running. resmon runs 3 at once, so 2 wait for a free slot, under Waiting '
       + 'above, and start on their own. Run 7 is still running, and is not run again.');
     expect(runAgainQuestion([run(4)], { free: 0, cap: 1 })).toContain('resmon runs 1 at once, so it waits for a free slot');
   });
@@ -52,8 +52,9 @@ describe('Run again', () => {
   test('one watch’s run is asked about by its watch’s name, as its Run now', () => {
     expect(runAgainQuestion([run(6, { execution_type: 'automated_sweep', routine_id: 2 })], { free: 3, cap: 3 },
       (id) => (id === 2 ? 'Nightly agents' : null))).toBe(
-      'Run 6, “Nightly agents”, again as its watch’s Run now? It runs with the watch’s current terms, sources, and dates, '
-      + 'is emailed and delivered as the watch is set, and does not start while the watch is already running.');
+      'Run 6, “Nightly agents”, again as its watch’s Run now? It runs with the watch’s current settings (its terms, '
+      + 'sources, dates, and summaries), is emailed and delivered as the watch is set, and does not start while the watch '
+      + 'is already running.');
   });
 
   test('asks nothing when every chosen run is still running', () => {

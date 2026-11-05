@@ -15,7 +15,7 @@ import {
 } from './model';
 import { exportReferences, FORMATS, type ReferenceFormat } from './references';
 import { useDeleteRuns } from './remove';
-import { RestartFacts } from './RestartFacts';
+import { ReadRestartFacts } from './RestartFacts';
 import { ACTIVE_KEY } from './active';
 import { SAVED_KEY } from '../collection/savedSearches';
 import {
@@ -277,7 +277,7 @@ export function RunHistory({ filter, words, watchName, notice, tools, slots }: P
                     {RESTARTABLE.has(run.status) && (weighing === run.id
                       ? (
                         <div className="run-restart-confirm" role="group" aria-label={`Restart run ${run.id}`}>
-                          <RestartFacts run={run} />
+                          <ReadRestartFacts run={run} />
                           <div className="form-actions">
                             <button type="button" className="btn sm primary" disabled={restart.isPending}
                               onClick={() => restart.mutate(run.id)}>

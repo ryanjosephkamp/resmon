@@ -1,5 +1,5 @@
 import { restartFacts, type ProgressEvent } from '../model';
-import { laneSentence, needsSignIn, runSummaries, type RunAiLane } from '../summaries';
+import { aiChoiceOf, laneSentence, needsSignIn, runSummaries, type RunAiLane } from '../summaries';
 
 const CUSTOM = 'Custom endpoint · authored-model';
 
@@ -45,8 +45,8 @@ describe('whether a run summarized, with what, and how it went', () => {
       on: null, head: 'This run recorded no attempt to summarize before it stopped, and not whether it was set to.', lanes: [], note: null,
     });
     // Beside it, Restart's line says the same thing, not its opposite.
-    expect(restartFacts({ parameters: '{}', execution_type: 'automated_sweep', ...interrupted }).ai)
-      .toBe('This run recorded no attempt to summarize, so Restart does not summarize.');
+    expect(restartFacts({ execution_type: 'automated_sweep', ...interrupted }, null).ai)
+      .toBe('This run recorded neither what it was set to nor an attempt to summarize, so Restart does not summarize.');
     // Still running, or with no lane record at all, nothing is inferred.
     expect(runSummaries({ status: 'running', ai_lanes: [] }, []).head).toBe('Not recorded with this run.');
     expect(runSummaries({ status: 'interrupted' }, []).head).toBe('Not recorded with this run.');
@@ -83,12 +83,35 @@ describe('whether a run summarized, with what, and how it went', () => {
   });
 });
 
-describe('what Restart does with summaries, where the run’s lanes are known', () => {
-  const base = { parameters: '{}', execution_type: 'deep_dive', routine_id: null };
-  test('a run that tried says Restart will, with today’s settings and not this run’s own', () => {
-    expect(restartFacts({ ...base, ai_lanes: [lane({})] }).ai)
-      .toBe('This run tried to summarize, so Restart does too, with what Settings › AI holds now. A connection or wording set for this run alone is not carried over.');
-    expect(restartFacts({ ...base, ai_lanes: [] }).ai).toBe('This run recorded no attempt to summarize, so Restart does not summarize.');
+describe('what Restart does with summaries: as the run was set to, not as far as it got', () => {
+  const base = { execution_type: 'deep_dive', routine_id: null };
+  const SAME = 'so Restart does too, with what Settings › AI holds now. A connection or wording set for this run alone '
+    + 'is not carried over.';
+
+  test('a run set to summarize that failed before any summary is restarted with summaries on', () => {
+    // Its ai_choice said on; it stopped before a lane was tried, so it has none.
+    const failed = { ...base, status: 'failed', result_count: 0, ai_lanes: [] };
+    expect(runSummaries(failed, [choice({ enabled: true })]).on).toBe(true);
+    expect(restartFacts(failed, aiChoiceOf([choice({ enabled: true })])?.enabled ?? null).ai)
+      .toBe(`This run was set to summarize, ${SAME}`);
+  });
+
+  test('a run set not to summarize is restarted with summaries off, whatever its lanes', () => {
+    expect(restartFacts({ ...base, ai_lanes: [] }, false).ai).toBe('This run was set not to summarize, so Restart does not either.');
+  });
+
+  test('a run from before the choice was recorded is read from its lanes, as the engine reads it', () => {
+    expect(restartFacts({ ...base, ai_lanes: [lane({})] }, null).ai).toBe(`This run tried to summarize, ${SAME}`);
+    expect(restartFacts({ ...base, ai_lanes: [] }, null).ai)
+      .toBe('This run recorded neither what it was set to nor an attempt to summarize, so Restart does not summarize.');
+    expect(restartFacts(base, null).ai).toBe('This run did not record what it was set to, so Restart summarizes only if it '
+      + 'recorded an attempt to, with what Settings › AI holds now.');
+  });
+
+  test('while its events are not read yet, nothing is claimed past what its lanes show', () => {
+    expect(restartFacts({ ...base, ai_lanes: [lane({})] }).ai).toBe(`This run tried to summarize, ${SAME}`);
+    expect(restartFacts({ ...base, ai_lanes: [] }).ai)
+      .toBe('Restart summarizes only if this run was set to, with what Settings › AI holds now.');
   });
 });
 

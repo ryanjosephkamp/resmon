@@ -314,32 +314,31 @@ describe('a report or log that cannot be shown', () => {
 });
 
 describe('what Restart does, said before it is pressed', () => {
-  test('a search asked by hand: AI not recorded, and never emailed or delivered', () => {
-    const facts = restartFacts({ parameters: JSON.stringify({ repositories: ['arxiv'], keywords: ['graph'] }), execution_type: 'deep_sweep', routine_id: null });
-    expect(facts.ai).toMatch(/^Not recorded with this run\. Restart summarizes only if this run recorded an attempt to/);
+  test('a search asked by hand: copied as a new run, and never emailed or delivered', () => {
+    const facts = restartFacts({ execution_type: 'deep_sweep', routine_id: null });
+    expect(facts.asks).toBe('The same sources, terms, dates, and cap this run recorded, as a new run.');
+    expect(facts.ai).toBe('Restart summarizes only if this run was set to, with what Settings › AI holds now.');
     expect(facts.delivery).toMatch(/^None\./);
     expect(facts.watchId).toBeNull();
   });
 
-  test('a watch\'s run is sent as its watch is set, and names the watch', () => {
-    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: 7 });
-    expect(facts.delivery).toContain('as its watch is set when the run finishes');
+  test('a watch\'s run is its watch\'s Run now, with the watch\'s current settings, and names the watch', () => {
+    const facts = restartFacts({ execution_type: 'automated_sweep', routine_id: 7, ai_lanes: [] }, false);
+    expect(facts.asks).toBe('The watch’s Run now, with the watch’s current settings: its sources, terms, and dates as the '
+      + 'watch holds them now, not this run’s copy. It does not start while the watch is already running.');
+    // Not as this run was set: the watch decides, as it is set now.
+    expect(facts.ai).toBe('As the watch is set now: the run summarizes only if the watch is set to, as the watch’s own runs do.');
+    expect(facts.delivery).toBe('Emailed and delivered as the watch is set when the run finishes.');
     expect(facts.watchId).toBe(7);
   });
 
-  test('a watch\'s run whose watch was deleted is not called a search asked by hand', () => {
-    const facts = restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null, ai_lanes: [] });
+  test('a watch\'s run whose watch was deleted is copied, and not called a search asked by hand', () => {
+    const facts = restartFacts({ execution_type: 'automated_sweep', routine_id: null, ai_lanes: [] }, true);
+    expect(facts.asks).toBe('The same sources, terms, dates, and cap this run recorded, as a new run.');
+    expect(facts.ai).toMatch(/^This run was set to summarize, so Restart does too/);
     expect(facts.delivery).toBe('None. The watch this run belonged to no longer exists, so a restarted run is not emailed or delivered.');
     expect(facts.delivery).not.toContain('by hand');
     expect(facts.watchId).toBeNull();
-    expect(restartFacts({ parameters: '{}', execution_type: 'automated_sweep', routine_id: null }).delivery)
-      .toMatch(/^None\. The watch this run belonged to no longer exists/);
-  });
-
-  test('a setting the parameters do record is read from them', () => {
-    const facts = restartFacts({ parameters: JSON.stringify({ ai_enabled: true }), execution_type: 'deep_dive', routine_id: null });
-    expect(facts.ai).toMatch(/^On when this run started, as its parameters record\./);
-    expect(restartFacts({ parameters: 'not json', execution_type: 'deep_dive', routine_id: null }).ai).toMatch(/^Not recorded/);
   });
 });
 

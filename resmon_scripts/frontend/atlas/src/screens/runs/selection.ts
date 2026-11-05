@@ -142,24 +142,24 @@ export function runAgainQuestion(
   const title = runTitle(first, first.routine_id ? watchName(first.routine_id) : null);
   if (one && searches.length) {
     parts.push(`Run ${first.id}, “${title}”, again, with its own terms, dates, limit, and sources, as a new run linked back to it?`,
-      'It summarizes only if its run tried to, with what Settings › AI holds now.');
+      'It summarizes only if its run was set to, with what Settings › AI holds now.');
   } else if (one) {
     parts.push(`Run ${first.id}, “${title}”, again as its watch’s Run now?`,
-      'It runs with the watch’s current terms, sources, and dates, is emailed and delivered as the watch is set, and does '
-      + 'not start while the watch is already running.');
+      'It runs with the watch’s current settings (its terms, sources, dates, and summaries), is emailed and delivered as '
+      + 'the watch is set, and does not start while the watch is already running.');
   } else {
     parts.push(`Run ${number(again.length)} runs again?`);
     if (searches.length) {
       parts.push('A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
-        + 'summarizes only if its run tried to, with what Settings › AI holds now.');
+        + 'summarizes only if its run was set to, with what Settings › AI holds now.');
     }
     if (watched.length) {
       const ids = runNumbers(watched.map((run) => run.id));
       parts.push(watched.length === 1
-        ? `A watch’s run (${ids}) runs as its watch’s Run now: with the watch’s current terms, sources, and dates, emailed `
-          + 'and delivered as the watch is set, and not while the watch is already running.'
-        : `Watches’ runs (${ids}) run as their watches’ Run now: with each watch’s current terms, sources, and dates, `
-          + 'emailed and delivered as the watch is set, and not while that watch is already running.');
+        ? `A watch’s run (${ids}) runs as its watch’s Run now: with the watch’s current settings (its terms, sources, `
+          + 'dates, and summaries), emailed and delivered as the watch is set, and not while the watch is already running.'
+        : `Watches’ runs (${ids}) run as their watches’ Run now: with each watch’s current settings (its terms, sources, `
+          + 'dates, and summaries), emailed and delivered as the watch is set, and not while that watch is already running.');
     }
   }
   if (slots.free !== null && slots.cap !== null && again.length > slots.free) {

@@ -172,9 +172,10 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await expect(question).toBeFocused();
     await expect(question.locator('.confirm-question')).toHaveText(
       'Run 4 runs again? A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
-      + 'summarizes only if its run tried to, with what Settings › AI holds now. '
-      + `A watch’s run (run ${watchRun}) runs as its watch’s Run now: with the watch’s current terms, sources, and dates, `
-      + 'emailed and delivered as the watch is set, and not while the watch is already running. '
+      + 'summarizes only if its run was set to, with what Settings › AI holds now. '
+      + `A watch’s run (run ${watchRun}) runs as its watch’s Run now: with the watch’s current settings (its terms, `
+      + 'sources, dates, and summaries), emailed and delivered as the watch is set, and not while the watch is already '
+      + 'running. '
       + 'resmon runs 1 at once, so 3 wait for a free slot, under Waiting above, and start on their own.');
     await widen(app, win, 1280);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runs-selection-run-again-1280.png') });
