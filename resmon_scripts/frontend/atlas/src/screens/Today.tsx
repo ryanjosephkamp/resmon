@@ -21,6 +21,15 @@ import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshne
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
 type Brief = components['schemas']['DocumentBrief'];
+type TodayPaper = components['schemas']['TodayPaper'];
+
+/** New papers read after the first page, and where the next read starts. */
+interface Earlier {
+  /** The first page's end these pages continue from; pages read from another end are not used. */
+  after: string;
+  papers: TodayPaper[];
+  cursor: string | null;
+}
 
 /**
  * Today, the morning edition: where last night's papers landed in the whole
@@ -30,6 +39,12 @@ type Brief = components['schemas']['DocumentBrief'];
  * paper sits (and on what basis), `/api/today` for what is new since the last
  * Mark all read, and `/api/scheduler/status` for whether the next run will
  * actually happen.
+ *
+ * `/api/today` answers the newest 1,000 new papers; the index's List earlier
+ * papers reads the ones before them from `/api/today/papers`, a page at a time,
+ * until every new paper is listed. Pages read are kept while the first page
+ * ends where it did; when new papers move its end, the list starts again from
+ * the first page, and the earlier papers are listed again on request.
  */
 export function Today() {
   const client = useQueryClient();
@@ -107,19 +122,40 @@ export function Today() {
   );
   const mapLook = useMapLook('today', sky, sourceName);
 
-  // Numbers follow the order papers were collected: 1 is the first to arrive.
+  // The pages read before the first page's papers. Kept only while the first
+  // page ends where they continue from: a read answered after new papers moved
+  // that end is set aside rather than leaving a gap between the two.
+  const [earlier, setEarlier] = useState<Earlier | null>(null);
+  const firstEnd = today.data ? `${today.data.since ?? ''}|${today.data.next_cursor ?? ''}` : null;
+  const read = earlier && earlier.after === firstEnd ? earlier : null;
+  const nextCursor = read ? read.cursor : today.data?.next_cursor ?? null;
+  const readEarlier = useMutation({
+    mutationFn: async ({ after, cursor }: { after: string; cursor: string }) => ({
+      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor } } })),
+    }),
+    onSuccess: ({ after, page }) => setEarlier((was) => ({
+      after,
+      papers: [...(was && was.after === after ? was.papers : []), ...page.papers],
+      cursor: page.next_cursor ?? null,
+    })),
+  });
+
+  // Numbers follow the order papers were collected: 1 is the first to arrive,
+  // counted over every new paper, so a paper keeps its number as earlier ones are read.
   const papers = useMemo<IndexPaper[]>(() => {
-    const list = [...(today.data?.papers ?? [])].reverse();
-    return list.map((paper, k) => {
+    const newest = [...(today.data?.papers ?? []), ...(read?.papers ?? [])];
+    const total = today.data?.total ?? newest.length;
+    return newest.map((paper, k) => {
       const at = sky?.indexOf.get(paper.id);
       return {
         ...paper,
-        n: k + 1,
+        n: total - k,
         cell: sky && at !== undefined ? gridCell(sky.x[at] ?? 0, sky.y[at] ?? 0, sky.bounds) : null,
         regionId: sky && at !== undefined ? (sky.region[at] ?? null) : null,
       };
-    });
-  }, [today.data, sky]);
+    }).reverse();
+  }, [today.data, read, sky]);
+  const firstNumber = papers[0]?.n ?? 1;
   const arrivals = useMemo(() => {
     if (!sky) return [];
     const out: number[] = [];
@@ -250,6 +286,7 @@ export function Today() {
             shapes={shapes}
             field={field}
             arrivals={arrivals}
+            firstNumber={firstNumber}
             opening={opening}
             selected={selectedIndex}
             pointed={pointedIndex}
@@ -310,6 +347,11 @@ export function Today() {
           lifecycle={lifecycle.data?.events}
           marking={looked.isPending}
           busy={today.isFetching}
+          earlier={nextCursor && firstEnd ? {
+            reading: readEarlier.isPending,
+            failed: readEarlier.isError ? readEarlier.error.message : null,
+            read: () => readEarlier.mutate({ after: firstEnd, cursor: nextCursor }),
+          } : null}
           onSelect={(id) => { setSelectedId(id); zoomTo({ paperId: id }); }}
           onPoint={setPointedId}
           onZoomTo={zoomTo}

@@ -18,7 +18,11 @@ This tab searches every paper resmon has collected, across all runs and watches.
 
 When resmon cannot rank, the control is not offered and a sentence says why: no model is set up, papers have no vectors yet (counted), the similarity index holds none of them, or the extension did not load. The sentence links to **Settings › AI › Embeddings** where something there is the next step. See [AI settings](/resmon/guide/ai-summarization/).
 
-The count above the list stops at 10,000 and says so. The **Export these papers as** buttons (**BibTeX**, **RIS**, **CSV**) write every paper that count counts, not only the rows drawn, through the system's save dialog. An export holds at most 10,000 papers; past that, the file holds the newest 10,000 and the screen says so before you save.
+The count above the list is every paper that matches, however many. Counting has 1.5 seconds; if it runs out, the line says "At least N" and that counting stopped, and the list and the export still hold every match. Closest in meaning ranks every match too, not only the newest.
+
+The list reads more papers as you scroll toward its end (**Show more** does the same from the keyboard), and it stays as quick at the ten-thousandth row as at the first. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the newest** returns to the top. The month is kept in the address with your words and filters.
+
+The **Export these papers as** buttons (**BibTeX**, **RIS**, **CSV**) write every paper that matches, not only the rows drawn, through the system's save dialog. There is no limit on how many: resmon writes the file as it reads the papers, and says how many the file holds once it is saved.
 
 Each result shows its title, any retraction or correction recorded against it, its authors, source, and publication date. Two more lines can appear:
 

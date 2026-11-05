@@ -360,10 +360,13 @@ def search(engine: Engine, args: argparse.Namespace, out: Out) -> int:
     if total == 0:
         out.line("No paper in this resmon's collection matches.")
     else:
-        capped = bool(data.get("total_is_capped"))
-        text = f"{count(total)}{'+' if capped else ''} {plural(total, 'paper')} {'matches' if total == 1 and not capped else 'match'}"
-        if capped:
-            text += f" (resmon stops counting at {count(data.get('count_cap'))})"
+        if data.get("total_is_exact") is False:
+            # Counting ran out of time: the number is a floor, and said as one.
+            seconds = int(data.get("count_budget_ms") or 0) / 1000
+            text = (f"At least {count(total)} {plural(total, 'paper')} match "
+                    f"(resmon stopped counting after {seconds:g} seconds)")
+        else:
+            text = f"{count(total)} {plural(total, 'paper')} {'matches' if total == 1 else 'match'}"
         out.line(text + ".")
     if data.get("similarity_unavailable"):
         out.para(str(data["similarity_unavailable"]))

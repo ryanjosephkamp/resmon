@@ -1,13 +1,14 @@
-import { capWords } from '../countCap';
+import { stoppedWords } from '../countCap';
 
-describe('a capped count says so beside the number', () => {
+describe('a count that ran out of time says so beside the number', () => {
   test('an exact count says nothing more', () => {
-    expect(capWords({ total_is_capped: false, count_cap: 10000 }, 3)).toBeNull();
+    expect(stoppedWords({ total: 16_774, total_is_exact: true, count_budget_ms: 1500 })).toBeNull();
   });
 
-  test('a capped count names the cap, and the whole collection’s own count where that is what was asked', () => {
-    expect(capWords({ total_is_capped: true, count_cap: 10000 }, 16065))
-      .toBe('Search stops counting at 10,000; your collection holds 16,065 papers in all.');
-    expect(capWords({ total_is_capped: true, count_cap: 10000 }, null)).toBe('Search stops counting at 10,000.');
+  test('a stopped count says when it stopped, and that the list and the export are not cut short by it', () => {
+    expect(stoppedWords({ total: 41_200, total_is_exact: false, count_budget_ms: 1500 }))
+      .toBe('Counting stopped after 1.5 seconds; the list and the export still hold every match.');
+    expect(stoppedWords({ total: 3, total_is_exact: false, count_budget_ms: 1000 }))
+      .toBe('Counting stopped after 1 second; the list and the export still hold every match.');
   });
 });

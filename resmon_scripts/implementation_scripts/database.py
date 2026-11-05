@@ -2800,11 +2800,11 @@ def count_executions(
 
 
 def get_routine_document_ids(
-    conn: sqlite3.Connection, routine_id: int, limit: int = 2000,
+    conn: sqlite3.Connection, routine_id: int, limit: int | None = None,
 ) -> tuple[list[int], int]:
     """The papers a routine's runs collected, newest run first, each once.
 
-    Returns ``(ids up to limit, total)``. ``executions.routine_id`` carries no
+    Returns ``(ids, total)``: every id, or the first *limit* of them. ``executions.routine_id`` carries no
     index, and that is deliberate here rather than an oversight: the table
     holds one row per run, which is thousands at most, and an index would be
     a schema step for a scan this small.
@@ -2818,7 +2818,8 @@ def get_routine_document_ids(
         "ORDER BY latest DESC, id DESC",
         (int(routine_id),),
     ).fetchall()
-    return [int(r["id"]) for r in rows[:limit]], len(rows)
+    ids = [int(r["id"]) for r in rows]
+    return (ids if limit is None else ids[:limit]), len(rows)
 
 
 def get_execution_by_id(conn: sqlite3.Connection, exec_id: int) -> dict | None:

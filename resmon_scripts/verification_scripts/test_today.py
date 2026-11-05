@@ -207,16 +207,51 @@ def test_the_next_fire_is_what_the_store_holds(client):
     assert entry["next_fire_at"] is None
 
 
-def test_the_list_is_capped_and_the_total_is_not(client, monkeypatch):
+def test_every_new_paper_can_be_read_a_page_at_a_time(client, monkeypatch):
+    """Today listed the newest 1,000 and no others; past the first page, the rest
+    are read a page at a time, each starting where the last one stopped."""
     conn = resmon_mod._get_db()
-    monkeypatch.setattr(today, "PAPER_LIMIT", 3)
-    for n in range(5):
-        _paper(conn, f"p{n}", NOW - timedelta(minutes=10 + n))
+    monkeypatch.setattr(today, "PAPER_PAGE", 3)
+    watch = _routine(conn, "Agents")
+    ids = [_paper(conn, f"p{n}", NOW - timedelta(minutes=10 + n)) for n in range(7)]
+    _run(conn, watch, [ids[5]], NOW - timedelta(minutes=5))
     answer = today.build(conn, {}, now=NOW)
-    assert answer["total"] == 5 and len(answer["papers"]) == 3
-    # Newest first.
+    assert answer["total"] == 7 and [p["id"] for p in answer["papers"]] == ids[:3]
     seen = [p["first_seen_at"] for p in answer["papers"]]
-    assert seen == sorted(seen, reverse=True)
+    assert seen == sorted(seen, reverse=True), "newest first"
+
+    read = list(answer["papers"])
+    cursor = answer["next_cursor"]
+    while cursor:
+        page = today.papers_after(conn, cursor, now=NOW)
+        read += page["papers"]
+        cursor = page["next_cursor"]
+    assert [p["id"] for p in read] == ids, "every new paper, each once, in order"
+    assert next(p for p in read if p["id"] == ids[5])["watches"] == [watch], "a later page knows its watches"
+    assert set(read[0]) == set(read[-1]), "a later page's papers are the first page's shape"
+
+
+def test_a_page_starts_where_the_last_stopped_whatever_arrived_since(client, monkeypatch):
+    conn = resmon_mod._get_db()
+    monkeypatch.setattr(today, "PAPER_PAGE", 2)
+    ids = [_paper(conn, f"p{n}", NOW - timedelta(minutes=10 + n)) for n in range(4)]
+    first = today.build(conn, {}, now=NOW)
+    _paper(conn, "late", NOW - timedelta(minutes=1))  # a run stores a paper in between
+    page = today.papers_after(conn, first["next_cursor"], now=NOW)
+    assert [p["id"] for p in page["papers"]] == ids[2:4] and page["next_cursor"] is None
+
+
+def test_the_papers_route_pages_and_refuses_a_cursor_it_did_not_make(client, monkeypatch):
+    conn = resmon_mod._get_db()
+    monkeypatch.setattr(today, "PAPER_PAGE", 2)
+    for n in range(3):
+        _paper(conn, f"p{n}", datetime.now(timezone.utc) - timedelta(minutes=10 + n))
+    first = client.get("/api/today").json()
+    assert first["total"] == 3 and len(first["papers"]) == 2 and first["next_cursor"]
+    rest = client.get("/api/today/papers", params={"cursor": first["next_cursor"]})
+    assert rest.status_code == 200, rest.text
+    assert len(rest.json()["papers"]) == 1 and rest.json()["next_cursor"] is None
+    assert client.get("/api/today/papers", params={"cursor": "yesterday"}).status_code == 400
 
 
 def test_the_abstract_opening_is_whole_sentences_and_never_a_summary(client):
@@ -268,3 +303,24 @@ def test_briefs_answer_in_the_order_asked_and_leave_out_unknown_ids(client):
 def test_briefs_refuse_more_than_the_limit(client):
     response = client.post("/api/documents/briefs", json={"ids": list(range(today.BRIEF_LIMIT + 1))})
     assert response.status_code == 422
+
+
+def test_a_watchs_constellation_holds_every_paper_it_returned(client):
+    """Today outlines a watch around every paper it returned (``members``), and a
+    watch's page marks them from ``/api/routines/{id}/documents``, which stopped
+    at the latest 2,000 unless asked for more."""
+    conn = resmon_mod._get_db()
+    watch = _routine(conn, "Agents")
+    conn.executemany(
+        "INSERT INTO documents (source_repository, external_id, title, metadata_hash) VALUES ('arxiv', ?, ?, ?)",
+        [(f"c{n}", f"Paper c{n}", f"c{n}") for n in range(2_050)],
+    )
+    ids = [int(r[0]) for r in conn.execute("SELECT id FROM documents ORDER BY id")]
+    _run(conn, watch, ids, NOW - timedelta(days=30))
+    body = client.get(f"/api/routines/{watch}/documents").json()
+    assert body["total"] == 2_050 and len(body["document_ids"]) == 2_050 and body["limit"] is None
+    assert sorted(body["document_ids"]) == ids
+    asked = client.get(f"/api/routines/{watch}/documents", params={"limit": 10}).json()
+    assert len(asked["document_ids"]) == 10 and asked["total"] == 2_050, "a limit asked for still cuts it"
+    [entry] = today.build(conn, {}, now=NOW)["watches"]
+    assert len(entry["members"]) == 2_050

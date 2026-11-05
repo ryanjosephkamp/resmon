@@ -6521,10 +6521,10 @@
       },
       "ExplorerPage": {
         "additionalProperties": true,
-        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match, capped at ``count_cap`` when\n``total_is_capped``. Under ``sort == \"similarity\"`` the phrase ranks the\nfiltered set rather than filtering it, and ``ranked_count``,\n``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says\nwhy a requested ranking was refused and the page fell back to newest.\nEach of those four is absent when it does not apply.\n\n``links``, ``matches`` and ``lifecycle`` are present only when the request's\n``include`` named them: what ``/api/links/for-documents``,\n``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``\nanswer for this page's papers, so a page and its marks arrive together.",
+        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match when ``total_is_exact``; when it is\nfalse, counting ran out of its time budget (``count_budget_ms``) and\n``total`` is how many it had counted, which the matches are at least. Under\n``sort == \"similarity\"`` the phrase ranks the filtered set rather than\nfiltering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;\n``similarity_unavailable`` says why a requested ranking was refused and the\npage fell back to newest. Each of those four is absent when it does not\napply.\n\n``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present\nwhen the request jumped to a date: the page starts at the newest match\npublished on or before it, and ``newer_count`` matches were published after.\n\n``links``, ``matches`` and ``lifecycle`` are present only when the request's\n``include`` named them: what ``/api/links/for-documents``,\n``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``\nanswer for this page's papers, so a page and its marks arrive together.",
         "properties": {
-          "count_cap": {
-            "title": "Count Cap",
+          "count_budget_ms": {
+            "title": "Count Budget Ms",
             "type": "integer"
           },
           "has_more": {
@@ -6572,6 +6572,28 @@
             ],
             "title": "Model"
           },
+          "newer_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newer Count"
+          },
+          "newer_count_is_exact": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newer Count Is Exact"
+          },
           "next_cursor": {
             "anyOf": [
               {},
@@ -6618,12 +6640,23 @@
             "title": "Sort",
             "type": "string"
           },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
           },
-          "total_is_capped": {
-            "title": "Total Is Capped",
+          "total_is_exact": {
+            "title": "Total Is Exact",
             "type": "boolean"
           },
           "unranked_count": {
@@ -6647,8 +6680,8 @@
           "next_cursor",
           "has_more",
           "total",
-          "total_is_capped",
-          "count_cap",
+          "total_is_exact",
+          "count_budget_ms",
           "used_full_text_index",
           "page_size",
           "sort"
@@ -6876,6 +6909,17 @@
             },
             "title": "Sources",
             "type": "array"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
           }
         },
         "title": "ExplorerSearchBody",
@@ -11358,7 +11402,7 @@
       },
       "RoutineDocuments": {
         "additionalProperties": true,
-        "description": "``GET /api/routines/{routine_id}/documents``: the papers this routine's\nruns collected, newest run first, each once.\n\n``total`` counts every one; ``document_ids`` stops at ``limit``. Only ids:\nwhat a screen marks on the collection map, not a page of records.",
+        "description": "``GET /api/routines/{routine_id}/documents``: the papers this routine's\nruns collected, newest run first, each once.\n\n``total`` counts every one; ``document_ids`` holds every one, or stops at\n``limit`` where the request set one (``None`` when it did not). Only ids:\nwhat a screen marks on the collection map, not a page of records.",
         "properties": {
           "document_ids": {
             "items": {
@@ -11368,8 +11412,15 @@
             "type": "array"
           },
           "limit": {
-            "title": "Limit",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
           },
           "routine_id": {
             "title": "Routine Id",
@@ -17383,11 +17434,22 @@
       },
       "Today": {
         "additionalProperties": true,
-        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` holds at most 1,000, newest\nfirst; ``total`` counts them all.",
+        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` is the first page of them, up\nto 1,000, newest first; ``total`` counts them all, and ``next_cursor``\n(``None`` when the page holds every one) reads the next page from\n``GET /api/today/papers``.",
         "properties": {
           "from_searches": {
             "title": "From Searches",
             "type": "integer"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
           },
           "now": {
             "title": "Now",
@@ -17437,6 +17499,7 @@
           "window",
           "total",
           "papers",
+          "next_cursor",
           "from_searches",
           "watches"
         ],
@@ -17573,6 +17636,36 @@
           "queue_status"
         ],
         "title": "TodayPaper",
+        "type": "object"
+      },
+      "TodayPapersPage": {
+        "additionalProperties": true,
+        "description": "``GET /api/today/papers``: the page of Today's new papers after a cursor,\nin the same order and shape, and the cursor after it (``None`` at the end).",
+        "properties": {
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "papers": {
+            "items": {
+              "$ref": "#/components/schemas/TodayPaper"
+            },
+            "title": "Papers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "papers",
+          "next_cursor"
+        ],
+        "title": "TodayPapersPage",
         "type": "object"
       },
       "TodayRun": {
@@ -23154,7 +23247,7 @@
     },
     "/api/explorer/export": {
       "post": {
-        "description": "Export everything matching the current filters, not just the page shown.\n\nReuses the same renderers as the per-execution export; only the way the\ndocuments are selected differs.",
+        "description": "Export everything matching the current filters, not just the page shown.\n\nEvery match, however many: the papers are read from the database a batch at\na time and the file is sent as it is written, so the engine never holds the\nwhole of it (measured: `python -m perf scale`). The count in\n``X-Resmon-Document-Count`` and the papers are read in one transaction on a\nconnection of the export's own, so the header is exactly what the file holds\neven while a run is storing papers. Reuses the same renderers as the\nper-execution export; only the way the documents are selected differs.",
         "operationId": "explorer_export_api_explorer_export_post",
         "requestBody": {
           "content": {
@@ -25703,7 +25796,7 @@
     },
     "/api/routines/{routine_id}/documents": {
       "get": {
-        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. ``total`` counts all of them, so a screen whose ``limit``\ncut the list short can say so rather than imply the marks are complete.",
+        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. Every one unless ``limit`` asks for fewer: ids are a few\nbytes each, and a constellation drawn from the first 2,000 of a watch's\npapers left the rest off the map. ``total`` counts all of them, so a screen\nwhose ``limit`` cut the list short can say so rather than imply the marks\nare complete.",
         "operationId": "routine_documents_api_routines__routine_id__documents_get",
         "parameters": [
           {
@@ -25720,11 +25813,16 @@
             "name": "limit",
             "required": false,
             "schema": {
-              "default": 2000,
-              "maximum": 10000,
-              "minimum": 1,
-              "title": "Limit",
-              "type": "integer"
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
             }
           }
         ],
@@ -26704,6 +26802,58 @@
           }
         },
         "summary": "Mark Today Looked"
+      }
+    },
+    "/api/today/papers": {
+      "get": {
+        "description": "The next page of Today's new papers, after the page before it.\n\n``cursor`` is the ``next_cursor`` that page gave, so every new paper can be\nlisted, a page at a time, however many there are.",
+        "operationId": "get_today_papers_api_today_papers_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": true,
+            "schema": {
+              "title": "Cursor",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 1000,
+              "maximum": 1000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TodayPapersPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Today Papers"
       }
     },
     "/api/watchdog": {

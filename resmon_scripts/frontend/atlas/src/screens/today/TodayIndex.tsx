@@ -31,6 +31,8 @@ export interface Region { id: number; label: string }
  */
 export const GROUP_FIRST = 25;
 export const GROUP_MORE = 50;
+/** How many new papers one List earlier papers reads: `today.PAPER_PAGE`. */
+export const EARLIER_PAGE = 1_000;
 
 /** How many of a group's papers to list: what was asked for, and as far as the paper chosen on the plate. */
 export function listedIn(papers: readonly { id: number }[], asked: number, selected: number | null): number {
@@ -69,6 +71,8 @@ interface Props {
   marking: boolean;
   /** Re-reading the engine: the list says so, to a screen reader and to a test. */
   busy: boolean;
+  /** Reading the new papers that arrived before the ones listed; null once every one is listed. */
+  earlier: { reading: boolean; failed: string | null; read: () => void } | null;
   onSelect: (id: number) => void;
   onPoint: (id: number | null) => void;
   onZoomTo: (target: { watchId?: number; regionId?: number; paperId?: number }) => void;
@@ -83,7 +87,7 @@ interface Props {
 export function TodayIndex(props: Props) {
   const {
     papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, opening, selected, now, saved, lifecycle,
-    marking, busy, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy,
+    marking, busy, earlier, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy,
   } = props;
   const scroller = useRef<HTMLDivElement>(null);
   // How far each group's list has been opened with Show more, by group.
@@ -153,6 +157,7 @@ export function TodayIndex(props: Props) {
             paper={paper}
             opening={opening}
             listed={papers.length}
+            firstNumber={papers[0]?.n ?? 1}
             selected={paper.id === selected}
             saved={saved.get(paper.id) ?? paper.queue_status !== null}
             events={lifecycle?.[String(paper.id)]}
@@ -195,7 +200,15 @@ export function TodayIndex(props: Props) {
 
       <div className="index-scroll" ref={scroller}>
         {total > shown && (
-          <p className="index-cap">The newest {number(shown)} of {number(total)} are listed here; the plate shows them all.</p>
+          <div className="index-cap earlier" data-today="earlier">
+            <p>The newest {number(shown)} of {number(total)} are listed and ringed on the plate.</p>
+            {earlier && (
+              <button type="button" className="btn sm" disabled={earlier.reading} onClick={earlier.read}>
+                {earlier.reading ? 'Reading earlier papers' : `List the ${number(Math.min(EARLIER_PAGE, total - shown))} before them`}
+              </button>
+            )}
+            {earlier?.failed && <p className="field-error" role="alert">The earlier papers were not read: {earlier.failed}.</p>}
+          </div>
         )}
         {groups.map((group) => (
           <section key={group.key} className="group" aria-label={group.title}>
@@ -214,8 +227,8 @@ export function TodayIndex(props: Props) {
             {group.papers.length < group.total && (
               <p className="gsub">
                 {group.papers.length === 0
-                  ? `None of them is among the newest ${number(papers.length)} listed; they are on the plate.`
-                  : `${number(group.papers.length)} of them are among the newest ${number(papers.length)} listed; the rest are on the plate.`}
+                  ? `None of them is among the newest ${number(papers.length)} listed; they arrived before them.`
+                  : `${number(group.papers.length)} of them are among the newest ${number(papers.length)} listed; the rest arrived before them.`}
               </p>
             )}
             {listOf(group)}
@@ -305,7 +318,7 @@ function SourceTrouble({ run }: { run: TodayRun }) {
 }
 
 function Entry(props: {
-  paper: IndexPaper; opening: Opening; listed: number; selected: boolean; saved: boolean;
+  paper: IndexPaper; opening: Opening; listed: number; firstNumber: number; selected: boolean; saved: boolean;
   events?: LifecycleEvent[];
   sourceName: (slug: string) => string;
   onSelect: (id: number) => void;
@@ -313,20 +326,21 @@ function Entry(props: {
   onZoomTo: (target: { paperId: number }) => void;
   onToggleSave: (paper: IndexPaper) => void;
 }) {
-  const { paper, opening, listed, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
+  const { paper, opening, listed, firstNumber, selected, saved, events, sourceName, onSelect, onPoint, onZoomTo, onToggleSave } = props;
   const badge = useRef<HTMLSpanElement>(null);
   // The number brightens at its turn in the opening, as an animation of its
   // own: the page is not changed again as the opening goes, only drawn.
   useEffect(() => {
     const node = badge.current;
     if (opening.state !== 'running' || !node || typeof node.animate !== 'function') return undefined;
-    const delay = lightsAt(paper.n, listed) - (performance.now() - opening.start);
+    // Lit in turn among the papers listed, which start at `firstNumber`.
+    const delay = lightsAt(paper.n - firstNumber + 1, listed) - (performance.now() - opening.start);
     if (delay + FADE_MS <= 0) return undefined;
     const fade = node.animate([{ opacity: 0.18 }, { opacity: 1 }], {
       duration: FADE_MS, delay: Math.max(0, delay), easing: 'cubic-bezier(.16, 1, .3, 1)', fill: 'backwards',
     });
     return () => fade.cancel();
-  }, [opening, paper.n, listed]);
+  }, [opening, paper.n, listed, firstNumber]);
   const link = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
   return (
     <article
