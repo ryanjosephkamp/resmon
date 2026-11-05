@@ -45,6 +45,7 @@ Every read takes the collection it searches (``collection_id``), and the
 filters narrow that collection's papers: the clause is one lookup per paper in
 the membership's primary key (``paper_collections.MEMBER_SQL``). A count of a
 whole collection reads the membership table instead of walking the papers.
+While there is one collection it holds every paper, and the clause is left out.
 ``collection_id=None`` searches every paper in the database, which no route
 asks for: an absent collection there means the default one.
 
@@ -101,7 +102,7 @@ from dataclasses import dataclass
 from typing import Any, Iterator, Optional
 
 from . import vector_index
-from .paper_collections import member_clause, revision as collection_revision
+from .paper_collections import holds_every_paper, member_clause, revision as collection_revision
 
 # How long counting the matches may take before the count stops and says what
 # it reached. At 100,000 papers the slowest count measured (every paper with
@@ -294,9 +295,10 @@ def _build_where(
     params: list[Any] = []
     used_fts = False
 
-    if collection_id is not None:
+    if collection_id is not None and not holds_every_paper(conn, collection_id):
         # First, so a search with no other filter is exactly this clause, which
-        # ``count_where`` counts from the membership table.
+        # ``count_where`` counts from the membership table. The only collection
+        # holds every paper and needs none.
         clauses.append(member_clause())
         params.append(int(collection_id))
 

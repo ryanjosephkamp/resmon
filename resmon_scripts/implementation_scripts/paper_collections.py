@@ -89,6 +89,20 @@ def exists(conn: sqlite3.Connection, collection_id: int) -> bool:
     return conn.execute("SELECT 1 FROM collections WHERE id = ?", (int(collection_id),)).fetchone() is not None
 
 
+def holds_every_paper(conn: sqlite3.Connection, collection_id: Optional[int]) -> bool:
+    """Whether *collection_id* is the only collection, and so holds every paper.
+
+    Every paper is in at least one collection: a new one is filed in the
+    default, and a move, an undo, or a deleted collection never leaves one in
+    none. So while there is one collection, a read of it needs no membership
+    clause, and costs what a read of the whole database does.
+    """
+    if collection_id is None:
+        return False
+    row = conn.execute("SELECT COUNT(*), MAX(id) FROM collections").fetchone()
+    return row[0] == 1 and row[1] == int(collection_id)
+
+
 def name_of(conn: sqlite3.Connection, collection_id: int) -> Optional[str]:
     row = conn.execute("SELECT name FROM collections WHERE id = ?", (int(collection_id),)).fetchone()
     return str(row[0]) if row else None

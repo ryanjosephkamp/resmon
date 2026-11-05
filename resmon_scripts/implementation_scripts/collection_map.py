@@ -80,6 +80,7 @@ import numpy as np
 
 from .child_process import hidden_window_kwargs
 from .database import DEFAULT_COLLECTION_ID
+from .paper_collections import holds_every_paper, member_clause
 
 logger = logging.getLogger(__name__)
 
@@ -811,21 +812,24 @@ def _layout(centers: np.ndarray, radii: np.ndarray, rng: np.random.Generator
 # Reading the corpus
 # ---------------------------------------------------------------------------
 
-def _in_collection(collection_id: Optional[int], alias: str = "documents") -> tuple[str, tuple]:
+def _in_collection(conn: sqlite3.Connection, collection_id: Optional[int], alias: str = "documents"
+                   ) -> tuple[str, tuple]:
     """The ``WHERE`` that keeps a read to one collection's papers, and its parameter.
 
     ``None`` is the default collection, as everywhere a collection is named.
+    The only collection holds every paper, and keeps nothing out.
     """
     cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
-    return (f" WHERE EXISTS (SELECT 1 FROM collection_documents cm "
-            f"WHERE cm.collection_id = ? AND cm.document_id = {alias}.id)", (cid,))
+    if holds_every_paper(conn, cid):
+        return " WHERE 1", ()
+    return (f" WHERE {member_clause(f'{alias}.id')}", (cid,))
 
 
 def _corpus(conn: sqlite3.Connection, collection_id: Optional[int] = None
             ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Every paper of the collection: its id, a hash of its metadata hash, and
     the day it was first seen (days since 1970-01-01, UTC), in id order."""
-    where, params = _in_collection(collection_id)
+    where, params = _in_collection(conn, collection_id)
     rows = conn.execute(
         "SELECT id, metadata_hash, CAST(julianday(first_seen_at) - 2440587.5 AS INTEGER) "
         f"FROM documents{where} ORDER BY id", params
@@ -840,7 +844,7 @@ def _texts(conn: sqlite3.Connection, ids: Optional[np.ndarray] = None, collectio
            ) -> Callable[[], Iterable[tuple[int, Optional[str], Optional[str]]]]:
     def rows() -> Iterable[tuple[int, Optional[str], Optional[str]]]:
         if ids is None:
-            where, params = _in_collection(collection_id)
+            where, params = _in_collection(conn, collection_id)
             for row in conn.execute(f"SELECT id, title, abstract FROM documents{where} ORDER BY id", params):
                 yield row[0], row[1], row[2]
             return
@@ -908,7 +912,7 @@ def embedding_coverage(conn: sqlite3.Connection, model: Optional[str], total: in
                        collection_id: Optional[int] = None) -> Optional[dict]:
     if not model:
         return None
-    where, params = _in_collection(collection_id, alias="d")
+    where, params = _in_collection(conn, collection_id, alias="d")
     embedded = int(conn.execute(
         "SELECT COUNT(*) FROM document_embeddings e JOIN documents d ON d.id = e.document_id"
         f"{where} AND e.model = ?", (*params, model)).fetchone()[0])

@@ -28,6 +28,7 @@ from implementation_scripts import (  # noqa: E402
     analytics, collection_map, explorer, map_facets, paper_collections as pc, reading_queue, today,
 )
 from implementation_scripts import sweep_engine as se  # noqa: E402
+from implementation_scripts.admission import admission, routine_claims  # noqa: E402
 from implementation_scripts.api_base import BaseAPIClient, NormalizedResult  # noqa: E402
 from implementation_scripts.database import (  # noqa: E402
     DEFAULT_COLLECTION_ID, get_routine_document_ids, init_db, insert_document, insert_execution,
@@ -340,6 +341,31 @@ def test_the_whole_collection_is_counted_from_its_memberships(conn, two, monkeyp
     assert explorer.count_where(conn, where, params) == explorer.Count(2, True)
 
 
+def test_the_only_collection_holds_every_paper_and_is_read_without_a_clause(conn):
+    """While there is one collection every paper is in it, so a read of it costs what a read of
+    the whole database does; the second collection made brings the clause back."""
+    a = _paper(conn, "a")
+    _paper(conn, "b", source="pubmed")
+
+    def where_for(cid):
+        return explorer._build_where(conn, query=None, sources=["arxiv", "pubmed"], authors=None,
+                                     categories=None, date_from=None, date_to=None, collection_id=cid)[0]
+
+    assert pc.holds_every_paper(conn, 1) and not pc.holds_every_paper(conn, None)
+    assert "collection_documents" not in where_for(1)
+    assert collection_map._in_collection(conn, 1) == (" WHERE 1", ())
+    assert explorer.search(conn, collection_id=1)["total"] == 2
+    physics = pc.create(conn, "Physics")["id"]
+    assert not pc.holds_every_paper(conn, 1) and not pc.holds_every_paper(conn, physics)
+    assert "collection_documents" in where_for(1)
+    pc.move(conn, 1, physics, [a])
+    assert explorer.search(conn, collection_id=1)["total"] == 1
+    assert explorer.search(conn, collection_id=physics)["total"] == 1
+    pc.delete(conn, physics)
+    assert pc.holds_every_paper(conn, 1)
+    assert explorer.search(conn, collection_id=1)["total"] == 2
+
+
 def test_today_is_one_collections_and_each_has_its_own_last_look(conn):
     physics = pc.create(conn, "Physics")["id"]
     now = datetime.now(timezone.utc)
@@ -607,9 +633,20 @@ def test_a_watch_chooses_its_collection_and_a_search_lands_in_the_one_it_names(h
     assert client.put(f"/api/routines/{rid}", json={"collection": "Nowhere"}).status_code == 404
 
     launched: list[dict] = []
-    monkeypatch.setattr(resmon_mod, "_launch_execution", lambda engine, exec_id, conn, **_: launched.append(
-        json.loads(resmon_mod._get_db().execute("SELECT parameters FROM executions WHERE id = ?",
-                                                (exec_id,)).fetchone()[0])))
+
+    def record(engine, exec_id, conn, claimed_routine_id=None, reservation=None, **_):
+        launched.append(json.loads(resmon_mod._get_db().execute(
+            "SELECT parameters FROM executions WHERE id = ?", (exec_id,)).fetchone()[0]))
+        # What the real launcher gives back when its run ends: the routine's
+        # claim and the run's slot, or the next test's fire of routine 1 is
+        # refused as a duplicate.
+        if claimed_routine_id is not None:
+            routine_claims.release(claimed_routine_id)
+        admission.note_finished(exec_id)
+        if reservation is not None:
+            admission.note_finished(reservation)
+
+    monkeypatch.setattr(resmon_mod, "_launch_execution", record)
     fired = client.post(f"/api/routines/{rid}/run")
     assert fired.status_code in (200, 202), fired.text
     dive = client.post("/api/search/dive", json={"repository": "arxiv", "query": "q", "collection": physics})
