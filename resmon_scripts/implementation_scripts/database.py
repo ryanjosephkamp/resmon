@@ -2702,6 +2702,19 @@ def _executions_type_check_admits_find(conn: sqlite3.Connection) -> bool:
     return bool(row) and "'find_paper'" in (row[0] or "")
 
 
+#: How the rows go into the rebuilt table, every column of every row.
+_EXECUTIONS_V27_COPY = "INSERT INTO executions_v27_new ({columns}) SELECT {columns} FROM executions"
+
+
+def _execution_references(conn: sqlite3.Connection) -> set[tuple[str, int]]:
+    """The rows of every table that references ``executions`` whose run is missing."""
+    children = [name for (name,) in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
+        if any(fk[2] == "executions" for fk in conn.execute(f'PRAGMA foreign_key_list("{name}")'))]
+    return {(child, row[1]) for child in children
+            for row in conn.execute(f'PRAGMA foreign_key_check("{child}")') if row[2] == "executions"}
+
+
 def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
     """Rebuild ``executions`` with ``find_paper`` in its type CHECK.
 
@@ -2710,6 +2723,11 @@ def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
     ``execution_documents``; the new table built under a temporary name and
     renamed into place; every index and trigger replayed; the AUTOINCREMENT
     mark restored. The new DDL is the stored DDL with the one CHECK widened.
+    As schema 25's rebuild of ``library_files`` does, ``foreign_key_check`` is
+    run on every table that references ``executions`` before the step is
+    released, so a rebuild that left a run's record without its run is undone;
+    a reference that already dangled before (a backup can carry one) is kept
+    as it was.
     """
     stored = conn.execute(
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='executions'"
@@ -2728,6 +2746,7 @@ def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
     try:
         conn.execute("SAVEPOINT executions_v27")
         try:
+            dangling_before = _execution_references(conn)
             seq_row = conn.execute(
                 "SELECT seq FROM sqlite_sequence WHERE name='executions'").fetchone()
             previous_seq = int(seq_row[0]) if seq_row else None
@@ -2739,8 +2758,7 @@ def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
             conn.execute(new_ddl)
             columns = ", ".join(
                 f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(executions)"))
-            conn.execute(
-                f"INSERT INTO executions_v27_new ({columns}) SELECT {columns} FROM executions")
+            conn.execute(_EXECUTIONS_V27_COPY.format(columns=columns))
             conn.execute("DROP TABLE executions")
             conn.execute("ALTER TABLE executions_v27_new RENAME TO executions")
             for _name, sql in carried:
@@ -2750,6 +2768,9 @@ def _rebuild_executions_for_find(conn: sqlite3.Connection) -> None:
                 conn.execute(
                     "INSERT INTO sqlite_sequence(name, seq) VALUES ('executions', ?)",
                     (previous_seq,))
+            if _execution_references(conn) - dangling_before:
+                raise sqlite3.DatabaseError(
+                    "The schema-27 rebuild of executions would leave a run's record without its run")
             conn.execute("RELEASE executions_v27")
         except BaseException:
             conn.execute("ROLLBACK TO executions_v27")
