@@ -1,0 +1,335 @@
+"""Get the PDF end to end in the engine: a request, the caps, the pacing, the worker, the Library.
+
+Against the loopback https server of ``tls_loopback`` with a test authority,
+as ``test_fulltext_download.py`` is. Every paper and every copy is authored.
+"""
+from __future__ import annotations
+
+import http.server
+import socket
+import threading
+import time
+from datetime import datetime, timedelta, timezone
+
+import pytest
+
+from implementation_scripts import database, full_text, fulltext_download as fd, library, open_access
+from verification_scripts.tls_loopback import TEST_HOSTS, LoopbackHTTPS, pdf_body
+
+HOSTS = (*TEST_HOSTS, "arxiv.org")
+
+
+def _resolve(host, port, *args, **kwargs):
+    if host not in HOSTS:
+        raise socket.gaierror(f"{host} is not a test name")
+    return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
+
+
+@pytest.fixture(scope="module")
+def server(tmp_path_factory):
+    srv = LoopbackHTTPS(tmp_path_factory.mktemp("tls"), hosts=HOSTS)
+    srv.start()
+    yield srv
+    srv.stop()
+
+
+@pytest.fixture()
+def db(tmp_path, server, monkeypatch):
+    monkeypatch.setattr(fd, "_CA_BUNDLE", str(server.ca_path))
+    monkeypatch.setattr(fd, "_LOOPBACK_TEST_HOSTS", frozenset(HOSTS))
+    monkeypatch.setattr(fd, "_RESOLVE", _resolve)
+    monkeypatch.setattr(full_text, "HOST_INTERVAL_SECONDS", 0.6)
+    monkeypatch.setattr(full_text, "worker", full_text.Worker())
+    server.routes.clear()
+    server.requests.clear()
+    path = tmp_path / "ft.db"
+    database.init_db(path)
+    conn = database.get_connection(path)
+    full_text.worker.configure(lambda: database.get_connection(path))
+    (tmp_path / "parent").mkdir()
+    library.create_vault(conn, str(tmp_path / "parent"))
+    yield conn
+    full_text.worker.shutdown()
+    conn.close()
+
+
+def _paper(conn, n: int, *, url: str | None = None, license: str | None = "cc-by",
+           reported_by: str = "openalex", doi: str | None = None) -> int:
+    cursor = conn.execute(
+        "INSERT INTO documents (source_repository, external_id, doi, title, authors, publication_date, "
+        "metadata_hash) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        ("openalex", f"W{n}", doi, f"Authored fixture paper {n}", "Ada Fixture", "2026-01-01", f"h{n}"))
+    document_id = cursor.lastrowid
+    if url:
+        open_access.record(conn, document_id, reported_by, [open_access.location(
+            reported_by, pdf_url=url, license=license, version="publishedVersion")], [])
+    conn.commit()
+    return document_id
+
+
+def _settle(conn, timeout: float = 20.0) -> None:
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        busy = conn.execute(
+            "SELECT count(*) FROM full_text_downloads WHERE state IN ('waiting', 'downloading')").fetchone()[0]
+        if not busy and full_text.worker.idle():
+            return
+        time.sleep(0.05)
+    raise AssertionError("downloads did not finish")
+
+
+def _row(conn, download_id):
+    return dict(conn.execute("SELECT * FROM full_text_downloads WHERE id = ?", (download_id,)).fetchone())
+
+
+def _serve(server, path, size=6000, delay=0.0):
+    body = pdf_body(size)
+
+    def route(_handler):
+        if delay:
+            time.sleep(delay)
+        return 200, {"Content-Type": "application/pdf"}, body
+    server.routes[path] = route
+    return body
+
+
+def test_a_requested_pdf_lands_in_the_library_with_its_origin(db, server, tmp_path):
+    body = _serve(server, "/a.pdf")
+    server.routes["/start"] = lambda _h: (302, {"Location": server.url("/a.pdf", "mirror.resmon.test"),
+                                                "Content-Length": "0"}, b"")
+    paper = _paper(db, 1, url=server.url("/start"))
+    asked = full_text.request(db, paper)
+    assert asked["state"] == "waiting" and asked["license"] == "cc-by"
+    _settle(db)
+    row = _row(db, asked["id"])
+    assert row["state"] == "stored"
+    assert row["final_url"] == server.url("/a.pdf", "mirror.resmon.test")
+    assert (row["license"], row["reported_by"], row["byte_size"]) == ("cc-by", "openalex", len(body))
+    assert row["finished_at_utc"] and row["requested_by"] == "person"
+    held = full_text.library_pdf(db, paper)
+    assert held["file_id"] == row["file_id"]
+    file = dict(db.execute("SELECT * FROM library_files WHERE file_id = ?", (row["file_id"],)).fetchone())
+    assert file["media_type"] == "application/pdf" and file["original_name"].endswith(".pdf")
+    vault = library.vault_row(db)
+    assert (tmp_path / "parent" / f"resmon-library-{vault['vault_id']}" / file["relative_path"]).read_bytes() == body
+    status = full_text.status_for(db, [paper])[0]
+    assert status["in_library"]["file_id"] == row["file_id"] and status["download"]["state"] == "stored"
+    # Asked again, the Library's copy is the answer and nothing new is recorded.
+    again = full_text.request(db, paper)
+    assert again["state"] == "stored" and again["reason"] == "already_in_library" and again["id"] is None
+
+
+@pytest.mark.parametrize("setup, reason", [
+    (dict(url=None), "no_open_copy"),
+    (dict(license=None), "no_license"),
+    (dict(license="publisher-specific-oa"), "no_license"),
+    (dict(reported_by="core"), "refused_source"),
+    (dict(url="https://link.springer.com/content/pdf/10.1007/x.pdf"), "refused_source"),
+])
+def test_a_request_that_cannot_go_ahead_is_skipped_with_no_request_sent(db, server, setup, reason):
+    _serve(server, "/a.pdf")
+    fields = {"url": server.url("/a.pdf"), **setup}
+    paper = _paper(db, 2, **fields)
+    asked = full_text.request(db, paper)
+    assert (asked["state"], asked["reason"]) == ("skipped", reason)
+    assert asked["words"] == full_text.REASON_WORDS[reason]
+    assert server.requests == []
+
+
+def test_no_library_folder_is_a_reason_not_a_failure(db, server):
+    db.execute("DELETE FROM library_vault")
+    db.commit()
+    paper = _paper(db, 3, url=server.url("/a.pdf"))
+    assert full_text.request(db, paper)["reason"] == "no_library"
+
+
+def test_the_daily_cap_counts_every_request_sent_in_24_hours(db, server, monkeypatch):
+    monkeypatch.setattr(full_text, "DAILY_CAP", 3)
+    _serve(server, "/a.pdf")
+    paper = _paper(db, 4, url=server.url("/a.pdf"))
+    now = datetime.now(timezone.utc)
+    for when, state in ((now - timedelta(hours=2), "stored"), (now - timedelta(hours=3), "failed"),
+                        (now - timedelta(hours=30), "stored"), (now - timedelta(hours=1), "skipped")):
+        db.execute("INSERT INTO full_text_downloads (document_id, requested_by, state, reason, file_id, "
+                   "final_url, license, requested_at_utc, finished_at_utc) VALUES (?, 'person', ?, ?, ?, ?, ?, ?, ?)",
+                   (paper, state, None if state == "stored" else "x", "f" if state == "stored" else None,
+                    "https://x/a.pdf" if state == "stored" else None, "cc-by" if state == "stored" else None,
+                    when.isoformat(), when.isoformat()))
+    db.commit()
+    # Two sent in the last day (the 30-hour-old one and the skipped one do not count).
+    assert full_text.attempted_today(db) == 2
+    first = full_text.request(db, paper)
+    assert first["state"] == "waiting"
+    other = _paper(db, 5, url=server.url("/a.pdf"))
+    assert full_text.request(db, other)["reason"] == "daily_cap"
+    _settle(db)
+
+
+def test_one_host_is_asked_one_at_a_time_and_at_its_pace(db, server):
+    _serve(server, "/slow.pdf", delay=0.8)
+    _serve(server, "/b.pdf")
+    first = _paper(db, 6, url=server.url("/slow.pdf"))
+    second = _paper(db, 7, url=server.url("/slow.pdf") + "?second")
+    elsewhere = _paper(db, 8, url=server.url("/b.pdf", "mirror.resmon.test"))
+    for paper in (first, second, elsewhere):
+        full_text.request(db, paper)
+    _settle(db)
+    on_pdf = [r for r in server.requests if r["host"].startswith("pdf.resmon.test")]
+    on_mirror = [r for r in server.requests if r["host"].startswith("mirror.resmon.test")]
+    assert len(on_pdf) == 2 and len(on_mirror) == 1
+    # The second request to the host began after the first was answered,
+    # and at least the host's interval after the first began.
+    assert on_pdf[1]["at"] >= on_pdf[0]["done"]
+    assert on_pdf[1]["at"] - on_pdf[0]["at"] >= full_text.HOST_INTERVAL_SECONDS - 0.05
+    # Another host did not wait for it.
+    assert on_mirror[0]["at"] < on_pdf[0]["done"]
+    states = {r[0] for r in db.execute("SELECT state FROM full_text_downloads")}
+    assert states == {"stored"}
+
+
+def test_the_database_holds_one_at_a_time_per_host_across_engines(db, server):
+    """A row downloading from a host in another engine keeps this one's from starting."""
+    _serve(server, "/a.pdf")
+    paper = _paper(db, 9, url=server.url("/a.pdf"))
+    now = datetime.now(timezone.utc).isoformat()
+    db.execute("INSERT INTO full_text_downloads (document_id, requested_by, state, url, host, license, "
+               "requested_at_utc, started_at_utc, claimed_by) VALUES (?, 'person', 'downloading', ?, "
+               "'pdf.resmon.test', 'cc-by', ?, ?, 'another-engine')", (paper, server.url("/x.pdf"), now, now))
+    other = _paper(db, 10, url=server.url("/a.pdf"))
+    asked = full_text.request(db, other)
+    time.sleep(1.0)
+    assert _row(db, asked["id"])["state"] == "waiting" and server.requests == []
+    db.execute("UPDATE full_text_downloads SET state = 'stored', file_id = 'f', final_url = 'https://x', "
+               "finished_at_utc = ? WHERE claimed_by = 'another-engine'", (now,))
+    db.commit()
+    full_text.worker.wake()
+    _settle(db)
+    assert _row(db, asked["id"])["state"] == "stored"
+
+
+def test_a_stale_download_is_read_as_interrupted_and_can_be_asked_again(db, server):
+    _serve(server, "/a.pdf")
+    paper = _paper(db, 11, url=server.url("/a.pdf"))
+    old = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+    db.execute("INSERT INTO full_text_downloads (document_id, requested_by, state, url, host, license, "
+               "requested_at_utc, started_at_utc) VALUES (?, 'person', 'downloading', ?, 'pdf.resmon.test', "
+               "'cc-by', ?, ?)", (paper, server.url("/a.pdf"), old, old))
+    db.commit()
+    assert full_text.status_for(db, [paper])[0]["download"]["reason"] == "interrupted"
+    asked = full_text.request(db, paper)
+    assert asked["state"] == "waiting"
+    _settle(db)
+    assert _row(db, asked["id"])["state"] == "stored"
+
+
+@pytest.mark.parametrize("route, reason", [
+    (lambda _h: (404, {"Content-Type": "text/plain"}, b"no"), "http_status"),
+    (lambda _h: (200, {"Content-Type": "text/html"}, b"<html>"), "wrong_type"),
+    (lambda _h: (200, {"Content-Type": "application/pdf"}, b"<html>sign in</html>"), "not_pdf"),
+])
+def test_a_failed_download_is_recorded_with_its_reason(db, server, route, reason):
+    server.routes["/bad"] = route
+    paper = _paper(db, 12, url=server.url("/bad"))
+    asked = full_text.request(db, paper)
+    _settle(db)
+    row = _row(db, asked["id"])
+    assert (row["state"], row["reason"]) == ("failed", reason) and row["detail"]
+    assert full_text.library_pdf(db, paper) is None
+
+
+def test_a_watch_run_asks_for_its_new_papers_up_to_its_cap(db, server, monkeypatch):
+    monkeypatch.setattr(full_text, "PER_RUN_CAP", 3)
+    _serve(server, "/a.pdf")
+    run = db.execute("INSERT INTO executions (execution_type, parameters, start_time, status) "
+                     "VALUES ('automated_sweep', '{}', '2026-11-05T00:00:00', 'completed')").lastrowid
+    papers = [_paper(db, 20 + n, url=server.url(f"/a.pdf?{n}")) for n in range(5)]
+    papers.append(_paper(db, 30, url=None))
+    known = _paper(db, 31, url=server.url("/a.pdf?known"))
+    for paper in papers:
+        db.execute("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 1)",
+                   (run, paper))
+    db.execute("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 0)",
+               (run, known))
+    db.commit()
+    result = full_text.for_watch_run(db, run)
+    _settle(db)
+    result = full_text.for_execution(db, run)
+    by_paper = {r["document_id"]: r for r in result["requests"]}
+    assert [by_paper[p]["state"] for p in papers[:3]] == ["stored"] * 3
+    assert [by_paper[p]["reason"] for p in papers[3:5]] == ["run_cap", "run_cap"]
+    # A paper with no open copy is skipped for that, and does not use the cap.
+    assert by_paper[papers[5]]["reason"] == "no_open_copy"
+    # A paper the run did not find new is not asked for.
+    assert known not in by_paper
+    assert result["counts"]["stored"] == 3 and result["counts"]["skipped"] == 3
+    assert all(r["requested_by"] == "watch" and r["execution_id"] == run for r in result["requests"])
+
+
+class _OAI(http.server.BaseHTTPRequestHandler):
+    answers: dict[str, str] = {}
+
+    def log_message(self, *args):
+        return
+
+    def do_GET(self):  # noqa: N802
+        identifier = self.path.split("identifier=", 1)[-1].split("&", 1)[0].replace("%3A", ":").replace("%2F", "/")
+        license_url = self.answers.get(identifier)
+        inner = f"<license>{license_url}</license>" if license_url else ""
+        body = (f'<OAI-PMH xmlns="http://www.openarchives.org/OAI/2.0/"><GetRecord><record><metadata>'
+                f'<arXiv xmlns="http://arxiv.org/OAI/arXiv/"><id>x</id>{inner}</arXiv>'
+                f'</metadata></record></GetRecord></OAI-PMH>').encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/xml")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@pytest.fixture()
+def oai(monkeypatch):
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _OAI)
+    thread = threading.Thread(target=srv.serve_forever, daemon=True)
+    thread.start()
+    monkeypatch.setattr(full_text, "_ARXIV_OAI", f"http://127.0.0.1:{srv.server_address[1]}/oai2")
+    from implementation_scripts import api_arxiv
+    monkeypatch.setattr(api_arxiv, "_RATE_LIMITER", api_arxiv.RateLimiter(requests_per_second=100))
+    yield _OAI.answers
+    srv.shutdown()
+    srv.server_close()
+
+
+def test_an_arxiv_copy_is_fetched_once_arxiv_states_its_license(db, server, oai):
+    oai["oai:arXiv.org:2601.00001"] = "http://creativecommons.org/licenses/by/4.0/"
+    oai["oai:arXiv.org:2601.00002"] = "http://arxiv.org/licenses/nonexclusive-distrib/1.0/"
+    _serve(server, "/pdf/2601.00001")
+    _serve(server, "/pdf/2601.00002")
+    _serve(server, "/pdf/2601.00003")
+    papers = []
+    for n in (1, 2, 3):
+        paper = _paper(db, 40 + n)
+        open_access.record(db, paper, "arxiv", [], [("arxiv", f"2601.0000{n}")])
+        db.commit()
+        papers.append(paper)
+    # The arXiv copy's address is arXiv's own; the test resolver sends it to loopback.
+    db.execute("UPDATE document_open_access SET pdf_url = replace(pdf_url, 'https://arxiv.org/', ?)",
+               (f"https://arxiv.org:{server.port}/",))
+    db.commit()
+    asked = [full_text.request(db, p) for p in papers]
+    assert all(a["state"] == "waiting" and a["license"] is None for a in asked)
+    _settle(db)
+    rows = [_row(db, a["id"]) for a in asked]
+    assert (rows[0]["state"], rows[0]["license"]) == ("stored", "cc-by")
+    assert (rows[1]["state"], rows[1]["license"]) == ("stored", "arxiv-nonexclusive")
+    # No license in arXiv's record: not downloaded, and nothing was sent to arxiv.org for it.
+    assert (rows[2]["state"], rows[2]["reason"]) == ("skipped", "no_license")
+    assert not any(r["path"] == "/pdf/2601.00003" for r in server.requests)
+    stored = open_access.locations_for(db, [papers[0]])[0]
+    assert (stored["license"], stored["license_basis"]) == ("cc-by", "host_record")
+
+
+def test_the_rules_state_the_caps_and_the_license_rule():
+    rules = full_text.rules()
+    assert rules["per_run_cap"] == full_text.PER_RUN_CAP and rules["daily_cap"] == full_text.DAILY_CAP
+    assert rules["max_bytes"] == fd.MAX_BYTES == library.MAX_FILE_BYTES
+    assert {r["source"] for r in rules["refused_sources"]} == {"nasa_ads", "springer", "core"}
+    assert {r["license"] for r in rules["open_licenses"]} == set(open_access.OPEN_LICENSES)

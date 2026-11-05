@@ -163,7 +163,7 @@ def bare_arxiv_id(raw: object) -> str | None:
     if not isinstance(raw, str):
         return None
     text = raw.strip()
-    text = re.sub(r"^(?:https?://)?(?:www\.|export\.)?arxiv\.org/(?:abs|pdf)/", "", text, flags=re.I)
+    text = re.sub(r"^(?:https?://)?(?:www\.|export\.)?arxiv\.org(?::\d+)?/(?:abs|pdf)/", "", text, flags=re.I)
     text = re.sub(r"^arxiv:\s*", "", text, flags=re.I)
     text = re.sub(r"\.pdf$", "", text, flags=re.I)
     for pattern in (_ARXIV_NEW, _ARXIV_OLD):
