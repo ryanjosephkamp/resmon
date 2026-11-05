@@ -14,7 +14,8 @@ code wrote at older schemas (the fixtures ``test_cumulative_upgrade.py`` walks):
   one line, and the upgrade runs anyway;
 * an upgrade that stops and is finished by the next start keeps the copy from
   before it began, rather than a copy of the half-upgraded database;
-* a restore makes none.
+* a restore makes none, erasing the papers removes it, and Settings › Backup's
+  route says where it is.
 
 Every database here is in the test's own temporary folder.
 """
@@ -388,3 +389,60 @@ def test_an_unfinished_upgrade_whose_copy_is_gone_takes_a_new_one(tmp_path, monk
     database.init_db(str(path))
     assert _copies_in(tmp_path) == ["resmon-before-schema-21.db"]
     assert _unfinished(path) is None
+
+
+# ---------------------------------------------------------------------------
+# The engine: Settings › Backup's route, and the Danger zone
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def engine_on_a_file(tmp_path):
+    """The engine on an upgraded database in this test's folder, and its copy."""
+    import resmon as resmon_mod
+    from fastapi.testclient import TestClient
+
+    version, corpus = NEWEST_BELOW
+    path = _written(tmp_path, corpus)
+    saved = resmon_mod._db_path
+    resmon_mod.close_db()
+    resmon_mod._db_path = str(path)
+    try:
+        client = TestClient(resmon_mod.app)
+        resmon_mod._get_db()
+        copy = tmp_path / f"resmon-before-schema-{version}.db"
+        assert copy.is_file()
+        yield client, copy
+    finally:
+        resmon_mod.close_db()
+        resmon_mod._db_path = saved
+
+
+def test_backup_says_where_the_copy_is(engine_on_a_file):
+    client, copy = engine_on_a_file
+    body = client.get("/api/backup/last").json()
+    held = body["pre_upgrade_copy"]
+    assert held["path"] == str(copy)
+    assert held["schema_version"] == NEWEST_BELOW[0]
+    assert held["bytes"] == copy.stat().st_size
+    assert held["written_at_utc"].endswith("+00:00")
+    assert list(body)[-1] == "pre_upgrade_copy"
+
+
+@pytest.mark.parametrize("route", ["/api/admin/erase-corpus", "/api/admin/erase-app-data",
+                                   "/api/admin/factory-reset"])
+def test_whatever_erases_the_papers_removes_the_copy(engine_on_a_file, route):
+    client, copy = engine_on_a_file
+    answered = client.post(route, json={"confirm": "CONFIRM"})
+    assert answered.status_code == 200, answered.text
+    assert not copy.exists() and _copies_in(copy.parent) == []
+    assert client.get("/api/backup/last").json()["pre_upgrade_copy"] is None
+
+
+@pytest.mark.parametrize("route", ["/api/admin/erase-executions", "/api/admin/erase-configs",
+                                   "/api/admin/erase-execution-data", "/api/admin/reset-settings"])
+def test_an_erasure_that_keeps_the_papers_keeps_the_copy(engine_on_a_file, route):
+    client, copy = engine_on_a_file
+    answered = client.post(route, json={"confirm": "CONFIRM"})
+    assert answered.status_code == 200, answered.text
+    assert copy.is_file()

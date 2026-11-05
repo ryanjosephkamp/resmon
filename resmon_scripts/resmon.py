@@ -36,7 +36,7 @@ from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
 from implementation_scripts import library_folder, library_removal, library_thumbs
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
-from implementation_scripts import delivery
+from implementation_scripts import delivery, upgrade_copy
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -8421,6 +8421,11 @@ def _erase_corpus(conn) -> int:
     from implementation_scripts import collection_map, shared_wording  # noqa: PLC0415 - see the imports
     collection_map.forget(conn)
     shared_wording.forget(conn)
+    # The copy kept before the last schema upgrade is a whole database, these
+    # papers included, that resmon made on its own beside this one; it goes
+    # with them too. A backup the person wrote to their own folder is theirs
+    # and stays.
+    upgrade_copy.remove_all(upgrade_copy.database_file(conn))
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
     except sqlite3.Error:
@@ -8827,11 +8832,12 @@ def restore_stage(body: RestoreRequest):
 @app.get("/api/backup/last", response_model=response_models.BackupLast,
          response_model_exclude_unset=True)
 def backup_last():
-    """The last bundle, the last restore outcome, and whether an undo copy exists."""
+    """The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade."""
     conn = _get_db()
     try:
         last_path = get_setting(conn, "last_backup_path") or ""
         drive_upload_retired = _drive_upload_was_on(conn)
+        db_file = upgrade_copy.database_file(conn)
     finally:
         _close_db(conn)
     state = _backup_state_dir()
@@ -8868,6 +8874,7 @@ def backup_last():
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
         "drive_upload_retired": drive_upload_retired,
+        "pre_upgrade_copy": upgrade_copy.latest(db_file),
     }
 
 
