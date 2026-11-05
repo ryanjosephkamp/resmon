@@ -39,6 +39,8 @@ Watches are fired by `ResmonScheduler`, a wrapper over APScheduler with its job 
 
 The shell is Electron's main process (`resmon_scripts/frontend/electron/`). It serves Atlas's static files from a loopback port chosen at each launch, starts or attaches to an engine, mints a token, hands the port and token to the renderer, and owns the things only a desktop app can do: the menu, file and folder pickers, notifications, the `--service` mode, and updates on Windows and Linux.
 
+Every window is the same renderer on the same engine, with the same port and token: the engine trusts one renderer origin, so the windows share one loopback server. Each window is its own document, so its page and its history are its own, and the main process answers each window's requests about that window alone: its downloads, its file pickers, and its run notifications. What stays one per engine is the engine's: the scheduler (in the service), the PDF reader, which reads one page at a time and is asked again when busy, and an assistant conversation, which runs one turn at a time whichever window sent it.
+
 Atlas is React 19 and TypeScript built with Vite. Every HTTP call goes through one typed client generated from the engine's OpenAPI schema, and server state is read with TanStack Query. Routes are hash routes, because the renderer is a set of static files and a path route would ask the server for a file that is not there on a reload. Because the origin includes a port that is new on every launch, browser storage starts empty each time, so Atlas keeps nothing there. A preference it must remember, such as the theme and accent, is an engine route.
 
 ## What is stored and what is derived
