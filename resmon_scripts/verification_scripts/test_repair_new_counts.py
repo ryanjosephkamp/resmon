@@ -41,7 +41,7 @@ from implementation_scripts import sweep_engine as se  # noqa: E402
 from implementation_scripts.database import RUN_NEW_PAPERS_RECOUNTED_KEY, init_db  # noqa: E402
 
 FIXTURES = Path(__file__).parent / "fixtures"
-LOGGER = "implementation_scripts.database"
+LOGGER = database.upgrade_logger.name
 
 
 # ---------------------------------------------------------------------------

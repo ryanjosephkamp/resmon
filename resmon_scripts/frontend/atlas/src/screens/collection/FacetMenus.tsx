@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState, type ToggleEvent } from 'react';
 import { useCollectionWords } from '../../collections/current';
+import { afterPause } from '../../shell/history';
 import { Icon } from '../../shell/Icon';
 import { number } from '../today/format';
 import {
@@ -135,8 +136,7 @@ function DateField({ id, label, value, onCommit }: { id: string; label: string; 
   const commit = useEffectEvent(onCommit);
   useEffect(() => {
     if (draft === value) return undefined;
-    const settle = setTimeout(() => commit(draft), SETTLE_MS);
-    return () => clearTimeout(settle);
+    return afterPause(SETTLE_MS, () => commit(draft));
   }, [draft, value]);
   return (
     <label className="date" htmlFor={id}>

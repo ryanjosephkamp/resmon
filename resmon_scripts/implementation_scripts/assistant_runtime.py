@@ -91,7 +91,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from . import ai_cli
-from .ai_errors import is_cli_sign_in_failure, sanitize
+from .ai_errors import AIErrorKind, is_cli_sign_in_failure, sanitize
 from .child_process import hidden_window_kwargs
 from .assistant_constitution import load_assistant_constitution
 
@@ -107,7 +107,9 @@ __all__ = [
     "AssistantRuntime",
     "ClaudeCliRuntime",
     "CodexCliRuntime",
+    "AssistantCommandMissing",
     "AssistantStartupTimeout",
+    "CLI_MISSING",
     "RuntimeStatus",
     "TURN_BUDGET_USD",
     "cannot_resume_notice",
@@ -256,6 +258,39 @@ class AssistantStartupTimeout(Exception):
     turn", and that sentence is what a user would see for five minutes if the
     CLI hung before its first line.
     """
+
+
+class AssistantCommandMissing(Exception):
+    """No command was found for the connection, so nothing was started.
+
+    Its message is discovery's own sentence (``CLIDiscovery.describe``), the
+    one Ask's routes answer with when ``status()`` says the command is missing,
+    and ``run_turn`` yields it unchanged as an error event whose ``detail`` is
+    ``cli_missing``.
+    """
+
+
+# The ``detail`` of a turn that failed because its command is missing: the
+# summary lanes' name for the same failure.
+CLI_MISSING = AIErrorKind.CLI_MISSING.value
+
+
+def _found_command(runtime: Any, binary: Optional[str] = None) -> str:
+    """The command a turn starts: the one named, admitted, or found, never a bare name.
+
+    A bare ``claude`` or ``codex`` is looked up on PATH when it is started, and
+    PATH leads to whatever is installed there, not to the command Settings
+    names. A configured path that does not exist would then start a different
+    command, on a developer's machine their own signed-in one, which
+    ``ai_cli.discover_cli`` refuses to do. With no command, nothing starts.
+    """
+    command = binary or runtime.resolved_binary
+    if command:
+        return command
+    status = runtime.status()
+    if status.path:
+        return status.path
+    raise AssistantCommandMissing(status.reason)
 
 
 @dataclass(frozen=True)
@@ -456,7 +491,7 @@ class ClaudeCliRuntime(AssistantRuntime):
             identity(cli_session_id)
             if resume:
                 raise ValueError("Selected evidence cannot resume a native session")
-            argv = [binary or self.resolved_binary or (self.status().path or "claude"), "-p",
+            argv = [_found_command(self, binary), "-p",
                     "--output-format", "stream-json", "--verbose", "--tools", "",
                     "--strict-mcp-config", "--mcp-config", mcp_config_path,
                     "--setting-sources", "", "--disable-slash-commands",
@@ -468,7 +503,7 @@ class ClaudeCliRuntime(AssistantRuntime):
                 argv += ["--effort", self.effort]
             return [*argv, prompt]
         argv = [
-            binary or self.resolved_binary or (self.status().path or "claude"),
+            _found_command(self, binary),
             "-p",
             # stream-json requires --verbose. Not optional, and not documented
             # anywhere but the error: "When using --print,
@@ -557,6 +592,10 @@ class ClaudeCliRuntime(AssistantRuntime):
                     session_id, prompt, config_path, workdir,
                     cli_session_id=cli_session_id, resume=resume, emit=emit,
                 )
+            except AssistantCommandMissing as exc:
+                # Raised before anything starts, with the sentence the routes
+                # give for the same missing command.
+                yield _error_event(str(exc), detail=CLI_MISSING)
             except AssistantStartupTimeout as exc:
                 # This one carries its own sentence. The catch-all below would
                 # flatten it to "resmon could not finish that turn", which a
@@ -727,7 +766,12 @@ class ClaudeCliRuntime(AssistantRuntime):
         with tempfile.TemporaryDirectory(prefix="resmon-selected-") as workdir:
             config = os.path.join(workdir, "mcp.json")
             Path(config).write_text('{"mcpServers":{}}', encoding='utf-8')
-            argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
+            try:
+                argv = self.build_argv(prompt, mcp_config_path=config, cli_session_id=native_id, resume=False)
+            except AssistantCommandMissing as exc:
+                event = {'type': 'error', 'detail': CLI_MISSING, 'message': str(exc)}
+                emit(event); yield event
+                return
             source_env = _child_env(argv[0] if argv else None)
             env = {k: source_env[k] for k in ('HOME','USER','LOGNAME','PATH','TMPDIR','LANG','LC_ALL','SYSTEMROOT','WINDIR') if k in source_env}
             def consume(stream: Any, label: str) -> None:
@@ -1334,7 +1378,7 @@ class CodexCliRuntime(AssistantRuntime):
         directory is the process's own. ``--`` ends the options: a prompt that
         reads ``help`` or ``resume`` is a prompt, not a subcommand.
         """
-        argv = [binary or self.resolved_binary or (self.status().path or "codex"), "exec"]
+        argv = [_found_command(self, binary), "exec"]
         if thread_id:
             argv.append("resume")
         argv += [
@@ -1392,6 +1436,8 @@ class CodexCliRuntime(AssistantRuntime):
                                         thread_id=(cli_session_id or None) if resume else None):
                     emit(event)
                     yield event
+            except AssistantCommandMissing as exc:
+                yield _error_event(str(exc), detail=CLI_MISSING)
             except AssistantStartupTimeout as exc:
                 logger.warning("Assistant turn: %s", exc)
                 yield _error_event(str(exc), detail="startup_timeout")

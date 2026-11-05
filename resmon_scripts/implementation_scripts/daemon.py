@@ -373,12 +373,6 @@ def _log_dir_arg(argv: list[str]) -> Optional[Path]:
     return None
 
 
-# Every line the service writes carries the time it was written. The 231 MB
-# error log that made rotation necessary had none, so nothing in it could say
-# when its 166,736 tracebacks happened.
-_LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
-
-
 def _uvicorn_log_config() -> dict:
     """uvicorn's own logging configuration, with a timestamp on every line."""
     import copy
@@ -397,6 +391,7 @@ def _uvicorn_log_config() -> dict:
 def _start_service_log(argv: list[str]):
     """Bound the service's log files and stamp the start, before anything else writes."""
     from . import service_log
+    from .logger import install_engine_log
 
     log = None
     try:
@@ -405,16 +400,10 @@ def _start_service_log(argv: list[str]):
             log.start()
     except Exception:  # a log that cannot rotate must not stop the service
         logger.warning("service log rotation is not running", exc_info=True)
-    # The same records as before -- warnings and errors, which reached stderr
-    # through ``logging.lastResort`` because nothing installs a root handler
-    # -- now with a time and the logger's name. The handler, not the root,
-    # carries the level, so a module logger set to INFO adds nothing here.
-    root = logging.getLogger()
-    if not root.handlers:
-        handler = logging.StreamHandler(sys.stderr)
-        handler.setLevel(logging.WARNING)
-        handler.setFormatter(logging.Formatter(_LOG_FORMAT))
-        root.addHandler(handler)
+    # Warnings and errors, with a time and the logger's name, and the lines an
+    # upgrade of an older database writes once. After ``attach``, which may
+    # give this process a new ``sys.stderr``.
+    install_engine_log()
     print(
         f"{datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')} "
         f"resmon-daemon: starting (pid {os.getpid()})",

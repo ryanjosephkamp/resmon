@@ -79,6 +79,24 @@ test('the find field keeps what is typed, a trailing space included, when its ow
   }
 });
 
+test('the find field writes nothing once the window has gone to another page in its pause, so Read is not undone', () => {
+  jest.useFakeTimers();
+  window.history.replaceState(null, '', '/index.html#/library?show=files');
+  try {
+    const writes: (string | null)[] = [];
+    const { result } = renderHook(({ show, q }) => useFindDraft(show, q, (next) => { writes.push(next); }),
+      { initialProps: { show: 'files', q: '' } });
+    act(() => result.current[1]('unicode'));
+    // Read on a card: the address is the file's page at once, while the shelf is still drawn.
+    window.history.pushState(null, '', '/index.html#/library/files/f-1');
+    act(() => { jest.advanceTimersByTime(FIND_PAUSE_MS); });
+    expect(writes).toEqual([]);
+  } finally {
+    window.history.replaceState(null, '', '/');
+    jest.useRealTimers();
+  }
+});
+
 const STATUS: LibraryStatus = {
   version: 1, status: 'busy', changing: 'moving',
   vault: { vault_id: '0f3a9c1e-5b2d-4c8e-9a71-2d6e8f4b1c03', label: 'resmon-library-x', path: '/tmp/resmon-library-x', created_at_utc: '2026-11-04T00:00:00Z' },

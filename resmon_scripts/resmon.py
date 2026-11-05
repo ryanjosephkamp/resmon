@@ -10638,6 +10638,12 @@ def main():
     global _serving_port
 
     import uvicorn
+    from implementation_scripts.logger import install_engine_log
+
+    # Before ``create_app`` opens the database: warnings and errors, and the
+    # lines an upgrade of an older database writes once, go to standard error,
+    # which the app reads and writes to its own output.
+    install_engine_log()
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8742
     _serving_port = port
     # Electron hands its minted token and its renderer's origin over in the
