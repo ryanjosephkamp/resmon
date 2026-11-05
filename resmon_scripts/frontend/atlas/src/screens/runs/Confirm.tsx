@@ -3,8 +3,10 @@ import { useEffect, useRef, type ReactNode } from 'react';
 /**
  * A question asked in place before something that cannot be undone, or that
  * starts work, in the page's own words and type rather than the system's
- * dialog: what it does, then the button that does it and Not now. The question takes the focus
- * when it appears, so the keyboard reaches it first, and Escape is Not now.
+ * dialog: what it does, then the button that does it and Not now. The
+ * question takes the focus when it appears, so the keyboard reaches it first,
+ * and Escape is Not now. When it goes, the focus goes back to where it was
+ * (the button that asked), rather than falling to the page.
  */
 export function Confirm({ question, act, onAct, onCancel, busy = false, children, name, tone = 'danger' }: {
   question: string;
@@ -21,7 +23,13 @@ export function Confirm({ question, act, onAct, onCancel, busy = false, children
   name: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  useEffect(() => { box.current?.focus(); }, []);
+  useEffect(() => {
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    box.current?.focus();
+    return () => {
+      if (before?.isConnected) before.focus();
+    };
+  }, []);
   return (
     <div ref={box} className="confirm" role="group" aria-label={act} tabIndex={-1} data-confirm={name}
       onKeyDown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); onCancel(); } }}>
