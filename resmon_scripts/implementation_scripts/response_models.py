@@ -2945,8 +2945,9 @@ class RoutineHealthRun(LosslessModel):
 
     execution_id: int
     start_time: Optional[str]
-    new_results: int
-    total_results: int
+    # None where the run did not record the count, never 0.
+    new_results: Optional[int]
+    total_results: Optional[int]
 
 
 class RoutineHealthRow(LosslessModel):
@@ -2963,6 +2964,7 @@ class RoutineHealthRow(LosslessModel):
     runs_since_new: int
     last_new_result_at: Optional[str]
     total_new: int
+    unrecorded_runs: int
     status: str
     sample_size: int
     sufficient: bool

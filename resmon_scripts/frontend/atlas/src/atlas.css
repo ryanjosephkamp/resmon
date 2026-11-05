@@ -1313,6 +1313,8 @@ button.watch-skipped-open {
 .night-bar[data-status="running"] .night-amount { background: var(--accent-wash-2); min-height: 4px; }
 .night-bar[data-status="failed"] .night-amount, .night-bar[data-status="interrupted"] .night-amount { background: var(--rule-2); }
 .night-bar[data-cut] .night-amount { border-top: 2px dashed var(--panel); border-radius: 0; }
+/* A finished run that did not record its count: a hollow square at the base, never a bar of none. */
+.night-bar[data-unrecorded] .night-amount { height: 8px; background: transparent; border: 1px solid var(--chart-context); border-radius: 1px; }
 .night-scale { margin: 14px 0 6px; font: 400 12px/1.45 var(--sans); color: var(--ink-3); }
 .night-fault, .night-ok { position: absolute; bottom: -8px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; }
 .night-fault { background: var(--fault); }
@@ -1849,6 +1851,8 @@ a.bar-name:hover, .bar-row[data-opens]:hover a.bar-name { text-decoration: under
 .run-tick { display: flex; align-items: flex-end; width: 8px; padding: 0 1px; border-radius: 2px; }
 .run-tick-bar { display: block; width: 100%; border-radius: 2px 2px 0 0; background: var(--accent-mark); }
 .run-tick[data-zero] .run-tick-bar { background: var(--chart-context); }
+/* A run that did not record its count: a hollow square at the base, a mark of its own, never a bar of none. */
+.run-tick[data-unrecorded] .run-tick-bar { height: 6px; background: transparent; border: 1px solid var(--chart-context); border-radius: 1px; }
 .run-tick:hover, .run-tick:focus-visible { background: var(--rule); }
 .run-tick:focus-visible { outline-offset: 1px; }
 .wh-status { grid-column: 1 / -1; font: 400 12.5px/1.3 var(--sans); color: var(--ink-2); }

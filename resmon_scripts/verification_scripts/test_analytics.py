@@ -185,6 +185,50 @@ def test_routine_health_flags_a_routine_that_has_gone_quiet(conn):
     assert routine["last_new_result_at"] == "2026-02-01T08:00:00"
 
 
+def _health_runs(conn, name, counts):
+    """A routine with completed runs, oldest first; a count of None is stored as not recorded (NULL)."""
+    conn.execute(
+        "INSERT INTO routines (name, schedule_cron, parameters, is_active) VALUES (?, '0 8 * * *', '{}', 1)",
+        (name,),
+    )
+    routine_id = conn.execute("SELECT id FROM routines WHERE name = ?", (name,)).fetchone()["id"]
+    ids = []
+    for i, new_count in enumerate(counts):
+        exec_id = insert_execution(conn, {
+            "execution_type": "automated_sweep", "routine_id": routine_id,
+            "parameters": "{}", "start_time": f"2026-03-0{i + 1}T08:00:00",
+        })
+        update_execution_status(conn, exec_id, "completed", result_count=10, new_result_count=new_count)
+        if new_count is None:
+            conn.execute("UPDATE executions SET new_result_count = NULL, result_count = NULL WHERE id = ?", (exec_id,))
+        ids.append(exec_id)
+    conn.commit()
+    return next(r for r in analytics.routine_health(conn)["routines"] if r["routine_id"] == routine_id)
+
+
+def test_a_run_that_did_not_record_its_counts_is_carried_as_not_recorded_never_as_zero(conn):
+    routine = _health_runs(conn, "Unrecorded middle", [7, None, 0, 0])
+    assert [run["new_results"] for run in routine["series"]] == [7, None, 0, 0]
+    assert routine["series"][1]["total_results"] is None
+    assert routine["unrecorded_runs"] == 1
+    # The total is over the runs that recorded a count, and says how many did not.
+    assert routine["total_new"] == 7
+    # Two recorded zeros at the end, then a run that recorded nothing: the streak stops there.
+    assert routine["runs_since_new"] == 2
+    # None of the last three recorded a new paper, and one recorded nothing: neither healthy nor stale.
+    assert routine["status"] == "not_recorded"
+
+
+def test_runs_that_did_not_record_their_counts_never_make_a_watch_stale(conn):
+    # Read as zeros, these three runs called the watch stale: "nothing new in its last 3 runs".
+    routine = _health_runs(conn, "Unrecorded end", [5, 0, 0, None])
+    assert routine["runs_since_new"] == 0
+    assert routine["status"] == "not_recorded"
+    assert routine["last_new_result_at"] == "2026-03-01T08:00:00"
+    # A new paper recorded among the latest runs is enough to call it healthy, unrecorded runs or not.
+    assert _health_runs(conn, "Recorded new", [0, None, 2])["status"] == "healthy"
+
+
 def test_routine_health_will_not_judge_a_routine_with_too_few_runs(conn):
     conn.execute(
         "INSERT INTO routines (name, schedule_cron, parameters, is_active) "

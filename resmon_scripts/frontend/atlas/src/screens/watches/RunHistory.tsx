@@ -151,9 +151,11 @@ function NightStrip({ strip, scale, now, names }: {
         const content = nightTip(run, now, names, cut);
         return (
           <Link key={run.id} to={`/runs/${run.id}`} className="night-bar" data-status={run.status} data-run={run.id}
-            data-cut={cut ? 'true' : undefined} aria-label={tipWords(content)} {...joined(roving.item(i), tip.mark(content))}>
-            <span className="night-amount"
-              style={{ height: `${found === null ? 0 : Math.max(4, scale === null ? 0 : Math.min(1, found / scale) * 100)}%` }} />
+            data-cut={cut ? 'true' : undefined}
+            data-unrecorded={!going(run) && found === null ? 'true' : undefined}
+            aria-label={tipWords(content)} {...joined(roving.item(i), tip.mark(content))}>
+            <span className="night-amount" style={!going(run) && found === null ? undefined
+              : { height: `${found === null ? 0 : Math.max(4, scale === null ? 0 : Math.min(1, found / scale) * 100)}%` }} />
             <span className={missing ? 'night-fault' : 'night-ok'} />
           </Link>
         );

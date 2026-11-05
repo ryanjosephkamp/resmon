@@ -908,7 +908,9 @@ def _check_routines(
         # --- Rule: the routine has stopped finding anything new -------------
         if len(runs) >= FLATLINE_RUNS:
             recent = runs[:FLATLINE_RUNS]
-            if all((r["new_result_count"] or 0) == 0 for r in recent):
+            # Each run must have recorded its count as none: a run that did not
+            # record one is not evidence that it found nothing new.
+            if all(r["new_result_count"] == 0 for r in recent):
                 earlier_productive = [
                     r for r in runs[FLATLINE_RUNS:]
                     if (r["new_result_count"] or 0) > 0

@@ -11604,6 +11604,10 @@
           "total_new": {
             "title": "Total New",
             "type": "integer"
+          },
+          "unrecorded_runs": {
+            "title": "Unrecorded Runs",
+            "type": "integer"
           }
         },
         "required": [
@@ -11618,6 +11622,7 @@
           "runs_since_new",
           "last_new_result_at",
           "total_new",
+          "unrecorded_runs",
           "status",
           "sample_size",
           "sufficient"
@@ -11634,8 +11639,15 @@
             "type": "integer"
           },
           "new_results": {
-            "title": "New Results",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
           },
           "start_time": {
             "anyOf": [
@@ -11649,8 +11661,15 @@
             "title": "Start Time"
           },
           "total_results": {
-            "title": "Total Results",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
           }
         },
         "required": [

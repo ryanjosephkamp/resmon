@@ -215,6 +215,11 @@ def routine_health(conn: sqlite3.Connection) -> dict:
     The actionable question is "is this routine still worth running?". A routine
     that has returned nothing new for several runs is either too narrow, or its
     field has gone quiet, and either way the user should know.
+
+    ``status`` is ``healthy`` (a run recorded a new paper within the last
+    ``STALE_RUN_THRESHOLD`` runs), ``stale`` (that many runs in a row recorded
+    none), ``not_recorded`` (neither can be said, because some of those runs
+    did not record a count), or ``insufficient_data`` (too few runs).
     """
     routines = conn.execute(
         "SELECT id, name, schedule_cron, is_active FROM routines ORDER BY name"
@@ -233,33 +238,41 @@ def routine_health(conn: sqlite3.Connection) -> dict:
         ).fetchall()
 
         # Each run carries its id, so a chart's mark for it can open that run.
+        # A count the run did not record stays None: "nothing new" is a claim
+        # the run never made, and a chart that drew it as 0 would make it.
         series = [
             {
                 "execution_id": run["id"],
                 "start_time": run["start_time"],
-                "new_results": run["new_result_count"] or 0,
-                "total_results": run["result_count"] or 0,
+                "new_results": run["new_result_count"],
+                "total_results": run["result_count"],
             }
             for run in runs
         ]
 
-        # Trailing runs that found nothing new.
+        # Trailing runs that recorded nothing new. A run that recorded no count
+        # ends the streak rather than lengthening it: it may have found papers.
         runs_since_new = 0
         for run in reversed(series):
-            if run["new_results"] > 0:
+            if run["new_results"] != 0:
                 break
             runs_since_new += 1
 
         n = len(series)
+        recent = series[-STALE_RUN_THRESHOLD:]
         if n < MIN_RUNS_FOR_HEALTH:
             status = "insufficient_data"
         elif runs_since_new >= STALE_RUN_THRESHOLD:
             status = "stale"
-        else:
+        elif any((run["new_results"] or 0) > 0 for run in recent):
             status = "healthy"
+        else:
+            # Neither: none of the latest runs recorded a new paper, and not
+            # all of them recorded a count, so there is nothing to judge by.
+            status = "not_recorded"
 
         last_new = next(
-            (run["start_time"] for run in reversed(series) if run["new_results"] > 0),
+            (run["start_time"] for run in reversed(series) if (run["new_results"] or 0) > 0),
             None,
         )
 
@@ -287,7 +300,9 @@ def routine_health(conn: sqlite3.Connection) -> dict:
             "series": series,
             "runs_since_new": runs_since_new,
             "last_new_result_at": last_new,
-            "total_new": sum(run["new_results"] for run in series),
+            # Over the runs that recorded a count; ``unrecorded_runs`` says how many did not.
+            "total_new": sum(run["new_results"] or 0 for run in series),
+            "unrecorded_runs": sum(1 for run in series if run["new_results"] is None),
             "status": status,
             "sample_size": n,
             "sufficient": n >= MIN_RUNS_FOR_HEALTH,

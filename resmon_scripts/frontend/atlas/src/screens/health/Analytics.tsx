@@ -290,7 +290,7 @@ function Watches({ view }: { view: Overview['routine_health'] }) {
 /** A watch's last 24 completed runs, a tick each: one stop for the keyboard, the arrow keys between runs, Enter opens one. */
 function RunStrip({ row, tip }: { row: WatchRow; tip: MarkTip }) {
   const runs = row.series.slice(-24);
-  const largest = Math.max(1, ...runs.map((r) => r.new_results));
+  const largest = Math.max(1, ...runs.map((r) => r.new_results ?? 0));
   const roving = useRoving(runs.length, runs.length - 1);
   if (!runs.length) return <span className="run-strip" aria-label="No completed runs" />;
   return (
@@ -299,9 +299,12 @@ function RunStrip({ row, tip }: { row: WatchRow; tip: MarkTip }) {
         const content = watchRunTip(run, row.name);
         return (
           <Link key={run.execution_id} to={`/runs/${run.execution_id}`} className="run-tick" data-run={run.execution_id}
-            data-zero={run.new_results === 0 ? 'true' : undefined} aria-label={tipWords(content)}
+            data-zero={run.new_results === 0 ? 'true' : undefined}
+            data-unrecorded={run.new_results === null ? 'true' : undefined} aria-label={tipWords(content)}
             {...joined(roving.item(i), tip.mark(content))}>
-            <span className="run-tick-bar" style={{ height: `${Math.max(8, (100 * run.new_results) / largest)}%` }} />
+            {/* A run that did not record its count is a hollow mark of its own, never a bar of none. */}
+            <span className="run-tick-bar"
+              style={run.new_results === null ? undefined : { height: `${Math.max(8, (100 * run.new_results) / largest)}%` }} />
           </Link>
         );
       })}

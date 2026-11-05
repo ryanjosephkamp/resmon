@@ -68,12 +68,18 @@ export function daysWords(days: number | null | undefined): string {
 /**
  * A watch's status in words, with the count it rests on (`analytics.routine_health`):
  * healthy is something new within its last `stale_after` runs; stale is that
- * many runs or more with nothing new; below `minimum_runs` it is not judged.
+ * many runs or more with nothing new; not recorded is neither, because some of
+ * those runs did not record how many papers were new; below `minimum_runs` it
+ * is not judged.
  */
-export function watchStatusWords(row: Pick<WatchRow, 'status' | 'runs_since_new' | 'runs'>, staleAfter: number, minimumRuns: number): string {
+export function watchStatusWords(row: Pick<WatchRow, 'status' | 'runs_since_new' | 'runs' | 'series'>, staleAfter: number, minimumRuns: number): string {
   if (row.status === 'healthy') return `New papers within its last ${staleAfter} runs`;
   if (row.status === 'stale') return `Nothing new in its last ${row.runs_since_new} runs`;
   if (row.status === 'insufficient_data') return `${row.runs} of the ${minimumRuns} completed runs needed to judge`;
+  if (row.status === 'not_recorded') {
+    const unrecorded = row.series.slice(-staleAfter).filter((run) => run.new_results === null).length;
+    return `Not judged: ${unrecorded} of its last ${staleAfter} runs did not record how many papers were new`;
+  }
   return row.status;
 }
 
@@ -196,8 +202,9 @@ export function watchRunTip(run: WatchRun, watch: string): TipContent {
   const at = instantOf(run.start_time);
   return {
     name: `${watch} · ${at ? timeTogether(STARTED.format(at)) : 'a time not recorded'}`,
-    value: count(run.new_results, 'new paper'),
-    lines: [{ value: exactCount(run.total_results), label: 'found in all' }],
+    // A count the run did not record is said so, never drawn or said as none.
+    value: run.new_results === null ? 'New papers not recorded' : count(run.new_results, 'new paper'),
+    lines: run.total_results === null ? undefined : [{ value: exactCount(run.total_results), label: 'found in all' }],
     opens: `Opens run ${run.execution_id}`,
   };
 }

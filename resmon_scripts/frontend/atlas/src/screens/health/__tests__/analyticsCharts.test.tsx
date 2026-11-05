@@ -48,11 +48,12 @@ const OVERVIEW: Overview = {
     sufficient: true, insufficient_reason: null, sample_size: 1, minimum_runs: 3, stale_after: 3,
     routines: [{
       routine_id: 4, name: 'Perovskite films', missed_fires: 0, last_missed_fire_at: null, schedule_cron: '0 9 * * *',
-      is_active: true, runs: 3, runs_since_new: 0, last_new_result_at: null, total_new: 5, status: 'healthy',
-      sample_size: 3, sufficient: true,
+      is_active: true, runs: 4, runs_since_new: 0, last_new_result_at: null, total_new: 5, unrecorded_runs: 1, status: 'healthy',
+      sample_size: 4, sufficient: true,
       series: [
         { execution_id: 31, start_time: '2026-11-01T09:00:00Z', new_results: 4, total_results: 1250 },
         { execution_id: 32, start_time: '2026-11-02T09:00:00Z', new_results: 0, total_results: 5 },
+        { execution_id: 33, start_time: '2026-11-02T21:00:00Z', new_results: null, total_results: null },
         { execution_id: 35, start_time: '2026-11-03T09:00:00Z', new_results: 1, total_results: 5 },
       ],
     }],
@@ -109,10 +110,13 @@ describe('what each mark says', () => {
     expect(lagTip(crossref!, 'Crossref', 5)).toMatchObject({ value: '3 dated papers', notes: ['A median needs 5 dated papers.'] });
   });
 
-  test('a watch\'s tick names its run, and opens it', () => {
-    const run = OVERVIEW.routine_health.routines[0]!.series[0]!;
-    expect(watchRunTip(run, 'Perovskite films')).toMatchObject({
+  test('a watch\'s tick names its run, and opens it; a count the run did not record is said so, never as none', () => {
+    const [run, , unrecorded] = OVERVIEW.routine_health.routines[0]!.series;
+    expect(watchRunTip(run!, 'Perovskite films')).toMatchObject({
       value: '4 new papers', lines: [{ value: '1,250', label: 'found in all' }], opens: 'Opens run 31',
+    });
+    expect(watchRunTip(unrecorded!, 'Perovskite films')).toMatchObject({
+      value: 'New papers not recorded', lines: undefined, opens: 'Opens run 33',
     });
   });
 
@@ -188,13 +192,19 @@ describe('a click goes to what the mark counts', () => {
 
   test('a watch\'s ticks are one stop that opens each run, the newest first to the keyboard', async () => {
     page();
-    const strip = await screen.findByRole('group', { name: /Perovskite films: new papers in each of its last 3 completed runs/ });
+    const strip = await screen.findByRole('group', { name: /Perovskite films: new papers in each of its last 4 completed runs/ });
     const ticks = within(strip).getAllByRole('link');
-    expect(ticks.map((t) => t.getAttribute('href'))).toEqual(['/runs/31', '/runs/32', '/runs/35']);
-    expect(ticks.map((t) => t.tabIndex)).toEqual([-1, -1, 0]);
-    act(() => ticks[2]!.focus());
+    expect(ticks.map((t) => t.getAttribute('href'))).toEqual(['/runs/31', '/runs/32', '/runs/33', '/runs/35']);
+    expect(ticks.map((t) => t.tabIndex)).toEqual([-1, -1, -1, 0]);
+    // A run that did not record its count is its own hollow mark, never a bar of none.
+    expect(ticks[2]).toHaveAttribute('data-unrecorded', 'true');
+    expect(ticks[2]).not.toHaveAttribute('data-zero');
+    expect(ticks[2]!.querySelector<HTMLElement>('.run-tick-bar')?.style.height).toBe('');
+    act(() => ticks[3]!.focus());
+    fireEvent.keyDown(ticks[3]!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(ticks[2]);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('New papers not recorded');
     fireEvent.keyDown(ticks[2]!, { key: 'ArrowLeft' });
-    expect(document.activeElement).toBe(ticks[1]);
     expect(screen.getByRole('tooltip')).toHaveTextContent('0 new papers');
     fireEvent.click(ticks[1]!);
     expect(screen.getByTestId('where')).toHaveTextContent('/runs/32');

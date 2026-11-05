@@ -77,6 +77,10 @@ describe('the strip\'s bars', () => {
     render(<MemoryRouter><RunHistory runs={runs()} now={now} names={new Map()} /></MemoryRouter>);
     const [failed, unrecorded] = within(screen.getByRole('group')).getAllByRole('link');
     expect(unrecorded).toHaveAccessibleName(/^Run 8 · .*: New papers not recorded\. Opens run 8\.$/);
+    // Drawn as a mark of its own, never as a bar of none.
+    expect(unrecorded).toHaveAttribute('data-unrecorded', 'true');
+    expect(unrecorded!.querySelector<HTMLElement>('.night-amount')?.style.height).toBe('');
+    expect(failed).not.toHaveAttribute('data-unrecorded');
     fireEvent.pointerEnter(failed!, { clientX: 20, clientY: 300 });
     expect(screen.getByRole('tooltip')).toHaveTextContent('The run failed.');
   });

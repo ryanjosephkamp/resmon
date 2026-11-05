@@ -9268,6 +9268,8 @@ export interface components {
             sufficient: boolean;
             /** Total New */
             total_new: number;
+            /** Unrecorded Runs */
+            unrecorded_runs: number;
         } & {
             [key: string]: unknown;
         };
@@ -9279,11 +9281,11 @@ export interface components {
             /** Execution Id */
             execution_id: number;
             /** New Results */
-            new_results: number;
+            new_results: number | null;
             /** Start Time */
             start_time: string | null;
             /** Total Results */
-            total_results: number;
+            total_results: number | null;
         } & {
             [key: string]: unknown;
         };
