@@ -166,6 +166,14 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     });
 
     // — ⌘N: a second window, at the start page, on the same engine ---------------------
+    // RESMON_E2E_WINDOWS_FILL=1 first makes the first window fill its screen's work area, as the macOS runner's
+    // small screen does, so the second window has no room to step and opens at the corner, in the same place.
+    if (process.env.RESMON_E2E_WINDOWS_FILL === '1') {
+      await app.evaluate(({ BrowserWindow, screen }, id) => {
+        const window = BrowserWindow.fromId(id)!;
+        window.setBounds(screen.getDisplayMatching(window.getBounds()).workArea);
+      }, firstId);
+    }
     const opened = app.waitForEvent('window');
     await first.keyboard.press(`${MOD}+n`);
     const second = await opened;
@@ -177,14 +185,18 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(await engineAt(second)).toEqual(await engineAt(first));
     expect((await engineAt(first)).port).not.toBe('8742');
     expect((await windowsOf(app)).map((w) => w.id).sort()).toEqual([firstId, secondId].sort());
-    // Where it opened, by the app's rule (`cascade`): a step down and right of the first, or back at the corner of
-    // the work area when that step would leave it, as on a runner whose small screen the first window already fills.
+    // Where it opened, by the app's rule (`cascade`), from the inputs the app reads (`createWindow`): the first
+    // window's normal frame and the work area of the screen its frame is on. A step down and right where there
+    // is room, else the work area's corner: where the first window fills its screen, the second opens over it.
     const firstPlace = await placeOf(app, firstId);
     const stepped = cascade(firstPlace.normal, firstPlace.area);
     const secondPlace = await placeOf(app, secondId);
+    const apart = stepped.x !== firstPlace.at.x || stepped.y !== firstPlace.at.y;
+    console.log('WINDOWS AT NEW WINDOW', JSON.stringify({
+      first: { at: firstPlace.at, normal: firstPlace.normal }, area: firstPlace.area, cascade: stepped, second: secondPlace.at, apart,
+    }));
     expect({ x: secondPlace.at.x, y: secondPlace.at.y }).toEqual({ x: stepped.x, y: stepped.y });
-    const roomToStep = stepped.x !== firstPlace.normal.x || stepped.y !== firstPlace.normal.y;
-    console.log('WINDOWS PLACED', JSON.stringify({ first: firstPlace, second: secondPlace.at, roomToStep }));
+    if (apart) expect(secondPlace.at).not.toEqual(firstPlace.at);
     // And from a window that fills its screen, wherever this run's screen is: no room, so the corner.
     await app.evaluate(({ BrowserWindow }, [id, area]) => {
       BrowserWindow.fromId(id as number)!.setBounds({ ...(area as Rect), height: (area as Rect).height - 10 });
@@ -197,9 +209,12 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     const third = await fromFull;
     await third.locator(ATLAS_LANDMARK).waitFor({ timeout: 60_000 });
     const thirdPlace = await placeOf(app, await idOf(app, third));
+    console.log('WINDOWS FROM A FULL WINDOW', JSON.stringify({ from: filling, cascade: cornered, opened: thirdPlace.at }));
     expect({ x: thirdPlace.at.x, y: thirdPlace.at.y }).toEqual({ x: cornered.x, y: cornered.y });
     await third.close();
+    // The second window back in its own frame, as recorded when it opened.
     await app.evaluate(({ BrowserWindow }, [id, at]) => BrowserWindow.fromId(id as number)!.setBounds(at as Rect), [secondId, secondPlace.at] as const);
+    await expect.poll(async () => (await placeOf(app, secondId)).at).toEqual(secondPlace.at);
     await expect.poll(async () => (await windowsOf(app)).length).toBe(2);
     // Each window is named by its page, which is what tabs and the Window menu show.
     await expect.poll(() => second.evaluate(() => document.title)).toBe(titled('/today'));
@@ -395,9 +410,10 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       expect(await strip(first)).toBeNull();
       expect(await menuLabel(app, 'window-tab-bar')).toBe('Show Tab Bar');
       await first.evaluate(() => { window.location.hash = '#/today'; });
-      // Two windows of their own, apart where the screen had room for the step (the same frame where it had none).
-      const apart = await windowsOf(app);
-      if (roomToStep) expect(apart[0]!.bounds).not.toEqual(apart[1]!.bounds);
+      // Two windows of their own until the merge: apart where the screen had room for the step when the second
+      // opened (checked then), in one frame where it had none. Their frames now, for the record.
+      const beforeMerge = { first: (await placeOf(app, firstId)).at, second: (await placeOf(app, secondId)).at };
+      console.log('WINDOWS BEFORE MERGE', JSON.stringify({ ...beforeMerge, apartWhenOpened: apart }));
       await clickMenu(app, 'window-merge', firstId);
       // In one window's tabs, macOS gives every tab the group's frame.
       await expect.poll(async () => new Set((await windowsOf(app)).map((w) => JSON.stringify(w.bounds))).size).toBe(1);
