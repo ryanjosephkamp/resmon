@@ -31,6 +31,7 @@ import {
   blockedConnections, startSourceEndpoint, writeStartupHook,
 } from '../fixtures/source-endpoint';
 import type { SourceEndpoint, SourceReply } from '../fixtures/source-endpoint';
+import { removeStateDir } from '../../e2e/fixtures/cleanup';
 
 /**
  * How long one backend request may take before the suite says so.
@@ -666,8 +667,8 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
         for (const close of alsoClose) await close().catch(() => { /* already closed */ });
       }
       console.log('[journeys] teardown: removing what this session made');
-      for (const dir of stateDirs) fs.rmSync(dir, { recursive: true, force: true });
-      for (const target of alsoRemove) fs.rmSync(target, { recursive: true, force: true });
+      for (const dir of stateDirs) removeStateDir(dir);
+      for (const target of alsoRemove) removeStateDir(target);
       console.log(`[journeys] teardown: done${forced.length ? `; ${forced.length} forced close(s)` : ''}`);
     },
   };
