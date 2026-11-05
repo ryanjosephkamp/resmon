@@ -1814,7 +1814,9 @@ def find_a_paper(body: FindRequest, response: Response):
     parsed, asked, not_asked = _find_plan(body.query, body.repositories)
     if not asked:
         kind = paper_find.KIND_WORDS[parsed.kind]
-        reasons = " ".join(item["why"] for item in not_asked[:3])
+        # Why the sources named cannot, not that the others were left out.
+        named = set(body.repositories or [])
+        reasons = " ".join([item["why"] for item in not_asked if not named or item["source"] in named][:3])
         raise HTTPException(400, f"No source named can look up {'an' if kind[0] in 'aeiou' else 'a'} {kind}. {reasons}")
     query_params = {
         "query": parsed.typed,
