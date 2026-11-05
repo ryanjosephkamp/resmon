@@ -3,6 +3,7 @@ import sys
 import time
 from datetime import date
 from pathlib import Path
+from urllib.parse import unquote
 
 import httpx
 import pytest
@@ -2966,7 +2967,9 @@ def test_a_date_clause_is_joined_to_the_whole_query(monkeypatch, slug, clause):
 
     def _request(method, url, **kwargs):
         params = kwargs.get("params") or {}
-        sent.append(params.get("query") or params.get("q") or str(url).rsplit("/", 1)[-1])
+        # DOAJ's query is its path's last segment, percent-encoded so a DOI's
+        # slash stays inside it; what DOAJ reads is the decoded text.
+        sent.append(params.get("query") or params.get("q") or unquote(str(url).rsplit("/", 1)[-1]))
         return _FakeResponse(payload={})
 
     monkeypatch.setattr(module, "safe_request", _request)

@@ -34,6 +34,28 @@ class PubmedClient(BaseAPIClient):
     def get_name(self) -> str:
         return "PubMed"
 
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A PMID, a DOI or a title found with ``esearch``'s own field tags, then read with ``efetch``.
+
+        ``[pmid]``, ``[doi]`` and ``[Title]`` are E-utilities' search field
+        tags, so the search record names what was asked as it does for any
+        search. An id PubMed does not hold finds nothing.
+        """
+        if kind == "pmid":
+            if not value.strip().isdigit():
+                return []
+            term = f"{value.strip()}[pmid]"
+        elif kind == "doi":
+            term = f"{value.strip()}[doi]"
+        elif kind == "title":
+            term = f'"{value}"[Title]'
+        else:
+            from .api_base import LookupUnsupported  # noqa: PLC0415
+
+            raise LookupUnsupported(f"PubMed cannot be asked for a paper by {kind}.")
+        pmids = self._esearch(term, None, None, max_results)
+        return self._efetch(pmids) if pmids else []
+
     def search(
         self,
         query: str,

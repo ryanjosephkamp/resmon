@@ -3,8 +3,9 @@
 
 import logging
 
-from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request, sent_params)
+from .api_base import (Author, BaseAPIClient, LookupUnsupported, NormalizedResult, RateLimiter,
+                       bare_orcid, either, note_not_found, path_after, read_json_body,
+                       safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +18,8 @@ _RATE_LIMITER = RateLimiter(requests_per_second=10.0)
 class OpenAlexClient(BaseAPIClient):
     """OpenAlex repository API client."""
 
-    describe_request = staticmethod(sent_params("search", "filter"))
+    describe_request = staticmethod(either(sent_params("search", "filter"),
+                                           path_after(_OPENALEX_API_URL)))
 
     def __init__(self, mailto: str | None = None):
         # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
@@ -25,6 +27,43 @@ class OpenAlexClient(BaseAPIClient):
 
     def get_name(self) -> str:
         return "OpenAlex"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI or a PMID as OpenAlex's own external-id path (``/works/doi:…``); a title as ``title.search``.
+
+        The path answers one work, or 404 for an id OpenAlex does not hold,
+        which is its answer. ``title.search`` is a filter on the title alone,
+        relevance-ranked; its first records are candidates, matched locally.
+        """
+        contact = {"mailto": self._mailto} if self._mailto else {}
+        if kind in ("doi", "pmid"):
+            try:
+                response = safe_request("GET", f"{_OPENALEX_API_URL}/{kind}:{value.strip()}",
+                                        params=contact or None, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("OpenAlex lookup failed")
+                return []
+            if response.status_code == 404:
+                note_not_found()
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "OpenAlex")
+            parsed = self._parse_work(data) if data else None
+            return [parsed] if parsed is not None else []
+        if kind == "title":
+            params = {"filter": f"title.search:{value.replace(',', ' ')}", "per-page": max_results, **contact}
+            try:
+                response = safe_request("GET", _OPENALEX_API_URL, params=params, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("OpenAlex lookup failed")
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "OpenAlex")
+            works = (data or {}).get("results") or []
+            return [p for p in (self._parse_work(w) for w in works if isinstance(w, dict)) if p][:max_results]
+        raise LookupUnsupported(f"OpenAlex cannot be asked for a paper by {kind}.")
 
     def search_entity(
         self,

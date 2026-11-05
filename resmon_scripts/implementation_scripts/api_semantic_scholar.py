@@ -3,13 +3,18 @@
 
 import logging
 
-from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request, sent_params)
+from .api_base import (Author, BaseAPIClient, LookupUnsupported, NormalizedResult, RateLimiter,
+                       bare_orcid, either, note_not_found, path_after, read_json_body,
+                       safe_request, sent_params)
 from .credential_manager import get_credential_for
 
 logger = logging.getLogger(__name__)
 
 _S2_API_URL = "https://api.semanticscholar.org/graph/v1/paper/search"
+_S2_MATCH_URL = "https://api.semanticscholar.org/graph/v1/paper/search/match"
+_S2_PAPER_URL = "https://api.semanticscholar.org/graph/v1/paper"
+#: How the paper endpoint names each kind of id (its "paper_id" forms).
+_S2_ID_PREFIX = {"doi": "DOI", "arxiv": "ARXIV", "pmid": "PMID"}
 
 # Unauthenticated: ~100 req / 5 min ≈ 0.33 req/s
 _RATE_LIMITER = RateLimiter(requests_per_second=0.33)
@@ -20,10 +25,48 @@ _FIELDS = "paperId,externalIds,title,authors,abstract,publicationDate,url,fields
 class SemanticScholarClient(BaseAPIClient):
     """Semantic Scholar repository API client."""
 
-    describe_request = staticmethod(sent_params("query", "year", url=_S2_API_URL))
+    describe_request = staticmethod(either(
+        sent_params("query", "year", url=_S2_API_URL),
+        sent_params("query", url=_S2_MATCH_URL),
+        path_after(_S2_PAPER_URL)))
 
     def get_name(self) -> str:
         return "Semantic Scholar"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """An id at ``/paper/{DOI:…|ARXIV:…|PMID:…}``; a title at ``/paper/search/match``.
+
+        Both answer one paper, or 404 when Semantic Scholar holds none, which
+        is its answer. The title match is Semantic Scholar's own closest title,
+        which may not be the paper asked for; it is matched locally.
+        """
+        headers = {}
+        api_key = get_credential_for(self._exec_id, "semantic_scholar_api_key")
+        if api_key:
+            headers["x-api-key"] = api_key
+        if kind in _S2_ID_PREFIX:
+            url, params = f"{_S2_PAPER_URL}/{_S2_ID_PREFIX[kind]}:{value.strip()}", {"fields": _FIELDS}
+        elif kind == "title":
+            url, params = _S2_MATCH_URL, {"query": value, "fields": _FIELDS}
+        else:
+            raise LookupUnsupported(f"Semantic Scholar cannot be asked for a paper by {kind}.")
+        try:
+            response = safe_request("GET", url, params=params, headers=headers or None,
+                                    rate_limiter=_RATE_LIMITER)
+        except Exception:
+            logger.exception("Semantic Scholar lookup failed")
+            return []
+        if response.status_code == 404:
+            note_not_found()
+            return []
+        if response.status_code != 200:
+            return []
+        data = read_json_body(response, "Semantic Scholar")
+        if data is None:
+            return []
+        papers = data.get("data") if kind == "title" else [data]
+        out = [p for p in (self._parse_paper(x) for x in (papers or []) if isinstance(x, dict)) if p]
+        return out[:max_results]
 
     def search_entity(
         self,

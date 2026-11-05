@@ -107,6 +107,9 @@ def _describe_request(url: str, params: Mapping | None, body: Mapping | None) ->
     """
     if not url.startswith(_BIORXIV_API_BASE + "/"):
         return None
+    server, *rest = url[len(_BIORXIV_API_BASE) + 1:].split("/", 1)
+    if rest and rest[0].startswith("10.1101/"):
+        return f"path /details/{server}/{rest[0]}"
     server, *dates = url[len(_BIORXIV_API_BASE) + 1:].split("/")[:3]
     if len(dates) != 2:
         return None
@@ -179,6 +182,26 @@ class BiorxivClient(BaseAPIClient):
 
     def get_name(self) -> str:
         return "bioRxiv" if self._server == "biorxiv" else "medRxiv"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI at ``/details/{server}/{doi}``, its every version; the newest is kept.
+
+        Only a DOI under bioRxiv's and medRxiv's prefix, 10.1101, can be
+        theirs; Find a paper does not ask either about any other
+        (``paper_find.plan``). /details answers "no posts found" for a DOI the
+        server does not hold.
+        """
+        from .api_base import LookupUnsupported  # noqa: PLC0415
+
+        doi = value.strip()
+        if kind != "doi" or not doi.lower().startswith("10.1101/"):
+            raise LookupUnsupported(f"{self.get_name()} holds only DOIs that begin 10.1101.")
+        payload = _request_json(f"{_BIORXIV_API_BASE}/{self._server}/{doi}",
+                                time.monotonic() + _SEARCH_BUDGET_SECONDS)
+        items = (payload or {}).get("collection") or []
+        parsed = [p for p in (self._parse_item(item) for item in items) if p is not None]
+        # One record per version; the newest version is the paper as it stands.
+        return parsed[-1:] if parsed else []
 
     def search(
         self,

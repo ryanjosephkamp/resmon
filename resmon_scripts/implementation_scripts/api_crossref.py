@@ -2,9 +2,11 @@
 """Crossref API client — JSON response, polite pool with a contact address."""
 
 import logging
+from urllib.parse import quote
 
-from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
-                       bare_orcid, read_json_body, safe_request, sent_params)
+from .api_base import (Author, BaseAPIClient, LookupUnsupported, NormalizedResult, RateLimiter,
+                       bare_orcid, either, note_not_found, path_after, read_json_body,
+                       safe_request, sent_params)
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +24,9 @@ _RATE_LIMITER = RateLimiter(requests_per_second=1.0)
 class CrossrefClient(BaseAPIClient):
     """Crossref repository API client."""
 
-    describe_request = staticmethod(sent_params("query", "query.author", "filter"))
+    describe_request = staticmethod(either(
+        sent_params("query", "query.author", "query.bibliographic", "filter"),
+        path_after(_CROSSREF_API_URL)))
 
     def __init__(self, mailto: str | None = None):
         # The address set in Settings › Sources, or None, when nothing is sent (``source_contact``).
@@ -30,6 +34,44 @@ class CrossrefClient(BaseAPIClient):
 
     def get_name(self) -> str:
         return "Crossref"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A DOI at ``/works/{doi}``, one record; a title through ``query.bibliographic``.
+
+        ``/works/{doi}`` answers 404 for a DOI Crossref does not hold, which is
+        its answer, not a failure. ``query.bibliographic`` is Crossref's
+        relevance-ranked match against a citation's words; the records it
+        ranks first are candidates, matched locally.
+        """
+        contact = {"mailto": self._mailto} if self._mailto else {}
+        if kind == "doi":
+            try:
+                response = safe_request("GET", f"{_CROSSREF_API_URL}/{quote(value.strip(), safe='/')}",
+                                        params=contact or None, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("Crossref lookup failed")
+                return []
+            if response.status_code == 404:
+                note_not_found()
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "Crossref")
+            item = (data or {}).get("message")
+            return [self._parse_item(item)] if isinstance(item, dict) else []
+        if kind == "title":
+            params = {"query.bibliographic": value, "rows": max_results, **contact}
+            try:
+                response = safe_request("GET", _CROSSREF_API_URL, params=params, rate_limiter=_RATE_LIMITER)
+            except Exception:
+                logger.exception("Crossref lookup failed")
+                return []
+            if response.status_code != 200:
+                return []
+            data = read_json_body(response, "Crossref")
+            items = ((data or {}).get("message") or {}).get("items") or []
+            return [self._parse_item(item) for item in items if isinstance(item, dict)][:max_results]
+        raise LookupUnsupported(f"Crossref cannot be asked for a paper by {kind}.")
 
     def search_entity(
         self,

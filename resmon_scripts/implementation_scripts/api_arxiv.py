@@ -290,10 +290,37 @@ def _search_query(
 class ArxivClient(BaseAPIClient):
     """arXiv repository API client."""
 
-    describe_request = staticmethod(sent_params("search_query", "sortBy", "sortOrder"))
+    describe_request = staticmethod(sent_params("search_query", "sortBy", "sortOrder", "id_list"))
 
     def get_name(self) -> str:
         return "arXiv"
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """An arXiv id through ``id_list``, the API's own way of asking for named papers;
+        a title as ``ti:"..."`` in relevance order.
+
+        Relevance, not the newest first that ``search()`` asks for: a title
+        many later papers echo ("... is all you need") would otherwise leave
+        the paper itself past the first few records.
+        """
+        from .api_base import LookupUnsupported, lookup_value  # noqa: PLC0415
+
+        if kind == "arxiv":
+            params = {"id_list": value.strip(), "max_results": max_results}
+        elif kind == "title":
+            params = {"search_query": f'ti:"{lookup_value(value)}"', "max_results": max_results,
+                      "sortBy": "relevance", "sortOrder": "descending"}
+        else:
+            raise LookupUnsupported(f"arXiv cannot be asked for a paper by {kind}.")
+        try:
+            response = _patient_request(params, _Patience())
+        except Exception:
+            logger.exception("arXiv lookup failed")
+            return []
+        if response.status_code != 200:
+            logger.error("arXiv API returned %d", response.status_code)
+            return []
+        return self._parse_atom(response.text)
 
     def search(
         self,

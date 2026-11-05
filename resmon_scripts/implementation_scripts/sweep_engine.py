@@ -14,6 +14,7 @@ from typing import Optional
 from . import zero_reason as zero_reason_module
 from .api_base import (
     EntityUnsupported,
+    LookupUnsupported,
     note_entity_unsupported,
     reset_search_outcome,
     search_outcome,
@@ -37,7 +38,7 @@ from .database import (
     get_execution_sources,
     record_execution_source,
 )
-from . import paper_collections, source_contact, source_coverage
+from . import paper_collections, paper_find, source_contact, source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -123,6 +124,12 @@ def _utc_clock(stamp: object) -> str:
     and was linked as not new.
     """
     return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
+
+
+def find_query(find: dict) -> dict:
+    """The kind, value and typed text of a find, from its stored parameters."""
+    return {"kind": str(find.get("kind")), "value": str(find.get("value")),
+            "typed": str(find.get("typed") or find.get("value"))}
 
 
 class SweepEngine:
@@ -321,6 +328,10 @@ class SweepEngine:
         # A source that cannot usefully be asked without a start date, in a run
         # that set none: the start its client gave it, and why, by slug.
         default_starts: dict[str, dict] = {}
+        # Find a paper: each asked source's copy of the paper, or None, by
+        # slug, and how many candidates it returned.
+        find_matches: dict[str, Optional[paper_find.Match]] = {}
+        find_candidates: dict[str, int] = {}
 
         def cancelled(
             stage: str,
@@ -439,6 +450,8 @@ class SweepEngine:
                 author_queries=author_queries,
                 queries_sent=queries_sent,
                 default_starts=default_starts,
+                find_matches=find_matches,
+                find_candidates=find_candidates,
             )
             # Filled as each source answered; kept, and reported, in the order
             # the sources were selected, as the run's other records are.
@@ -560,6 +573,11 @@ class SweepEngine:
             # it arrived. A collection deleted while the run went is the
             # default one's, decided as each paper is written.
             paper_collections.file_run_papers(self.db, target, linked_ids, execution_id=exec_id)
+
+            # Find a paper: what each source said, and links between the copies.
+            if query_params.get("find"):
+                self._record_find(exec_id, query_params, repositories, find_matches,
+                                  find_candidates, task_log)
 
             # 5b. Embed what this run touched.
             #
@@ -1683,6 +1701,8 @@ class SweepEngine:
         author_queries: dict[str, dict],
         queries_sent: dict[str, dict | None],
         default_starts: Optional[dict[str, dict]] = None,
+        find_matches: Optional[dict] = None,
+        find_candidates: Optional[dict] = None,
     ) -> bool:
         """Ask the selected sources, up to ``_SOURCE_CONCURRENCY`` at a time.
 
@@ -2009,6 +2029,18 @@ class SweepEngine:
                     zero_reason=zero_reason_value,
                     zero_detail=zero_detail_value,
                 )
+                # Find a paper: the source's answer is recorded as it came, a
+                # count of candidates; only the one that is the paper is kept.
+                find = query_params.get("find")
+                if find and find_matches is not None:
+                    match = paper_find.best_match(results, paper_find.PaperQuery(**find_query(find)))
+                    find_matches[repo_name] = match
+                    if find_candidates is not None:
+                        find_candidates[repo_name] = len(results)
+                    results_by[i] = [match.record] if match else []
+                    task_log.log(
+                        f"    {'the paper, by ' + match.matched_by.replace('_', ' ') if match else 'not the paper'}"
+                        f" ({len(results)} candidate{'s' if len(results) != 1 else ''})")
             except Exception as exc:
                 fail(i, repo_name, exc)
 
@@ -2162,7 +2194,17 @@ class SweepEngine:
             # record is re-checked against the profile downstream; a source's
             # author search is a generator.
             profile = query_params.get("entity_profile")
-            if profile is not None:
+            find = query_params.get("find")
+            if find:
+                # Find a paper: the source is asked for one paper, by the kind
+                # its catalog capability names (``paper_find.plan`` chose it).
+                query = find_query(find)
+                try:
+                    holder["results"] = client.lookup(
+                        query["kind"], query["value"], max_results=paper_find.CANDIDATES)
+                except LookupUnsupported:
+                    holder["results"] = []
+            elif profile is not None:
                 try:
                     holder["results"] = client.search_entity(
                         profile,
@@ -2188,6 +2230,30 @@ class SweepEngine:
             # thread-local is out of reach.
             holder["outcome"] = search_outcome().snapshot()
         return holder
+
+    def _record_find(self, exec_id: int, query_params: dict, repositories: list[str],
+                     matches: dict, candidates: dict, task_log: TaskLogger) -> None:
+        """Write what each source said to Find a paper, and the links between its copies. Never raises."""
+        try:
+            query = paper_find.PaperQuery(**find_query(query_params["find"]))
+            answered = {}
+            for row in get_execution_sources(self.db, exec_id):
+                reason = row.get("zero_reason")
+                answered[row["source"]] = not (
+                    row.get("status") in ("error", "cancelled", "skipped_missing_key")
+                    or reason in zero_reason_module.DID_NOT_ANSWER)
+            found = {slug: match for slug, match in matches.items() if match is not None}
+            outcome = paper_find.record(
+                self.db, exec_id, query, list(repositories),
+                list(query_params.get("find", {}).get("not_asked") or []),
+                found, dict(candidates), answered)
+            task_log.log(
+                f"Find a paper: {len(found)} of {len(repositories)} source(s) asked hold it"
+                + (f"; reference copy from {outcome['reference']}" if outcome["reference"] else "")
+                + (f"; {outcome['links']} link(s) between copies" if outcome["links"] else ""))
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Could not record the find for exec_id=%s: %s", exec_id, exc)
+            task_log.log(f"The find's per-source record could not be written: {exc}")
 
     def _handle_cancellation(
         self,
