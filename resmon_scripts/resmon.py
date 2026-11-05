@@ -1167,6 +1167,7 @@ def _desktop_notification_words(
             "deep_dive": "Deep Dive",
             "deep_sweep": "Deep Sweep",
             "automated_sweep": "Watch run",
+            "find_paper": "Find a paper",
         }.get(execution_type, "Run")
 
     try:
