@@ -49,8 +49,11 @@ exist. A digest match requires full byte-for-byte comparison and the same media
 interpretation; reuse preserves the first basename/file/version. A digest collision
 or media conflict refuses. Different bytes receive different UUIDs. Caught failures
 clean only this operation’s unpublished bytes; prior retained copies and originals
-are never deleted, moved or overwritten. A crash can leave a lock or orphan bytes;
-these block further import and are neither adopted nor automatically repaired.
+are never deleted, moved or overwritten. A crash can leave a lock and staging
+bytes in the vault root; the next engine start removes a lock older than that
+start, when its own process is not importing, with the staging files as old
+(<code>library.recover_stale_import_lock</code>). Other orphan bytes block further import and
+are neither adopted nor automatically repaired.
 A retained size that differs from its catalog also blocks import, so quota checks
 cannot silently use an outdated size. Status still does not hash every retained file.</p>
 <p>All managed access walks directories through no-follow descriptors, checks the
