@@ -1813,8 +1813,9 @@ def find_a_paper(body: FindRequest, response: Response):
         return {"execution_id": existing["id"], "duplicate": True}
     parsed, asked, not_asked = _find_plan(body.query, body.repositories)
     if not asked:
-        reasons = "; ".join(item["why"] for item in not_asked[:3])
-        raise HTTPException(400, f"No source named can look up a {paper_find.KIND_WORDS[parsed.kind]}. {reasons}")
+        kind = paper_find.KIND_WORDS[parsed.kind]
+        reasons = " ".join(item["why"] for item in not_asked[:3])
+        raise HTTPException(400, f"No source named can look up {'an' if kind[0] in 'aeiou' else 'a'} {kind}. {reasons}")
     query_params = {
         "query": parsed.typed,
         "find": {**parsed.as_params(), "not_asked": not_asked},

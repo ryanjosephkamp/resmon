@@ -183,3 +183,26 @@ def test_a_find_that_names_its_sources_accounts_for_every_other():
     assert why["arxiv"] == "arXiv can be asked by arXiv id, title, not by DOI."
     from implementation_scripts.repo_catalog import REPOSITORY_CATALOG
     assert set(asked) | set(why) == {entry.slug for entry in REPOSITORY_CATALOG}
+
+
+@pytest.fixture
+def http(tmp_path):
+    import resmon as resmon_mod
+    from fastapi.testclient import TestClient
+
+    resmon_mod._db_path = str(tmp_path / "routes.db")
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+    yield TestClient(resmon_mod.app)
+    resmon_mod._shared_conn = None
+    resmon_mod._db_initialized = False
+
+
+def test_a_find_no_named_source_can_answer_is_refused_with_why(http):
+    refused = http.post("/api/find", json={"query": "arXiv:2601.00001", "repositories": ["crossref"]})
+    assert refused.status_code == 400
+    assert refused.json()["detail"].startswith(
+        "No source named can look up an arXiv id. Crossref can be asked by DOI, title, not by arXiv id.")
+    assert http.get("/api/executions/1/find").status_code == 404
+    unknown = http.post("/api/documents/999/full-text")
+    assert unknown.status_code == 404
