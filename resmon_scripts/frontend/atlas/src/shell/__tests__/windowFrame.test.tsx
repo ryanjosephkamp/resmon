@@ -34,6 +34,21 @@ describe('a window is named by the screen it shows', () => {
   });
 });
 
+test('off macOS the window\'s title carries the app\'s name, as the platform the preload names says', () => {
+  const host = window as unknown as { resmonAPI?: unknown };
+  const before = host.resmonAPI;
+  host.resmonAPI = { getBackendPort: () => '51234', getApiToken: () => 'token', platform: 'linux' };
+  try {
+    const view = render(
+      <QueryClientProvider client={new QueryClient()}><MemoryRouter initialEntries={['/runs']}><WindowFrame /></MemoryRouter></QueryClientProvider>,
+    );
+    expect(document.title).toBe('Runs — resmon');
+    view.unmount();
+  } finally {
+    host.resmonAPI = before;
+  }
+});
+
 test('the theme and accent are read again when the window comes to the front', () => {
   const client = new QueryClient();
   const invalidate = jest.spyOn(client, 'invalidateQueries').mockResolvedValue(undefined);

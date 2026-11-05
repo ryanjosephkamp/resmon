@@ -2,34 +2,10 @@ import { useEffect, useLayoutEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { bridge, isMac, type WindowState } from '../bridge';
-import { SCREEN_PATHS } from '../screenPaths';
 import { APPEARANCE_KEY, useAppearance } from '../theme/appearance';
+import { windowTitle } from '../windowTitle';
 
-/** Screens with an id in their address, named by what they show. */
-const DETAIL_TITLES: readonly { pattern: RegExp; title: (id: string) => string }[] = [
-  { pattern: /^\/runs\/(\d+)$/, title: (id) => `Run ${id}` },
-  { pattern: /^\/papers\/[^/]+$/, title: () => 'Paper' },
-  { pattern: /^\/watches\/people\/[^/]+$/, title: () => 'Watches › Person' },
-  { pattern: /^\/watches\/[^/]+\/edit$/, title: () => 'Edit watch' },
-  { pattern: /^\/watches\/[^/]+$/, title: () => 'Watch' },
-];
-
-/**
- * A window's title: the screen it shows, which is what macOS's tabs, the
- * Window menu, and the taskbar elsewhere name it by, so two windows on two
- * screens can be told apart. Elsewhere the app's name follows, since the
- * system frame shows the title alone.
- */
-export function windowTitle(pathname: string, mac: boolean): string {
-  const fixed = SCREEN_PATHS.find((screen) => screen.path === pathname)?.name;
-  const detail = DETAIL_TITLES.map(({ pattern, title }) => {
-    const found = pattern.exec(pathname);
-    return found ? title(found[1] ?? '') : null;
-  }).find((title) => title !== null);
-  const name = fixed ?? detail ?? null;
-  if (!name) return 'resmon';
-  return mac ? name : `${name} — resmon`;
-}
+export { windowTitle };
 
 /**
  * The room left above the top bar for macOS's tab bar, which macOS draws over
