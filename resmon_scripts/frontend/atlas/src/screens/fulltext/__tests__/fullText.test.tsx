@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import {
   askedWords, differencesWords, differenceWords, findLeadWords, hostWords, licenseWords, matchedWords, orWords, outcomeWords, pending,
-  requestWords, sentenceCase, type FindSourceResult, type FullTextRequest,
+  requestWords, sentenceCase, storedWords, type FindSourceResult, type FullTextRequest,
 } from '../fullText';
 
 function request(fields: Partial<FullTextRequest>): FullTextRequest {
@@ -37,6 +37,12 @@ describe('a request, in words', () => {
     expect(requestWords(request({ state: 'stored', reason: 'already_in_library' }))).toBe('The PDF is already in the Library.');
     expect(requestWords(request({ state: 'failed', reason: 'http_status', words: 'arxiv.org answered HTTP 404.' })))
       .toBe('arxiv.org answered HTTP 404.');
+  });
+
+  test('a stored PDF says it is in the Library only while the Library holds it', () => {
+    expect(storedWords(request({ state: 'stored', file_held: true }))).toBe('In the Library, from repo.example.edu, CC BY');
+    expect(storedWords(request({ state: 'stored', file_held: false })))
+      .toBe('Got from repo.example.edu, CC BY, and removed from the Library since');
   });
 
   test('a host reads without www, and a copy says its license or that arXiv states it', () => {

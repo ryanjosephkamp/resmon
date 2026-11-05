@@ -5772,7 +5772,8 @@ class FullTextRequest(LosslessModel):
     ``final_url`` (where the PDF came from after every redirect), its
     ``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null
     only for the answer that the Library already holds the paper's PDF, which
-    records nothing new.
+    records nothing new. ``file_held``, on a run's list only, says for a stored
+    request whether the Library holds its file still: false once it was removed.
     """
 
     id: Optional[int]
@@ -5793,6 +5794,7 @@ class FullTextRequest(LosslessModel):
     byte_size: Optional[int]
     requested_at_utc: str
     finished_at_utc: Optional[str]
+    file_held: Optional[bool] = None
 
 
 class FullTextCopy(LosslessModel):

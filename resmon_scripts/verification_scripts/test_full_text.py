@@ -347,6 +347,31 @@ def test_a_watch_run_asks_for_its_new_papers_up_to_its_cap(db, server, monkeypat
     assert known not in by_paper
     assert result["counts"]["stored"] == 3 and result["counts"]["skipped"] == 3
     assert all(r["requested_by"] == "watch" and r["execution_id"] == run for r in result["requests"])
+    assert [by_paper[p]["file_held"] for p in papers[:3]] == [True] * 3
+    assert "file_held" not in by_paper[papers[5]]
+
+
+def test_a_runs_list_says_when_a_pdf_it_got_was_removed_from_the_library_since(db, server):
+    """The run's page said "In the Library" for a file removed from it."""
+    from implementation_scripts import library_removal
+
+    # Two different files: the same bytes would be one file in the Library.
+    _serve(server, "/kept-0.pdf", size=5000)
+    _serve(server, "/kept-1.pdf", size=7000)
+    _routine, run = _watch_run(db)
+    papers = [_paper(db, 95 + n, url=server.url(f"/kept-{n}.pdf")) for n in range(2)]
+    for paper in papers:
+        db.execute("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 1)",
+                   (run, paper))
+    db.commit()
+    full_text.for_watch_run(db, run)
+    _settle(db)
+    gone = full_text.for_execution(db, run)["requests"][0]
+    file = dict(db.execute("SELECT * FROM library_files WHERE file_id = ?", (gone["file_id"],)).fetchone())
+    library_removal.remove(db, file["vault_id"], file["file_id"], file["version_id"], True)
+    said = {r["document_id"]: r for r in full_text.for_execution(db, run)["requests"]}
+    assert (said[papers[0]]["state"], said[papers[0]]["file_held"]) == ("stored", False)
+    assert said[papers[1]]["file_held"] is True
 
 
 @pytest.mark.parametrize("change, reason", [

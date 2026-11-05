@@ -8285,7 +8285,7 @@
       },
       "FullTextRequest": {
         "additionalProperties": true,
-        "description": "One PDF asked for, and what came of it.\n\n``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with\nthe ``reason`` no request was sent) or ``failed`` (with why). ``words`` is\nthe reason in a sentence. A stored request carries the Library ``file_id``,\n``final_url`` (where the PDF came from after every redirect), its\n``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null\nonly for the answer that the Library already holds the paper's PDF, which\nrecords nothing new.",
+        "description": "One PDF asked for, and what came of it.\n\n``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with\nthe ``reason`` no request was sent) or ``failed`` (with why). ``words`` is\nthe reason in a sentence. A stored request carries the Library ``file_id``,\n``final_url`` (where the PDF came from after every redirect), its\n``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null\nonly for the answer that the Library already holds the paper's PDF, which\nrecords nothing new. ``file_held``, on a run's list only, says for a stored\nrequest whether the Library holds its file still: false once it was removed.",
         "properties": {
           "byte_size": {
             "anyOf": [
@@ -8312,6 +8312,17 @@
               }
             ],
             "title": "Execution Id"
+          },
+          "file_held": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Held"
           },
           "file_id": {
             "anyOf": [

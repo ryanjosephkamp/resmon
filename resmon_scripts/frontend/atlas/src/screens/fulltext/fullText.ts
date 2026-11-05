@@ -112,6 +112,16 @@ export function requestWords(request: FullTextRequest): string {
   }
 }
 
+/**
+ * A stored request on a run's list: in the Library, from where and under what
+ * license; or, when its file was removed from the Library since, that it was
+ * got and removed, so the list never says the Library holds what it does not.
+ */
+export function storedWords(request: Pick<FullTextRequest, 'host' | 'license_words' | 'file_held'>): string {
+  const from = `from ${hostWords(request.host)}${request.license_words ? `, ${request.license_words}` : ''}`;
+  return request.file_held === false ? `Got ${from}, and removed from the Library since` : `In the Library, ${from}`;
+}
+
 /** What a find was asked for, in words: "the DOI 10.1371/…", "the title “…”". */
 export function askedWords(query: { kind?: string | null; value?: string | null }): string {
   const value = query.value ?? '';

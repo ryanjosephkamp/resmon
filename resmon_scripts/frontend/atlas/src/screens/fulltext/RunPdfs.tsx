@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { listWords } from '../today/format';
-import { errorWords, hostWords, pending, requestWords } from './fullText';
+import { errorWords, pending, requestWords, storedWords } from './fullText';
 
 /** How often the list is read again while one of its PDFs is still being got. */
 const WHILE_GETTING_MS = 1500;
@@ -41,11 +41,12 @@ export function RunPdfs({ runId }: { runId: number }) {
       <ul className="run-pdfs-list">
         {asked.data.requests.map((r) => (
           <li key={r.id ?? r.document_id} data-state={r.state} data-reason={r.reason ?? undefined}>
-            <Link to={r.state === 'stored' && r.file_id ? `/library/files/${r.file_id}?paper=${r.document_id}` : `/papers/${r.document_id}`}>
+            <Link to={r.state === 'stored' && r.file_id && r.file_held !== false
+              ? `/library/files/${r.file_id}?paper=${r.document_id}` : `/papers/${r.document_id}`}>
               {titles.get(r.document_id) ?? `Paper ${r.document_id}`}
             </Link>
-            <span>
-              {r.state === 'stored' ? `In the Library, from ${hostWords(r.host)}${r.license_words ? `, ${r.license_words}` : ''}` : requestWords(r)}
+            <span data-held={r.state === 'stored' ? String(r.file_held !== false) : undefined}>
+              {r.state === 'stored' ? storedWords(r) : requestWords(r)}
             </span>
           </li>
         ))}

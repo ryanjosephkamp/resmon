@@ -323,9 +323,17 @@ def for_watch_run(conn: sqlite3.Connection, execution_id: int) -> dict:
 
 
 def for_execution(conn: sqlite3.Connection, execution_id: int) -> dict:
-    """What a run asked for: every request, and how many came to each state."""
+    """What a run asked for: every request, and how many came to each state.
+
+    A stored request also says whether the Library holds its file still
+    (``file_held``): the run got it, and it may have been removed since.
+    """
     rows = [_projection(dict(r)) for r in conn.execute(
         "SELECT * FROM full_text_downloads WHERE execution_id = ? ORDER BY id", (int(execution_id),))]
+    for row in rows:
+        if row["state"] == "stored":
+            row["file_held"] = conn.execute(
+                "SELECT 1 FROM library_files WHERE file_id = ?", (row["file_id"],)).fetchone() is not None
     counts = {state: 0 for state in ("waiting", "downloading", "stored", "skipped", "failed")}
     for row in rows:
         counts[row["state"]] += 1
