@@ -191,8 +191,8 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     cwd: FRONTEND_ROOT, env, colorScheme: 'dark', timeout: 180_000,
   });
   registerStateDir(stateDir);
+  const trash = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-trash-'));
   try {
-    const trash = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-library-trash-'));
     await app.evaluate(({ shell }, bin) => {
       const g = globalThis as unknown as { opened: string[]; revealed: string[]; trashed: string[] };
       g.opened = []; g.revealed = []; g.trashed = [];
@@ -449,5 +449,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     expect(problems).toEqual([]);
   } finally {
     await app.close();
+    // Every folder here was made by this spec, under the system's temporary folder.
+    for (const dir of [stateDir, first, elsewhere, second, staging, trash]) fs.rmSync(dir, { recursive: true, force: true });
   }
 });
