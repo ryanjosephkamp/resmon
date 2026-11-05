@@ -15,11 +15,12 @@ import uuid
 import pytest
 
 from implementation_scripts import assistant_runtime as cli, assistant_api_runtime as api
-from implementation_scripts import assistant_tool_calling, selected_evidence as se
+from implementation_scripts import ai_cli, assistant_tool_calling, selected_evidence as se
 from implementation_scripts import selected_evidence_context as ctx, selected_evidence_runtime as lane
 from test_selected_evidence_context import workspace, available, selection, assemble
 from test_selected_evidence import answer
 from test_evidence import Workspace, sql_snapshot, files_snapshot
+from test_assistant_runtime import bare_name_on_path, record_starts
 
 
 class CancellationTrace:
@@ -386,6 +387,25 @@ def test_cli_faults_fail_without_retry_and_reap(workspace,available,tmp_path,fau
     events=list(runtime.run_turn(-4,request['user_prompt'],cli_session_id=str(uuid.uuid4()),resume=False))
     assert any(e['type']=='error' for e in events) and not cli.is_running(-4)
     assert capture.exists() and '--resume' not in json.loads(capture.read_text())['argv']
+
+
+@pytest.mark.parametrize('command',['missing','present'])
+def test_cli_profile_starts_only_the_command_found(workspace,available,tmp_path,monkeypatch,command):
+    """A missing command is ``cli_missing`` and starts nothing, not the ``claude`` on PATH."""
+    request,_,_=assemble(workspace,selection(workspace));binary,capture=fake_cli(tmp_path)
+    ran=bare_name_on_path(tmp_path,monkeypatch)
+    path=str(binary) if command=='present' else str(tmp_path/'no-such-claude')
+    started=record_starts(monkeypatch)
+    runtime=cli.ClaudeCliRuntime(cli_path=path,profile=se.PROFILE)
+    events=list(runtime.run_turn(-6,request['user_prompt'],cli_session_id=str(uuid.uuid4()),resume=False))
+    assert not ran.exists() and not cli.is_running(-6)
+    if command=='missing':
+        sentence=ai_cli.discover_cli('claude_code',path).describe()
+        assert events==[{'type':'error','detail':'cli_missing','message':sentence}]
+        assert started==[] and not capture.exists()
+    else:
+        assert events[-1]['type']=='done' and not any(e['type']=='error' for e in events)
+        assert [argv[0] for argv in started]==[path] and capture.exists()
 
 
 def test_cli_actual_stop_before_late_success(workspace,available,tmp_path):

@@ -32,6 +32,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 import mcp_server  # noqa: E402
+from implementation_scripts import ai_cli  # noqa: E402
 from implementation_scripts import assistant_runtime as ar  # noqa: E402
 from implementation_scripts.assistant_constitution import (  # noqa: E402
     load_assistant_constitution,
@@ -440,19 +441,81 @@ def test_an_unrecognised_failure_says_it_is_unrecognised(tmp_path):
     assert "exit code 3" in events[-1]["message"]
 
 
-def test_a_missing_binary_is_an_error_event_not_an_exception(tmp_path, monkeypatch):
+def test_a_missing_binary_is_an_error_event_not_an_exception(tmp_path):
     """Nothing escapes ``run_turn``. A streaming response cannot become a 500.
 
-    With no command found, the runtime falls back to a bare ``claude``, which
-    is looked up on PATH; PATH is an empty folder here, so the command is
-    really missing rather than the developer's own.
+    The command was found when the conversation was admitted and is gone by
+    the turn, so starting it fails in ``Popen`` itself.
     """
-    empty = tmp_path / "empty-bin"
-    empty.mkdir()
-    monkeypatch.setenv("PATH", str(empty))
-    runtime = ar.ClaudeCliRuntime(cli_path=str(tmp_path / "no-such-binary"))
+    runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
+    runtime.resolved_binary = str(tmp_path / "no-such-binary")
     events = list(runtime.run_turn(1, "SAY:x", cli_session_id="s", resume=False))
     assert [e["type"] for e in events] == ["error"]
+    assert events[0]["detail"] == "FileNotFoundError"
+
+
+# ---------------------------------------------------------------------------
+# A missing command starts nothing
+# ---------------------------------------------------------------------------
+
+def record_starts(monkeypatch) -> list[list[str]]:
+    """The argv of every program this test starts from here on.
+
+    Wraps ``Popen._execute_child``, which every ``Popen`` and
+    ``subprocess.run`` goes through, around ``conftest.py``'s guard: a start
+    is recorded before the guard decides whether it may run.
+    """
+    started: list[list[str]] = []
+    inner = subprocess.Popen._execute_child
+
+    def recording(self, args, *rest, **kwargs):
+        listed = [args] if isinstance(args, (str, bytes, os.PathLike)) else list(args)
+        started.append([os.fsdecode(arg) for arg in listed])
+        return inner(self, args, *rest, **kwargs)
+
+    monkeypatch.setattr(subprocess.Popen, "_execute_child", recording)
+    return started
+
+
+def bare_name_on_path(tmp_path: Path, monkeypatch, name: str = "claude") -> Path:
+    """Put a *name* on PATH, as a developer's machine has; return the file it writes when run.
+
+    It is a stub under the temporary folder, so the suite's guard would let it
+    run: a runtime that started the bare name would leave this file behind.
+    """
+    folder = tmp_path / "on-path"
+    folder.mkdir(exist_ok=True)
+    stub = folder / name
+    stub.write_text(f'#!/bin/sh\necho ran >> "{folder / "ran.txt"}"\n')
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", os.pathsep.join([str(folder), "/usr/bin", "/bin"]))
+    return folder / "ran.txt"
+
+
+@pytest.mark.parametrize("configured", ["a path that is not there", "no path"])
+def test_a_missing_command_starts_nothing_and_says_what_the_routes_say(tmp_path, monkeypatch, configured):
+    """``cli_missing``, with discovery's sentence, and never the ``claude`` on PATH."""
+    ran = bare_name_on_path(tmp_path, monkeypatch)
+    path = str(tmp_path / "no-such-claude") if configured != "no path" else None
+    started = record_starts(monkeypatch)
+    runtime = ar.ClaudeCliRuntime(cli_path=path)
+    events = list(runtime.run_turn(1, "SAY:x", cli_session_id="s", resume=False))
+    sentence = ai_cli.discover_cli("claude_code", path).describe()
+    # The sentence Ask's routes refuse a turn with (``status().reason``).
+    assert runtime.status().reason == sentence
+    assert events == [{"type": "error", "message": sentence, "detail": "cli_missing", "code": "failed"}]
+    assert started == [] and not ran.exists()
+
+
+def test_the_command_found_is_the_one_that_starts(tmp_path, monkeypatch):
+    ran = bare_name_on_path(tmp_path, monkeypatch)
+    command = fake_binary(tmp_path)
+    started = record_starts(monkeypatch)
+    events = list(ar.ClaudeCliRuntime(cli_path=command).run_turn(
+        1, "SAY:x", cli_session_id="s", resume=False))
+    assert [e["text"] for e in events if e["type"] == "text_delta"] == ["x"]
+    assert events[-1]["type"] == "done"
+    assert [argv[0] for argv in started] == [command] and not ran.exists()
 
 
 # ---------------------------------------------------------------------------

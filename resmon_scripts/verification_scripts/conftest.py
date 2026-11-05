@@ -619,10 +619,10 @@ _FORCE_HERMETIC = os.environ.get("RESMON_FORCE_HERMETIC") == "1"
 # ---------------------------------------------------------------------------
 #
 # The discovery pin above stops the search, and only the search. Code can
-# still run a command by name: ``ClaudeCliRuntime`` falls back to a bare
-# ``claude`` when it has no path, and a bare name is looked up on PATH, which
-# on a developer's machine leads to their own CLI. A test of a missing command
-# that leaves PATH alone starts it.
+# still run a command by name, and a bare name is looked up on PATH, which on
+# a developer's machine leads to their own CLI. The assistant runtimes start
+# only a command discovery found (``assistant_runtime._found_command``), but
+# any code that runs a name, in a test that leaves PATH alone, starts it.
 #
 # So, as with sockets, the property is checked. Starting a ``claude`` or
 # ``codex`` that is not a fake under the temporary folder or this directory
