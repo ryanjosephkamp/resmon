@@ -2,7 +2,7 @@
  * A watch's runs say nothing final about a run still going: its counts so far
  * are not what it brought in.
  */
-import { render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import type { components } from '../../../api/schema';
 import { RunHistory } from '../RunHistory';
@@ -44,4 +44,40 @@ test('a tallest bar is taken from finished runs only', () => {
 
 test('with nothing going, the sentences are as before', () => {
   expect(shown([run(4, 'completed', 0)])).toBe('This run brought in no new paper.');
+});
+
+if (!('PointerEvent' in window)) {
+  class PointerEventShim extends MouseEvent {}
+  Object.defineProperty(window, 'PointerEvent', { value: PointerEventShim, configurable: true });
+}
+
+describe('the strip\'s bars', () => {
+  const runs = () => [
+    { ...run(9, 'completed', 2, 40), source_outcomes: { could_not_answer: 1, sources_that_could_not_answer: ['crossref'] } },
+    run(8, 'completed', null, null),
+    run(7, 'failed', 0, 0),
+  ] as RunRow[];
+
+  test('each bar opens its run, and the strip is one stop with the newest run first to the keyboard', () => {
+    render(<MemoryRouter><RunHistory runs={runs()} now={now} names={new Map([['crossref', 'Crossref']])} /></MemoryRouter>);
+    const strip = screen.getByRole('group', { name: 'Papers new in each of the last 3 runs, oldest first' });
+    const bars = within(strip).getAllByRole('link');
+    expect(bars.map((b) => b.getAttribute('href'))).toEqual(['/runs/7', '/runs/8', '/runs/9']);
+    expect(bars.map((b) => b.tabIndex)).toEqual([-1, -1, 0]);
+    act(() => bars[2]!.focus());
+    expect(screen.getByRole('tooltip')).toHaveTextContent('2 new papers');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('40 found in all');
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Crossref did not answer.');
+    expect(screen.getByRole('tooltip').querySelector('.chart-tip-opens')?.textContent).toBe('Opens run 9');
+    fireEvent.keyDown(bars[2]!, { key: 'ArrowLeft' });
+    expect(document.activeElement).toBe(bars[1]);
+  });
+
+  test('a count the run did not record is said so, never as none, and a failed run says it failed', () => {
+    render(<MemoryRouter><RunHistory runs={runs()} now={now} names={new Map()} /></MemoryRouter>);
+    const [failed, unrecorded] = within(screen.getByRole('group')).getAllByRole('link');
+    expect(unrecorded).toHaveAccessibleName(/^Run 8 · .*: New papers not recorded\. Opens run 8\.$/);
+    fireEvent.pointerEnter(failed!, { clientX: 20, clientY: 300 });
+    expect(screen.getByRole('tooltip')).toHaveTextContent('The run failed.');
+  });
 });
