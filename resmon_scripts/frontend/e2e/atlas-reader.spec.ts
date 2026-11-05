@@ -35,6 +35,7 @@ import { test, expect, _electron as electron, type ElectronApplication, type Pag
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { longPdf, writePdf } from './fixtures/pdf';
 import { removeStateDir } from './fixtures/cleanup';
+import { showTheme } from './fixtures/theme';
 
 const WEB = 'https://example.org/resmon-reader';
 /** As long as the paper names the reader is given in practice, with no space to break at. */
@@ -137,8 +138,7 @@ async function library<T>(win: Page, route: string): Promise<T> {
 
 /** A window this many CSS pixels wide: the window itself where the display allows, zoomed out where it does not. */
 async function widen(app: ElectronApplication, win: Page, width: number, theme: 'light' | 'dark'): Promise<string> {
-  const said = await app.evaluate(({ BrowserWindow, nativeTheme, screen }, x) => {
-    nativeTheme.themeSource = x.theme;
+  const said = await app.evaluate(({ BrowserWindow, screen }, x) => {
     const area = screen.getPrimaryDisplay().workAreaSize;
     const w = BrowserWindow.getAllWindows()[0]!;
     const fits = x.width <= area.width;
@@ -146,9 +146,9 @@ async function widen(app: ElectronApplication, win: Page, width: number, theme: 
     w.setSize(fits ? x.width : area.width, Math.min(area.height, Math.round(900 * zoom)));
     w.webContents.setZoomFactor(zoom);
     return fits ? `${x.width}-pixel window` : `${area.width}-point window at zoom ${zoom.toFixed(3)}`;
-  }, { width, theme });
+  }, { width });
   await expect.poll(() => win.evaluate(() => window.innerWidth), { timeout: 10_000 }).toBeGreaterThanOrEqual(width - 2);
-  await expect(win.locator('html')).toHaveAttribute('data-theme', theme, { timeout: 10_000 });
+  await showTheme(app, win, theme);
   return said;
 }
 

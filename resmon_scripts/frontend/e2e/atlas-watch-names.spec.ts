@@ -15,6 +15,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { showTheme } from './fixtures/theme';
 
 const NAMES = ['midnight_agents_arxiv_ai', 'midnight_agents_crossref_ai'];
 
@@ -71,11 +72,11 @@ async function whole(locator: Locator): Promise<{ text: string; clipped: boolean
   });
 }
 
-async function size(app: ElectronApplication, width: number, height: number, theme: 'light' | 'dark'): Promise<void> {
-  await app.evaluate(({ BrowserWindow, nativeTheme }, x) => {
-    nativeTheme.themeSource = x.theme;
+async function size(app: ElectronApplication, win: Page, width: number, height: number, theme: 'light' | 'dark'): Promise<void> {
+  await app.evaluate(({ BrowserWindow }, x) => {
     BrowserWindow.getAllWindows()[0]?.setContentSize(x.width, x.height);
-  }, { width, height, theme });
+  }, { width, height });
+  await showTheme(app, win, theme);
 }
 
 async function go(win: Page, hash: string): Promise<void> {
@@ -109,7 +110,7 @@ test('a long watch name stays whole in the Calendar, on Today, and in the run lo
     await expect(month).toHaveAttribute('data-state', 'read', { timeout: 30_000 });
     for (const [width, height] of [[1280, 800], [1728, 1050]] as const) {
       for (const theme of ['light', 'dark'] as const) {
-        await size(app, width, height, theme);
+        await size(app, win, width, height, theme);
         await win.waitForTimeout(300);
         for (const [i, id] of ids.entries()) {
           const name = month.locator('.fire-mark').filter({ has: win.locator(`.fire[data-routine="${id}"]`) }).first()
@@ -128,7 +129,7 @@ test('a long watch name stays whole in the Calendar, on Today, and in the run lo
       }
     }
 
-    await size(app, 1280, 800, 'light');
+    await size(app, win, 1280, 800, 'light');
     await go(win, '#/');
     const index = win.locator('.index');
     for (const name of NAMES) {
