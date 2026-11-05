@@ -30,11 +30,11 @@ A field extracted from a document, a field matched against your collection, and 
 
 ## The screens
 
-The top bar holds seven sections, a **New search** menu, **Search commands**, and Settings.
+The top bar holds the collection the window shows, seven sections, a **New search** menu, **Search commands**, and Settings. resmon can keep several collections in one database, one per field, say; each has its own Search, Today, map, and Analytics. See [Search](/resmon/guide/search/).
 
 | Section | Tabs | What it is for |
 |---|---|---|
-| **Today** | | The collection as a map, and the papers collected since you last marked all read |
+| **Today** | | The collection as a map, and the papers that arrived since you last marked all read |
 | **Watches** | Searches · Calendar · People | Your watches, when each is due, and the people resmon looks for on papers |
 | **Search** | Your collection · Ask the sources · Saved · Shared wording | Searching what you hold, asking the sources for more, saved searches, and abstracts that share wording |
 | **Runs** | | Every run: those going now, those waiting for a free slot, and the history |

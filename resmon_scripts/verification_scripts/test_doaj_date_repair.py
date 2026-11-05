@@ -220,9 +220,12 @@ def test_over_a_schema_21_corpus_only_the_named_months_move(tmp_path: Path):
         assert set(after) >= set(before)
         changed = {t: (set(before[t]) - set(after[t]), set(after[t]) - set(before[t]))
                    for t in before if before[t] != after[t]}
-        # The schema marker is the walk's own rewrite (21 -> 23), not this one.
-        assert set(changed) == {"documents", "app_settings"}
+        # The schema marker is the walk's own rewrite (21 -> 26), not this one,
+        # and so is schema 26's ``routines.collection_id``, which each watch
+        # gains at the end of its row, pointing at the default collection.
+        assert set(changed) == {"documents", "app_settings", "routines"}
         assert {r[0] for r in changed["app_settings"][0]} == {"schema_version"}
+        assert sorted(r + (1,) for r in changed["routines"][0]) == sorted(changed["routines"][1])
         gone, came = changed["documents"]
         # ``SELECT *``'s own columns: ``table_info`` leaves out the generated ``pub_sort``.
         columns = [d[0] for d in conn.execute("SELECT * FROM documents LIMIT 0").description]

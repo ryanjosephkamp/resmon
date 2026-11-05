@@ -54,6 +54,7 @@ import sqlite3
 from collections import defaultdict
 
 from . import repo_catalog
+from .paper_collections import RUN_COLLECTION_SQL, documents_in
 
 # Sources where resmon performs the keyword filtering itself, so the local
 # explanation is complete rather than partial. Derived from the catalog's
@@ -417,11 +418,14 @@ def _join_keywords(keywords: list[str]) -> str:
 def keyword_contribution(
     conn: sqlite3.Connection,
     execution_id: int | None = None,
+    collection_id: int | None = None,
 ) -> dict:
     """Per keyword: papers it brought in that no other keyword did.
 
     Scoped to one execution when ``execution_id`` is given, otherwise to every
-    keyword the user has ever searched, against the whole corpus.
+    keyword the user has ever searched, against the whole corpus; with
+    ``collection_id``, to the keywords of the runs that put papers in that
+    collection, against its papers.
 
     A keyword whose every paper is also matched by another keyword is
     contributing nothing on its own. That is the actionable finding, and it is
@@ -452,9 +456,9 @@ def keyword_contribution(
         ).fetchall()
         scope = {"type": "execution", "execution_id": int(execution_id)}
     else:
-        keywords = _all_keywords(conn)
+        keywords = _all_keywords(conn, collection_id)
         documents = conn.execute(
-            "SELECT id, title, abstract, categories, authors FROM documents"
+            f"SELECT id, title, abstract, categories, authors FROM {documents_in(collection_id)}"
         ).fetchall()
         scope = {"type": "corpus"}
 
@@ -526,10 +530,13 @@ def keyword_contribution(
     }
 
 
-def _all_keywords(conn: sqlite3.Connection) -> list[str]:
-    """Every distinct keyword across every execution, in first-seen order."""
+def _all_keywords(conn: sqlite3.Connection, collection_id: int | None = None) -> list[str]:
+    """Every distinct keyword across every execution (or every one that put
+    papers in a collection), in first-seen order."""
     rows = conn.execute(
-        "SELECT parameters FROM executions ORDER BY start_time ASC, id ASC"
+        "SELECT parameters FROM executions"
+        + ("" if collection_id is None else f" WHERE {RUN_COLLECTION_SQL} = {int(collection_id)}")
+        + " ORDER BY start_time ASC, id ASC"
     ).fetchall()
     seen: dict[str, None] = {}
     for row in rows:

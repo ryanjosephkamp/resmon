@@ -1,12 +1,12 @@
-"""The whole walk at once: a schema-13 database upgraded to schema 25.
+"""The whole walk at once: a schema-13 database upgraded to schema 26.
 
 Every schema step since 13 has its own upgrade test, and each one starts from a
 fixture of the step immediately before it -- 13 -> 14, 14 -> 15, 15 -> 16,
 16 -> 17, 17 -> 18, 18 -> 19, 19 -> 20, 20 -> 21, 21 -> 22, 22 -> 23, 23 -> 24,
-24 -> 25. Twelve steps, green one at a time, and none of them is the journey a
-user takes. A user whose database is at schema 13 launches a newer resmon once
-and their database crosses **all twelve** steps in one `init_db` call, with the rows
-resmon wrote at schema 13 still in it.
+24 -> 25, 25 -> 26. Thirteen steps, green one at a time, and none of them is
+the journey a user takes. A user whose database is at schema 13 launches a
+newer resmon once and their database crosses **all thirteen** steps in one
+`init_db` call, with the rows resmon wrote at schema 13 still in it.
 
 That is what this file tests, and the fixture it starts from is not hand-written:
 `fixtures/schema-13/corpus.sql` is a dump of a database resmon's own `init_db`
@@ -31,8 +31,8 @@ What each test establishes is written on it. The short version:
     `test_cumulative_upgrade_boundary`-style style below)
   * every committed fixture is walked by today's code. Where the schema a
     fixture was written at is still the one this code ships, that walk must
-    change nothing at all; where steps have been added past it -- 13 -> 25,
-    18 -> 25 and 21 -> 25 today -- the walk is what a database at that schema
+    change nothing at all; where steps have been added past it -- 13 -> 26,
+    18 -> 26, 21 -> 26 and 25 -> 26 today -- the walk is what a database at that schema
     takes on its next launch, and every row of it has to come out the other
     side (P9).
 
@@ -100,7 +100,7 @@ FIXTURE = Path(__file__).parent / "fixtures/schema-13/corpus.sql"
 
 # The schema the fixture was written at, and the schema it must reach.
 FIXTURE_SCHEMA_VERSION = 13
-TARGET_SCHEMA_VERSION = 25
+TARGET_SCHEMA_VERSION = 26
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
 # ---------------------------------------------------------------------------
 
 
-def test_one_init_db_takes_a_database_from_13_to_25(walked):
+def test_one_init_db_takes_a_database_from_13_to_26(walked):
     """The upgrade a first launch performs on a schema-13 database, in one call, on a file."""
     conn = walked["conn"]
     assert database.get_schema_version(conn) == TARGET_SCHEMA_VERSION
@@ -622,6 +622,9 @@ def _template(table: str, column: str, value) -> dict:
             "media_type": "text/plain", "byte_size": 1, "sha256": _SHA, "bytes_state": "held",
             "record_json": "{}", "removed_at_utc": "2026-03-01T00:00:00Z"},
         "reading_queue": {"document_id": 1, "status": "to_read", "read_at": None},
+        # Schema 26. A paper no collection holds, so the probe meets the CHECK
+        # and not the primary key the walked fixture's own rows occupy.
+        "collection_documents": {"collection_id": 1, "document_id": 999_999, "added_by": "run"},
         "routines": {
             "name": "probe", "schedule_cron": "0 0 * * *", "parameters": "{}",
             "execution_location": "local"},
@@ -1027,6 +1030,7 @@ FIXTURES = [
     _Fixture(18, tables=31, rows=171),
     _Fixture(21, tables=34, rows=191),
     _Fixture(25, tables=37, rows=194),
+    _Fixture(26, tables=39, rows=217),
 ]
 IDS = [f.name for f in FIXTURES]
 
@@ -1109,10 +1113,12 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
 
     While a fixture is at the schema this code still ships, its walk is
     a no-op and the whole fingerprint has to come back identical. Where a step
-    has been added past it -- 13 -> 25, 18 -> 25 and 21 -> 25 today -- the
-    fingerprint legitimately changes: `executions` is rebuilt with a wider
+    has been added past it -- 13 -> 26, 18 -> 26, 21 -> 26 and 25 -> 26 today --
+    the fingerprint legitimately changes: `executions` is rebuilt with a wider
     `status` CHECK and six new columns, `library_files` with TeX in its CHECK,
-    six tables and an index arrive, and the schema marker moves.
+    six tables and an index arrive, schema 26's two collection tables arrive
+    with their indexes and triggers, `routines` gains `collection_id`, every
+    paper is filed in the default collection, and the schema marker moves.
     What must not change is the data: every row of every application table the
     fixture holds, column for column, and every AUTOINCREMENT high-water mark.
     The one exception on every fixture is the one-time recount of runs' new

@@ -292,8 +292,9 @@ export interface paths {
          * @description Per keyword: papers it found that no other keyword did.
          *
          *     Scoped to one execution with ``?execution_id=``, otherwise to every keyword
-         *     ever searched against the whole corpus. Cached like the other analytics —
-         *     it reads every candidate document once, which is not free on a large corpus.
+         *     of the runs that put papers in the collection, against its papers. Cached
+         *     like the other analytics — it reads every candidate document once, which
+         *     is not free on a large corpus.
          */
         get: operations["analytics_keyword_contribution_api_analytics_keyword_contribution_get"];
         put?: never;
@@ -313,7 +314,7 @@ export interface paths {
         };
         /**
          * Analytics Overview
-         * @description Everything the Analytics page needs, in one round trip.
+         * @description Everything the Analytics page needs about one collection, in one round trip.
          */
         get: operations["analytics_overview_api_analytics_overview_get"];
         put?: never;
@@ -353,7 +354,7 @@ export interface paths {
         };
         /**
          * Analytics Routine Health
-         * @description Per routine: new results per run, and whether it has gone quiet.
+         * @description Per routine whose papers land in the collection: new results per run, and whether it has gone quiet.
          */
         get: operations["analytics_routine_health_api_analytics_routine_health_get"];
         put?: never;
@@ -722,6 +723,124 @@ export interface paths {
         get: operations["calendar_events_api_calendar_events_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Collections
+         * @description Every collection, the one the app shows, and the default one.
+         */
+        get: operations["list_collections_api_collections_get"];
+        put?: never;
+        /**
+         * Create Collection
+         * @description Make an empty collection. Names are unique without regard to case.
+         */
+        post: operations["create_collection_api_collections_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/current": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set Current Collection
+         * @description Remember the collection the app shows, by its id or its name.
+         */
+        put: operations["set_current_collection_api_collections_current_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Collection
+         * @description One collection, and what deleting it would do to its papers and watches.
+         */
+        get: operations["get_collection_api_collections__collection_id__get"];
+        /** Rename Collection */
+        put: operations["rename_collection_api_collections__collection_id__put"];
+        post?: never;
+        /**
+         * Delete Collection
+         * @description Delete a collection, never its papers.
+         *
+         *     A paper only it held is kept in the default collection; one in another
+         *     collection stays there. Its watches put their papers in the default
+         *     collection from then on. Its map goes with it, since the map holds words
+         *     from its papers. The default collection is refused (409).
+         */
+        delete: operations["delete_collection_api_collections__collection_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}/papers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Collection Papers
+         * @description Move or copy papers into this collection. No paper leaves the database.
+         *
+         *     A copy adds them and every collection they were in keeps them. A move adds
+         *     them here and then takes them out of the collection they came from, so a
+         *     paper is never in none. The answer is what an undo sends back.
+         */
+        post: operations["change_collection_papers_api_collections__collection_id__papers_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/collections/{collection_id}/papers/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Collection Papers
+         * @description Undo a move or a copy into this collection, from what it answered.
+         */
+        post: operations["undo_collection_papers_api_collections__collection_id__papers_undo_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1290,6 +1409,9 @@ export interface paths {
         /**
          * Embedding Status
          * @description N of M embedded with model X, the run, the index, and the extension.
+         *
+         *     ``coverage`` counts every paper, as a backfill does; with ``collection``,
+         *     ``collection_coverage`` counts that collection's papers too.
          */
         get: operations["embedding_status_api_embeddings_status_get"];
         put?: never;
@@ -1809,11 +1931,12 @@ export interface paths {
         };
         /**
          * Get Execution Document Ids
-         * @description Every paper this run stored that is still in the collection, by id.
+         * @description Every paper this run stored that is in the collection, by id.
          *
-         *     The run's map needs all of them and nothing else about them: the map
-         *     already holds their positions. The papers themselves are paged by
-         *     ``/documents``; ids alone are a few bytes each, so they come whole.
+         *     The run's map is the collection's map, so it needs these and nothing else
+         *     about them: the map already holds their positions. The papers themselves
+         *     are paged by ``/documents``; ids alone are a few bytes each, so they come
+         *     whole.
          */
         get: operations["get_execution_document_ids_api_executions__exec_id__document_ids_get"];
         put?: never;
@@ -2719,11 +2842,12 @@ export interface paths {
         };
         /**
          * Get Collection Map
-         * @description Where every paper sits on the Atlas plate, and on what basis.
+         * @description Where every paper of a collection sits on the Atlas plate, and on what basis.
          *
          *     The first call on a collection starts a fit in the background and answers
          *     ``fitting``; later calls answer from the fit, placing papers that arrived
-         *     since. See ``collection_map`` for what a position does and does not say.
+         *     since. Each collection has its own map, fitted over its papers alone. See
+         *     ``collection_map`` for what a position does and does not say.
          */
         get: operations["get_collection_map_api_map_get"];
         put?: never;
@@ -2743,9 +2867,9 @@ export interface paths {
         };
         /**
          * Get Map Facets
-         * @description What the map's filters and colors read about every paper: its source,
-         *     its dates, its place in the reading queue, whether it is new on Today, and
-         *     the watches that found it. See ``map_facets`` for what each says.
+         * @description What the map's filters and colors read about every paper of a collection:
+         *     its source, its dates, its place in the reading queue, whether it is new on
+         *     Today, and the watches that found it. See ``map_facets`` for what each says.
          */
         get: operations["get_map_facets_api_map_facets_get"];
         put?: never;
@@ -2765,8 +2889,8 @@ export interface paths {
         };
         /**
          * Find On Map
-         * @description The papers whose title or authors contain ``q``, newest first, for
-         *     lighting them on a map. Fewer than two characters find nothing.
+         * @description The papers of a collection whose title or authors contain ``q``, newest
+         *     first, for lighting them on a map. Fewer than two characters find nothing.
          */
         get: operations["find_on_map_api_map_find_get"];
         put?: never;
@@ -3022,7 +3146,7 @@ export interface paths {
         };
         /**
          * Get Watch Profile Matches
-         * @description Papers matched to this profile, **each with the basis it was matched on**.
+         * @description Papers of a collection matched to this profile, **each with the basis it was matched on**.
          *
          *     The basis rides on every row and is never omitted: a list of papers with no
          *     basis is exactly the claim resmon refuses to make.
@@ -3045,12 +3169,14 @@ export interface paths {
         };
         /**
          * List Reading Queue
-         * @description One page of saved papers. ``status`` omitted (or ``all``) means both.
+         * @description One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.
          *
-         *     ``q`` keeps the papers whose title, authors or source contain it. ``sort`` is
-         *     ``saved`` (newest save first), ``published``, ``title``, ``source`` or
-         *     ``map``; the page's own ``sort`` says which order it is in, which is
-         *     ``saved`` when ``map`` was asked for and no map is fitted yet.
+         *     The queue is one list; each collection shows the saved papers it holds,
+         *     with their counts. ``q`` keeps the papers whose title, authors or source
+         *     contain it. ``sort`` is ``saved`` (newest save first), ``published``,
+         *     ``title``, ``source`` or ``map`` (the collection's map); the page's own
+         *     ``sort`` says which order it is in, which is ``saved`` when ``map`` was
+         *     asked for and no map is fitted yet.
          */
         get: operations["list_reading_queue_api_reading_queue_get"];
         put?: never;
@@ -3488,7 +3614,7 @@ export interface paths {
         };
         /**
          * Routine Documents
-         * @description The papers this routine's runs collected: a watch's constellation.
+         * @description The papers this routine's runs collected that a collection holds: a watch's constellation on its map.
          *
          *     Ids only, newest run first and each paper once, because what a screen does
          *     with them is mark them on the collection map; a page of records is the
@@ -4120,7 +4246,7 @@ export interface paths {
         };
         /**
          * Get Today
-         * @description The papers resmon first collected since Today was last looked at, by watch.
+         * @description The papers runs put in a collection since its Today was last looked at, by watch.
          *
          *     See ``today`` for what "new", "looked" and "watch" mean. Reading this does
          *     not mark anything looked at; ``POST /api/today/looked`` does.
@@ -4145,7 +4271,7 @@ export interface paths {
         put?: never;
         /**
          * Mark Today Looked
-         * @description Record that Today was looked at now: the next window starts here.
+         * @description Record that a collection's Today was looked at now: its next window starts here.
          */
         post: operations["mark_today_looked_api_today_looked_post"];
         delete?: never;
@@ -4163,7 +4289,7 @@ export interface paths {
         };
         /**
          * Get Today Papers
-         * @description The next page of Today's new papers, after the page before it.
+         * @description The next page of a collection's new papers on Today, after the page before it.
          *
          *     ``cursor`` is the ``next_cursor`` that page gave, so every new paper can be
          *     listed, a page at a time, however many there are.
@@ -4855,8 +4981,14 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** AssistantMessageBody */
+        /**
+         * AssistantMessageBody
+         * @description One message. ``collection`` is the window's: the turn's tools read it,
+         *     and a run the turn starts lands in it, where a call names no other.
+         */
         AssistantMessageBody: {
+            /** Collection */
+            collection?: number | string | null;
             /** Legacy Adoption */
             legacy_adoption?: {
                 [key: string]: unknown;
@@ -5817,6 +5949,89 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * CollectionCurrent
+         * @description ``PUT /api/collections/current``: the collection the app now shows.
+         */
+        CollectionCurrent: {
+            /** Current Id */
+            current_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionCurrentBody */
+        CollectionCurrentBody: {
+            /** Collection */
+            collection: number | string;
+        };
+        /**
+         * CollectionDeleted
+         * @description ``DELETE /api/collections/{collection_id}``: what went, and where its
+         *     papers and watches are now. No paper left the database.
+         */
+        CollectionDeleted: {
+            /** Default Id */
+            default_id: number;
+            /** Id */
+            id: number;
+            /** Kept In Default */
+            kept_in_default: number;
+            /** Name */
+            name: string;
+            /** Papers */
+            papers: number;
+            /** Still Elsewhere */
+            still_elsewhere: number;
+            /** Watches Moved */
+            watches_moved: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionDetail
+         * @description ``GET /api/collections/{collection_id}``: one collection, and what deleting
+         *     it would do. ``only_here`` papers are in no other collection and would be
+         *     kept in the default one; ``also_elsewhere`` papers stay where else they are;
+         *     the watches in ``watch_list`` would put their papers in the default one.
+         */
+        CollectionDetail: {
+            /** Also Elsewhere */
+            also_elsewhere: number;
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Only Here */
+            only_here: number;
+            /** Papers */
+            papers: number;
+            /** Watch List */
+            watch_list: components["schemas"]["CollectionWatch"][];
+            /** Watches */
+            watches: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionList
+         * @description ``GET /api/collections``: every collection, the default first and the rest
+         *     in the order they were made; the one the app shows (``current_id``), which
+         *     the engine remembers; and the default one's id.
+         */
+        CollectionList: {
+            /** Collections */
+            collections: components["schemas"]["CollectionSummary"][];
+            /** Current Id */
+            current_id: number;
+            /** Default Id */
+            default_id: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * CollectionMap
          * @description ``GET /api/map``: where every paper sits, and on what basis.
          *
@@ -5850,6 +6065,164 @@ export interface components {
              */
             state: "empty" | "fitting" | "failed" | "ready";
             unplaced: components["schemas"]["MapUnplaced"];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionMembership
+         * @description A paper's place in a collection as a move found it, for an undo to put back.
+         */
+        CollectionMembership: {
+            /** Added At */
+            added_at: string;
+            /** Added By */
+            added_by: string;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id: number | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionMembershipBody */
+        CollectionMembershipBody: {
+            /** Added At */
+            added_at: string;
+            /** Added By */
+            added_by: string;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id?: number | null;
+        };
+        /** CollectionNameBody */
+        CollectionNameBody: {
+            /** Name */
+            name: string;
+        };
+        /**
+         * CollectionPapersBody
+         * @description Move or copy papers into the collection in the path.
+         *
+         *     The papers are named by id (``document_ids``) or by a search of the
+         *     collection they come from (``matching``: the Explorer's filters, whose own
+         *     ``collection`` is that collection), never both. A search's papers leave
+         *     out ``except_ids``, and ``at_most`` is how many the person was told would
+         *     move or copy: a search that matches more by the time it is read is
+         *     refused, so a filter lost on the way can never move a whole collection. A
+         *     move takes them out of ``from_collection``, which is the search's
+         *     collection where ``matching`` is given and the default collection where
+         *     neither names one.
+         */
+        CollectionPapersBody: {
+            /** At Most */
+            at_most?: number | null;
+            /** Document Ids */
+            document_ids?: number[];
+            /** Except Ids */
+            except_ids?: number[];
+            /** From Collection */
+            from_collection?: number | string | null;
+            matching?: components["schemas"]["ExplorerFilters"] | null;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "move" | "copy";
+        };
+        /**
+         * CollectionPapersChanged
+         * @description ``POST /api/collections/{collection_id}/papers``: a move or a copy.
+         *
+         *     ``added`` are the papers that arrived in the collection; ``already_there``
+         *     counts those it held already. A move also lists, in ``removed``, each
+         *     paper's place in the collection it left, as it was; ``not_in_source``
+         *     counts papers named that were not in that collection, and ``missing`` ids
+         *     that are no paper. Send ``added``, ``from_collection_id`` and ``removed``
+         *     back to ``/papers/undo`` to undo it.
+         */
+        CollectionPapersChanged: {
+            /** Added */
+            added: number[];
+            /** Already There */
+            already_there: number;
+            /** Collection Id */
+            collection_id: number;
+            /** From Collection Id */
+            from_collection_id: number | null;
+            /** Missing */
+            missing: number;
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "move" | "copy";
+            /** Not In Source */
+            not_in_source: number;
+            /** Removed */
+            removed: components["schemas"]["CollectionMembership"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionPapersUndoBody
+         * @description What a move or a copy answered, sent back to undo it.
+         */
+        CollectionPapersUndoBody: {
+            /** Added */
+            added?: number[];
+            /** From Collection */
+            from_collection?: number | string | null;
+            /** Removed */
+            removed?: components["schemas"]["CollectionMembershipBody"][];
+        };
+        /**
+         * CollectionPapersUndone
+         * @description ``POST /api/collections/{collection_id}/papers/undo``. ``left_in_place``
+         *     counts papers kept in the collection because they are in no other.
+         */
+        CollectionPapersUndone: {
+            /** Collection Id */
+            collection_id: number;
+            /** From Collection Id */
+            from_collection_id: number | null;
+            /** Left In Place */
+            left_in_place: number;
+            /** Put Back */
+            put_back: number;
+            /** Taken Out */
+            taken_out: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * CollectionSummary
+         * @description One collection: how many papers it holds, and how many watches put
+         *     their papers there. The default collection (``is_default``) can be renamed
+         *     and never deleted.
+         */
+        CollectionSummary: {
+            /** Created At */
+            created_at: string | null;
+            /** Id */
+            id: number;
+            /** Is Default */
+            is_default: boolean;
+            /** Name */
+            name: string;
+            /** Papers */
+            papers: number;
+            /** Watches */
+            watches: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /** CollectionWatch */
+        CollectionWatch: {
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         } & {
             [key: string]: unknown;
         };
@@ -6453,6 +6826,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -6772,9 +7147,14 @@ export interface components {
          * @description ``GET /api/embeddings/status``: the backfill, the coverage, the vector
          *     extension and index, the configured lane, and whether ranking by meaning
          *     is available now (and if not, why).
+         *
+         *     ``coverage`` counts every paper resmon holds, which is what a backfill
+         *     embeds. ``collection_coverage``, present when a ``collection`` is named,
+         *     counts that collection's papers alone.
          */
         EmbeddingStatus: {
             capability: components["schemas"]["EmbeddingCapability"];
+            collection_coverage?: components["schemas"]["EmbeddingCoverage"] | null;
             coverage: components["schemas"]["EmbeddingCoverage"];
             extension: components["schemas"]["VectorExtensionStatus"];
             index: components["schemas"]["EmbeddingIndexState"];
@@ -7219,6 +7599,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -7248,6 +7630,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -7371,6 +7755,8 @@ export interface components {
              * @default []
              */
             categories: string[];
+            /** Collection */
+            collection?: number | string | null;
             /** Cursor */
             cursor?: string | null;
             /** Date From */
@@ -7401,7 +7787,10 @@ export interface components {
         };
         /**
          * FactoryReset
-         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+         *
+         *     ``collections_removed`` counts the collections deleted; the default one is
+         *     kept, empty, under its first name.
          *
          *     The counts are as the single-purpose routes and ``SettingsReset`` count
          *     them, so the key counts are of keys found and removed. It does not clear a
@@ -7412,6 +7801,8 @@ export interface components {
         FactoryReset: {
             /** Ai Keys Removed */
             ai_keys_removed: number;
+            /** Collections Removed */
+            collections_removed: number;
             /** Configs Removed */
             configs_removed: number;
             /** Documents Removed */
@@ -8731,8 +9122,9 @@ export interface components {
         };
         /**
          * Paper
-         * @description ``GET /api/documents/{doc_id}``: one paper as stored, and its place in the
-         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved).
+         * @description ``GET /api/documents/{doc_id}``: one paper as stored, its place in the
+         *     reading queue (``to_read``, ``read``, or ``None`` when it is not saved),
+         *     and every collection it is in, the default first.
          */
         Paper: {
             /** Abstract */
@@ -8741,6 +9133,8 @@ export interface components {
             authors: string | null;
             /** Categories */
             categories: string | null;
+            /** Collections */
+            collections: components["schemas"]["PaperCollection"][];
             /** Doi */
             doi: string | null;
             /** External Id */
@@ -8763,6 +9157,27 @@ export interface components {
             title: string;
             /** Url */
             url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * PaperCollection
+         * @description One collection a paper is in: when it arrived there, and how (``run``,
+         *     ``move``, ``copy``, ``upgrade`` for a paper there since before collections,
+         *     or ``kept`` for one left in no other when its collection was deleted), and
+         *     the run that put it there where a run did.
+         */
+        PaperCollection: {
+            /** Added At */
+            added_at: string | null;
+            /** Added By */
+            added_by: string;
+            /** Execution Id */
+            execution_id: number | null;
+            /** Id */
+            id: number;
+            /** Name */
+            name: string;
         } & {
             [key: string]: unknown;
         };
@@ -8989,7 +9404,8 @@ export interface components {
          *     filters as Search › Your collection sends them, the words left out where it
          *     ranked by meaning, since there they order the list and do not narrow it);
          *     ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
-         *     it found first; ``today``, Today's new papers. ``except_ids`` are left out.
+         *     it found first; ``today``, Today's new papers in ``collection`` (the default
+         *     one where none is named). ``except_ids`` are left out.
          *     ``at_most`` is how many the person was told would be saved: a set that holds
          *     more by the time it is read is refused, so a filter lost on the way can never
          *     save the whole collection.
@@ -8997,6 +9413,8 @@ export interface components {
         ReadingQueueAllBody: {
             /** At Most */
             at_most: number;
+            /** Collection */
+            collection?: number | string | null;
             /** Except Ids */
             except_ids?: number[];
             /** Execution Id */
@@ -9749,13 +10167,16 @@ export interface components {
          * @description ``GET /api/routines/{routine_id}``: one routine, its switches as
          *     booleans, and every fire it missed, oldest first. ``date_window_next`` is
          *     present only for a watch whose window moves (``date_window`` in its
-         *     parameters): the dates a run starting now would ask for.
+         *     parameters): the dates a run starting now would ask for. ``collection_id``
+         *     is the collection its runs' papers land in.
          */
         Routine: {
             /** Ai Enabled */
             ai_enabled: boolean;
             /** Ai Settings */
             ai_settings: string | null;
+            /** Collection Id */
+            collection_id: number | null;
             /** Created At */
             created_at: string;
             date_window_next?: components["schemas"]["DateWindowComputed"] | null;
@@ -9871,6 +10292,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /**
              * Email Ai Summary Enabled
              * @default false
@@ -10069,13 +10492,16 @@ export interface components {
          *     sent rather than as meant, so neither body changes. ``parameters``,
          *     ``ai_settings`` and ``storage_settings`` are the stored JSON text, not
          *     parsed objects. ``last_execution`` repeats ``last_executed_at`` under the
-         *     name the renderer reads.
+         *     name the renderer reads. ``collection_id`` is the collection its runs'
+         *     papers land in.
          */
         RoutineRow: {
             /** Ai Enabled */
             ai_enabled: number;
             /** Ai Settings */
             ai_settings: string | null;
+            /** Collection Id */
+            collection_id: number | null;
             /** Created At */
             created_at: string;
             /** Email Ai Summary Enabled */
@@ -10150,6 +10576,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: boolean | null;
             /** Email Enabled */
@@ -10185,6 +10613,8 @@ export interface components {
             ai_enabled?: number | null;
             /** Ai Settings */
             ai_settings?: string | null;
+            /** Collection Id */
+            collection_id?: number | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: number | null;
             /** Email Enabled */
@@ -10492,7 +10922,8 @@ export interface components {
         /**
          * RunDocumentIds
          * @description ``GET /api/executions/{exec_id}/document-ids``: every paper the run
-         *     stored that is still in the collection, by id, for the run's map.
+         *     stored that is in the collection named (the default one where none is),
+         *     by id, for the run's map, which is that collection's.
          */
         RunDocumentIds: {
             /** Ids */
@@ -12230,6 +12661,8 @@ export interface components {
             ai_settings?: {
                 [key: string]: unknown;
             } | null;
+            /** Collection */
+            collection?: number | string | null;
             /** Date From */
             date_from?: string | null;
             /** Date To */
@@ -12272,14 +12705,15 @@ export interface components {
         };
         /**
          * Today
-         * @description ``GET /api/today``.
+         * @description ``GET /api/today``: one collection's new papers and its watches.
          *
-         *     ``window`` is ``since_last_look`` when a look is recorded and
+         *     ``window`` is ``since_last_look`` when a look at this collection is recorded and
          *     ``first_look`` when none is, in which case ``since`` is seven days before
          *     ``now`` and the interface says so. ``papers`` is the first page of them, up
          *     to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
          *     (``None`` when the page holds every one) reads the next page from
-         *     ``GET /api/today/papers``.
+         *     ``GET /api/today/papers``. ``watches`` are the watches that put their
+         *     papers in this collection, and any other whose papers are new here.
          */
         Today: {
             /** From Searches */
@@ -12306,7 +12740,7 @@ export interface components {
         };
         /**
          * TodayLooked
-         * @description ``POST /api/today/looked``: the moment recorded.
+         * @description ``POST /api/today/looked``: the moment recorded, for one collection's Today.
          */
         TodayLooked: {
             /** Looked At */
@@ -12316,14 +12750,19 @@ export interface components {
         };
         /**
          * TodayPaper
-         * @description A paper resmon first collected since the last look.
+         * @description A paper a run put in the collection since its last look.
          *
+         *     ``first_seen_at`` is when resmon first collected the paper, and
+         *     ``arrived_at`` when it arrived in this collection; the two differ for a
+         *     paper resmon held elsewhere before a watch found it for this one.
          *     ``abstract_lede`` is the opening of the abstract as the source gave it,
          *     never a summary; resmon does not keep summaries per paper.
          */
         TodayPaper: {
             /** Abstract Lede */
             abstract_lede: string | null;
+            /** Arrived At */
+            arrived_at: string | null;
             /** Authors */
             authors: string | null;
             /** Doi */
@@ -13466,7 +13905,10 @@ export interface operations {
     };
     analytics_discovery_lag_api_analytics_discovery_lag_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13482,12 +13924,23 @@ export interface operations {
                     "application/json": components["schemas"]["DiscoveryLag"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_keyword_contribution_api_analytics_keyword_contribution_get: {
         parameters: {
             query?: {
                 execution_id?: number | null;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -13517,7 +13970,10 @@ export interface operations {
     };
     analytics_overview_api_analytics_overview_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13533,6 +13989,15 @@ export interface operations {
                     "application/json": components["schemas"]["AnalyticsOverview"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_publication_volume_api_analytics_publication_volume_get: {
@@ -13540,6 +14005,8 @@ export interface operations {
             query?: {
                 group_by?: string;
                 months?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -13569,7 +14036,10 @@ export interface operations {
     };
     analytics_routine_health_api_analytics_routine_health_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13585,11 +14055,23 @@ export interface operations {
                     "application/json": components["schemas"]["RoutineHealth"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_source_contribution_api_analytics_source_contribution_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13605,11 +14087,23 @@ export interface operations {
                     "application/json": components["schemas"]["SourceContribution"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     analytics_summary_api_analytics_summary_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -13623,6 +14117,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CorpusSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -14185,6 +14688,259 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CalendarEvent"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_collections_api_collections_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionList"];
+                };
+            };
+        };
+    };
+    create_collection_api_collections_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionNameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    set_current_collection_api_collections_current_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionCurrentBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionCurrent"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_collection_api_collections__collection_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionDetail"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_collection_api_collections__collection_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionNameBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_collection_api_collections__collection_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    change_collection_papers_api_collections__collection_id__papers_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionPapersBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPapersChanged"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_collection_papers_api_collections__collection_id__papers_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                collection_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionPapersUndoBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPapersUndone"];
                 };
             };
             /** @description Validation Error */
@@ -15011,7 +15767,10 @@ export interface operations {
     };
     embedding_status_api_embeddings_status_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15025,6 +15784,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -15938,7 +16706,10 @@ export interface operations {
     };
     get_execution_document_ids_api_executions__exec_id__document_ids_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path: {
                 exec_id: number;
@@ -17365,7 +18136,10 @@ export interface operations {
     };
     get_collection_map_api_map_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17381,11 +18155,23 @@ export interface operations {
                     "application/json": components["schemas"]["CollectionMap"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_map_facets_api_map_facets_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -17401,12 +18187,23 @@ export interface operations {
                     "application/json": components["schemas"]["MapFacets"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     find_on_map_api_map_find_get: {
         parameters: {
             query?: {
                 q?: string;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -17856,6 +18653,8 @@ export interface operations {
             query?: {
                 limit?: number;
                 offset?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path: {
@@ -17893,6 +18692,8 @@ export interface operations {
                 offset?: number;
                 q?: string;
                 sort?: string;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;
@@ -18713,6 +19514,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number | null;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path: {
@@ -19594,7 +20397,10 @@ export interface operations {
     };
     get_today_api_today_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19610,11 +20416,23 @@ export interface operations {
                     "application/json": components["schemas"]["Today"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     mark_today_looked_api_today_looked_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -19630,6 +20448,15 @@ export interface operations {
                     "application/json": components["schemas"]["TodayLooked"];
                 };
             };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
         };
     };
     get_today_papers_api_today_papers_get: {
@@ -19637,6 +20464,8 @@ export interface operations {
             query: {
                 cursor: string;
                 limit?: number;
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
             };
             header?: never;
             path?: never;

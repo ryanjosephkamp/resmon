@@ -58,7 +58,7 @@ describe('the windows, each answered about itself', () => {
     expect(set.has(second)).toBe(true);
   });
 
-  test('each window keeps its collection; none named is the only one', () => {
+  test('each window keeps its collection; none named shows the one the engine remembers', () => {
     const set = new WindowSet<Fake>();
     const plain = fakeWindow();
     const other = fakeWindow();
@@ -66,6 +66,17 @@ describe('the windows, each answered about itself', () => {
     set.add(other, 'physics');
     expect(set.collectionOf(plain)).toBeNull();
     expect(set.collectionOf(other)).toBe('physics');
+  });
+
+  test("a window's switch changes its collection and no other window's", () => {
+    const set = new WindowSet<Fake>();
+    const first = fakeWindow();
+    const second = fakeWindow();
+    set.add(first, '1');
+    set.add(second, '1');
+    expect(set.setCollection(second, '2')).toBe(true);
+    expect([set.collectionOf(first), set.collectionOf(second)]).toEqual(['1', '2']);
+    expect(set.setCollection(fakeWindow(), '3')).toBe(false);
   });
 });
 

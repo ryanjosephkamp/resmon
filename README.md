@@ -34,7 +34,7 @@ which. Where it cannot know something, it says so instead of showing a plausible
 
 ## What it does
 
-- **Today:** your whole collection drawn as a map, with the papers collected since you last marked
+- **Today:** your whole collection drawn as a map, with the papers that arrived since you last marked
   them read ringed and numbered, and the list beside it grouped by watch.
 - **Deep Dive and Deep Sweep:** one source in depth, or several at once. Before you ask, resmon says
   what each source will do with your search: how it combines your terms, whether it can honor your
@@ -51,6 +51,9 @@ which. Where it cannot know something, it says so instead of showing a plausible
   date, with reference export as BibTeX, RIS, or CSV. A coverage audit compares a watch's results
   with what you meant it to find, and a shared-wording scan finds abstracts that repeat each other word
   for word.
+- **Collections:** several in one database, one per field, say, each with its own Search, Today, map,
+  and Analytics. Watches and searches choose where their papers land, and papers move or copy between
+  collections without ever leaving the database.
 - **People:** follow a researcher. Every match to a person says how it was made: by ORCID, by name and
   affiliation, or by name alone, and only the first is evidence of identity.
 - **Library and Evidence:** a reading queue; copies of PDF, TXT, and MD files in a folder you choose;
@@ -106,12 +109,14 @@ resmon menu on macOS, in the Help menu on Windows and Linux). From a clone, inst
 
 ```bash
 pipx install ./resmon_scripts/cli
-resmon today            # papers first collected since you last marked all read, by watch
+resmon today            # papers that arrived since you last marked all read, by watch
+resmon collections      # every collection, with its papers and watches
 resmon wall             # every source's answer to each recent run
 resmon service status   # which resmon it reached, and whether your watches will run
 ```
 
-The other commands are `search`, `runs`, `export`, and `watch list` / `watch add`;
+The other commands are `search`, `runs`, `export`, and `watch list` / `watch add`, and
+`--collection` chooses which collection `today`, `search`, `export`, and `watch add` use;
 [`resmon_scripts/cli/README.md`](resmon_scripts/cli/README.md) covers each one and how the command
 finds resmon.
 
@@ -124,7 +129,7 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 | [What resmon is](https://ryanjosephkamp.github.io/resmon/guide/overview/) | What resmon watches, what it promises about what it knows, how its screens fit together, and what stays on your computer. |
 | [Quick start](https://ryanjosephkamp.github.io/resmon/guide/quick-start/) | A first search, a first watch, and the one switch that makes a watch run on its own. |
 | [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/) | The downloads and their status, the first launch, updates, the resmon command, the background service, and running from source. |
-| [Today](https://ryanjosephkamp.github.io/resmon/guide/today/) | The collection as a map, and the papers collected since you last marked all read. |
+| [Today](https://ryanjosephkamp.github.io/resmon/guide/today/) | The collection as a map, and the papers that arrived since you last marked all read. |
 | [Search](https://ryanjosephkamp.github.io/resmon/guide/search/) | Searching what you hold, asking the sources for more, runs, saved searches, and shared wording. |
 | [Watches and people](https://ryanjosephkamp.github.io/resmon/guide/watches/) | Making a watch, its schedule and dates, where reports go, the coverage audit, and watching for a person. |
 | [Health](https://ryanjosephkamp.github.io/resmon/guide/health/) | The Source wall, the Watchdog, retraction checks, analytics, and which engine a window uses. |

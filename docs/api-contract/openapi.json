@@ -1327,7 +1327,22 @@
       },
       "AssistantMessageBody": {
         "additionalProperties": false,
+        "description": "One message. ``collection`` is the window's: the turn's tools read it,\nand a run the turn starts lands in it, where a call names no other.",
         "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "legacy_adoption": {
             "anyOf": [
               {
@@ -3269,6 +3284,179 @@
         "title": "CollapsePreview",
         "type": "object"
       },
+      "CollectionCurrent": {
+        "additionalProperties": true,
+        "description": "``PUT /api/collections/current``: the collection the app now shows.",
+        "properties": {
+          "current_id": {
+            "title": "Current Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "current_id"
+        ],
+        "title": "CollectionCurrent",
+        "type": "object"
+      },
+      "CollectionCurrentBody": {
+        "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "title": "Collection"
+          }
+        },
+        "required": [
+          "collection"
+        ],
+        "title": "CollectionCurrentBody",
+        "type": "object"
+      },
+      "CollectionDeleted": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/collections/{collection_id}``: what went, and where its\npapers and watches are now. No paper left the database.",
+        "properties": {
+          "default_id": {
+            "title": "Default Id",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "kept_in_default": {
+            "title": "Kept In Default",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "papers": {
+            "title": "Papers",
+            "type": "integer"
+          },
+          "still_elsewhere": {
+            "title": "Still Elsewhere",
+            "type": "integer"
+          },
+          "watches_moved": {
+            "title": "Watches Moved",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "papers",
+          "kept_in_default",
+          "still_elsewhere",
+          "watches_moved",
+          "default_id"
+        ],
+        "title": "CollectionDeleted",
+        "type": "object"
+      },
+      "CollectionDetail": {
+        "additionalProperties": true,
+        "description": "``GET /api/collections/{collection_id}``: one collection, and what deleting\nit would do. ``only_here`` papers are in no other collection and would be\nkept in the default one; ``also_elsewhere`` papers stay where else they are;\nthe watches in ``watch_list`` would put their papers in the default one.",
+        "properties": {
+          "also_elsewhere": {
+            "title": "Also Elsewhere",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "only_here": {
+            "title": "Only Here",
+            "type": "integer"
+          },
+          "papers": {
+            "title": "Papers",
+            "type": "integer"
+          },
+          "watch_list": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionWatch"
+            },
+            "title": "Watch List",
+            "type": "array"
+          },
+          "watches": {
+            "title": "Watches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "papers",
+          "watches",
+          "created_at",
+          "only_here",
+          "also_elsewhere",
+          "watch_list"
+        ],
+        "title": "CollectionDetail",
+        "type": "object"
+      },
+      "CollectionList": {
+        "additionalProperties": true,
+        "description": "``GET /api/collections``: every collection, the default first and the rest\nin the order they were made; the one the app shows (``current_id``), which\nthe engine remembers; and the default one's id.",
+        "properties": {
+          "collections": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionSummary"
+            },
+            "title": "Collections",
+            "type": "array"
+          },
+          "current_id": {
+            "title": "Current Id",
+            "type": "integer"
+          },
+          "default_id": {
+            "title": "Default Id",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collections",
+          "current_id",
+          "default_id"
+        ],
+        "title": "CollectionList",
+        "type": "object"
+      },
       "CollectionMap": {
         "additionalProperties": true,
         "description": "``GET /api/map``: where every paper sits, and on what basis.\n\n``basis`` says what nearness means on this map: ``embeddings`` (the set\nmodel's vectors) or ``words`` (word statistics computed on this machine).\nIt describes the points served, which during a refit can differ from the\nbasis the next map will have.",
@@ -3382,6 +3570,375 @@
           "points"
         ],
         "title": "CollectionMap",
+        "type": "object"
+      },
+      "CollectionMembership": {
+        "additionalProperties": true,
+        "description": "A paper's place in a collection as a move found it, for an undo to put back.",
+        "properties": {
+          "added_at": {
+            "title": "Added At",
+            "type": "string"
+          },
+          "added_by": {
+            "title": "Added By",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          }
+        },
+        "required": [
+          "document_id",
+          "added_at",
+          "added_by",
+          "execution_id"
+        ],
+        "title": "CollectionMembership",
+        "type": "object"
+      },
+      "CollectionMembershipBody": {
+        "properties": {
+          "added_at": {
+            "maxLength": 40,
+            "title": "Added At",
+            "type": "string"
+          },
+          "added_by": {
+            "maxLength": 20,
+            "title": "Added By",
+            "type": "string"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          }
+        },
+        "required": [
+          "document_id",
+          "added_at",
+          "added_by"
+        ],
+        "title": "CollectionMembershipBody",
+        "type": "object"
+      },
+      "CollectionNameBody": {
+        "properties": {
+          "name": {
+            "maxLength": 200,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "CollectionNameBody",
+        "type": "object"
+      },
+      "CollectionPapersBody": {
+        "description": "Move or copy papers into the collection in the path.\n\nThe papers are named by id (``document_ids``) or by a search of the\ncollection they come from (``matching``: the Explorer's filters, whose own\n``collection`` is that collection), never both. A search's papers leave\nout ``except_ids``, and ``at_most`` is how many the person was told would\nmove or copy: a search that matches more by the time it is read is\nrefused, so a filter lost on the way can never move a whole collection. A\nmove takes them out of ``from_collection``, which is the search's\ncollection where ``matching`` is given and the default collection where\nneither names one.",
+        "properties": {
+          "at_most": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Most"
+          },
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100000,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "except_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100000,
+            "title": "Except Ids",
+            "type": "array"
+          },
+          "from_collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Collection"
+          },
+          "matching": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplorerFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "mode": {
+            "enum": [
+              "move",
+              "copy"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "mode"
+        ],
+        "title": "CollectionPapersBody",
+        "type": "object"
+      },
+      "CollectionPapersChanged": {
+        "additionalProperties": true,
+        "description": "``POST /api/collections/{collection_id}/papers``: a move or a copy.\n\n``added`` are the papers that arrived in the collection; ``already_there``\ncounts those it held already. A move also lists, in ``removed``, each\npaper's place in the collection it left, as it was; ``not_in_source``\ncounts papers named that were not in that collection, and ``missing`` ids\nthat are no paper. Send ``added``, ``from_collection_id`` and ``removed``\nback to ``/papers/undo`` to undo it.",
+        "properties": {
+          "added": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "already_there": {
+            "title": "Already There",
+            "type": "integer"
+          },
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "integer"
+          },
+          "from_collection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Collection Id"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "mode": {
+            "enum": [
+              "move",
+              "copy"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "not_in_source": {
+            "title": "Not In Source",
+            "type": "integer"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionMembership"
+            },
+            "title": "Removed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "mode",
+          "collection_id",
+          "from_collection_id",
+          "added",
+          "already_there",
+          "removed",
+          "not_in_source",
+          "missing"
+        ],
+        "title": "CollectionPapersChanged",
+        "type": "object"
+      },
+      "CollectionPapersUndoBody": {
+        "description": "What a move or a copy answered, sent back to undo it.",
+        "properties": {
+          "added": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100000,
+            "title": "Added",
+            "type": "array"
+          },
+          "from_collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Collection"
+          },
+          "removed": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionMembershipBody"
+            },
+            "maxItems": 100000,
+            "title": "Removed",
+            "type": "array"
+          }
+        },
+        "title": "CollectionPapersUndoBody",
+        "type": "object"
+      },
+      "CollectionPapersUndone": {
+        "additionalProperties": true,
+        "description": "``POST /api/collections/{collection_id}/papers/undo``. ``left_in_place``\ncounts papers kept in the collection because they are in no other.",
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "integer"
+          },
+          "from_collection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Collection Id"
+          },
+          "left_in_place": {
+            "title": "Left In Place",
+            "type": "integer"
+          },
+          "put_back": {
+            "title": "Put Back",
+            "type": "integer"
+          },
+          "taken_out": {
+            "title": "Taken Out",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "collection_id",
+          "from_collection_id",
+          "taken_out",
+          "put_back",
+          "left_in_place"
+        ],
+        "title": "CollectionPapersUndone",
+        "type": "object"
+      },
+      "CollectionSummary": {
+        "additionalProperties": true,
+        "description": "One collection: how many papers it holds, and how many watches put\ntheir papers there. The default collection (``is_default``) can be renamed\nand never deleted.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "papers": {
+            "title": "Papers",
+            "type": "integer"
+          },
+          "watches": {
+            "title": "Watches",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "is_default",
+          "papers",
+          "watches",
+          "created_at"
+        ],
+        "title": "CollectionSummary",
+        "type": "object"
+      },
+      "CollectionWatch": {
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "CollectionWatch",
         "type": "object"
       },
       "ConfigCreate": {
@@ -4717,6 +5274,20 @@
             ],
             "title": "Ai Settings"
           },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "date_from": {
             "anyOf": [
               {
@@ -5476,10 +6047,20 @@
       },
       "EmbeddingStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/embeddings/status``: the backfill, the coverage, the vector\nextension and index, the configured lane, and whether ranking by meaning\nis available now (and if not, why).",
+        "description": "``GET /api/embeddings/status``: the backfill, the coverage, the vector\nextension and index, the configured lane, and whether ranking by meaning\nis available now (and if not, why).\n\n``coverage`` counts every paper resmon holds, which is what a backfill\nembeds. ``collection_coverage``, present when a ``collection`` is named,\ncounts that collection's papers alone.",
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/EmbeddingCapability"
+          },
+          "collection_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "coverage": {
             "$ref": "#/components/schemas/EmbeddingCoverage"
@@ -6475,6 +7056,20 @@
             "title": "Categories",
             "type": "array"
           },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "date_from": {
             "anyOf": [
               {
@@ -6542,6 +7137,20 @@
             },
             "title": "Categories",
             "type": "array"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
           },
           "date_from": {
             "anyOf": [
@@ -6904,6 +7513,20 @@
             "title": "Categories",
             "type": "array"
           },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "cursor": {
             "anyOf": [
               {
@@ -6996,10 +7619,14 @@
       },
       "FactoryReset": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes and ``SettingsReset`` count\nthem, so the key counts are of keys found and removed. It does not clear a\nGoogle Drive sign-in stored by the removed upload or a delivery target's\nwebhook secret, and it does not touch the Library's files, report files on\ndisk, or a restore's undo copies.",
+        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.\n\n``collections_removed`` counts the collections deleted; the default one is\nkept, empty, under its first name.\n\nThe counts are as the single-purpose routes and ``SettingsReset`` count\nthem, so the key counts are of keys found and removed. It does not clear a\nGoogle Drive sign-in stored by the removed upload or a delivery target's\nwebhook secret, and it does not touch the Library's files, report files on\ndisk, or a restore's undo copies.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "collections_removed": {
+            "title": "Collections Removed",
             "type": "integer"
           },
           "configs_removed": {
@@ -7039,7 +7666,8 @@
           "settings_cleared",
           "ai_keys_removed",
           "repo_keys_removed",
-          "smtp_credentials_removed"
+          "smtp_credentials_removed",
+          "collections_removed"
         ],
         "title": "FactoryReset",
         "type": "object"
@@ -9920,7 +10548,7 @@
       },
       "Paper": {
         "additionalProperties": true,
-        "description": "``GET /api/documents/{doc_id}``: one paper as stored, and its place in the\nreading queue (``to_read``, ``read``, or ``None`` when it is not saved).",
+        "description": "``GET /api/documents/{doc_id}``: one paper as stored, its place in the\nreading queue (``to_read``, ``read``, or ``None`` when it is not saved),\nand every collection it is in, the default first.",
         "properties": {
           "abstract": {
             "anyOf": [
@@ -9954,6 +10582,13 @@
               }
             ],
             "title": "Categories"
+          },
+          "collections": {
+            "items": {
+              "$ref": "#/components/schemas/PaperCollection"
+            },
+            "title": "Collections",
+            "type": "array"
           },
           "doi": {
             "anyOf": [
@@ -10042,9 +10677,59 @@
           "metadata_hash",
           "first_seen_at",
           "pub_sort",
-          "queue_status"
+          "queue_status",
+          "collections"
         ],
         "title": "Paper",
+        "type": "object"
+      },
+      "PaperCollection": {
+        "additionalProperties": true,
+        "description": "One collection a paper is in: when it arrived there, and how (``run``,\n``move``, ``copy``, ``upgrade`` for a paper there since before collections,\nor ``kept`` for one left in no other when its collection was deleted), and\nthe run that put it there where a run did.",
+        "properties": {
+          "added_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added At"
+          },
+          "added_by": {
+            "title": "Added By",
+            "type": "string"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "added_at",
+          "added_by",
+          "execution_id"
+        ],
+        "title": "PaperCollection",
         "type": "object"
       },
       "PaperLink": {
@@ -10522,12 +11207,26 @@
       },
       "ReadingQueueAllBody": {
         "additionalProperties": false,
-        "description": "Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.\n\n``scope`` says which set: ``search``, the papers ``search`` matches (the\nfilters as Search › Your collection sends them, the words left out where it\nranked by meaning, since there they order the list and do not narrow it);\n``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones\nit found first; ``today``, Today's new papers. ``except_ids`` are left out.\n``at_most`` is how many the person was told would be saved: a set that holds\nmore by the time it is read is refused, so a filter lost on the way can never\nsave the whole collection.",
+        "description": "Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.\n\n``scope`` says which set: ``search``, the papers ``search`` matches (the\nfilters as Search › Your collection sends them, the words left out where it\nranked by meaning, since there they order the list and do not narrow it);\n``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones\nit found first; ``today``, Today's new papers in ``collection`` (the default\none where none is named). ``except_ids`` are left out.\n``at_most`` is how many the person was told would be saved: a set that holds\nmore by the time it is read is refused, so a filter lost on the way can never\nsave the whole collection.",
         "properties": {
           "at_most": {
             "minimum": 1.0,
             "title": "At Most",
             "type": "integer"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
           },
           "except_ids": {
             "items": {
@@ -12013,7 +12712,7 @@
       },
       "Routine": {
         "additionalProperties": true,
-        "description": "``GET /api/routines/{routine_id}``: one routine, its switches as\nbooleans, and every fire it missed, oldest first. ``date_window_next`` is\npresent only for a watch whose window moves (``date_window`` in its\nparameters): the dates a run starting now would ask for.",
+        "description": "``GET /api/routines/{routine_id}``: one routine, its switches as\nbooleans, and every fire it missed, oldest first. ``date_window_next`` is\npresent only for a watch whose window moves (``date_window`` in its\nparameters): the dates a run starting now would ask for. ``collection_id``\nis the collection its runs' papers land in.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -12029,6 +12728,17 @@
               }
             ],
             "title": "Ai Settings"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id"
           },
           "created_at": {
             "title": "Created At",
@@ -12152,6 +12862,7 @@
           "created_at",
           "updated_at",
           "last_executed_at",
+          "collection_id",
           "missed_fires",
           "missed_fire_details"
         ],
@@ -12347,6 +13058,20 @@
               }
             ],
             "title": "Ai Settings"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
           },
           "email_ai_summary_enabled": {
             "default": false,
@@ -12766,7 +13491,7 @@
       },
       "RoutineRow": {
         "additionalProperties": true,
-        "description": "One row of ``GET /api/routines``: the ``routines`` row as stored, and\nwhat its latest run did.\n\nThe five switches are SQLite's ``0`` and ``1`` here, as this list sends\nthem; the single-routine read below coerces them to booleans. Typed as\nsent rather than as meant, so neither body changes. ``parameters``,\n``ai_settings`` and ``storage_settings`` are the stored JSON text, not\nparsed objects. ``last_execution`` repeats ``last_executed_at`` under the\nname the renderer reads.",
+        "description": "One row of ``GET /api/routines``: the ``routines`` row as stored, and\nwhat its latest run did.\n\nThe five switches are SQLite's ``0`` and ``1`` here, as this list sends\nthem; the single-routine read below coerces them to booleans. Typed as\nsent rather than as meant, so neither body changes. ``parameters``,\n``ai_settings`` and ``storage_settings`` are the stored JSON text, not\nparsed objects. ``last_execution`` repeats ``last_executed_at`` under the\nname the renderer reads. ``collection_id`` is the collection its runs'\npapers land in.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -12782,6 +13507,17 @@
               }
             ],
             "title": "Ai Settings"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id"
           },
           "created_at": {
             "title": "Created At",
@@ -12910,6 +13646,7 @@
           "created_at",
           "updated_at",
           "last_executed_at",
+          "collection_id",
           "last_execution",
           "last_status",
           "missed_fires"
@@ -13005,6 +13742,20 @@
               }
             ],
             "title": "Ai Settings"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
           },
           "email_ai_summary_enabled": {
             "anyOf": [
@@ -13136,6 +13887,17 @@
               }
             ],
             "title": "Ai Settings"
+          },
+          "collection_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection Id"
           },
           "email_ai_summary_enabled": {
             "anyOf": [
@@ -14101,7 +14863,7 @@
       },
       "RunDocumentIds": {
         "additionalProperties": true,
-        "description": "``GET /api/executions/{exec_id}/document-ids``: every paper the run\nstored that is still in the collection, by id, for the run's map.",
+        "description": "``GET /api/executions/{exec_id}/document-ids``: every paper the run\nstored that is in the collection named (the default one where none is),\nby id, for the run's map, which is that collection's.",
         "properties": {
           "ids": {
             "items": {
@@ -18435,6 +19197,20 @@
             ],
             "title": "Ai Settings"
           },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "date_from": {
             "anyOf": [
               {
@@ -18553,7 +19329,7 @@
       },
       "Today": {
         "additionalProperties": true,
-        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` is the first page of them, up\nto 1,000, newest first; ``total`` counts them all, and ``next_cursor``\n(``None`` when the page holds every one) reads the next page from\n``GET /api/today/papers``.",
+        "description": "``GET /api/today``: one collection's new papers and its watches.\n\n``window`` is ``since_last_look`` when a look at this collection is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` is the first page of them, up\nto 1,000, newest first; ``total`` counts them all, and ``next_cursor``\n(``None`` when the page holds every one) reads the next page from\n``GET /api/today/papers``. ``watches`` are the watches that put their\npapers in this collection, and any other whose papers are new here.",
         "properties": {
           "from_searches": {
             "title": "From Searches",
@@ -18627,7 +19403,7 @@
       },
       "TodayLooked": {
         "additionalProperties": true,
-        "description": "``POST /api/today/looked``: the moment recorded.",
+        "description": "``POST /api/today/looked``: the moment recorded, for one collection's Today.",
         "properties": {
           "looked_at": {
             "title": "Looked At",
@@ -18642,7 +19418,7 @@
       },
       "TodayPaper": {
         "additionalProperties": true,
-        "description": "A paper resmon first collected since the last look.\n\n``abstract_lede`` is the opening of the abstract as the source gave it,\nnever a summary; resmon does not keep summaries per paper.",
+        "description": "A paper a run put in the collection since its last look.\n\n``first_seen_at`` is when resmon first collected the paper, and\n``arrived_at`` when it arrived in this collection; the two differ for a\npaper resmon held elsewhere before a watch found it for this one.\n``abstract_lede`` is the opening of the abstract as the source gave it,\nnever a summary; resmon does not keep summaries per paper.",
         "properties": {
           "abstract_lede": {
             "anyOf": [
@@ -18654,6 +19430,17 @@
               }
             ],
             "title": "Abstract Lede"
+          },
+          "arrived_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Arrived At"
           },
           "authors": {
             "anyOf": [
@@ -18748,6 +19535,7 @@
           "source",
           "publication_date",
           "first_seen_at",
+          "arrived_at",
           "abstract_lede",
           "url",
           "doi",
@@ -20666,6 +21454,27 @@
       "get": {
         "description": "Median days between publication and resmon first seeing each paper.",
         "operationId": "analytics_discovery_lag_api_analytics_discovery_lag_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20676,6 +21485,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Analytics Discovery Lag"
@@ -20683,7 +21502,7 @@
     },
     "/api/analytics/keyword-contribution": {
       "get": {
-        "description": "Per keyword: papers it found that no other keyword did.\n\nScoped to one execution with ``?execution_id=``, otherwise to every keyword\never searched against the whole corpus. Cached like the other analytics —\nit reads every candidate document once, which is not free on a large corpus.",
+        "description": "Per keyword: papers it found that no other keyword did.\n\nScoped to one execution with ``?execution_id=``, otherwise to every keyword\nof the runs that put papers in the collection, against its papers. Cached\nlike the other analytics — it reads every candidate document once, which\nis not free on a large corpus.",
         "operationId": "analytics_keyword_contribution_api_analytics_keyword_contribution_get",
         "parameters": [
           {
@@ -20700,6 +21519,25 @@
                 }
               ],
               "title": "Execution Id"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -20730,8 +21568,29 @@
     },
     "/api/analytics/overview": {
       "get": {
-        "description": "Everything the Analytics page needs, in one round trip.",
+        "description": "Everything the Analytics page needs about one collection, in one round trip.",
         "operationId": "analytics_overview_api_analytics_overview_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20742,6 +21601,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Analytics Overview"
@@ -20770,6 +21639,25 @@
               "default": 12,
               "title": "Months",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -20800,8 +21688,29 @@
     },
     "/api/analytics/routine-health": {
       "get": {
-        "description": "Per routine: new results per run, and whether it has gone quiet.",
+        "description": "Per routine whose papers land in the collection: new results per run, and whether it has gone quiet.",
         "operationId": "analytics_routine_health_api_analytics_routine_health_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20812,6 +21721,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Analytics Routine Health"
@@ -20821,6 +21740,27 @@
       "get": {
         "description": "Per source: papers delivered, and how many nothing else found.",
         "operationId": "analytics_source_contribution_api_analytics_source_contribution_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20831,6 +21771,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Analytics Source Contribution"
@@ -20839,6 +21789,27 @@
     "/api/analytics/summary": {
       "get": {
         "operationId": "analytics_summary_api_analytics_summary_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -20849,6 +21820,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Analytics Summary"
@@ -21610,6 +22591,326 @@
           }
         },
         "summary": "Calendar Events"
+      }
+    },
+    "/api/collections": {
+      "get": {
+        "description": "Every collection, the one the app shows, and the default one.",
+        "operationId": "list_collections_api_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Collections"
+      },
+      "post": {
+        "description": "Make an empty collection. Names are unique without regard to case.",
+        "operationId": "create_collection_api_collections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionNameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Collection"
+      }
+    },
+    "/api/collections/current": {
+      "put": {
+        "description": "Remember the collection the app shows, by its id or its name.",
+        "operationId": "set_current_collection_api_collections_current_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionCurrentBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionCurrent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Set Current Collection"
+      }
+    },
+    "/api/collections/{collection_id}": {
+      "delete": {
+        "description": "Delete a collection, never its papers.\n\nA paper only it held is kept in the default collection; one in another\ncollection stays there. Its watches put their papers in the default\ncollection from then on. Its map goes with it, since the map holds words\nfrom its papers. The default collection is refused (409).",
+        "operationId": "delete_collection_api_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Collection"
+      },
+      "get": {
+        "description": "One collection, and what deleting it would do to its papers and watches.",
+        "operationId": "get_collection_api_collections__collection_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Collection"
+      },
+      "put": {
+        "operationId": "rename_collection_api_collections__collection_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionNameBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Collection"
+      }
+    },
+    "/api/collections/{collection_id}/papers": {
+      "post": {
+        "description": "Move or copy papers into this collection. No paper leaves the database.\n\nA copy adds them and every collection they were in keeps them. A move adds\nthem here and then takes them out of the collection they came from, so a\npaper is never in none. The answer is what an undo sends back.",
+        "operationId": "change_collection_papers_api_collections__collection_id__papers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionPapersBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionPapersChanged"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Change Collection Papers"
+      }
+    },
+    "/api/collections/{collection_id}/papers/undo": {
+      "post": {
+        "description": "Undo a move or a copy into this collection, from what it answered.",
+        "operationId": "undo_collection_papers_api_collections__collection_id__papers_undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionPapersUndoBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionPapersUndone"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Collection Papers"
       }
     },
     "/api/configurations": {
@@ -22639,8 +23940,29 @@
     },
     "/api/embeddings/status": {
       "get": {
-        "description": "N of M embedded with model X, the run, the index, and the extension.",
+        "description": "N of M embedded with model X, the run, the index, and the extension.\n\n``coverage`` counts every paper, as a backfill does; with ``collection``,\n``collection_coverage`` counts that collection's papers too.",
         "operationId": "embedding_status_api_embeddings_status_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -22651,6 +23973,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Embedding Status"
@@ -23909,7 +25241,7 @@
     },
     "/api/executions/{exec_id}/document-ids": {
       "get": {
-        "description": "Every paper this run stored that is still in the collection, by id.\n\nThe run's map needs all of them and nothing else about them: the map\nalready holds their positions. The papers themselves are paged by\n``/documents``; ids alone are a few bytes each, so they come whole.",
+        "description": "Every paper this run stored that is in the collection, by id.\n\nThe run's map is the collection's map, so it needs these and nothing else\nabout them: the map already holds their positions. The papers themselves\nare paged by ``/documents``; ids alone are a few bytes each, so they come\nwhole.",
         "operationId": "get_execution_document_ids_api_executions__exec_id__document_ids_get",
         "parameters": [
           {
@@ -23919,6 +25251,25 @@
             "schema": {
               "title": "Exec Id",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -25953,8 +27304,29 @@
     },
     "/api/map": {
       "get": {
-        "description": "Where every paper sits on the Atlas plate, and on what basis.\n\nThe first call on a collection starts a fit in the background and answers\n``fitting``; later calls answer from the fit, placing papers that arrived\nsince. See ``collection_map`` for what a position does and does not say.",
+        "description": "Where every paper of a collection sits on the Atlas plate, and on what basis.\n\nThe first call on a collection starts a fit in the background and answers\n``fitting``; later calls answer from the fit, placing papers that arrived\nsince. Each collection has its own map, fitted over its papers alone. See\n``collection_map`` for what a position does and does not say.",
         "operationId": "get_collection_map_api_map_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -25965,6 +27337,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Collection Map"
@@ -25972,8 +27354,29 @@
     },
     "/api/map/facets": {
       "get": {
-        "description": "What the map's filters and colors read about every paper: its source,\nits dates, its place in the reading queue, whether it is new on Today, and\nthe watches that found it. See ``map_facets`` for what each says.",
+        "description": "What the map's filters and colors read about every paper of a collection:\nits source, its dates, its place in the reading queue, whether it is new on\nToday, and the watches that found it. See ``map_facets`` for what each says.",
         "operationId": "get_map_facets_api_map_facets_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -25984,6 +27387,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Map Facets"
@@ -25991,7 +27404,7 @@
     },
     "/api/map/find": {
       "get": {
-        "description": "The papers whose title or authors contain ``q``, newest first, for\nlighting them on a map. Fewer than two characters find nothing.",
+        "description": "The papers of a collection whose title or authors contain ``q``, newest\nfirst, for lighting them on a map. Fewer than two characters find nothing.",
         "operationId": "find_on_map_api_map_find_get",
         "parameters": [
           {
@@ -26003,6 +27416,25 @@
               "maxLength": 200,
               "title": "Q",
               "type": "string"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -26550,7 +27982,7 @@
     },
     "/api/profiles/{profile_id}/matches": {
       "get": {
-        "description": "Papers matched to this profile, **each with the basis it was matched on**.\n\nThe basis rides on every row and is never omitted: a list of papers with no\nbasis is exactly the claim resmon refuses to make.",
+        "description": "Papers of a collection matched to this profile, **each with the basis it was matched on**.\n\nThe basis rides on every row and is never omitted: a list of papers with no\nbasis is exactly the claim resmon refuses to make.",
         "operationId": "get_watch_profile_matches_api_profiles__profile_id__matches_get",
         "parameters": [
           {
@@ -26581,6 +28013,25 @@
               "title": "Offset",
               "type": "integer"
             }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
           }
         ],
         "responses": {
@@ -26610,7 +28061,7 @@
     },
     "/api/reading-queue": {
       "get": {
-        "description": "One page of saved papers. ``status`` omitted (or ``all``) means both.\n\n``q`` keeps the papers whose title, authors or source contain it. ``sort`` is\n``saved`` (newest save first), ``published``, ``title``, ``source`` or\n``map``; the page's own ``sort`` says which order it is in, which is\n``saved`` when ``map`` was asked for and no map is fitted yet.",
+        "description": "One page of a collection's saved papers. ``status`` omitted (or ``all``) means both.\n\nThe queue is one list; each collection shows the saved papers it holds,\nwith their counts. ``q`` keeps the papers whose title, authors or source\ncontain it. ``sort`` is ``saved`` (newest save first), ``published``,\n``title``, ``source`` or ``map`` (the collection's map); the page's own\n``sort`` says which order it is in, which is ``saved`` when ``map`` was\nasked for and no map is fitted yet.",
         "operationId": "list_reading_queue_api_reading_queue_get",
         "parameters": [
           {
@@ -26668,6 +28119,25 @@
               "default": "saved",
               "title": "Sort",
               "type": "string"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -27681,7 +29151,7 @@
     },
     "/api/routines/{routine_id}/documents": {
       "get": {
-        "description": "The papers this routine's runs collected: a watch's constellation.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. Every one unless ``limit`` asks for fewer: ids are a few\nbytes each, and a constellation drawn from the first 2,000 of a watch's\npapers left the rest off the map. ``total`` counts all of them, so a screen\nwhose ``limit`` cut the list short can say so rather than imply the marks\nare complete.",
+        "description": "The papers this routine's runs collected that a collection holds: a watch's constellation on its map.\n\nIds only, newest run first and each paper once, because what a screen does\nwith them is mark them on the collection map; a page of records is the\nExplorer's job. Every one unless ``limit`` asks for fewer: ids are a few\nbytes each, and a constellation drawn from the first 2,000 of a watch's\npapers left the rest off the map. ``total`` counts all of them, so a screen\nwhose ``limit`` cut the list short can say so rather than imply the marks\nare complete.",
         "operationId": "routine_documents_api_routines__routine_id__documents_get",
         "parameters": [
           {
@@ -27708,6 +29178,25 @@
                 }
               ],
               "title": "Limit"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],
@@ -28653,8 +30142,29 @@
     },
     "/api/today": {
       "get": {
-        "description": "The papers resmon first collected since Today was last looked at, by watch.\n\nSee ``today`` for what \"new\", \"looked\" and \"watch\" mean. Reading this does\nnot mark anything looked at; ``POST /api/today/looked`` does.",
+        "description": "The papers runs put in a collection since its Today was last looked at, by watch.\n\nSee ``today`` for what \"new\", \"looked\" and \"watch\" mean. Reading this does\nnot mark anything looked at; ``POST /api/today/looked`` does.",
         "operationId": "get_today_api_today_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -28665,6 +30175,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Get Today"
@@ -28672,8 +30192,29 @@
     },
     "/api/today/looked": {
       "post": {
-        "description": "Record that Today was looked at now: the next window starts here.",
+        "description": "Record that a collection's Today was looked at now: its next window starts here.",
         "operationId": "mark_today_looked_api_today_looked_post",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -28684,6 +30225,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Mark Today Looked"
@@ -28691,7 +30242,7 @@
     },
     "/api/today/papers": {
       "get": {
-        "description": "The next page of Today's new papers, after the page before it.\n\n``cursor`` is the ``next_cursor`` that page gave, so every new paper can be\nlisted, a page at a time, however many there are.",
+        "description": "The next page of a collection's new papers on Today, after the page before it.\n\n``cursor`` is the ``next_cursor`` that page gave, so every new paper can be\nlisted, a page at a time, however many there are.",
         "operationId": "get_today_papers_api_today_papers_get",
         "parameters": [
           {
@@ -28713,6 +30264,25 @@
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],

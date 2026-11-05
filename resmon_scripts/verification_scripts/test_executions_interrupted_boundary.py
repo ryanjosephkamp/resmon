@@ -375,14 +375,14 @@ def test_the_mcp_tools_report_an_interrupted_run_and_its_restart(tmp_path):
         assert rows[exec_id]["interrupted_reason"] == "owner_dead", rows[exec_id]
         assert rows[new_id]["restarted_from"] == exec_id, rows[new_id]
 
-        # Denominator: 2 of 25 tools exercised here, M from
+        # Denominator: 2 of 26 tools exercised here, M from
         # mcp_server.TOOLS as the running server reports it.
         tools = mcp.rpc("tools/list")["result"]["tools"]
         names = {t["name"] for t in tools}
         assert {"get_execution", "list_executions"} <= names
         print(f"P5: 2 of {len(tools)} MCP tools exercised, M from the server's own "
               "tools/list")
-        assert len(tools) == 25, (
+        assert len(tools) == 26, (
             f"the tool inventory moved to {len(tools)}; update this denominator")
     finally:
         if mcp is not None:

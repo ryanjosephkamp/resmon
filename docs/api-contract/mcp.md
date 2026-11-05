@@ -1,4 +1,4 @@
-# The resmon MCP tool surface — contract 1.0
+# The resmon MCP tool surface — contract 1.1
 
 **Status: frozen.** Changing anything below takes its own pull request that says what changed
 and why. The implementation is built against this document, not the other way round.
@@ -91,7 +91,7 @@ same sitting as the app; running one of each is not a degraded mode, it is no se
 ### Instance identity
 
 Only `health` and `get_execution` take an optional string `expected_runtime_id`. The tool
-surface is 25 tools: 18 reads and 7 writes requiring confirmation.
+surface is 26 tools: 19 reads and 7 writes requiring confirmation.
 
 Successful `GET /api/health` and `GET /api/executions/{exec_id}` carry:
 
@@ -180,7 +180,7 @@ These are guarantees, not defaults, and the implementation is reviewed against t
   wait for a confirmation model worth trusting; a tool call is too cheap an action to hang
   data loss on. The excluded endpoints are listed at the end so the omission is visible
   rather than accidental.
-- **Writes are limited to 7 tools of the 25**, listed in the Write table, and each
+- **Writes are limited to 7 tools of the 26**, listed in the Write table, and each
   declares `requires_confirmation: true`. Four of them — `run_sweep`, `run_routine`,
   `create_routine`, `create_watch_profile` — a user could trigger by hand in one click,
   and the two that start a run are recorded in the execution history like any other run.
@@ -228,19 +228,36 @@ never claims more than the backend actually reported.
 
 ## Tools
 
-Every tool below is backed by an endpoint the app serves. `mcp_server.py`'s 25 tools reach
-**44 distinct method-and-path pairs**, and all 44 resolve against `resmon.app.routes`: see
+Every tool below is backed by an endpoint the app serves. `mcp_server.py`'s 26 tools reach
+**45 distinct method-and-path pairs**, and all 45 resolve against `resmon.app.routes`: see
 *Route resolution*.
+
+**Collections.** resmon keeps several collections in one database, and a paper can be in more
+than one. `list_collections` names them. `search_corpus`, `get_analytics`, and
+`get_profile_matches` read **one** collection, and `run_sweep` and `create_routine` say which one
+the papers land in, each through an optional `collection`: a string, the collection's name or
+its id (digits are read as an id where one exists), resolved by the backend, which refuses one
+that names no collection. Without one, a call reads, or files into, the default collection, not
+every collection; the default holds every paper a database had before collections, so a harness
+written for contract 1.0 reads what it read. Each of these answers carries `collection`, the id
+and name of the collection it read or wrote, so a caller cannot take one collection for
+everything.
+
+The in-app assistant reads the collection of the window it is asked from: each message carries
+the window's collection, and for that turn a call that names none reads it and a sweep it
+starts lands in it, in resmon's own loop and in the server a CLI starts (given it as
+`RESMON_MCP_COLLECTION`). A call that names a collection still reads that one.
 
 ### Read
 
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
 | `health` | `expected_runtime_id?` | version, schema version, scheduler state, daemon state, `identity` | `GET /api/health` |
-| `search_corpus` | `query`, `mode?` (keyword \| semantic), `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor`, `mode`, and in semantic mode `distance` per paper, `ranked_count`, `unranked_count`, `model` | `POST /api/explorer/search` |
+| `search_corpus` | `query`, `mode?` (keyword \| semantic), `sources?`, `date_from?`, `date_to?`, `limit=25`, `cursor?`, `collection?` | matching papers: id, title, authors, date, source, doi, url, plus `next_cursor`, `mode`, and in semantic mode `distance` per paper, `ranked_count`, `unranked_count`, `model` | `POST /api/explorer/search` |
+| `list_collections` | — | each collection's id, name, paper and watch counts, and whether it is the default; the one the app shows, and the default's id | `GET /api/collections` |
 | `find_similar` | `doc_id`, `limit=25` | the nearest papers with distances and sources; `reason` when the list is empty | `GET /api/documents/{doc_id}/similar` |
 | `list_sources` | — | slug, name, coverage, whether a key is required and whether one is present | `GET /api/repositories/catalog` + `GET /api/credentials` |
-| `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active, `missed_fires` (fires that came due while resmon was closed) | `GET /api/routines` |
+| `list_routines` | `active_only?` | id, name, schedule, sources, keywords, last run, active, `missed_fires` (fires that came due while resmon was closed), and `collection_id`, where its papers land | `GET /api/routines` |
 | `get_routine` | `routine_id` | the full routine record, including `missed_fires` (`count` + `last_due_at_utc`), `missed_fire_details`, a `coverage` audit, and a `delivery` summary (counts by channel, and the last delivery's state) | `GET /api/routines/{id}` + `GET /api/routines/{id}/deliveries` |
 | `list_executions` | `routine_id?`, `status?`, `limit=25`, `offset=0` | id, type, status, started, finished, result count, `interrupted_reason`, `restarted_from` | `GET /api/executions` |
 | `get_execution` | `exec_id`, `expected_runtime_id?` | status, per-source counts and coverage, timings, AI lane used, `parameters`, the interruption fields, `identity` | `GET /api/executions/{id}` |
@@ -248,12 +265,12 @@ Every tool below is backed by an endpoint the app serves. `mcp_server.py`'s 25 t
 | `get_search_record` | `exec_id` | the PRISMA-shaped reproducible record: `search.queries_as_sent` is what each source's requests carried, and `search.query_as_sent` the terms as typed | `GET /api/executions/{id}/search-record` |
 | `explain_match` | `doc_id` | which keywords matched, in which field, and what resmon cannot verify | `GET /api/documents/{doc_id}/why` |
 | `get_paper_lifecycle` | `doc_id` | retraction, preprint→published, version changes, each with its notice link | `GET /api/documents/{doc_id}/lifecycle` |
-| `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
+| `get_analytics` | `view` (overview \| volume \| sources \| keywords \| routine-health \| discovery-lag), `window?`, `collection?` | the requested summary | `GET /api/analytics/{overview,publication-volume,source-contribution,keyword-contribution,routine-health,discovery-lag}` |
 | `get_watchdog_findings` | `include_muted?` | findings, each labeled `broken`, `unusual`, `advice`, or `withdrawn`, with what-to-do and the thresholds used | `GET /api/watchdog` |
 | `export_references` | `exec_id` or `doc_ids`, `format` (bibtex \| ris \| csv \| json) | the exported text | `POST /api/export/references` |
 | `list_watch_profiles` | `kind?` | id, kind, name, aliases, identifier schemes, ORCID, affiliations, and `basis_warning` where the profile has none | `GET /api/profiles` |
 | `get_watch_profile` | `profile_id` | the full profile, plus its match total and a per-basis count | `GET /api/profiles/{id}` + `GET /api/profiles/{id}/matches?limit=1` |
-| `get_profile_matches` | `profile_id`, `limit=25`, `offset=0` | the matched papers, **each with its `basis`, matched author and evidence**, plus `by_basis` and a `what_a_basis_means` glossary | `GET /api/profiles/{id}/matches` |
+| `get_profile_matches` | `profile_id`, `limit=25`, `offset=0`, `collection?` | the matched papers, **each with its `basis`, matched author and evidence**, plus `by_basis` and a `what_a_basis_means` glossary | `GET /api/profiles/{id}/matches` |
 
 `search_corpus` takes a `cursor` and returns `next_cursor`; it takes no `offset`, and an
 explicit `offset` is refused rather than ignored. The corpus seeks on `(publication_date
@@ -288,8 +305,8 @@ would make an honest product dishonest through an integration.
 
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
-| `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position`, a `ticket` (the `request_id` its run carries once it starts) and `execution_id: null` instead, the sweep starting on its own when a slot frees; a `conflict` error when the queue is full as well | `POST /api/search/sweep` |
-| `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
+| `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?`, `collection?` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position`, a `ticket` (the `request_id` its run carries once it starts) and `execution_id: null` instead, the sweep starting on its own when a slot frees; a `conflict` error when the queue is full as well | `POST /api/search/sweep` |
+| `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), optional `collection`, plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
 | `create_watch_profile` | `name`, optional `orcid`, `orcid_cited`, `aliases`, `affiliations`, `field_hints` | the created profile, with `basis_warning` **lifted to the top of the answer** when it has no identifier | `POST /api/profiles` |
 | `run_routine` | `routine_id` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position` and `execution_id: null` instead, the run starting on its own when a slot frees; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running, and a `conflict` error when the queue is full as well | `POST /api/routines/{id}/run` |
 | `activate_routine` | `routine_id` | `id`, `is_active: true` | `POST /api/routines/{id}/activate` |
@@ -689,6 +706,7 @@ Listed so the omissions are visible and arguable rather than silently missing.
 | `/api/service/install`, `/api/service/uninstall` | Touches launchd / systemd on the user's machine. |
 | `/api/executions/{id}/progress/stream` | SSE does not fit a request/response tool surface. Poll `get_execution`. |
 | `/api/lifecycle/check` | Long-running corpus-wide job. A tool call that runs for an hour is a trap; a job-handle model would be the way in. |
+| `POST /api/collections`, `PUT`/`DELETE /api/collections/{id}`, `PUT /api/collections/current`, `POST /api/collections/{id}/papers` and `/papers/undo` | Arranging the collections is the person's: making, renaming, and deleting one, choosing the one the app shows, and moving papers between them change what every window shows. A tool reads them and names one; it does not rearrange them. |
 
 ---
 
@@ -697,7 +715,7 @@ Listed so the omissions are visible and arguable rather than silently missing.
 Every route the server calls is checked by a test, not by a person at freeze time.
 `verification_scripts/test_mcp_routes_resolve.py` drives every tool in `TOOLS` through a
 recording double and resolves every address it sends against `resmon.app.routes`, one test case
-per method-and-path pair, on every run. It also fails when the number of pairs is not the 44
+per method-and-path pair, on every run. It also fails when the number of pairs is not the 45
 this document states, so the count in prose cannot drift. Every tool is called against a real
 backend in `test_mcp_live_surface.py`.
 
@@ -705,7 +723,8 @@ backend in `test_mcp_live_surface.py`.
 
 ## Versioning
 
-This document is contract **1.0**. The server reports it in its MCP initialization response
+This document is contract **1.1**: 1.0 with collections (`list_collections`, and the optional
+`collection` above). The server reports it in its MCP initialization response
 (`mcp_server.CONTRACT_VERSION`). Additive changes — new tools, new optional arguments — bump the
 minor version and do not require a new contract document. Removing a tool, renaming an argument,
 or changing a return shape is a **breaking** change: new major version, new document, and the

@@ -80,7 +80,7 @@ Coverage is always shown beside the findings, because no retractions found means
 
 ## Analytics
 
-**Analytics** counts what the collection holds, using only papers already stored. It makes no requests to any source and costs no quota. A view with too little to go on shows a sentence saying so instead of a chart, and a share over too small a sample is a dash, never a zero.
+**Analytics** counts what the collection the window shows holds, using only papers already stored: its papers, the runs that put papers in it, and the watches whose papers land there. It makes no requests to any source and costs no quota. A view with too little to go on shows a sentence saying so instead of a chart, and a share over too small a sample is a dash, never a zero.
 
 - **Your corpus** shows papers, distinct works (two records of one paper count once), authors, sources used, runs completed, and the share of papers with a DOI.
 - **Which sources earn their place** shows, for each source, how many of its papers no other source supplied. A source whose every paper also arrives from elsewhere costs a run and adds nothing. A row opens that source's papers in **Search › Your collection**.

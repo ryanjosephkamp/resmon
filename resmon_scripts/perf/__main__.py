@@ -4,7 +4,8 @@
     soak     the background service running routines for --hours
     host     the background service as the bare engine and as the app, alternated
     wording  a shared-wording scan, full and of new papers, timed with its peak memory
-    scale    100,000 papers: counts, ranking by meaning, exports' memory, the long list's frames
+    scale    100,000 papers: counts, ranking by meaning, exports' memory, the map, the long list's frames;
+             --split N measures two collections
     record   record the benchmark sweep's replies from the live sources
     seed     build a seeded corpus (run builds the ones it needs itself)
     compare  a candidate's results.json against a baseline's, by the gate
@@ -333,7 +334,9 @@ def main(argv: list[str] | None = None) -> int:
     sc.add_argument("--rows", type=int, default=3000, help="rows read into the list before it is scrolled")
     sc.add_argument("--ui-runs", type=int, default=3)
     sc.add_argument("--frontend", default=str(FRONTEND))
-    sc.add_argument("--only", help="comma-separated: engine,ui")
+    sc.add_argument("--only", help="comma-separated: engine,map,ui (the map is fitted by the engine part)")
+    sc.add_argument("--split", type=int, default=0,
+                    help="papers moved to a second collection, which is then measured beside the default one")
     sc.add_argument("--keep-work", action="store_true")
     sc.set_defaults(func=cmd_scale)
 

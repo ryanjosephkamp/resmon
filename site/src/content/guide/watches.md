@@ -47,6 +47,8 @@ The dates a run asks for are computed when it fires and recorded with the run. A
 
 **Up to N papers per source, each run.** From 1 to 1,000.
 
+**Its papers land in** (when there is more than one collection). The collection its runs put their papers in, the one the window shows for a new watch. A run puts every paper it finds there, including one resmon already holds in another collection. Changing it changes where later runs put their papers; papers earlier runs found stay where they are.
+
 **What it is really looking for** (optional). A sentence or two in your own words. The coverage audit compares what the watch finds with this sentence. Without one, the audit can only compare the results with the terms that found them, which is circular, and it says so.
 
 **When a run finishes.** **Notify me**, **Email the report**, and **Attach its results to the email**. The email goes through the account under **Settings › Email**, and notifications follow **Settings › Notifications**. **Start watching when saved** is on by default for a new watch.
@@ -59,7 +61,7 @@ The **What it will do** panel restates the form as it stands, in sentences: when
 
 The header has **Run now**, **Pause** or **Resume**, and **Change**. **Run now** runs the watch once whatever the schedule says, even when it is paused. If resmon is at its limit of runs at once, the run joins a queue and starts on its own when one finishes. Pausing keeps the watch and stops its schedule. Two switches, **Notify me when it finishes** and **Email the report**, change at a click. Under them, **Dates** and **Summaries** state what each run asks for and how it is summarized, each with a **Change** link.
 
-Beside the header, a map shows where the watch's papers sit in the collection, with the papers from its latest run ringed. Below is its **Runs** strip: a bar for each of the last 30 runs, as tall as the papers new in that run, with a fault mark under any run in which a source did not answer, and a hollow square for a run that did not record how many papers were new. A watch's first run usually brings in everything already published and dwarfs the rest, so a run more than twice the next largest is drawn cut off, and the line under the strip says so. Pointing at a bar, or reaching it from the keyboard, says when the run started, how many papers were new and how many it found in all, and which sources did not answer; choosing it opens the run. The strip is one stop for **Tab**, and the arrow keys move between runs.
+When there is more than one collection, the header names the one its papers land in. Beside the header, a map shows where the watch's papers sit in the collection the window shows, with the papers from its latest run ringed. Below is its **Runs** strip: a bar for each of the last 30 runs, as tall as the papers new in that run, with a fault mark under any run in which a source did not answer, and a hollow square for a run that did not record how many papers were new. A watch's first run usually brings in everything already published and dwarfs the rest, so a run more than twice the next largest is drawn cut off, and the line under the strip says so. Pointing at a bar, or reaching it from the keyboard, says when the run started, how many papers were new and how many it found in all, and which sources did not answer; choosing it opens the run. The strip is one stop for **Tab**, and the arrow keys move between runs.
 
 Three tabs hold the rest:
 

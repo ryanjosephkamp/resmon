@@ -476,7 +476,15 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             # Schema 25: the record of files removed from the
                             # Library. (It also rebuilds ``library_files``,
                             # already listed above.)
-                            "library_removed"}
+                            "library_removed",
+                            # Schema 26: collections, their indexes, and the
+                            # triggers that file a paper and count revisions.
+                            "collections", "collection_documents",
+                            "idx_collection_documents_document",
+                            "idx_collection_documents_added",
+                            "collection_documents_revise_in",
+                            "collection_documents_revise_out",
+                            "documents_file_in_default"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

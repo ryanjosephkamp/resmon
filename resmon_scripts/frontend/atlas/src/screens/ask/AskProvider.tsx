@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
+import { useCollection } from '../../collections/current';
 import { ask, type ChoiceRequest, type Status } from './askApi';
 import { applyEvent, firstChoice, startLive, type Live } from './askModel';
 
@@ -75,6 +76,8 @@ const sentence = (error: unknown): string =>
 export function AskProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const status = useQuery({ queryKey: STATUS_KEY, queryFn: ask.status });
+  // The window's collection: a turn's tools read it, and a run a turn starts lands in it.
+  const { id: collection } = useCollection();
   const [selected, setSelected] = useState<number | null>(null);
   const [draft, setDraftState] = useState<ChoiceRequest | null>(null);
   // Whether the person has chosen the next conversation's connection here. Until
@@ -152,7 +155,10 @@ export function AskProvider({ children }: { children: ReactNode }) {
       if (mine.stopping) return;
       const controller = new AbortController();
       const at = id;
-      await ask.turn(at, { text: message, ...(adopt ? { legacy_adoption: { choices: adopt, confirmed: true as const } } : {}) },
+      await ask.turn(at, {
+        text: message, ...(collection !== null ? { collection: String(collection) } : {}),
+        ...(adopt ? { legacy_adoption: { choices: adopt, confirmed: true as const } } : {}),
+      },
         (event) => update((current) => (current.session === at ? applyEvent(current, event) : current)), controller.signal);
     } catch (error) {
       if (liveRef.current) update((current) => ({ ...current, error: sentence(error) }));
@@ -172,7 +178,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
       setStopping(false);
       void client.invalidateQueries({ queryKey: CHATS_KEY });
     }
-  }, [client, draft, selected]);
+  }, [client, collection, draft, selected]);
 
   const answerCard = useCallback(async (requestId: string, allow: boolean) => {
     if (!turn.current || turn.current.stopping) return;

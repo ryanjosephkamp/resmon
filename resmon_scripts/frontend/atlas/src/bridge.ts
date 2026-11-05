@@ -25,9 +25,11 @@ export interface ResmonBridge {
   swipeNavigation?: () => Promise<boolean>;
   /** Go back or forward for a two-finger swipe; false where there is no page that way. */
   swipeHistory?: (direction: 'back' | 'forward') => Promise<boolean>;
-  /** This window: the collection it shows (null, the only one) and the room to leave for macOS's tab bar. */
+  /** This window: the collection it shows (null until it has one) and the room to leave for macOS's tab bar. */
   windowState?: () => WindowState;
   onWindowState?: (callback: (state: WindowState) => void) => () => void;
+  /** Show another collection in this window, by id; no other window changes. */
+  setWindowCollection?: (collection: string | null) => void;
   /** Another window at a page of the app (null: the start page), or on macOS a tab of this one. */
   openWindow?: (route: string | null, tab?: boolean) => void;
   /** A run this window started, so the run's notification shows it here. */
@@ -40,7 +42,7 @@ export interface ResmonBridge {
 
 /** What the main process says about this window (`electron/preload.ts`). */
 export interface WindowState {
-  /** The collection this window shows; null is the only one, until there are several. */
+  /** The collection this window shows, by id; null until it has one, and then it shows the one the engine remembers. */
   collection: string | null;
   /** Pixels to leave above the top bar for macOS's tab bar; 0 when the windows are not in tabs. */
   tabStrip: number;

@@ -27,7 +27,7 @@
 import { expect, journey } from './driver';
 
 journey.describe('J44 Driving resmon from an external harness (MCP)', () => {
-  journey('a harness given only this app’s state directory finds this app, and its 25 tools', async ({ resmon }) => {
+  journey('a harness given only this app’s state directory finds this app, and its 26 tools', async ({ resmon }) => {
     // Something in the corpus, so the instance the harness names is an instance
     // that has actually done work rather than a bare start.
     const run = await resmon.runDive({ source: 'arxiv', keywords: ['perovskite'], days: 30, cap: 20 });
@@ -55,8 +55,8 @@ journey.describe('J44 Driving resmon from an external harness (MCP)', () => {
     // is this app's own and never the live daemon's.
     expect(String(await resmon.backend.port())).not.toBe('8742');
 
-    // The surface. 25 of 25, against the contract and against the build's own list.
-    expect(mcp.toolNames.length, 'the tool surface is not the 25 the contract freezes').toBe(25);
+    // The surface. 26 of 26, against the contract and against the build's own list.
+    expect(mcp.toolNames.length, 'the tool surface is not the 26 the contract freezes').toBe(26);
     expect(
       mcp.toolNames.length,
       'tools/list and mcp_server.TOOLS disagree about how many tools there are',

@@ -48,7 +48,7 @@ export const SECTIONS: readonly Section[] = [
 export const SETTINGS: Section = {
   path: '/settings',
   label: 'Settings',
-  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider',
+  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider collections collection field rename new',
   element: <Settings />,
 };
 

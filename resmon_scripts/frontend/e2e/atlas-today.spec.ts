@@ -54,6 +54,7 @@ for topic, words in TOPICS.items():
         })
         seen = now - (timedelta(hours=2 + n) if fresh else timedelta(days=10 + 7 * n))
         conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(seen), doc))
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(seen), doc))
         ids[topic]["new" if fresh else "old"].append(doc)
 conn.commit()
 
@@ -204,6 +205,7 @@ for n in range(2):
         "title": f"Protein folding late arrival {n}", "authors": "Grace Hopper",
         "abstract": "protein folding residue chain binding structure " * 6, "metadata_hash": f"late-{n}"})
     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(now), doc))
+    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(now), doc))
     docs.append(doc)
 e = insert_execution(conn, {"execution_type": "deep_sweep", "parameters": json.dumps({"repositories": ["arxiv"]}),
     "start_time": fmt(now - timedelta(seconds=30))})
@@ -318,6 +320,7 @@ for n in range(60):
         "metadata_hash": f"many-{n}"})
     # Written in the order they arrived, which is the order Today numbers them.
     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(now - timedelta(minutes=120 - n)), doc))
+    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(now - timedelta(minutes=120 - n)), doc))
     docs.append(doc)
 e = insert_execution(conn, {"execution_type": "deep_sweep", "parameters": json.dumps({"repositories": ["arxiv"]}),
     "start_time": fmt(now - timedelta(hours=3))})

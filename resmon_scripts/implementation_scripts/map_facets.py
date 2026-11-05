@@ -22,8 +22,10 @@ Each fact is what the database holds, nothing inferred:
 Find is a substring of a title or of the authors as stored, case-insensitive
 for ASCII letters (SQLite's ``LIKE``), newest first.
 
+Both read one collection's papers, as the map they light is one collection's.
 A map's view (which filters, which colors) is remembered in ``app_settings``,
-one key per map, so it survives the renderer's origin changing every launch.
+one key per map and not per collection, so it survives the renderer's origin
+changing every launch and a look chosen once holds in every collection.
 """
 
 from __future__ import annotations
@@ -35,7 +37,8 @@ from datetime import date, datetime
 from typing import Optional
 
 from implementation_scripts import today
-from implementation_scripts.database import get_setting, set_setting
+from implementation_scripts.database import DEFAULT_COLLECTION_ID, get_setting, set_setting
+from implementation_scripts.paper_collections import holds_every_paper, member_clause
 
 #: The maps a view is remembered for: Today's, and one for every run's map.
 VIEW_NAMES = ("today", "run")
@@ -63,18 +66,28 @@ def published_day(value: Optional[str]) -> Optional[int]:
         return None
 
 
-def facets(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
-    """Every paper's facts, as columns in id order, with the watches' members.
+def _within(conn: sqlite3.Connection, collection_id: int, column: str) -> str:
+    """The clause keeping *column*'s papers to one collection, its id written in
+    as an integer; ``1`` while it is the only collection, which holds every paper."""
+    if holds_every_paper(conn, collection_id):
+        return "1"
+    return member_clause(column).replace("?", str(int(collection_id)), 1)
+
+
+def facets(conn: sqlite3.Connection, now: Optional[datetime] = None,
+           collection_id: Optional[int] = None) -> dict:
+    """Every paper's facts in one collection, as columns in id order, with the watches' members.
 
     Read as plain tuples, with the first-collected time converted by SQLite
     and each distinct publication date parsed once: at 100,000 papers a
     ``strptime`` per row was most of four seconds.
     """
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
     cursor = conn.cursor()
     cursor.row_factory = None
     rows = cursor.execute(
         "SELECT id, source_repository, publication_date, CAST(strftime('%s', first_seen_at) AS INTEGER) "
-        "FROM documents ORDER BY id").fetchall()
+        f"FROM documents WHERE {_within(conn, cid, 'documents.id')} ORDER BY id").fetchall()
     slugs: dict[str, int] = {}
     days: dict[Optional[str], Optional[int]] = {}
     ids = [int(r[0]) for r in rows]
@@ -84,19 +97,22 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
 
     saved: list[int] = []
     read: list[int] = []
-    for doc_id, status in conn.execute("SELECT document_id, status FROM reading_queue ORDER BY document_id"):
+    for doc_id, status in conn.execute(
+            "SELECT document_id, status FROM reading_queue "
+            f"WHERE {_within(conn, cid, 'reading_queue.document_id')} ORDER BY document_id"):
         (read if status == "read" else saved).append(int(doc_id))
 
-    # "New" is Today's window: after the last look, or the last seven days when
-    # none is recorded, which the interface then says.
-    window = today.new_window(conn, now)
-    new = [int(r[0]) for r in cursor.execute(
-        "SELECT id FROM documents WHERE first_seen_at > ? ORDER BY id", (window["floor"],))]
+    # "New" is Today's window in this collection: after its last look, or the
+    # last seven days when none is recorded, which the interface then says.
+    window = today.new_window(conn, now, cid)
+    new = sorted(int(r[0]) for r in cursor.execute(
+        f"SELECT d.id FROM {today.NEW_PAPERS_FROM} WHERE {today.NEW_PAPERS_WHERE}", (cid, window["floor"])))
 
     members: dict[int, list[int]] = {}
     for routine_id, doc_id in conn.execute(
             "SELECT DISTINCT e.routine_id, ed.document_id FROM execution_documents ed "
-            "JOIN executions e ON e.id = ed.execution_id WHERE e.routine_id IS NOT NULL "
+            "JOIN executions e ON e.id = ed.execution_id "
+            f"WHERE e.routine_id IS NOT NULL AND {_within(conn, cid, 'ed.document_id')} "
             "ORDER BY e.routine_id, ed.document_id"):
         members.setdefault(int(routine_id), []).append(int(doc_id))
     watches = [{
@@ -119,8 +135,8 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None) -> dict:
     }
 
 
-def find(conn: sqlite3.Connection, query: str) -> list[int]:
-    """Papers whose title or authors contain ``query``, newest first.
+def find(conn: sqlite3.Connection, query: str, collection_id: Optional[int] = None) -> list[int]:
+    """Papers of one collection whose title or authors contain ``query``, newest first.
 
     ``%`` and ``_`` in the query are matched literally. A query shorter than
     :data:`FIND_MIN_CHARS` after trimming finds nothing.
@@ -129,8 +145,10 @@ def find(conn: sqlite3.Connection, query: str) -> list[int]:
     if len(text) < FIND_MIN_CHARS:
         return []
     pattern = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
     return [int(r[0]) for r in conn.execute(
-        "SELECT id FROM documents WHERE title LIKE ? ESCAPE '\\' OR authors LIKE ? ESCAPE '\\' "
+        "SELECT id FROM documents WHERE (title LIKE ? ESCAPE '\\' OR authors LIKE ? ESCAPE '\\') "
+        f"AND {_within(conn, cid, 'documents.id')} "
         "ORDER BY first_seen_at DESC, id DESC", (pattern, pattern))]
 
 

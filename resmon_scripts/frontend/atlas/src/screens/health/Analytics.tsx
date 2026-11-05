@@ -11,6 +11,7 @@ import {
   type KeywordContribution, type Overview, type WatchRow,
 } from './analyticsModel';
 import { HealthTabs } from './HealthTabs';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import { instantOf } from './model';
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -88,7 +89,12 @@ function BarRow({ tip, content, to, name, data, children }: {
  * collection narrowed to it.
  */
 export function Analytics() {
-  const overview = useQuery({ queryKey: ANALYTICS_KEY, queryFn: () => answer(engine().GET('/api/analytics/overview')) });
+  const { id: collection } = useCollection();
+  const shown = useCollectionWords();
+  const overview = useQuery({
+    queryKey: [...ANALYTICS_KEY, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/overview', { params: { query: collectionParam(collection) } })),
+  });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -101,7 +107,7 @@ export function Analytics() {
     <div className="page health analytics-page" aria-busy={overview.isFetching}>
       <HealthTabs />
       <p className="page-lede">
-        What your collection holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
+        What {shown.name} holds, and which sources, terms, and watches earn their place, in the engine’s numbers.
         A view with too little to go on says so instead of drawing a chart.
       </p>
       {overview.isPending && <p className="page-lede">Counting.</p>}
@@ -176,10 +182,12 @@ function Sources({ view, nameOf }: { view: Overview['source_contribution']; name
 
 function Keywords() {
   const [asked, setAsked] = useState(false);
+  const { id: collection } = useCollection();
+  const shown = useCollectionWords();
   const yieldQuery = useQuery({
-    queryKey: ['keyword-contribution'],
+    queryKey: ['keyword-contribution', collection],
     enabled: asked,
-    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution')),
+    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution', { params: { query: collectionParam(collection) } })),
   });
   const data: KeywordContribution | undefined = yieldQuery.data;
   const tip = useChartTip();
@@ -188,8 +196,8 @@ function Keywords() {
     <section className="chart-card" data-analytics="keywords" aria-busy={yieldQuery.isFetching}>
       <h2 className="group-title">Which keywords earn their place</h2>
       <p className="chart-note">
-        Of the papers each term matched, how many no other term did. This view reads every paper in your collection
-        once, so it does not run automatically.
+        Of the papers each term matched, how many no other term did. This view reads every paper in {shown.name} once,
+        so it does not run automatically.
       </p>
       {!data && (
         <button type="button" className="btn" data-analytics="measure" disabled={yieldQuery.isFetching} onClick={() => setAsked(true)}>
@@ -317,9 +325,12 @@ function RunStrip({ row, tip }: { row: WatchRow; tip: MarkTip }) {
 
 function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
   const [by, setBy] = useState<'source' | 'category'>('source');
+  const { id: collection } = useCollection();
   const volume = useQuery({
-    queryKey: ['publication-volume', by],
-    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', { params: { query: { group_by: by, months: 12 } } })),
+    queryKey: ['publication-volume', by, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', {
+      params: { query: { group_by: by, months: 12, ...collectionParam(collection) } },
+    })),
     placeholderData: keepPreviousData,
   });
   const data = volume.data;
