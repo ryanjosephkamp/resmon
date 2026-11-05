@@ -4303,6 +4303,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/top-bar": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Top Bar
+         * @description The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes.
+         */
+        get: operations["get_top_bar_api_top_bar_get"];
+        /**
+         * Update Top Bar
+         * @description Store the whole arrangement, and answer it as it was stored.
+         */
+        put: operations["update_top_bar_api_top_bar_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/watchdog": {
         parameters: {
             query?: never;
@@ -4755,7 +4779,7 @@ export interface components {
          * AppearanceBody
          * @description The whole appearance, every time: a PUT replaces the theme and the accent.
          *
-         *     ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+         *     ``run_monitor`` (Settings › Top bar, "Show the run monitor in the top
          *     bar") is stored when it is sent and left as it is when it is not, so a
          *     caller that knows only the theme and the accent changes only those.
          */
@@ -12875,6 +12899,53 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /**
+         * TopBar
+         * @description ``GET`` and ``PUT /api/top-bar``: how the top bar is arranged.
+         *
+         *     ``order`` names all seven sections, always: one an older build's stored
+         *     order lacked is put back after the section it follows by default.
+         *     ``hidden`` is the ones the bar leaves out, in that order; a hidden section
+         *     still has its address and its shortcut. ``start`` is the page a launch and
+         *     a new window open on, and ``lockup`` is where the resmon name goes, null
+         *     when it goes to the start page.
+         */
+        TopBar: {
+            /** Hidden */
+            hidden: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /** Lockup */
+            lockup: ("/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine") | null;
+            /** Order */
+            order: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /**
+             * Start
+             * @enum {string}
+             */
+            start: "/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine";
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * TopBarBody
+         * @description The whole arrangement, every time: a PUT replaces all four.
+         *
+         *     ``order`` may leave sections out, and they are put back where they go by
+         *     default; it may not name one twice, and neither may ``hidden``. A section
+         *     or a page the engine does not know is refused.
+         */
+        TopBarBody: {
+            /** Hidden */
+            hidden: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /** Lockup */
+            lockup: ("/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine") | null;
+            /** Order */
+            order: ("today" | "watches" | "search" | "runs" | "library" | "ask" | "health")[];
+            /**
+             * Start
+             * @enum {string}
+             */
+            start: "/today" | "/watches" | "/watches/calendar" | "/watches/people" | "/search" | "/search/ask" | "/search/saved" | "/search/wording" | "/runs" | "/library" | "/library/files" | "/library/evidence" | "/ask" | "/health" | "/health/watchdog" | "/health/analytics" | "/health/engine";
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -20480,6 +20551,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TodayPapersPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_top_bar_api_top_bar_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopBar"];
+                };
+            };
+        };
+    };
+    update_top_bar_api_top_bar_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TopBarBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopBar"];
                 };
             };
             /** @description Validation Error */

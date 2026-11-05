@@ -138,6 +138,10 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/appearance"),
         ("PUT", "/api/appearance"),
     ),
+    "the top bar": (
+        ("GET", "/api/top-bar"),
+        ("PUT", "/api/top-bar"),
+    ),
     "agent CLI sign-in and the models that answered": (
         ("GET", "/api/ai/cli/sign-in"),
         ("POST", "/api/ai/cli/sign-in"),
@@ -573,6 +577,7 @@ def driven() -> Drive:
         _drive_process_identity(drive)
         _drive_settings(drive)
         _drive_appearance(drive)
+        _drive_top_bar(drive)
 
         # A profile with no identifier, so ``basis_warning`` is a sentence and
         # not ``None``: the field most easily lost is the one carrying a value.
@@ -1915,6 +1920,20 @@ def _drive_appearance(drive: Drive) -> None:
     drive("GET", "/api/appearance")
     drive("PUT", "/api/appearance", json={"theme": "dark", "accent": "#3D8AFF"})
     drive("GET", "/api/appearance")
+
+
+def _drive_top_bar(drive: Drive) -> None:
+    """Two lists of the same vocabulary, a page, and a nullable page.
+
+    Read before anything is stored, where ``lockup`` is null and nothing is
+    hidden, and after a PUT that hides two sections and names a page for the
+    resmon name, so both shapes of the two fields that have two are compared.
+    """
+    drive("GET", "/api/top-bar")
+    drive("PUT", "/api/top-bar", json={
+        "order": ["search", "today", "runs"], "hidden": ["health", "watches"],
+        "start": "/search/saved", "lockup": "/library"})
+    drive("GET", "/api/top-bar")
 
 
 def _drive_settings(drive: Drive) -> None:

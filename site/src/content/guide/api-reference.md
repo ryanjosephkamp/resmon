@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 235 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 237 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -329,6 +329,8 @@ A credential's value is never returned. The engine reports only whether one is s
 |---|---|---|
 | `GET` | `/api/appearance` | The theme, the accent, and whether the top bar shows the run monitor. |
 | `PUT` | `/api/appearance` | Store the theme and accent, and the run monitor's switch when it is sent. |
+| `GET` | `/api/top-bar` | The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes. |
+| `PUT` | `/api/top-bar` | Store all four. A section left out of the order goes back where it goes by default. |
 | `GET` | `/api/settings/ai` | Summary settings, including the connection chain. |
 | `PUT` | `/api/settings/ai` | Store them. |
 | `GET` | `/api/settings/ai/cli-status` | Whether each command can be found, and where. |

@@ -257,7 +257,7 @@ export function RunMonitor() {
             </div>
             <div className="mp-foot">
               <Link to="/runs" onClick={() => panel.current?.hidePopover()}>Open Runs<Icon name="arrow" size={14} /></Link>
-              <Link to="/settings" className="mp-hide" onClick={() => panel.current?.hidePopover()}>Hide this in Settings › Appearance</Link>
+              <Link to="/settings/top-bar" className="mp-hide" onClick={() => panel.current?.hidePopover()}>Hide this in Settings › Top bar</Link>
             </div>
           </>
         )}

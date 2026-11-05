@@ -22,6 +22,7 @@ import { WatchEditor } from './screens/watches/WatchEditor';
 import { Watches } from './screens/watches/Watches';
 import { People } from './screens/watches/people/People';
 import { Person } from './screens/watches/people/Person';
+import { sectionAddress, type SectionId } from './shell/topBar';
 
 export interface Section {
   path: string;
@@ -32,8 +33,10 @@ export interface Section {
 }
 
 /**
- * The top bar's sections, in its order: the one route table, so the bar, the
- * command palette and the router cannot disagree about what exists.
+ * The top bar's sections, in its default order: the one route table, so the
+ * bar, the command palette and the router cannot disagree about what exists.
+ * The order a person chose, and the ones they hid, are the engine's
+ * (`shell/topBar.ts`); a hidden section keeps its route.
  */
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
@@ -45,10 +48,17 @@ export const SECTIONS: readonly Section[] = [
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
 ];
 
+/** A section by the name the top bar keeps it under: `search` is Search. */
+export function sectionFor(id: SectionId): Section {
+  const found = SECTIONS.find((section) => section.path === sectionAddress(id));
+  if (!found) throw new Error(`No section ${id}`);
+  return found;
+}
+
 export const SETTINGS: Section = {
   path: '/settings',
   label: 'Settings',
-  keywords: 'preferences appearance theme accent color background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider collections collection field rename new',
+  keywords: 'preferences appearance theme accent color top bar tabs sections order start page background service daemon email smtp password notifications ai model key summaries summarize assistant claude provider collections collection field rename new',
   element: <Settings />,
 };
 
@@ -80,6 +90,10 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
 /** Screens within a section the command palette also offers by name. */
 export const PLACES: readonly Omit<Section, 'element'>[] = [
   { path: '/watches/calendar', label: 'Calendar', keywords: 'watches schedule month ahead due next fires when runs' },
+  {
+    path: '/settings/top-bar', label: 'Arrange the top bar',
+    keywords: 'tabs sections order reorder move hide show start page launch opens home lockup resmon name run monitor',
+  },
 ];
 
 export const HOME = '/today';

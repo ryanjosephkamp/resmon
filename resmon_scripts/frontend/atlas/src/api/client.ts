@@ -72,6 +72,28 @@ export const claimRuns: Middleware = {
   },
 };
 
+/**
+ * The calls that change the runs going now, by method and contract address:
+ * every route that starts a run, Stop, Don't run (a run taken out of the
+ * queue), and the run monitor's "seen", which clears its red mark. Each window
+ * reads the runs going now on its own poll, 15 s apart while nothing runs, so
+ * after one of these the main process tells the other windows to read them at
+ * once (`electron/windows.ts`, `relayRunsChanged`).
+ */
+export const CHANGES_THE_RUNS: ReadonlySet<string> = new Set([
+  ...[...STARTS_A_RUN].map((path) => `POST ${path}`),
+  'POST /api/executions/{exec_id}/cancel',
+  'DELETE /api/executions/waiting/{ticket}',
+  'POST /api/executions/seen',
+]);
+
+export const tellOtherWindows: Middleware = {
+  onResponse({ request, response, schemaPath }) {
+    if (response.ok && CHANGES_THE_RUNS.has(`${request.method} ${schemaPath}`)) bridge()?.runsChanged?.();
+    return undefined;
+  },
+};
+
 export function engine(): Engine {
   const port = bridge()?.getBackendPort() ?? '';
   if (!port) throw new EngineError(0, 'This window has no backend connection yet.');
@@ -79,6 +101,7 @@ export function engine(): Engine {
     const client = createClient<paths>({ baseUrl: `http://127.0.0.1:${port}` });
     client.use(withToken);
     client.use(claimRuns);
+    client.use(tellOtherWindows);
     cached = { port, client };
   }
   return cached.client;

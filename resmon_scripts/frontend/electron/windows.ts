@@ -270,6 +270,29 @@ export function noticeWindow<W extends WindowLike>(
 }
 
 /**
+ * The message a window sends when it changed the runs going now, and the one
+ * every other window is sent: it saw the failed runs (the run monitor's red
+ * mark), stopped a run, started one, or took one out of the queue.
+ */
+export const RUNS_CHANGED = 'resmon:runs-changed';
+
+/**
+ * Tell every app window but `from` that the runs changed, so each reads the
+ * runs going now at once rather than at its next poll, which is 15 s apart
+ * while nothing runs: a red mark seen in one window then cleared in another
+ * only that much later. A message from no window of the set tells none.
+ * Returns the windows told.
+ */
+export function relayRunsChanged<W extends WindowLike & { readonly webContents: { send(channel: string): void } }>(
+  set: WindowSet<W>, from: W | null,
+): W[] {
+  if (!from || !set.has(from)) return [];
+  const told = set.all().filter((window) => window !== from);
+  for (const window of told) window.webContents.send(RUNS_CHANGED);
+  return told;
+}
+
+/**
  * Whether the app's windows are in tabs, which decides whether the renderer
  * leaves room at the top of each window for macOS's tab bar.
  *

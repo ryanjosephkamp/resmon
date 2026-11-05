@@ -12,6 +12,7 @@ import './shell/windowFrame.css';
 import { App } from './App';
 import { COLLECTIONS_KEY, CollectionProvider, readCollections } from './collections/current';
 import { keepBetweenVisits } from './screens/today/freshness';
+import { TOP_BAR_KEY, readTopBar } from './shell/useTopBar';
 import {
   APPEARANCE_KEY, AppearanceProvider, FALLBACK_APPEARANCE, applyAppearance, readAppearance,
 } from './theme/appearance';
@@ -28,16 +29,19 @@ async function start(root: HTMLElement): Promise<void> {
   // opens in the other theme and then switches. It is one loopback request.
   // If the engine does not answer, the system's theme and the default accent
   // stand in, and the appearance query reports the failure when it retries.
-  let appearance = FALLBACK_APPEARANCE;
-  // The collection the window shows is read beside the appearance, so the
+  //
+  // The top bar's arrangement and the collection the window shows are read
+  // beside it, so a window opens on the start page with its own bar, and its
   // first screen reads its own collection rather than the default one first.
+  let appearance = FALLBACK_APPEARANCE;
   const collections = queryClient.prefetchQuery({ queryKey: COLLECTIONS_KEY, queryFn: readCollections });
-  try {
-    appearance = await readAppearance();
+  const [look, bar] = await Promise.allSettled([readAppearance(), readTopBar()]);
+  if (look.status === 'fulfilled') {
+    appearance = look.value;
     queryClient.setQueryData(APPEARANCE_KEY, appearance);
-  } catch {
-    // Left to the query, which will ask again and show what it was told.
   }
+  // One that did not answer is left to its query, which will ask again and show what it was told.
+  if (bar.status === 'fulfilled') queryClient.setQueryData(TOP_BAR_KEY, bar.value);
   await collections;
   applyAppearance(appearance);
   createRoot(root).render(

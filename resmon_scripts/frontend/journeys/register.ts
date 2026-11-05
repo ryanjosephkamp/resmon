@@ -218,6 +218,11 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   '/health/analytics': { rows: ['J05'] },
   '/health/engine': { rows: ['J30'], why: 'Which engine this window is talking to, by its identity.' },
   '/settings': { rows: ['J46'], why: 'Lands on Appearance.' },
+  '/settings/top-bar': {
+    rows: ['J46'],
+    why: 'How the top bar is arranged, kept by the engine beside the theme: the sections\' order, the hidden ones, '
+      + 'the start page, where the resmon name goes, and the run monitor.',
+  },
   '/settings/background': { rows: ['J04'] },
   '/settings/email': { rows: ['J23'] },
   '/settings/notifications': { rows: ['J23'] },

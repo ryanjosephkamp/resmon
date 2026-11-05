@@ -13,7 +13,8 @@ import {
   type Facts, type Running, type Unit, type World,
 } from './service';
 import {
-  RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, routeOf, tabStripHeight, type CollectionId,
+  RUNS_CHANGED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayRunsChanged, routeOf, tabStripHeight,
+  type CollectionId,
 } from './windows';
 import { autoUpdater } from 'electron-updater';
 import { ChildProcess, execFile, execFileSync, spawn } from 'child_process';
@@ -1994,6 +1995,11 @@ app.whenReady().then(async () => {
     ipcMain.on('resmon:run-queued', (event, what: unknown) => {
       const window = senderWindow(event);
       if (window && what && typeof what === 'object') runOwners.claimQueued(what as { ticket?: unknown; routineId?: unknown }, window.id);
+    });
+    // One window saw, stopped, started, or took a run out of the queue: the
+    // others read the runs going now at once (`relayRunsChanged`).
+    ipcMain.on(RUNS_CHANGED, (event) => {
+      relayRunsChanged(appWindows, senderWindow(event));
     });
     // The theme the app shows (`/api/appearance`), so the parts of a window the
     // system draws follow it: macOS's tab bar drew its titles for the system's

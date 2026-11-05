@@ -2,6 +2,8 @@ import { useEffect, type RefObject } from 'react';
 import { SECTIONS, SETTINGS } from '../routes';
 import { Icon } from './Icon';
 import { COMMAND_ENTER_CHORD, FIND_CHORD, NEW_TAB_CHORD, keysText, sectionPath, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
+import { sectionOf } from './topBar';
+import { useTopBar } from './useTopBar';
 
 /** What each shortcut does, in the words the sheet uses. Sections are named from the route table. */
 const SAYS: Partial<Record<ShortcutId, string>> = {
@@ -26,14 +28,18 @@ const COLUMNS: readonly (readonly { title: string; ids: readonly ShortcutId[] }[
     { title: 'Reading a file', ids: [] },
   ],
   [
-    { title: 'Go to', ids: ['section-1', 'section-2', 'section-3', 'section-7', 'section-4', 'section-5', 'section-6', 'settings'] },
+    { title: 'Go to', ids: ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-6', 'section-7', 'settings'] },
     { title: 'Anywhere', ids: ['palette', 'shortcuts'] },
   ],
 ];
 
-/** The words for a shortcut: what it does, from the table above or the section it opens. */
-export function shortcutWords(id: ShortcutId): string {
-  const path = sectionPath(id);
+/**
+ * The words for a shortcut: what it does, from the table above or the section
+ * it opens, by the top bar's order (`keys`, the sections' addresses as ⌘1 to
+ * ⌘7 take them).
+ */
+export function shortcutWords(id: ShortcutId, keys: readonly string[]): string {
+  const path = sectionPath(id, keys);
   return path === null ? SAYS[id] ?? id : SECTIONS.find((section) => section.path === path)?.label ?? id;
 }
 
@@ -60,12 +66,18 @@ export function ShortcutsSheet({ open, onClose, dialog, mac }: {
   dialog: RefObject<HTMLDialogElement | null>;
   mac: boolean;
 }) {
+  const { arranged } = useTopBar();
   useEffect(() => {
     const node = dialog.current;
     if (!node) return;
     if (open && !node.open) node.showModal();
     else if (!open && node.open) node.close();
   }, [open, dialog]);
+  /** A section's shortcut whose section the bar does not show. */
+  const offTheBar = (id: ShortcutId) => {
+    const section = sectionOf(sectionPath(id, arranged.keyPaths) ?? '');
+    return section !== null && arranged.hidden.has(section);
+  };
 
   return (
     <dialog
@@ -93,7 +105,10 @@ export function ShortcutsSheet({ open, onClose, dialog, mac }: {
                     const found = SHORTCUTS.find((s) => s.id === id);
                     return found && (
                       <div key={id} data-shortcut={id}>
-                        <dt>{shortcutWords(id)}</dt>
+                        <dt>
+                          {shortcutWords(id, arranged.keyPaths)}
+                          {offTheBar(id) && <span className="keys-aside">not in the top bar</span>}
+                        </dt>
                         <Keys shortcut={found} mac={mac} />
                       </div>
                     );

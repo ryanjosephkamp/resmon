@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useEffectEvent, useRef, useState, type MouseEvent } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { HOME, SECTIONS, SETTINGS } from '../routes';
+import { SETTINGS, sectionFor } from '../routes';
 import { bridge, isMac } from '../bridge';
 import { useAsk } from '../screens/ask/AskProvider';
 import { RunMonitor } from '../screens/runs/RunMonitor';
@@ -17,12 +17,12 @@ import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
+import { pageName } from './topBar';
+import { useTopBar, useTopBarFollowsOtherWindows } from './useTopBar';
 import {
   COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
   sectionShortcut, shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
-
-const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? 'Today';
 
 /**
  * A click on the bar leaves the focus where it was, as a toolbar does, so the
@@ -31,7 +31,13 @@ const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? '
  */
 const keepFocus = (event: MouseEvent) => event.preventDefault();
 
-/** The frame every screen sits in: the top bar, the screen, the palette, and the keyboard's shortcuts. */
+/**
+ * The frame every screen sits in: the top bar, the screen, the palette, and
+ * the keyboard's shortcuts. The bar's sections are the ones the person did not
+ * hide, in their order (Settings › Top bar, one arrangement for every
+ * collection). Whatever is hidden, the collection the window shows stays
+ * beside the resmon name and Settings at the bar's right end.
+ */
 export function Shell() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -48,8 +54,11 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { answering, requestFocus, select } = useAsk();
-  // Settings › Appearance can hide the run monitor; runs still notify, and the Runs tab still lists them.
+  // Settings › Top bar can hide the run monitor; runs still notify, and the Runs tab still lists them.
   const { stored: appearance } = useAppearance();
+  // The sections in the order the person chose, and only those they did not hide (Settings › Top bar).
+  const { arranged } = useTopBar();
+  useTopBarFollowsOtherWindows();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret
@@ -82,7 +91,7 @@ export function Shell() {
       return;
     }
     closeDialogs();
-    const section = sectionPath(id);
+    const section = sectionPath(id, arranged.keyPaths);
     if (section !== null) {
       go(section);
       return;
@@ -159,19 +168,19 @@ export function Shell() {
   return (
     <div className={mac ? 'frame is-mac' : 'frame'}>
       <header className="bar">
-        <Link to={HOME} className="lockup" aria-label={`resmon, ${HOME_LABEL}`} onMouseDown={keepFocus}>
+        <Link to={arranged.lockup} className="lockup" aria-label={`resmon, ${pageName(arranged.lockup)}`} onMouseDown={keepFocus}>
           <b aria-hidden="true">res</b><span aria-hidden="true">earch </span>
           <b aria-hidden="true">mon</b><span aria-hidden="true">itor</span>
         </Link>
         <CollectionSwitcher />
-        <nav className="tabs" aria-label="Sections">
+        <nav className="tabs" aria-label="Sections" hidden={arranged.shown.length === 0}>
           <ul>
-            {SECTIONS.map((section) => (
+            {arranged.shown.map(sectionFor).map((section) => (
               <li key={section.path}>
                 <NavLink
                   to={section.path}
                   onMouseDown={keepFocus}
-                  aria-keyshortcuts={[sectionShortcut(section.path), section.path === '/ask' ? 'ask' : null]
+                  aria-keyshortcuts={[sectionShortcut(section.path, arranged.keyPaths), section.path === '/ask' ? 'ask' : null]
                     .filter((id): id is ShortcutId => id !== null).map(keys).join(' ') || undefined}
                 >
                   {section.label}

@@ -703,6 +703,42 @@ class Appearance(LosslessModel):
     run_monitor: bool
 
 
+# The top bar's seven sections, by the name the engine keeps them under, in
+# their default order.
+TopBarSection = Literal["today", "watches", "search", "runs", "library", "ask", "health"]
+
+# Every page a window can open on, and the resmon name in the bar can go to: each
+# section's own address, and each tab within one. A page that needs an id (a run,
+# a paper, a watch) or that starts something (a new watch) is not here, and
+# neither is Settings.
+TopBarPage = Literal[
+    "/today",
+    "/watches", "/watches/calendar", "/watches/people",
+    "/search", "/search/ask", "/search/saved", "/search/wording",
+    "/runs",
+    "/library", "/library/files", "/library/evidence",
+    "/ask",
+    "/health", "/health/watchdog", "/health/analytics", "/health/engine",
+]
+
+
+class TopBar(LosslessModel):
+    """``GET`` and ``PUT /api/top-bar``: how the top bar is arranged.
+
+    ``order`` names all seven sections, always: one an older build's stored
+    order lacked is put back after the section it follows by default.
+    ``hidden`` is the ones the bar leaves out, in that order; a hidden section
+    still has its address and its shortcut. ``start`` is the page a launch and
+    a new window open on, and ``lockup`` is where the resmon name goes, null
+    when it goes to the start page.
+    """
+
+    order: list[TopBarSection]
+    hidden: list[TopBarSection]
+    start: TopBarPage
+    lockup: Optional[TopBarPage]
+
+
 class ExecutionSettingsSaved(LosslessModel):
     """``PUT /api/settings/execution`` echoes what it stored.
 

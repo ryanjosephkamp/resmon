@@ -321,7 +321,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       await expect(mark(page)).toHaveAttribute('data-monitor', 'running', { timeout: 30_000 });
       await expect(page.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)).toHaveCount(1, { timeout: 30_000 });
     }
-    // Stop in one window; the other shows it at its next read of the engine.
+    // Stop in one window; the other is told, and reads the engine again at once.
     await first.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)
       .getByRole('button', { name: /^Stop/ }).first().click();
     release();
@@ -330,7 +330,8 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       await expect(mark(page)).not.toHaveAttribute('data-monitor', 'running', { timeout: 30_000 });
     }
     expect((await api<{ status: string }>(second, `/api/executions/${slow.execution_id}`)).status).toBe('cancelled');
-    // A failure is red in both; the panel opened in one clears it in both, since what was seen is the engine's.
+    // A failure is red in both; the panel opened in one clears it in both, since what was seen is the engine's,
+    // and the other window is told at once (`relayRunsChanged`) rather than at its next idle read, 15 s away.
     const broken = await api<{ execution_id: number }>(second, '/api/search/dive', 'POST',
       { repository: 'arxiv', query: 'broken', keywords: ['broken'], max_results: 5 });
     for (const page of [first, second]) await expect(mark(page)).toHaveAttribute('data-monitor', 'failed', { timeout: 60_000 });
@@ -339,9 +340,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await mark(first).click();
     await seen;
     await expect(mark(first)).toHaveAttribute('data-monitor', 'idle');
-    // The other window learns it at its next read of the running runs, which comes every 15 s
-    // while nothing runs; twice that leaves room for a read that had just gone out.
-    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 30_000 });
+    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 4_000 });
     expect((await api<{ failed_unseen: number[] }>(second, '/api/executions/active')).failed_unseen).not.toContain(broken.execution_id);
     await first.keyboard.press('Escape');
 

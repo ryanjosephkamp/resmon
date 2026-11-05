@@ -3,7 +3,7 @@ title: "Today"
 summary: "The collection as a map, and the papers that arrived since you last marked all read."
 order: 4
 ---
-**Today** is the first screen in the top bar. On the left is a map of every paper in the collection the window shows. On the right is the list of papers that arrived in it since you last looked.
+**Today** is the first screen in the top bar, and the one resmon opens on, unless you change either in **Settings › Top bar**. On the left is a map of every paper in the collection the window shows. On the right is the list of papers that arrived in it since you last looked.
 
 ## What counts as new
 

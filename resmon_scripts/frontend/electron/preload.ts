@@ -106,4 +106,11 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   setThemeSource: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send('resmon:theme-source', theme),
   runStarted: (executionId: number): void => ipcRenderer.send('resmon:run-started', executionId),
   runQueued: (what: { ticket?: string; routineId?: number }): void => ipcRenderer.send('resmon:run-queued', what),
+  // The runs going now changed here, or in another window (\`electron/windows.ts\`, \`relayRunsChanged\`).
+  runsChanged: (): void => ipcRenderer.send('resmon:runs-changed'),
+  onRunsChanged: (callback: () => void): (() => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('resmon:runs-changed', listener);
+    return () => { ipcRenderer.removeListener('resmon:runs-changed', listener); };
+  },
 });
