@@ -103,7 +103,7 @@ def plan(query: PaperQuery, sources: Iterable[str]) -> tuple[list[str], list[dic
         if slug in RETIRED_REPOSITORIES:
             why = RETIRED_REPOSITORIES[slug]
         elif capability is None or not capability.kinds:
-            why = (capability.established if capability and capability.established
+            why = (capability.why_not if capability and capability.why_not
                    else f"resmon cannot look a paper up at {name}.")
         elif query.kind not in capability.kinds:
             kinds = listed([KIND_WORDS[k] for k in capability.kinds])

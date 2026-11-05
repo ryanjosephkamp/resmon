@@ -62,7 +62,7 @@ def test_a_source_is_asked_only_by_a_kind_its_capability_names():
     assert asked == ["arxiv", "inspire_hep", "semantic_scholar"]
     why = {item["source"]: item["why"] for item in not_asked}
     assert "Crossref can be asked by DOI and title, not by arXiv id." == why["crossref"]
-    assert "CORE requires a key" in why["core"]
+    assert "needs an API key" in why["core"]
     assert "datasets" in why["dryad"]
 
 
@@ -306,3 +306,23 @@ def test_doaj_keeps_a_dois_slash_inside_its_one_path_segment(monkeypatch):
     api_registry.get_client("doaj").lookup("doi", DOI)
     path = urls[0][len(api_doaj._DOAJ_API_URL) + 1:]
     assert "/" not in path and unquote(path) == f'doi:"{DOI}"'
+
+
+def test_a_source_asked_by_nothing_says_why_in_words_a_person_reads():
+    """The catalog's ``established`` note, a record of the check with its dates and queries, was shown as the why."""
+    import re
+
+    from implementation_scripts.repo_catalog import PAPER_LOOKUP
+
+    unasked = sorted(slug for slug, cap in PAPER_LOOKUP.items() if not cap.kinds)
+    assert unasked, "some source is asked by nothing"
+    _asked, not_asked = paper_find.plan(paper_find.parse("10.1371/journal.pone.0000308"), unasked)
+    why = {n["source"]: n["why"] for n in not_asked}
+    assert set(why) == set(unasked)
+    for slug, sentence in why.items():
+        assert sentence == PAPER_LOOKUP[slug].why_not, slug
+        assert "`" not in sentence and "not established" not in sentence, (slug, sentence)
+        assert not re.search(r"\d{4}-\d\d-\d\d", sentence), (slug, sentence)
+        assert sentence[0].isupper() or sentence.startswith("resmon "), (slug, sentence)
+    assert why["pubmed"].startswith("PubMed's search answered with errors")
+    assert "November 5, 2026" in why["pubmed"]
