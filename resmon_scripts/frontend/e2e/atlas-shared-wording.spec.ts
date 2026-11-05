@@ -237,15 +237,17 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
 
     // — a Library file, compared from its own button ---------------------------------
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' }).click();
-    await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Your files' }).click();
+    await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /Your files/ }).click();
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT, or MD');
+    const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles([notes]);
     await expect(win.locator('[data-library="imported"]')).toHaveText('1 retained, 0 exact duplicates reused.', { timeout: 60_000 });
-    const detail = win.getByRole('region', { name: 'Selected Library item' });
-    await expect(detail.locator('.lib-detail-name')).toHaveText('tank-notes.txt');
+    await win.locator('article.card', { has: win.getByRole('heading', { name: 'tank-notes.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    const detail = win.locator('.lib-file');
+    await expect(detail.getByRole('heading', { name: 'tank-notes.txt', level: 1 })).toBeVisible();
+    await detail.locator('details.lib-record summary').click();
     const fileId = (await detail.locator('[data-library="file-id"]').innerText()).trim();
     const versionId = (await detail.locator('[data-library="version-id"]').innerText()).trim();
     const vaultId = (await api<{ vault: { vault_id: string } }>(win, '/api/library', { library: true })).vault.vault_id;

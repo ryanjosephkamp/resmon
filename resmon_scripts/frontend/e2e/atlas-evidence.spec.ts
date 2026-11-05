@@ -79,11 +79,11 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     win.on('dialog', (d) => { void d.accept(); });
 
     // — the library, and three files in it --------------------------------------------
-    await win.evaluate(() => { window.location.hash = '#/library/files'; });
+    await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await expect(win.locator('[data-library="parent"]')).toHaveText(parent, { timeout: 30_000 });
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT, or MD');
+    const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['unicode.txt', 'two-pages.pdf', 'image-only.pdf'].map((n) => path.join(FIXTURES, n)));
     await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused.', { timeout: 60_000 });
@@ -93,11 +93,12 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     const idOf = (name: string) => files.find((f) => f.original_name === name)!;
 
     // — brought from Your files, and added only when asked ------------------------------
-    await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Evidence' }).click();
+    await win.evaluate(() => { window.location.hash = '#/library/evidence'; });
     await expect(win.getByText('No project yet. Start one, then add files from your library.')).toBeVisible({ timeout: 30_000 });
-    await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Your files' }).click();
-    await win.locator('button.library-file', { hasText: 'unicode.txt' }).click();
-    await win.getByRole('region', { name: 'Selected Library item' }).getByRole('link', { name: 'Open in Evidence' }).click();
+    await win.getByRole('navigation', { name: 'Back to the Library' }).getByRole('link', { name: 'Library' }).click();
+    await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /Your files/ }).click();
+    await win.locator('article.card', { has: win.getByRole('heading', { name: 'unicode.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     const handoff = win.getByRole('region', { name: 'Brought from Your files' });
     await expect(handoff).toContainText('unicode.txt');
     await expect(handoff).toContainText('Start a project for it');
@@ -249,9 +250,9 @@ test('Evidence: a project from Your files, passages by codepoint, pages by numbe
     await expect(record).toContainText('file removed from the project');
 
     // — brought again: an exact version already held is said to be held ------------------
-    await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Your files' }).click();
-    await win.locator('button.library-file', { hasText: 'unicode.txt' }).click();
-    await win.getByRole('region', { name: 'Selected Library item' }).getByRole('link', { name: 'Open in Evidence' }).click();
+    await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
+    await win.locator('article.card', { has: win.getByRole('heading', { name: 'unicode.txt', exact: true }) }).getByRole('button', { name: 'Read' }).click();
+    await win.getByRole('link', { name: 'Open in Evidence' }).first().click();
     await win.locator('button.ev-project', { hasText: 'Atlas evidence, renamed' }).click();
     await expect(handoff.getByText('This exact version is already in the project.')).toBeVisible({ timeout: 30_000 });
     await handoff.getByRole('button', { name: 'Read it' }).click();

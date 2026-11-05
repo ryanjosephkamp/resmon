@@ -197,8 +197,8 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   },
   '/search/saved': { rows: ['J21'] },
   '/search/wording': { rows: ['J49'] },
-  '/library': { rows: ['J28'], why: 'Lands on the Reading queue.' },
-  '/library/files': { rows: ['J34'] },
+  '/library': { rows: ['J28'], why: 'Lands on the gallery\'s To read shelf: the reading queue.' },
+  '/library/files': { rows: ['J34'], why: 'Leads to the gallery\'s Your files shelf.' },
   '/library/evidence': { rows: ['J35', 'J36', 'J37'] },
   '/ask': {
     rows: ['J13', 'J14', 'J31', 'J32', 'J33'],
@@ -228,6 +228,7 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
     rows: ['J41', 'J24'],
     why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',
   },
+  '/settings/library': { rows: ['J34'], why: 'Where the Library folder is, changing it, and the files removed from it.' },
   '/settings/tutorials': { rows: ['J25'] },
   '/settings/about': {
     rows: ['J25'],

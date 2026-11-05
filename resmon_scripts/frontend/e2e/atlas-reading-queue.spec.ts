@@ -1,17 +1,18 @@
 /**
- * Atlas: the whole reading queue, a page at a time, in the real app.
+ * Atlas: the whole reading queue as the Library's gallery, in the real app.
  *
  * The engine answers at most 200 entries a request, so a queue of 203 is
  * seeded, as a person who had saved that many would have it: every paper to
  * read, saved in the same second, so the engine's order is the paper's
- * number, newest first, and the last three are alone on page two. Then what a
- * person does: page to them with Next, tick two and export them, mark one
- * read, take one out, and mark the last one read, which leaves page two with
- * nothing on it. After each, the screen's range and counts are held to the
- * engine's own, and what the export wrote is read back from the file.
+ * number, newest first, and the last three come from the second request.
+ * The gallery draws only the rows near the view, and reads the next 200 as
+ * the view nears the end. Then what a person does: scroll to the last three,
+ * pick two and export them, mark one read, and take one out. After each, the
+ * counts are held to the engine's own, and what the export wrote is read back
+ * from the file.
  *
  * The journey J28 drives a queue of two through `journeys/drivers/atlas.ts`;
- * this spec is the part that crosses a page. No network is involved.
+ * this spec is the part that crosses a request. No network is involved.
  */
 import { spawnSync } from 'child_process';
 import * as fs from 'fs';
@@ -56,7 +57,7 @@ async function api<T>(win: Page, route: string, method = 'GET'): Promise<T> {
   }, [route, method] as const) as Promise<T>;
 }
 
-test('the reading queue past its first page: paging, ticks, export, and a page that empties', async () => {
+test('the reading queue past its first 200: drawn near the view, read as it is scrolled, picked, exported, marked, taken out', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-queue-'));
   const env: Record<string, string> = { ...launchEnv(stateDir, true) };
@@ -64,7 +65,7 @@ test('the reading queue past its first page: paging, ticks, export, and a page t
   expect(seeded.status, seeded.stderr).toBe(0);
   const { ids } = JSON.parse(seeded.stdout.trim().split('\n').pop() ?? '{}') as { ids: number[] };
   expect(ids).toHaveLength(SIZE);
-  // Newest first, and the same second for all: the highest number leads, the three lowest are on page two.
+  // Newest first, and the same second for all: the highest number leads, the three lowest come last.
   const [first, second, third] = ids as [number, number, number];
 
   const app = await electron.launch({
@@ -77,109 +78,70 @@ test('the reading queue past its first page: paging, ticks, export, and a page t
     const problems: string[] = [];
     win.on('pageerror', (e) => problems.push(e.message));
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' }).click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 60_000 });
-    const queue = win.locator('section.queue');
-    const range = win.locator('[data-queue="range"]');
-    const rows = win.locator('.queue-row');
-    const pager = win.getByRole('navigation', { name: 'Pages of the queue' });
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 60_000 });
     const show = win.getByRole('group', { name: 'Show' });
-    const settled = () => expect(queue).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    const cards = win.locator('article.card');
+    const card = (id: number) => win.locator(`article.card[data-document="${id}"]`);
     const engineCounts = async () => (await api<QueuePage>(win, '/api/reading-queue?status=all&limit=1')).counts;
 
-    // — the first page, and the rest a click away --------------------------------
-    await settled();
-    // To read / Read / All is the list's own control: at the content's left edge, under the heading, at any width.
-    const heading = await win.getByRole('heading', { name: 'Reading queue', level: 1 }).boundingBox();
-    const control = await show.boundingBox();
-    expect(Math.abs((control?.x ?? 0) - (heading?.x ?? -10))).toBeLessThan(2);
-    expect(control?.y ?? 0).toBeGreaterThan(heading?.y ?? 0);
-    await expect(range).toHaveText('Papers 1–200 of 203');
-    await expect(rows).toHaveCount(200);
-    await expect(show.getByRole('button', { name: /^To read/ })).toContainText('203');
-    await expect(pager.getByRole('button', { name: 'Previous' })).toBeDisabled();
-    await pager.getByRole('button', { name: 'Next' }).click();
-    await settled();
-    await expect(range).toHaveText('Papers 201–203 of 203');
-    await expect(rows).toHaveCount(3);
-    expect(await rows.evaluateAll((els) => els.map((el) => Number((el as HTMLElement).dataset.document))))
-      .toEqual([third, second, first]);
-    await expect(pager.getByRole('button', { name: 'Next' })).toBeDisabled();
+    // — drawn near the view, every one of them reachable -----------------------------
+    await expect(show.getByRole('button', { name: /^To read/ })).toContainText('203', { timeout: 30_000 });
+    await expect(card(ids[SIZE - 1]!)).toBeVisible({ timeout: 30_000 });
+    const drawn = await cards.count();
+    expect(drawn, 'the gallery drew every card rather than the rows near the view').toBeLessThan(60);
+    // The list says each card's place in the whole, so a screen reader hears 203, not the few drawn.
+    await expect(win.locator('.gal-cell').first()).toHaveAttribute('aria-setsize', '203');
+    const stage = win.locator('main.stage');
+    for (let i = 0; i < 40 && !(await card(first).count()); i += 1) {
+      await stage.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+      await win.waitForTimeout(150);
+    }
+    await expect(card(first)).toBeVisible({ timeout: 30_000 });
+    await expect(card(first).locator('..')).toHaveAttribute('aria-posinset', '203');
 
-    // — two ticked on page two, exported: the file holds those two and no other ------
-    const row = (id: number) => win.locator(`.queue-row[data-document="${id}"]`);
-    await row(third).getByRole('checkbox').check();
-    await row(second).getByRole('checkbox').check();
-    const exportBar = win.locator('[data-queue="export"]');
-    await expect(exportBar).toContainText('2 papers: export as');
-    const ris = path.join(stateDir, 'queue-page-two.ris');
+    // — two picked, exported: the file holds those two and no other ----------------------
+    // Select is at the top; the view goes back down to the last three, which the gallery draws again.
+    await win.getByRole('button', { name: 'Select', exact: true }).click();
+    await stage.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+    await card(third).locator('.thumb').click();
+    await card(second).locator('.thumb').click();
+    const bar = win.getByRole('group', { name: 'The picked cards' });
+    await expect(bar).toContainText('2 of 203 picked');
+    const ris = path.join(stateDir, 'queue-picked.ris');
     await app.evaluate(({ BrowserWindow }, target) => {
       BrowserWindow.getAllWindows()[0].webContents.session.once('will-download', (_e, item) => {
         item.setSavePath(target as string);
       });
     }, ris);
-    await exportBar.getByRole('button', { name: 'RIS', exact: true }).click();
+    await bar.getByRole('group', { name: 'Export the picked papers' }).getByRole('button', { name: 'RIS', exact: true }).click();
     await expect.poll(() => (fs.existsSync(ris) ? fs.statSync(ris).size : 0), { timeout: 30_000 }).toBeGreaterThan(0);
     const exported = fs.readFileSync(ris, 'utf8');
     expect(exported.match(/^TY {2}- /gm) ?? []).toHaveLength(2);
     expect(exported).toContain('Queued paper 003');
     expect(exported).toContain('Queued paper 002');
     expect(exported).not.toContain('Queued paper 001');
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reading-queue-page-two.png') });
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-reading-queue-end.png') });
+    await bar.getByRole('button', { name: 'Done' }).click();
+    await stage.evaluate((node) => { node.scrollTop = node.scrollHeight; });
 
-    // — one marked read leaves To read, and the tick and the count go with it ---------
-    await row(second).getByRole('button', { name: 'Mark read' }).click();
-    await expect(row(second)).toHaveCount(0, { timeout: 30_000 });
-    await expect(range).toHaveText('Papers 201–202 of 202');
-    await expect(exportBar).toContainText('1 paper: export as');
+    // — one marked read leaves To read, and the counts go with it -------------------------
+    await card(second).getByRole('button', { name: 'Mark read' }).click();
+    await expect(card(second)).toHaveCount(0, { timeout: 30_000 });
     await expect(show.getByRole('button', { name: /^Read/ })).toContainText('1');
+    await expect(show.getByRole('button', { name: /^To read/ })).toContainText('202');
     expect(await engineCounts()).toEqual({ to_read: 202, read: 1, all: 203 });
 
     // — one taken out: the paper stays in the collection -------------------------------
-    await row(third).getByRole('button', { name: 'Remove' }).click();
-    await expect(row(third)).toHaveCount(0, { timeout: 30_000 });
-    await expect(range).toHaveText('Papers 201–201 of 201');
-    await expect(exportBar).toHaveCount(0);
+    await card(third).hover();
+    await card(third).getByRole('button', { name: 'Remove from To read' }).click();
+    await expect(card(third)).toHaveCount(0, { timeout: 30_000 });
     expect(await engineCounts()).toEqual({ to_read: 201, read: 1, all: 202 });
     expect((await api<{ id: number }>(win, `/api/documents/${third}`)).id, 'Remove deleted the paper').toBe(third);
 
-    // — the last one on page two marked read: the queue moves to the page there is, -----
-    // and 200 fit on one page, so there is no pager. Every range drawn on the way is
-    // recorded: page one as it was first read ("of 203") is not true any longer, and
-    // must not be shown while the page is read again.
-    await win.evaluate(() => {
-      const drawn: string[] = [];
-      (window as unknown as { ranges: string[] }).ranges = drawn;
-      new MutationObserver(() => {
-        const range = document.querySelector('[data-queue="range"]');
-        if (range?.textContent && drawn[drawn.length - 1] !== range.textContent) drawn.push(range.textContent);
-      }).observe(document.body, { subtree: true, childList: true, characterData: true });
-    });
-    await row(first).getByRole('button', { name: 'Mark read' }).click();
-    await expect(show.getByRole('button', { name: /^To read/ })).toContainText('200', { timeout: 30_000 });
-    await expect(rows).toHaveCount(200);
-    await expect(row(ids[SIZE - 1]!)).toBeVisible();
-    await expect(pager).toHaveCount(0);
-    await expect(win.locator('.queue-empty')).toHaveCount(0);
-    // The only range drawn is the one on screen when Mark read was pressed.
-    const drawn = await win.evaluate(() => (window as unknown as { ranges: string[] }).ranges);
-    expect(drawn.filter((r) => r !== 'Papers 201–201 of 201'), 'a page read before the change was drawn').toEqual([]);
-    expect(await engineCounts()).toEqual({ to_read: 200, read: 2, all: 202 });
-
-    // — Read fits on one page, so there is no pager; All has two, and a tick stays on its page --
+    // — Read holds the one marked read ------------------------------------------------
     await show.getByRole('button', { name: /^Read/ }).click();
-    await settled();
-    await expect(rows).toHaveCount(2);
-    await expect(pager).toHaveCount(0);
-    await show.getByRole('button', { name: /^All/ }).click();
-    await settled();
-    await expect(range).toHaveText('Papers 1–200 of 202');
-    await rows.first().getByRole('checkbox').check();
-    await expect(exportBar).toContainText('1 paper: export as');
-    await pager.getByRole('button', { name: 'Next' }).click();
-    await settled();
-    await expect(range).toHaveText('Papers 201–202 of 202');
-    await expect(exportBar).toHaveCount(0);
-    await expect(win.locator('.queue-row input:checked')).toHaveCount(0);
+    await expect(cards).toHaveCount(1, { timeout: 30_000 });
+    await expect(card(second)).toBeVisible();
 
     expect(problems).toEqual([]);
   } finally {

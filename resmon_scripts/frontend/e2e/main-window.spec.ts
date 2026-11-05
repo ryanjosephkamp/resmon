@@ -140,7 +140,7 @@ test('P3b: the main-process OS-facing surface is still the five that are guarded
   );
   console.log('P3b OS-FACING CALLS IN main.ts and downloads.ts', JSON.stringify([...calls].sort()));
   expect([...calls].sort()).toEqual([
-    'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog',
+    'openExternal', 'openPath', 'showItemInFolder', 'showMessageBox', 'showOpenDialog', 'trashItem',
   ]);
 });
 

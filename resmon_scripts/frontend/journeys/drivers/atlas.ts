@@ -411,12 +411,16 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     };
   };
 
-  /** Library › Your files, opened and read once. */
+  /** Library, its Your files shelf, opened and read once. */
   const openFiles = async (): Promise<void> => {
-    await win().evaluate(() => { window.location.hash = '#/library/files'; });
-    await expect(win().getByRole('heading', { name: 'Your files', level: 1 })).toBeVisible({ timeout: 30_000 });
-    await expect(win().locator('.files-page')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    await win().evaluate(() => { window.location.hash = '#/library?show=files'; });
+    await expect(win().getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.lib-page')).toHaveAttribute('data-show', 'files', { timeout: 30_000 });
+    await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
   };
+  /** A kept file's card on the Your files shelf, by the name it was imported under. */
+  const fileCard = (name: string): Locator => win().locator('article.card.file')
+    .filter({ has: win().getByRole('heading', { name, exact: true }) });
 
   /** The vault the engine made inside the chosen folder: the one `resmon-library-*` there. */
   const vaultDirectory = (): string => {
@@ -426,17 +430,27 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return path.join(libraryParent, made[0]!);
   };
 
-  /** One file's record as the detail draws it, once the detail is that file's. */
+  /**
+   * One file's record as its own page draws it: the record opened, and each
+   * linked paper as the page names it, with the number its link leads to.
+   */
   const readLibraryDetail = async (fileId: string): Promise<LibraryItem> => {
-    const detail = win().getByRole('region', { name: 'Selected Library item' });
-    await expect(detail).toHaveAttribute('data-file', fileId, { timeout: 30_000 });
+    await win().evaluate((id) => { window.location.hash = `#/library/files/${id}`; }, fileId);
+    const page = win().locator(`.lib-file-page[data-file="${fileId}"]`);
+    await expect(page.locator('.lib-file-name')).toBeVisible({ timeout: 30_000 });
+    const record = page.locator('details.lib-record');
+    if (await record.getAttribute('open') === null) await record.locator('summary').click();
+    const links = await page.locator('[data-library="links"] li a').evaluateAll((anchors) => anchors.map((a) => {
+      const id = /#\/papers\/(\d+)/.exec((a as HTMLAnchorElement).getAttribute('href') ?? '')?.[1] ?? '?';
+      return `Paper ${id}: ${(a.textContent ?? '').trim()}`;
+    }));
     return {
-      name: (await detail.locator('.lib-detail-name').innerText()).trim(),
-      mediaType: (await detail.locator('[data-library="media"]').innerText()).trim(),
-      sha256: (await detail.locator('[data-library="sha256"]').innerText()).trim(),
-      fileId: (await detail.locator('[data-library="file-id"]').innerText()).trim(),
-      versionId: (await detail.locator('[data-library="version-id"]').innerText()).trim(),
-      associations: (await detail.locator('[data-library="links"] li').allInnerTexts()).map((t) => t.trim()),
+      name: (await page.locator('.lib-file-name').innerText()).trim(),
+      mediaType: (await record.locator('[data-library="media"]').innerText()).trim(),
+      sha256: (await record.locator('[data-library="sha256"]').innerText()).trim(),
+      fileId: (await record.locator('[data-library="file-id"]').innerText()).trim(),
+      versionId: (await record.locator('[data-library="version-id"]').innerText()).trim(),
+      associations: links,
     };
   };
 
@@ -764,21 +778,38 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     };
   };
 
-  const openQueue = async (filter: 'to read' | 'read' | 'all'): Promise<void> => {
-    await win().evaluate(() => { window.location.hash = '#/library'; });
-    await expect(win().getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
-    const button = win().getByRole('group', { name: 'Show' }).getByRole('button', { name: new RegExp(`^${QUEUE_FILTER[filter]}`) });
-    await button.click();
+  /** One of the Library's two reading shelves, To read or Read, read in full. */
+  const openShelf = async (shelf: 'to read' | 'read'): Promise<void> => {
+    await win().evaluate((show) => { window.location.hash = `#/library?show=${show}`; }, shelf === 'read' ? 'read' : 'to_read');
+    await expect(win().getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
+    const button = win().getByRole('group', { name: 'Show' }).getByRole('button', { name: new RegExp(`^${QUEUE_FILTER[shelf]}`) });
     await expect(button).toHaveAttribute('aria-pressed', 'true');
-    await expect(win().locator('section.queue')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
-    await expect(win().locator('.queue-row, .queue-empty').first()).toBeVisible({ timeout: 30_000 });
+    await expect(win().locator('.lib-reading')).toHaveCount(0, { timeout: 30_000 });
+    await expect(win().locator('article.card, .lib-empty, .lib-empty-queue').first()).toBeVisible({ timeout: 30_000 });
   };
-
-  const readQueue = async (): Promise<QueuedPaper[]> => win().locator('.queue-row').evaluateAll((rows) => rows.map((row) => ({
-    id: Number((row as HTMLElement).dataset.document),
-    title: row.querySelector('.queue-title')?.textContent?.trim() ?? '',
-    state: row.querySelector('.queue-state')?.textContent?.trim() ?? '',
+  const readShelf = async (): Promise<QueuedPaper[]> => win().locator('article.card[data-document]').evaluateAll((cards) => cards.map((card) => ({
+    id: Number((card as HTMLElement).dataset.document),
+    title: card.querySelector('.card-title')?.textContent?.trim() ?? '',
+    state: (card as HTMLElement).dataset.status === 'read' ? 'Read' : 'To read',
   })));
+  /** The queue as a filter once named it: a shelf, or both shelves for All. */
+  const readQueueFor = async (filter: 'to read' | 'read' | 'all'): Promise<QueuedPaper[]> => {
+    const out: QueuedPaper[] = [];
+    for (const shelf of filter === 'all' ? ['to read', 'read'] as const : [filter]) {
+      await openShelf(shelf);
+      out.push(...await readShelf());
+    }
+    return out;
+  };
+  /** The shelf a saved paper is on now, opened, and its card. */
+  const queuedCard = async (paper: QueuedPaper): Promise<Locator> => {
+    for (const shelf of ['to read', 'read'] as const) {
+      await openShelf(shelf);
+      const card = win().locator(`article.card[data-document="${paper.id}"]`);
+      if (await card.count()) return card;
+    }
+    throw new Error(`paper ${paper.id} is on neither reading shelf`);
+  };
 
   // — watches ---------------------------------------------------------------
 
@@ -1036,7 +1067,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
       await openFiles();
       await win().getByRole('button', { name: 'Create the library here', exact: true }).click();
       // The control that exists only once there is somewhere to import into.
-      await expect(win().getByLabel('Import PDF, TXT, or MD')).toBeEnabled({ timeout: 60_000 });
+      await expect(win().getByLabel('Import PDF, TXT, MD, or TeX')).toBeEnabled({ timeout: 60_000 });
       return vaultDirectory();
     },
 
@@ -1049,7 +1080,7 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         fs.writeFileSync(target, file.content);
         return target;
       });
-      const control = win().getByLabel('Import PDF, TXT, or MD');
+      const control = win().getByLabel('Import PDF, TXT, MD, or TeX');
       await expect(control).toBeEnabled({ timeout: 60_000 });
       await control.setInputFiles(paths);
       // The page's own account of what it did, written once every file was answered.
@@ -1060,28 +1091,31 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     readTheLibraryItems: async (): Promise<LibraryItem[]> => {
       await openFiles();
-      const rows = win().getByRole('region', { name: 'Library files' }).locator('button.library-file');
-      await expect(rows.first()).toBeVisible({ timeout: 60_000 });
+      const cards = win().locator('article.card.file');
+      await expect(cards.first()).toBeVisible({ timeout: 60_000 });
+      const ids = await cards.evaluateAll((all) => all.map((card) => String((card as HTMLElement).dataset.file)));
       const out: LibraryItem[] = [];
-      for (let i = 0; i < await rows.count(); i += 1) {
-        const row = rows.nth(i);
-        await row.click();
-        out.push(await readLibraryDetail(String(await row.getAttribute('data-file'))));
-      }
+      for (const id of ids) out.push(await readLibraryDetail(id));
       return out;
     },
 
     associateTheLibraryItemWithPaper: async (name, paperId): Promise<string> => {
+      // A paper is chosen by searching for it, as a person does: by its stored title.
+      const paper = await win().evaluate(async (id) => {
+        const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+        return (await (await e2eFetch(`http://127.0.0.1:${port}/api/documents/${id}`)).json()) as { title: string };
+      }, paperId);
       await openFiles();
-      const row = win().locator('button.library-file').filter({ has: win().locator('.lib-name', { hasText: name }) });
-      await row.click();
-      const detail = win().getByRole('region', { name: 'Selected Library item' });
-      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
-      await detail.locator('#lib-paper').fill(String(paperId));
-      await detail.getByRole('button', { name: 'Link', exact: true }).click();
-      const notice = detail.locator('[data-library="linked"]');
-      await expect(notice).toContainText(`Linked paper ${paperId}`, { timeout: 60_000 });
-      return (await notice.innerText()).trim();
+      await fileCard(name).getByRole('button', { name: 'Read', exact: true }).click();
+      const page = win().locator('.lib-file');
+      await expect(page.locator('.lib-file-name')).toHaveText(name, { timeout: 30_000 });
+      await page.locator('.lib-file-head').getByRole('button', { name: 'Link to a paper' }).click();
+      const picker = win().getByRole('dialog', { name: `Link ${name} to a paper` });
+      await picker.getByLabel('Find a paper by title, author, or words in it').fill(paper.title.slice(0, 60));
+      await picker.locator(`button[data-document="${paperId}"]`).click();
+      await expect(picker).toHaveCount(0, { timeout: 30_000 });
+      await expect(page.locator(`[data-library="links"] a[href="#/papers/${paperId}"]`)).toBeVisible({ timeout: 60_000 });
+      return (await page.locator('#lib-file-links .form-hint').innerText()).trim();
     },
 
     readTheVaultOnDisk: async (): Promise<VaultOnDisk> => {
@@ -1115,10 +1149,9 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
 
     startAnEvidenceProjectFrom: async (item, project): Promise<EvidencePageView> => {
       await openFiles();
-      const row = named(win().getByRole('region', { name: 'Library files' }).locator('button.library-file'), '.lib-name', item);
-      await row.click();
-      const detail = win().getByRole('region', { name: 'Selected Library item' });
-      await expect(detail).toHaveAttribute('data-file', String(await row.getAttribute('data-file')), { timeout: 30_000 });
+      await fileCard(item).getByRole('button', { name: 'Read', exact: true }).click();
+      const detail = win().locator('.lib-file-head');
+      await expect(detail.locator('.lib-file-name')).toHaveText(item, { timeout: 30_000 });
       await detail.getByRole('link', { name: 'Open in Evidence', exact: true }).click();
       const handoff = win().getByRole('region', { name: 'Brought from Your files' });
       await expect(handoff, 'Open in Evidence did not carry the Library item across').toContainText(item, { timeout: 30_000 });
@@ -2105,28 +2138,31 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       return saved;
     },
 
-    readReadingQueue: async (filter) => {
-      await openQueue(filter);
-      return readQueue();
-    },
+    readReadingQueue: (filter) => readQueueFor(filter),
 
     markPaperRead: async (paper) => {
-      await openQueue('all');
-      const row = win().locator(`.queue-row[data-document="${paper.id}"]`);
-      await row.getByRole('button', { name: 'Mark read' }).click();
-      await expect(row.locator('.queue-state')).toHaveText('Read', { timeout: 30_000 });
+      const card = await queuedCard(paper);
+      await card.getByRole('button', { name: 'Mark read' }).click();
+      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
+      await openShelf('read');
+      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveAttribute('data-status', 'read', { timeout: 30_000 });
     },
 
     removeFromReadingQueue: async (paper) => {
-      await openQueue('all');
-      await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('button', { name: 'Remove' }).click();
-      await expect(win().locator(`.queue-row[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
+      const card = await queuedCard(paper);
+      await card.hover();
+      await card.getByRole('button', { name: /^Remove from (To read|Read)$/ }).click();
+      await expect(win().locator(`article.card[data-document="${paper.id}"]`)).toHaveCount(0, { timeout: 30_000 });
     },
 
     exportReadingQueue: async (papers, format): Promise<ExportedFile> => {
-      await openQueue('all');
+      // Picked on the shelf they are on; a selection is one shelf's.
+      const shelves = new Set<string>();
+      for (const paper of papers) shelves.add(String(await (await queuedCard(paper)).getAttribute('data-status')));
+      expect(shelves.size, 'the papers to export are on both shelves; a selection is one shelf\'s').toBe(1);
+      await win().getByRole('button', { name: 'Select', exact: true }).click();
       for (const paper of papers) {
-        await win().locator(`.queue-row[data-document="${paper.id}"]`).getByRole('checkbox').check();
+        await win().locator(`article.card[data-document="${paper.id}"] .thumb`).click();
       }
       const label = { bibtex: 'BibTeX', ris: 'RIS', csv: 'CSV' }[format];
       const extension = { bibtex: 'bib', ris: 'ris', csv: 'csv' }[format];
@@ -2136,7 +2172,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
           item.setSavePath(target as string);
         });
       }, destination);
-      await win().locator('.queue-export').getByRole('button', { name: label, exact: true }).click();
+      await win().getByRole('group', { name: 'Export the picked papers' }).getByRole('button', { name: label, exact: true }).click();
       await expect.poll(() => fs.existsSync(destination), { timeout: 30_000 }).toBe(true);
       await expect.poll(() => fs.statSync(destination).size, { timeout: 30_000 }).toBeGreaterThan(0);
       return { path: destination, text: fs.readFileSync(destination, 'utf8') };

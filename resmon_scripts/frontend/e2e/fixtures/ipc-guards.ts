@@ -9,10 +9,11 @@
  * over `dialog.showOpenDialog` and friends *replaces* them — the real call is
  * never reached, and a counter says whether anything tried.
  *
- * The five are the complete set, taken from
+ * The six are the complete set, taken from
  * `grep -n 'dialog\.\|shell\.' electron/main.ts`: `dialog.showOpenDialog`,
  * `dialog.showMessageBox` (the auto-updater's prompt), `shell.openExternal`,
- * `shell.openPath` and `shell.showItemInFolder`. When `main.ts` grows a sixth,
+ * `shell.openPath`, `shell.showItemInFolder` and `shell.trashItem` (a file the
+ * Library holds as removed, sent to the Trash). When `main.ts` grows a seventh,
  * `main-window.spec.ts` fails: it re-derives the list from the file.
  */
 import type { ElectronApplication } from '@playwright/test';
@@ -23,6 +24,7 @@ export interface Escaped {
   openExternal: number;
   openPath: number;
   showItemInFolder: number;
+  trashItem: number;
 }
 
 export interface Stubbed {
@@ -35,6 +37,7 @@ export interface Stubbed {
   relaunch: number;
   swipeNavigation: number;
   swipeHistory: number;
+  trashPath: number;
 }
 
 /**
@@ -53,6 +56,7 @@ export const STUBBED_CHANNELS: Record<keyof Stubbed, string> = {
   relaunch: 'resmon:relaunch',
   swipeNavigation: 'resmon:swipe-navigation',
   swipeHistory: 'resmon:swipe-history',
+  trashPath: 'resmon:trash-path',
 };
 
 export interface GuardCounts {
@@ -68,6 +72,7 @@ export const NOTHING_ESCAPED: Escaped = {
   openExternal: 0,
   openPath: 0,
   showItemInFolder: 0,
+  trashItem: 0,
 };
 
 /**
@@ -77,13 +82,14 @@ export const NOTHING_ESCAPED: Escaped = {
 export async function installIpcGuards(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ ipcMain, dialog, shell }) => {
     const counts = {
-      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0, swipeNavigation: 0, swipeHistory: 0 },
+      stubbed: { chooseDirectory: 0, chooseFile: 0, openPath: 0, revealPath: 0, getDownloads: 0, revealDownload: 0, relaunch: 0, swipeNavigation: 0, swipeHistory: 0, trashPath: 0 },
       escaped: {
         showOpenDialog: 0,
         showMessageBox: 0,
         openExternal: 0,
         openPath: 0,
         showItemInFolder: 0,
+        trashItem: 0,
       },
       lastArgs: {} as Record<string, unknown>,
     };
@@ -118,6 +124,11 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
       counts.escaped.showItemInFolder += 1;
       counts.lastArgs.showItemInFolder = p;
     }) as unknown as typeof shell.showItemInFolder;
+
+    shell.trashItem = (async (p: string) => {
+      counts.escaped.trashItem += 1;
+      counts.lastArgs.trashItem = p;
+    }) as unknown as typeof shell.trashItem;
 
     ipcMain.removeHandler('resmon:choose-directory');
     ipcMain.handle('resmon:choose-directory', async (_e, defaultPath?: string) => {
@@ -172,6 +183,13 @@ export async function installIpcGuards(app: ElectronApplication): Promise<void> 
     ipcMain.handle('resmon:swipe-navigation', async () => {
       counts.stubbed.swipeNavigation += 1;
       return false;
+    });
+    // Sending a file to the Trash is counted and refused, never done.
+    ipcMain.removeHandler('resmon:trash-path');
+    ipcMain.handle('resmon:trash-path', async (_e, target: string) => {
+      counts.stubbed.trashPath += 1;
+      counts.lastArgs.trashPathTarget = target;
+      return 'Stubbed in this run: nothing was moved to the Trash.';
     });
     ipcMain.removeHandler('resmon:swipe-history');
     ipcMain.handle('resmon:swipe-history', async (_e, direction: unknown) => {

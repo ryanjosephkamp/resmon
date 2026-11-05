@@ -180,15 +180,15 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     await widen(app, win, 1440, 'light');
 
     // — a library holding both PDFs, and a project holding both -------------------------
-    await win.evaluate(() => { window.location.hash = '#/library/files'; });
+    await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
     await win.getByRole('button', { name: 'Choose parent folder' }).click();
     await win.getByRole('button', { name: 'Create the library here' }).click();
-    const importer = win.getByLabel('Import PDF, TXT, or MD');
+    const importer = win.getByLabel('Import PDF, TXT, MD, or TeX');
     await expect(importer).toBeEnabled({ timeout: 60_000 });
     await importer.setInputFiles(['links.pdf', 'long-500.pdf', LONG].map((n) => path.join(fixtures, n)));
     await expect(win.locator('[data-library="imported"]')).toHaveText('3 retained, 0 exact duplicates reused.', { timeout: 60_000 });
     const { vault } = await library<{ vault: { vault_id: string } }>(win, '/api/library');
-    await win.getByRole('navigation', { name: 'Library' }).getByRole('link', { name: 'Evidence' }).click();
+    await win.evaluate(() => { window.location.hash = '#/library/evidence'; });
     await win.getByLabel('A name for a new project').fill('Reading');
     await win.getByRole('button', { name: 'Start', exact: true }).click();
     await expect(win.locator('h2.ev-title')).toHaveText('Reading', { timeout: 30_000 });
