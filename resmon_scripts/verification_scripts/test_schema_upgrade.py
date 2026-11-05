@@ -180,6 +180,7 @@ def choices_rows(c, widths=None):
 # rather than tolerated, and compared for equality at every use below.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -202,7 +203,11 @@ def choices_objects(c):
 def test_choices_upgrade_preserves_every_baseline_row_and_fts(tmp_path):
     from implementation_scripts import database
     c = choices_legacy(tmp_path / 'legacy.db')
-    before = choices_rows(c)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(c)
+    before = choices_rows(recounted)
+    recounted.close()
     widths = choices_widths(c)
     old_objects = choices_objects(c)
     fts = [tuple(r) for r in c.execute("SELECT rowid FROM documents_fts WHERE documents_fts MATCH 'diffusion'")]

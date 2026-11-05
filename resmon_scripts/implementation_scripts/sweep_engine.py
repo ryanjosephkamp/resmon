@@ -1550,10 +1550,12 @@ class SweepEngine:
         # lifecycle row's own `first_seen_at` rather than from the count moving.
         # A run that checked nothing and a run that found nothing new report the
         # same zero here, which is why the task log carries the coverage sentence
-        # above and the report repeats it.
+        # above and the report repeats it. The finding's time is SQLite's
+        # ``datetime('now')`` and the run's is ``now_iso()``, so both are read
+        # through ``_utc_clock``, as a run's papers are.
         new_count = sum(
             1 for f in findings["findings"]
-            if str(f.get("first_seen_at") or "") >= start_time
+            if _utc_clock(f.get("first_seen_at")) >= _utc_clock(start_time)
         )
 
         end_time = now_iso()

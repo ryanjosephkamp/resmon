@@ -78,6 +78,7 @@ from implementation_scripts.database import (
     get_progress_events,
     get_lifecycle_for_document,
     SCHEMA_VERSION,
+    KEPT_THROUGH_SETTINGS_RESET,
     get_schema_version,
     utc_now_iso,
 )
@@ -8858,13 +8859,16 @@ def _reset_collections(conn) -> int:
 
 
 def _reset_settings(conn) -> int:
-    """Clear settings except the schema marker; Library catalog and files remain."""
-    # Preserve only the schema-version marker so the next daemon start
-    # doesn't re-run migrations.
+    """Clear settings except the records about the database; Library catalog and files remain."""
+    # Kept: the schema-version marker, so the next daemon start doesn't re-run
+    # migrations, and the marker of the one-time recount of earlier runs' new
+    # papers, so it never runs twice. The runs outlive a settings reset, and so
+    # does the record that they were recounted.
+    kept = ",".join("?" * len(KEPT_THROUGH_SETTINGS_RESET))
     count = conn.execute(
-        "SELECT COUNT(*) FROM app_settings WHERE key != 'schema_version'"
+        f"SELECT COUNT(*) FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET,
     ).fetchone()[0]
-    conn.execute("DELETE FROM app_settings WHERE key != 'schema_version'")
+    conn.execute(f"DELETE FROM app_settings WHERE key NOT IN ({kept})", KEPT_THROUGH_SETTINGS_RESET)
     return int(count)
 
 

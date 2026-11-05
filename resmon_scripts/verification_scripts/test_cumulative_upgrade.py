@@ -20,7 +20,8 @@ What each test establishes is written on it. The short version:
   * the walk runs at all, on a file-backed database, in one call (P2)
   * the upgraded schema is object-for-object the fresh install's (P3)
   * every row the schema-13 database held is still there, unaltered, with its
-    keys and its AUTOINCREMENT high-water marks (P4)
+    keys and its AUTOINCREMENT high-water marks (P4), except the rewrites named
+    in `_INTENDED` and the one-time recount of runs' new papers (`_as_recounted`)
   * integrity, foreign keys and the FTS index survive it (P5)
   * the CHECK constraints work on the **upgraded** database, not just a fresh
     one -- a rebuilt table can lose a constraint and look identical in a row
@@ -151,12 +152,15 @@ def walked(tmp_path_factory):
     conn.commit()
     assert database.get_schema_version(conn) == FIXTURE_SCHEMA_VERSION
     before = _snapshot(conn)
+    recounted = _as_recounted(conn)
+    expected = _snapshot(recounted)
+    recounted.close()
     conn.close()
 
     database.init_db(str(path))            # the user's upgrade, in one call
 
     conn = _open(path)
-    yield {"path": path, "conn": conn, "before": before, "state": state}
+    yield {"path": path, "conn": conn, "before": before, "recounted": expected, "state": state}
     conn.close()
 
 
@@ -381,13 +385,23 @@ def test_every_row_in_the_schema_13_database_survives_the_walk_unaltered(walked)
     Two values are rewritten on purpose; both are in `_INTENDED` by name, and
     both must actually be observed or this test fails -- a documented rewrite
     that silently stopped happening is as much a regression as one that
-    silently started.
+    silently started. The one-time recount of runs' new papers rewrites one
+    column more (`_RECOUNTED`); the rows are compared with the fixture as
+    `_as_recounted` says the recount leaves it, and the recount must change
+    that column on this fixture, so a recount that stopped running fails here.
     """
     before, raw_after = walked["before"], _snapshot(walked["conn"])
     assert _settings_added(before, raw_after) == _MARKERS_A_LAUNCH_MAY_ADD, (
         "the walk added app_settings keys this file does not name: "
         f"{sorted(_settings_added(before, raw_after) - _MARKERS_A_LAUNCH_MAY_ADD)}")
     after = _without_markers(raw_after)
+    recounted = walked["recounted"]
+    assert {(table, column) for table, column in _RECOUNTED
+            for old, new in zip(before["rows"][table], recounted["rows"][table])
+            if old[column] != new[column]} == set(_RECOUNTED), (
+        "the recount's rule changes nothing on this fixture, so this walk cannot "
+        "show that the recount ran")
+    before = recounted
     observed: set = set()
     tables = before["tables"]
     # Schema 13 has 22 tables of its own; `documents_fts` is the twenty-second
@@ -739,7 +753,66 @@ def test_every_enumerated_check_value_accepts_and_rejects_on_the_upgraded_databa
 #: The two older markers -- ``execution_sources_backfilled`` and
 #: ``dedup_columns_backfilled`` -- are not here because every committed fixture
 #: already carries them; a key leaves this set once a fixture carries it.
-_MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled"}
+#: ``run_new_papers_recounted`` records the one-time recount of runs' new papers
+#: (``database._recount_run_new_papers``, and ``_as_recounted`` below).
+_MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled", database.RUN_NEW_PAPERS_RECOUNTED_KEY}
+
+#: The columns the one-time recount of runs' new papers rewrites, as (table, column).
+_RECOUNTED = (("execution_documents", "is_new"),)
+
+
+def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
+    """An in-memory copy of *conn*'s database, as the one-time recount of runs' new papers leaves it.
+
+    A database without ``run_new_papers_recounted`` -- every committed fixture --
+    has its runs' new papers recounted on its next launch
+    (``database._recount_run_new_papers``), which rewrites the column in
+    `_RECOUNTED`. The rule is restated here in Python, apart from that SQL, so a
+    comparison against this copy checks the values the recount wrote rather than
+    merely letting the columns change. Times are read to the second as
+    ``sweep_engine._utc_clock`` reads them, and a run's window includes both ends:
+
+    * a link is new when its paper's ``first_seen_at`` falls within its run's
+      ``[start_time, end_time or last_seen_at_utc]`` and no run that started
+      earlier (or in the same second and was recorded first) linked the paper
+      with a window that holds that time; every other link of such a run is not;
+    * ``new_result_count`` is never changed;
+    * a run with no end and no heartbeat, and a link to a paper that is gone,
+      are left as they were.
+
+    The caller closes the copy.
+    """
+    copy = sqlite3.connect(":memory:")
+    copy.row_factory = sqlite3.Row
+    conn.backup(copy)
+
+    def clock(stamp: object) -> str:
+        return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
+
+    runs = {r["id"]: dict(r) for r in copy.execute("SELECT * FROM executions")}
+    first_seen = {r["id"]: clock(r["first_seen_at"]) for r in copy.execute("SELECT id, first_seen_at FROM documents")}
+    window = {}
+    for run_id, run in runs.items():
+        end = run.get("end_time") or run.get("last_seen_at_utc")
+        if end:
+            window[run_id] = (clock(run["start_time"]), clock(end))
+    links = [(r["execution_id"], r["document_id"]) for r in copy.execute(
+        "SELECT execution_id, document_id FROM execution_documents")
+        if r["execution_id"] in window and r["document_id"] in first_seen]
+
+    def holds(run_id: int, doc_id: int) -> bool:
+        return window[run_id][0] <= first_seen[doc_id] <= window[run_id][1]
+
+    is_new = {}
+    for run_id, doc_id in links:
+        holding = [r for r, d in links if d == doc_id and holds(r, d)]
+        is_new[(run_id, doc_id)] = int(
+            holds(run_id, doc_id) and min(holding, key=lambda r: (window[r][0], r)) == run_id)
+    copy.executemany(
+        "UPDATE execution_documents SET is_new = ? WHERE execution_id = ? AND document_id = ?",
+        [(value, run_id, doc_id) for (run_id, doc_id), value in is_new.items()])
+    copy.commit()
+    return copy
 
 
 def _settings_added(before: dict, after: dict) -> set:
@@ -1048,6 +1121,9 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
     paper is filed in the default collection, and the schema marker moves.
     What must not change is the data: every row of every application table the
     fixture holds, column for column, and every AUTOINCREMENT high-water mark.
+    The one exception on every fixture is the one-time recount of runs' new
+    papers, and the rows are compared with the fixture as `_as_recounted` says
+    the recount leaves it.
 
     That second half is the assertion that matters for a table rebuild. A
     rebuild is the one migration shape that can lose a column's values, drop a
@@ -1067,8 +1143,10 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
     conn.executescript(release.corpus.read_text(encoding="utf-8"))
     conn.commit()
     assert database.get_schema_version(conn) == release.schema_version
-    before_print = _fingerprint(conn, ignore_markers=True)
-    before = _snapshot(conn)
+    recounted = _as_recounted(conn)
+    before_print = _fingerprint(recounted, ignore_markers=True)
+    before = _snapshot(recounted)
+    recounted.close()
     before_objects = _objects(conn)
     tables = len(_app_tables(conn))
     rows = sum(len(before["rows"][t]) for t in before["tables"])
@@ -1092,10 +1170,11 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
             f"{sorted(added - _MARKERS_A_LAUNCH_MAY_ADD)}")
 
         if release.schema_version == database.SCHEMA_VERSION:
-            # A fixture already at today's schema has one thing left for a
+            # A fixture already at today's schema has two things left for a
             # launch to do: record the backfills this build has introduced
-            # since that fixture was written. Everything else -- every object, every row,
-            # every sequence -- comes back identical.
+            # since that fixture was written, and recount its runs' new papers.
+            # Everything else -- every object, every row, every sequence --
+            # comes back identical.
             assert added == _MARKERS_A_LAUNCH_MAY_ADD, (
                 f"the {release.name} fixture did not gain the one-shot markers "
                 f"this build writes: {sorted(_MARKERS_A_LAUNCH_MAY_ADD - added)}")

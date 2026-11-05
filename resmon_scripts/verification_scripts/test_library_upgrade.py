@@ -54,6 +54,7 @@ def objects(c):
 # by name wherever a snapshot is compared across an init_db.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -64,7 +65,10 @@ def minus_markers(rows):
 
 
 def test_populated_15_upgrade_restart_preserves_old_rows_and_creates_no_vault(tmp_path):
-    path = tmp_path / 'old.db'; c = old_database(path); before = contents(c)
+    path = tmp_path / 'old.db'; c = old_database(path)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    recounted = _as_recounted(c); before = contents(recounted); recounted.close()
     widths = column_names(c)
     db.init_db(conn=c)
     assert db.get_schema_version(c) == 26

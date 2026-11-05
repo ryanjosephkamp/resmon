@@ -47,6 +47,7 @@ def widths(before):
 # them and the case asserts by name that they arrived.
 from verification_scripts.test_cumulative_upgrade import (  # noqa: E402
     _MARKERS_A_LAUNCH_MAY_ADD as BACKFILL_MARKERS,
+    _as_recounted,
 )
 
 
@@ -72,7 +73,10 @@ def kept(snapshot):
 
 
 def test_populated_17_upgrades_all_old_objects_rows_originals_and_notes(legacy17):
-    w=legacy17;before=contents(w.conn);old_objects=objects(w.conn);files=files_snapshot(w)
+    # Any launch also recounts the runs' new papers once; the rows are compared
+    # with the database as that recount leaves it.
+    w=legacy17;recounted=_as_recounted(w.conn);before=contents(recounted);recounted.close()
+    old_objects=objects(w.conn);files=files_snapshot(w)
     db.init_db(conn=w.conn)
     after=contents(w.conn,set(before),widths(before))
     expected={**before,'app_settings':{**before['app_settings'],'rows':sorted([('schema_version',str(db.SCHEMA_VERSION)) if r[0]=='schema_version' else r for r in before['app_settings']['rows']],key=repr)}}

@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -702,8 +703,11 @@ def init_db(
 
     # Before anything below changes the database, including the two early
     # steps that follow.
+    began = time.time()
+    stored = _stored_schema_version(conn)
     upgrade_marked = upgrade_copy.before_upgrade(
-        conn, stored=_stored_schema_version(conn), target=SCHEMA_VERSION, keep=keep_upgrade_copy)
+        conn, stored=stored, target=SCHEMA_VERSION, keep=keep_upgrade_copy)
+    kept_copy = _copy_kept_this_start(conn, stored, keep=keep_upgrade_copy, since=began)
 
     # pub_sort must exist before _SCHEMA_SQL runs, because an older database
     # reaching this point already has a documents table without it.
@@ -759,6 +763,9 @@ def init_db(
     _migrate_collections(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
+    # After every schema step, so it reads the tables in their final shape, and
+    # so on an upgrade it runs after the copy ``before_upgrade`` kept above.
+    _recount_run_new_papers(conn, stored=stored, kept_copy=kept_copy)
     # Commit before returning. Each thread holds its own connection (sharing
     # one sqlite3 connection across threads can segfault CPython), so schema
     # left inside an open transaction on this one is invisible to every other
@@ -2623,6 +2630,241 @@ def _repair_biorxiv_published_detail(conn: sqlite3.Connection) -> int:
     if rewritten:
         logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
     return rewritten
+
+
+#: In ``app_settings`` once the new papers of earlier runs have been recounted.
+#: A settings reset keeps it (``KEPT_THROUGH_SETTINGS_RESET``): the runs survive
+#: a reset, and so does the record that they were recounted.
+RUN_NEW_PAPERS_RECOUNTED_KEY = "run_new_papers_recounted"
+
+#: The ``app_settings`` keys a settings reset leaves in place. They record facts
+#: about the database rather than choices: the schema it is at, and that the
+#: one-time recount has run.
+KEPT_THROUGH_SETTINGS_RESET = (_SCHEMA_VERSION_KEY, RUN_NEW_PAPERS_RECOUNTED_KEY)
+
+# SQL for ``sweep_engine._utc_clock``: a UTC time as ``YYYY-MM-DD HH:MM:SS``, so
+# SQLite's ``datetime('now')`` (``2026-11-05 10:00:00``), ``now_iso()``
+# (``2026-11-05T10:00:00Z``), and ``utc_now_iso()``
+# (``2026-11-05T10:00:00.123456+00:00``) compare as times, to the second.
+# ``test_repair_new_counts.py`` holds the two to the same answers.
+_UTC_CLOCK_SQL = "substr(rtrim(replace(COALESCE({}, ''), 'T', ' '), 'Z'), 1, 19)"
+
+
+def _copy_kept_this_start(
+    conn: sqlite3.Connection, stored: int | None, *, keep: bool, since: float,
+) -> Path | None:
+    """The copy ``upgrade_copy.before_upgrade`` has just kept before this start's upgrade, if it kept one.
+
+    Read straight after ``before_upgrade``. The unfinished-upgrade file names the
+    copy, including one an earlier start kept before an upgrade this start
+    finishes. Without that file (it could not be written), a copy under this
+    schema's name counts only if it was written since *since*, so a copy left by
+    an earlier upgrade from the same schema is never named as this one's.
+    """
+    db_file = upgrade_copy.database_file(conn)
+    if not keep or db_file is None or stored is None or stored >= SCHEMA_VERSION:
+        return None
+    try:
+        named = upgrade_copy.unfinished_marker(db_file).read_text(encoding="utf-8").strip()
+    except OSError:
+        named = ""
+    if named and db_file.with_name(named).is_file():
+        return db_file.with_name(named)
+    candidate = upgrade_copy.copy_path(db_file, stored)
+    try:
+        return candidate if candidate.stat().st_mtime >= since else None
+    except OSError:
+        return None
+
+
+#: How many runs whose recounted links disagree with their ``new_result_count``
+#: the recount names one per line; the rest are counted in one more line.
+_DISAGREEMENTS_LOGGED = 20
+
+
+def _recount_run_new_papers(
+    conn: sqlite3.Connection, *, stored: int | None, kept_copy: Path | None = None,
+) -> dict | None:
+    """Work out once, for every earlier run, which of its papers were new to it.
+
+    Before November 5, 2026, the sweep engine linked a paper to a run as new by
+    comparing ``documents.first_seen_at`` (SQLite's ``2026-11-05 10:00:00``) with
+    the run's ``start_time`` (``2026-11-05T10:00:00Z``) as text. The space sorts
+    before the ``T``, so a paper a run stored on the day it started (in UTC) read
+    as older than the run, and ``execution_documents.is_new`` was 0 for it. Only a
+    paper first stored on a later day (in UTC) than the run started was marked
+    new. ``execution_documents.is_new`` is read by the ``only_new`` filter of a
+    run's papers and references (``resmon export --run N --new-only``). The engine
+    compares the two times as times now (``sweep_engine._utc_clock``); this
+    corrects the links recorded before that, from the times stored with each paper
+    and run.
+
+    Both times are read as ``_UTC_CLOCK_SQL`` reads them, at one-second
+    resolution, and a run's window includes both ends.
+
+    * A link is new when its paper's ``first_seen_at`` falls within its run's
+      ``[start_time, end_time]`` and that run is the earliest-starting of the runs
+      that linked the paper and whose windows hold that time; between two that
+      started in the same second, the one recorded first. So a paper is new to
+      one run at most. Every other link of a run with a window is not new.
+    * A run with no ``end_time`` (one interrupted, or still open at the upgrade)
+      takes its ``last_seen_at_utc`` as its end. A run with neither is left as it
+      was and takes no part in deciding which run a paper was new to.
+    * ``new_result_count`` is not changed. It is ``dedup_stats["new"]``, counted as
+      the run stored its papers, which the comparison never touched. A run whose
+      recounted new links number differently from a ``new_result_count`` it
+      recorded (a run that stopped before writing its count, say, or two runs that
+      overlapped) is logged with both numbers, one line per run up to
+      ``_DISAGREEMENTS_LOGGED`` and then a count of the rest, so the difference is
+      visible without the count changing; a run with no count recorded is not
+      compared. A run with no linked papers (such as a watch that checks a
+      person's papers for retractions) is not touched.
+
+    Once per database: ``RUN_NEW_PAPERS_RECOUNTED_KEY`` records that it ran, and a
+    database ``init_db`` has just created gets the key with nothing to do. The
+    changes and the key are written in one transaction. If the recount fails,
+    that transaction is rolled back, the failure is logged, and the next start
+    tries again; the start goes on either way. No schema change, so no
+    ``SCHEMA_VERSION`` bump.
+
+    *stored* is the schema the database was at when this start began (``None``
+    for one with no tables), and *kept_copy* the copy kept before this start's
+    upgrade, which the log line names. Returns the counts the log line gives, or
+    ``None`` when nothing was recounted.
+    """
+    if conn.execute(
+        "SELECT 1 FROM app_settings WHERE key = ?", (RUN_NEW_PAPERS_RECOUNTED_KEY,)
+    ).fetchone():
+        return None
+    if stored is None:
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+            (RUN_NEW_PAPERS_RECOUNTED_KEY,),
+        )
+        return None
+    conn.commit()
+    conn.execute("BEGIN")
+    try:
+        counts, disagreements = _recount_run_new_papers_in_transaction(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
+            (RUN_NEW_PAPERS_RECOUNTED_KEY,),
+        )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        logger.exception(
+            "Could not recount the new papers of earlier runs. They are left as they were, "
+            "and the next start tries again.")
+        return None
+
+    for run_id, recorded, recount in disagreements[:_DISAGREEMENTS_LOGGED]:
+        logger.info(
+            "Run %d: %d of its papers are new to it by the recount, and its new-paper count, "
+            "left as it was, is %d.", run_id, recount, recorded)
+    if len(disagreements) > _DISAGREEMENTS_LOGGED:
+        logger.info(
+            "%d more run(s) whose new papers by the recount differ from their new-paper count.",
+            len(disagreements) - _DISAGREEMENTS_LOGGED)
+    if kept_copy is not None:
+        copy_words = f"The copy of the database kept before this start's upgrade is {kept_copy}."
+    elif stored >= SCHEMA_VERSION:
+        copy_words = (f"No copy of the database was kept this start: it was already at schema "
+                      f"{SCHEMA_VERSION}.")
+    else:
+        copy_words = "No copy of the database was kept before this start's upgrade."
+    logger.info(
+        "Recounted which papers were new to earlier runs, once, from when each paper was first "
+        "stored: %d run(s) with links corrected; %d link(s) newly marked new, and %d no longer new; "
+        "%d run(s) with no end time left as they were; %d run(s) whose new papers by the recount "
+        "differ from their new-paper count, which was left as it was. %s",
+        counts["runs_corrected"], counts["marked_new"], counts["marked_not_new"],
+        counts["runs_without_end"], counts["count_disagrees"], copy_words)
+    return counts
+
+
+def _recount_run_new_papers_in_transaction(
+    conn: sqlite3.Connection,
+) -> tuple[dict, list[tuple[int, int, int]]]:
+    """The writes ``_recount_run_new_papers`` makes, inside the transaction it holds.
+
+    Returns the counts, and each run whose recounted new links number differently
+    from the ``new_result_count`` it recorded, as ``(run id, new_result_count,
+    recount)``.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(executions)")}
+    ends = "NULLIF(end_time, '')"
+    if "last_seen_at_utc" in columns:
+        ends = f"COALESCE({ends}, NULLIF(last_seen_at_utc, ''))"
+    linked = "id IN (SELECT execution_id FROM execution_documents)"
+    runs_without_end = conn.execute(
+        f"SELECT COUNT(*) FROM executions WHERE {ends} IS NULL AND {linked}"
+    ).fetchone()[0]
+
+    # Each run that linked a paper and has an end, with its window; then each of
+    # its links, with whether the window holds the paper's first_seen_at.
+    conn.execute("DROP TABLE IF EXISTS temp.recount_run_window")
+    conn.execute("DROP TABLE IF EXISTS temp.recount_run_link")
+    conn.execute(
+        "CREATE TEMP TABLE recount_run_window ("
+        " execution_id INTEGER PRIMARY KEY, starts TEXT NOT NULL, ends TEXT NOT NULL)")
+    conn.execute(
+        "INSERT INTO recount_run_window (execution_id, starts, ends) "
+        f"SELECT id, {_UTC_CLOCK_SQL.format('start_time')}, {_UTC_CLOCK_SQL.format(ends)} "
+        f"FROM executions WHERE {ends} IS NOT NULL AND {linked}")
+    conn.execute(
+        "CREATE TEMP TABLE recount_run_link ("
+        " execution_id INTEGER NOT NULL, document_id INTEGER NOT NULL, was INTEGER NOT NULL,"
+        " starts TEXT NOT NULL, held INTEGER NOT NULL, now INTEGER NOT NULL DEFAULT 0,"
+        " PRIMARY KEY (execution_id, document_id))")
+    conn.execute(
+        "INSERT INTO recount_run_link (execution_id, document_id, was, starts, held) "
+        "SELECT ed.execution_id, ed.document_id, ed.is_new, w.starts, "
+        f"       {_UTC_CLOCK_SQL.format('d.first_seen_at')} BETWEEN w.starts AND w.ends "
+        "FROM execution_documents ed "
+        "JOIN recount_run_window w ON w.execution_id = ed.execution_id "
+        "JOIN documents d ON d.id = ed.document_id")
+    # Without it, finding the earlier run for each link reads every link.
+    conn.execute(
+        "CREATE INDEX temp.recount_run_link_paper "
+        "ON recount_run_link (document_id, held, starts, execution_id)")
+    conn.execute(
+        "UPDATE recount_run_link SET now = 1 "
+        "WHERE held AND NOT EXISTS ("
+        " SELECT 1 FROM recount_run_link AS earlier"
+        " WHERE earlier.document_id = recount_run_link.document_id AND earlier.held"
+        "   AND (earlier.starts < recount_run_link.starts"
+        "        OR (earlier.starts = recount_run_link.starts"
+        "            AND earlier.execution_id < recount_run_link.execution_id)))")
+
+    changed = [tuple(row) for row in conn.execute(
+        "SELECT now, execution_id, document_id FROM recount_run_link WHERE was IS NOT now")]
+    conn.executemany(
+        "UPDATE execution_documents SET is_new = ? WHERE execution_id = ? AND document_id = ?",
+        changed)
+    marked_new = sum(1 for now, _, _ in changed if now == 1)
+
+    runs_corrected = 0
+    disagreements: list[tuple[int, int, int]] = []
+    for run_id, recorded, recount, links_changed in conn.execute(
+        "SELECT e.id, e.new_result_count, SUM(r.now), SUM(r.was IS NOT r.now) "
+        "FROM recount_run_link r JOIN executions e ON e.id = r.execution_id "
+        "GROUP BY e.id ORDER BY e.id"
+    ).fetchall():
+        if recorded is not None and recorded != recount:
+            disagreements.append((run_id, recorded, recount))
+        if links_changed:
+            runs_corrected += 1
+
+    conn.execute("DROP TABLE temp.recount_run_link")
+    conn.execute("DROP TABLE temp.recount_run_window")
+    return {
+        "runs_corrected": runs_corrected,
+        "marked_new": marked_new,
+        "marked_not_new": len(changed) - marked_new,
+        "runs_without_end": runs_without_end,
+        "count_disagrees": len(disagreements),
+    }, disagreements
 
 
 def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:

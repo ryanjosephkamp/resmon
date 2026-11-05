@@ -29,6 +29,7 @@ from implementation_scripts import database  # noqa: E402
 from implementation_scripts.api_doaj import DoajClient  # noqa: E402
 from implementation_scripts.normalizer import deduplicate_batch, normalize_result  # noqa: E402
 from implementation_scripts.utils import compute_metadata_hash  # noqa: E402
+from verification_scripts.test_cumulative_upgrade import _as_recounted  # noqa: E402
 
 SCHEMA_21_CORPUS = Path(__file__).parent / "fixtures/schema-21/corpus.sql"
 
@@ -203,7 +204,11 @@ def test_over_a_schema_21_corpus_only_the_named_months_move(tmp_path: Path):
     for external_id, month in (("named-1", "January"), ("named-2", "Oct")):
         _store_as_before_259(conn, external_id, month, ["Ada Okafor"], title=titles[external_id])
     conn.commit()
-    before = _rows(conn)
+    # The launch also recounts the runs' new papers once; the rows are compared
+    # with the corpus as that recount leaves it.
+    recounted = _as_recounted(conn)
+    before = _rows(recounted)
+    recounted.close()
     conn.close()
 
     database.init_db(str(path))
