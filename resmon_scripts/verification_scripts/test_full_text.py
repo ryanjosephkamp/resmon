@@ -389,6 +389,26 @@ def test_a_watch_request_claimed_before_its_switch_went_off_is_not_fetched(db, s
     assert server.requests == []
 
 
+def test_asking_again_for_a_paper_skipped_for_the_same_reason_records_nothing_new(db, server):
+    """Each click on a card whose paper could not be fetched recorded another skipped row."""
+    paper = _paper(db, 60, url=None)
+    first = full_text.request(db, paper)
+    again = full_text.request(db, paper)
+    assert (first["state"], first["reason"]) == ("skipped", "no_open_copy")
+    assert again["id"] == first["id"]
+    assert db.execute("SELECT count(*) FROM full_text_downloads WHERE document_id = ?", (paper,)).fetchone()[0] == 1
+    # A new reason is a new answer, and is recorded.
+    open_access.record(db, paper, "openalex", [open_access.location(
+        "openalex", pdf_url=server.url("/x.pdf"), license="publisher-specific-oa")], [])
+    db.commit()
+    changed = full_text.request(db, paper)
+    assert changed["reason"] == "no_license" and changed["id"] != first["id"]
+    # A watch run's skip is its own, so its run's page lists it.
+    _routine, run = _watch_run(db)
+    watched = full_text.request(db, paper, requested_by="watch", execution_id=run, wake=False)
+    assert watched["id"] != changed["id"] and watched["execution_id"] == run
+
+
 class _OAI(http.server.BaseHTTPRequestHandler):
     answers: dict[str, str] = {}
 

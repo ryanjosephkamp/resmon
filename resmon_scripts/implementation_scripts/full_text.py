@@ -209,6 +209,25 @@ def _record(conn: sqlite3.Connection, document_id: int, requested_by: str,
     return _projection(dict(row))
 
 
+def _skip(conn: sqlite3.Connection, document_id: int, requested_by: str, execution_id: int | None,
+          reason: str, copy: dict | None = None) -> dict:
+    """Record a request that cannot go ahead, with why.
+
+    A person asking again for a paper whose last request was theirs and was
+    skipped for the same reason gets that request back: the answer has not
+    changed, and a row per click would say nothing new. A watch run's skip is
+    always its own, so its run's page can list it.
+    """
+    if requested_by == "person":
+        last = conn.execute(
+            "SELECT * FROM full_text_downloads WHERE document_id = ? ORDER BY id DESC LIMIT 1",
+            (int(document_id),)).fetchone()
+        if (last is not None and last["state"] == "skipped" and last["requested_by"] == "person"
+                and last["reason"] == reason):
+            return _projection(dict(last))
+    return _record(conn, document_id, requested_by, execution_id, "skipped", reason=reason, copy=copy)
+
+
 def attempted_today(conn: sqlite3.Connection) -> int:
     """Requests in the last 24 hours that were or will be sent: waiting, downloading, stored, failed."""
     return int(conn.execute(
@@ -245,19 +264,17 @@ def request(conn: sqlite3.Connection, document_id: int, *, requested_by: str = "
                     "url": None, "final_url": None, "host": None, "license": None, "license_words": None,
                     "version": None, "reported_by": None, "file_id": held["file_id"],
                     "byte_size": held["byte_size"], "requested_at_utc": utc_now(), "finished_at_utc": None}
-        return _record(conn, document_id, requested_by, execution_id, "skipped", reason="already_in_library")
+        return _skip(conn, document_id, requested_by, execution_id, "already_in_library")
     if _vault_id(conn) is None:
-        return _record(conn, document_id, requested_by, execution_id, "skipped", reason="no_library")
+        return _skip(conn, document_id, requested_by, execution_id, "no_library")
     rows = open_access.locations_for(conn, open_access.copies_of(conn, document_id))
     summary = open_access.summary(rows)
     if not summary["downloadable"]:
-        return _record(conn, document_id, requested_by, execution_id, "skipped", reason=summary["why_not"])
+        return _skip(conn, document_id, requested_by, execution_id, summary["why_not"])
     if over_run_cap:
-        return _record(conn, document_id, requested_by, execution_id, "skipped", reason="run_cap",
-                       copy=summary["best"])
+        return _skip(conn, document_id, requested_by, execution_id, "run_cap", copy=summary["best"])
     if attempted_today(conn) >= DAILY_CAP:
-        return _record(conn, document_id, requested_by, execution_id, "skipped", reason="daily_cap",
-                       copy=summary["best"])
+        return _skip(conn, document_id, requested_by, execution_id, "daily_cap", copy=summary["best"])
     row = _record(conn, document_id, requested_by, execution_id, "waiting", copy=summary["best"])
     if wake:
         worker.wake()

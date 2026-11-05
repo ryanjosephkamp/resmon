@@ -100,8 +100,11 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
   const failed = request?.state === 'failed' ? `The last try failed: ${requestWords(request)} ` : '';
   const getWords = canGet && fullText?.best
     ? `${failed}Get the PDF from ${hostWords(fullText.best.host)} (${licenseWords(fullText.best)})` : 'Get the PDF';
-  // In the label's own line while it goes, so the card does not change height.
-  const gettingLine = !pdf && request && pending(request) ? requestWords(request) : null;
+  // In the label's own line, so the card does not change height: while it
+  // goes, and after, why it was skipped or failed, as a paper's page says it.
+  const going = !!request && pending(request);
+  const gettingLine = !pdf && request && (going || request.state === 'skipped' || request.state === 'failed')
+    ? requestWords(request) : null;
   const venue = [source, (doc?.categories ?? '').split(/[;,]/)[0]?.trim()].filter(Boolean).join(' · ');
   return (
     <article className={`card${picking.on ? ' selecting' : ''}${picking.picked ? ' picked' : ''}`} data-document={entry.document_id}
@@ -120,7 +123,10 @@ export const PaperCard = memo(function PaperCard({ entry, atlas, vault, sourceNa
           {year && <><span className="sep" /><span>{year}</span></>}
         </p>
         {gettingLine
-          ? <p className="card-label card-getting" role="status" data-fulltext={request?.state} title={gettingLine}>{gettingLine}</p>
+          ? (
+            <p className={`card-label card-getting${going ? '' : ' card-said'}`} role={going ? 'status' : undefined}
+              data-fulltext={request?.state} data-reason={request?.reason ?? undefined} title={gettingLine}>{gettingLine}</p>
+          )
           : (
             <p className="card-label">
               {label.from ? <>From {label.name ? <span className="it">{label.from}</span> : label.from}{label.day ? ` · ${label.day}` : ''}</> : `Saved ${label.day ?? ''}`}
