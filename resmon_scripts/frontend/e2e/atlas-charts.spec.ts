@@ -16,11 +16,14 @@
  * stays inside it. No network.
  */
 import { spawnSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as http from 'http';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Locator, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import {
   SEED, chooseByKeyboard, engine, findAndOpen, mapsEnv, resize, stillView, throttle, uniqueTitle, type Seeded,
 } from './fixtures/maps';
@@ -67,6 +70,47 @@ async function flownTo(win: Page, where: 'today' | 'collection', scope: string, 
   await panel.getByRole('button', { name: /^Show it on the map/ }).click();
   await stillView(win, canvas);
   return (await engine<{ title: string }>(win, `/api/documents/${id}`)).title;
+}
+
+const DIMS = 8;
+
+/** One loopback vector for a text, the same each time, of `DIMS` numbers. */
+function vectorFor(text: string): number[] {
+  const digest = crypto.createHash('sha256').update(text, 'utf8').digest();
+  const raw = Array.from({ length: DIMS }, (_, i) => digest[i % digest.length]! / 255 - 0.5);
+  const norm = Math.sqrt(raw.reduce((a, v) => a + v * v, 0)) || 1;
+  return raw.map((v) => v / norm);
+}
+
+/** Ollama's `/api/embed` on loopback, answering after `delayMs`, so a backfill is seen running. */
+async function startEmbedder(delayMs: number): Promise<{ url: string; close: () => Promise<void> }> {
+  const sockets = new Set<net.Socket>();
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let input: string[] = [];
+      try {
+        const parsed = JSON.parse(body || '{}') as { input?: unknown };
+        input = Array.isArray(parsed.input) ? parsed.input.map(String) : [String(parsed.input ?? '')].filter(Boolean);
+      } catch { /* no vectors, which the client refuses */ }
+      setTimeout(() => {
+        if (res.writableEnded || res.destroyed) return;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ embeddings: input.map(vectorFor) }));
+      }, delayMs);
+    });
+  });
+  server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as net.AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 async function go(win: Page, hash: string): Promise<void> {
@@ -200,6 +244,32 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
         await win.mouse.move(box.x + 4, box.y + 4);
         await win.locator('section[data-map-paper]').getByRole('button', { name: /^Back to the/ }).click();
       }
+
+      // — a finished run: each source's recorded outcome, and the run's Map tab ------------------
+      await go(win, `#/runs/${seed.sweep}`);
+      const outcome = win.locator('.recorded-row[data-source="arxiv"] .omark-at');
+      await outcome.hover({ timeout: 60_000 });
+      await expect(tip.locator('.chart-tip-name')).toHaveText('arXiv');
+      await expect(tip.locator('.chart-tip-lines li')).toHaveText([/^\d[\d,]* records? returned$/]);
+      // The run's own page: the mark opens nothing, and its tip offers nothing.
+      await expect(tip.locator('.chart-tip-opens')).toHaveCount(0);
+      await besideAndInside(win, tip, outcome);
+      await shot(`run-outcome-${theme}`);
+      await win.getByRole('tab', { name: 'Map' }).click();
+      const runMap = win.locator(`[data-run-map="${seed.sweep}"]`);
+      const runCanvas = `[data-run-map="${seed.sweep}"] .plate-canvas`;
+      await expect.poll(() => win.locator(runCanvas).getAttribute('data-view'), { timeout: 60_000 }).not.toBeNull();
+      const { title: inRun } = await uniqueTitle(win, seed.quantum.slice(4, 15));
+      await findAndOpen(win, runMap, runCanvas, inRun);
+      await runMap.locator('section[data-map-paper]').getByRole('button', { name: "Back to the run's map" }).click();
+      const runBox = await win.locator(runCanvas).boundingBox();
+      if (!runBox) throw new Error('the run map has no box');
+      await win.mouse.move(runBox.x + runBox.width / 2, runBox.y + runBox.height / 2);
+      await expect(tip.locator('.chart-tip-value')).toHaveText(inRun);
+      await expect(tip.locator('.chart-tip-opens')).toHaveText('Opens it beside the map');
+      await besideAndInside(win, tip, runMap.locator('.plate-tip-at'));
+      await shot(`run-map-${theme}`);
+      await win.mouse.move(runBox.x + 4, runBox.y + 4);
     }
 
     // — clicks and keys ---------------------------------------------------------------------
@@ -265,6 +335,20 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
     await shot('map-keyboard');
     await win.keyboard.press('Escape');
 
+    // The run's Map tab follows the keyboard too, and says the paper to a screen reader.
+    await go(win, `#/runs/${seed.sweep}`);
+    await win.getByRole('tab', { name: 'Map' }).click();
+    const runCanvas = `[data-run-map="${seed.sweep}"] .plate-canvas`;
+    await expect.poll(() => win.locator(runCanvas).getAttribute('data-view'), { timeout: 60_000 }).not.toBeNull();
+    await win.mouse.move(4, 4);
+    await chooseByKeyboard(win, runCanvas);
+    const runKeyed = Number(await win.locator(runCanvas).getAttribute('data-selected'));
+    const { title: runKeyedTitle } = await engine<{ title: string }>(win, `/api/documents/${runKeyed}`);
+    await expect(tip.locator('.chart-tip-value')).toHaveText(runKeyedTitle, { timeout: 30_000 });
+    await expect(win.locator(`[data-run-map="${seed.sweep}"] [data-map-said]`)).toContainText(runKeyedTitle);
+    await shot('run-map-keyboard');
+    await win.keyboard.press('Escape');
+
     // At the window's narrowest, a tip at the right edge is slid inside the window, still clear of its mark.
     await resize(app, 960, 700);
     await go(win, '#/health/analytics');
@@ -280,9 +364,195 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
     await besideAndInside(win, tip, edge);
     await shot('narrow-source-wall');
 
+    // The embedding backfill's bar, while a slow loopback model embeds one paper at a time, in both themes.
+    await resize(app, 1440, 900);
+    const embedder = await startEmbedder(1_500);
+    try {
+      await engine(win, '/api/settings/embeddings', 'PUT', { settings: {
+        embedding_enabled: 'true', embedding_provider: 'local', embedding_model: 'e2e-embed', embedding_endpoint: embedder.url,
+        embedding_batch_size: '1', embedding_dims: String(DIMS),
+      } });
+      await engine(win, '/api/embeddings/backfill', 'POST');
+      for (const theme of ['light', 'dark'] as const) {
+        await engine(win, '/api/appearance', 'PUT', { theme, accent: null });
+        await win.reload();
+        await expect(win.locator('html')).toHaveAttribute('data-theme', theme, { timeout: 60_000 });
+        await go(win, '#/settings/ai?focus=embeddings');
+        const meter = win.locator('[data-embeddings="backfill"] .meter-at');
+        await meter.scrollIntoViewIfNeeded({ timeout: 60_000 });
+        await meter.hover();
+        await expect(tip.locator('.chart-tip-name')).toHaveText('Embedding with e2e-embed');
+        await expect(tip.locator('.chart-tip-value')).toHaveText(/^\d+ of \d+ papers?$/);
+        await besideAndInside(win, tip, meter.locator('.emb-meter'));
+        await shot(`embedding-meter-${theme}`);
+      }
+      await engine(win, '/api/embeddings/backfill/cancel', 'POST');
+      await expect.poll(async () => (await engine<{ run: { running: boolean } }>(win, '/api/embeddings/status')).run.running,
+        { timeout: 30_000 }).toBe(false);
+    } finally {
+      await embedder.close();
+    }
+
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
+  <id>https://arxiv.org/abs/2611.00002v1</id><title>Authored Atlas charts fixture</title>
+  <author><name>Ada Fixture</name></author><published>${new Date().toISOString().slice(0, 10)}T00:00:00Z</published>
+  <summary>Authored local fixture, not fetched scholarly content.</summary>
+</entry></feed>`;
+
+test('a running run\'s charts: the bar of sources finished, each source\'s mark, the Runs tab\'s marks, and the run monitor', async () => {
+  test.setTimeout(300_000);
+  const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-charts-running-'));
+  // arXiv is a loopback server that holds its answer until the spec lets it go; Springer Nature has no key and finishes at once.
+  const held: http.ServerResponse[] = [];
+  let holding = true;
+  const source = http.createServer((_req, res) => {
+    res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
+    if (holding) held.push(res);
+    else res.end(FEED);
+  });
+  const release = () => {
+    holding = false;
+    for (const res of held.splice(0)) res.end(FEED);
+  };
+  await new Promise<void>((resolve) => source.listen(0, '127.0.0.1', resolve));
+  const sourcePort = (source.address() as net.AddressInfo).port;
+  expect(sourcePort).not.toBe(8742);
+  const hookDir = path.join(stateDir, 'python-hook');
+  fs.mkdirSync(hookDir);
+  fs.writeFileSync(path.join(hookDir, 'sitecustomize.py'), `
+import ipaddress, json, socket, sys
+from pathlib import Path
+state = Path(${JSON.stringify(stateDir)})
+original_connect = socket.socket.connect
+def connect(self, address):
+    if isinstance(address, tuple):
+        host, port = address[:2]
+        try: local = ipaddress.ip_address(host).is_loopback
+        except ValueError: local = host == 'localhost'
+        if not local or port == 8742:
+            with (state / 'blocked.jsonl').open('a') as stream:
+                stream.write(json.dumps({'host': host, 'port': port}) + "\\n")
+            raise OSError('atlas-charts test guard refuses external/8742 connection')
+    return original_connect(self, address)
+socket.socket.connect = connect
+sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
+from implementation_scripts import api_arxiv, config
+api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
+config.DEFAULT_REQUEST_TIMEOUT = 240
+`);
+  const env: Record<string, string> = mapsEnv(launchEnv(stateDir, true));
+  env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
+  env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
+  const app = await electron.launch({
+    args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
+    cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
+  });
+  registerStateDir(stateDir);
+  const shots = path.join(SCREENSHOT_DIR, 'charts');
+  fs.mkdirSync(shots, { recursive: true });
+  try {
+    const win = await app.firstWindow({ timeout: 180_000 });
+    const problems: string[] = [];
+    win.on('pageerror', (e) => problems.push(e.message));
+    await resize(app, 1440, 900);
+    await win.getByRole('navigation', { name: 'Sections' }).waitFor({ timeout: 120_000 });
+    const tip = win.getByRole('tooltip');
+    const shot = (name: string) => win.screenshot({ path: path.join(shots, `${name}.png`), animations: 'disabled' });
+
+    await go(win, '#/search/ask');
+    await expect(win.getByRole('heading', { name: 'Ask the sources', level: 1 })).toBeVisible({ timeout: 60_000 });
+    await win.getByRole('button', { name: 'Deep Sweep', exact: true }).click();
+    await win.locator('.source[data-source="arxiv"] input').check();
+    await win.locator('.source[data-source="springer"] input').check();
+    const terms = win.getByLabel('Search terms');
+    await terms.fill('slow light');
+    await terms.press('Enter');
+    await win.getByRole('button', { name: 'Any time', exact: true }).click();
+    const started = win.waitForResponse((r) => r.url().endsWith('/api/search/sweep') && r.request().method() === 'POST');
+    await win.getByRole('button', { name: 'Ask 2 sources' }).click();
+    const { execution_id: runId } = await (await started).json() as { execution_id: number };
+    await expect(win.locator(`.run[data-run="${runId}"]`)).toHaveAttribute('data-status', 'running', { timeout: 30_000 });
+    await expect.poll(() => held.length, { timeout: 30_000 }).toBe(1);
+
+    for (const theme of ['light', 'dark'] as const) {
+      await engine(win, '/api/appearance', 'PUT', { theme, accent: null });
+      await win.reload();
+      await expect(win.locator('html')).toHaveAttribute('data-theme', theme, { timeout: 60_000 });
+
+      // The run's page: the bar of sources finished, and arXiv's mark while it is asked.
+      await go(win, `#/runs/${runId}`);
+      const run = win.locator(`.run[data-run="${runId}"]`);
+      const bar = run.locator('.meter-at');
+      await expect(run.getByRole('progressbar', { name: 'Sources finished' })).toHaveAttribute('aria-valuenow', '1', { timeout: 30_000 });
+      await bar.hover();
+      await expect(tip.locator('.chart-tip-value')).toHaveText('1 of 2 sources');
+      await expect(tip.locator('.chart-tip-lines li')).toHaveText(['1 being asked: arXiv']);
+      await expect(tip.locator('.chart-tip-opens')).toHaveCount(0);
+      await besideAndInside(win, tip, bar.locator('.run-meter'));
+      await shot(`run-progress-${theme}`);
+      const live = run.locator('.run-sources .live-row[data-source="arxiv"] .live-mark');
+      await live.hover();
+      await expect(tip.locator('.chart-tip-name')).toHaveText('arXiv');
+      await expect(tip.locator('.chart-tip-value')).toHaveText('asking');
+      await expect(tip.locator('.chart-tip-opens')).toHaveCount(0);
+      await besideAndInside(win, tip, live);
+      await shot(`run-live-mark-${theme}`);
+
+      // The Runs tab: each source's mark in the running run, which opens it.
+      await go(win, '#/runs');
+      const marks = win.locator(`.active-row[data-run="${runId}"] .src-marks`);
+      const springer = marks.locator('li[data-source="springer"] a');
+      await springer.hover({ timeout: 60_000 });
+      await expect(tip.locator('.chart-tip-name')).toHaveText('Springer Nature');
+      await expect(tip.locator('.chart-tip-opens')).toHaveText(`Opens run ${runId}`);
+      await besideAndInside(win, tip, springer);
+      await shot(`runs-tab-marks-${theme}`);
+      const orbit = win.locator(`.active-row[data-run="${runId}"] .active-orbit`);
+      await orbit.hover();
+      await expect(tip.locator('.chart-tip-value')).toHaveText('1 of 2 sources finished');
+
+      // The run monitor's mark: each running run's sources finished, and the panel it opens.
+      const monitor = win.locator('header.bar .mon');
+      await monitor.hover();
+      await expect(tip.locator('.chart-tip-name')).toHaveText('Runs');
+      await expect(tip.locator('.chart-tip-value')).toHaveText('1 running');
+      await expect(tip.locator('.chart-tip-lines li')).toHaveText([/^1 of 2 slow light$/]);
+      await expect(tip.locator('.chart-tip-opens')).toHaveText('Opens the Runs panel');
+      await besideAndInside(win, tip, monitor);
+      await shot(`run-monitor-${theme}`);
+      await win.mouse.move(700, 600);
+    }
+
+    // The Runs tab's marks from the keyboard: one stop, the arrow keys between sources, Enter opens the run.
+    await go(win, '#/runs');
+    const first = win.locator(`.active-row[data-run="${runId}"] .src-marks a`).first();
+    await expect(first).toHaveAttribute('tabindex', '0', { timeout: 30_000 });
+    await win.locator(`.active-row[data-run="${runId}"] .active-title`).focus();
+    await win.keyboard.press('Tab');
+    await expect(first).toBeFocused();
+    await win.keyboard.press('ArrowRight');
+    await expect(win.locator(`.active-row[data-run="${runId}"] .src-marks a`).nth(1)).toBeFocused();
+    await expect(tip.locator('.chart-tip-opens')).toHaveText(`Opens run ${runId}`);
+    await win.keyboard.press('Enter');
+    await expect.poll(() => win.evaluate(() => window.location.hash)).toBe(`#/runs/${runId}`);
+
+    release();
+    await expect(win.locator(`.run[data-run="${runId}"]`)).toHaveAttribute('data-status', 'completed', { timeout: 60_000 });
+    expect(problems).toEqual([]);
+  } finally {
+    release();
+    await app.close();
+    await new Promise<void>((resolve) => source.close(() => resolve()));
+    const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
+      ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
+    expect(blocked).toBe('');
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
 });
