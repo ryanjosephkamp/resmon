@@ -691,10 +691,10 @@ INSERT INTO "documents" ("id", "source_repository", "external_id", "doi", "title
 INSERT INTO "documents" ("id", "source_repository", "external_id", "doi", "title", "authors", "abstract", "publication_date", "url", "categories", "metadata_hash", "first_seen_at") VALUES (14, 'arxiv', '2602.00013', NULL, 'Learned closures for channel flow', 'Ada Lovelace, Mary Somerville', 'A closure model for turbulent channel flow.', '2026-02-01', 'https://arxiv.org/abs/2602.00013', 'physics.flu-dyn', 'fixture-26-0013', '2026-03-02 12:13:00');
 
 -- execution_documents: 6 row(s)
-INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (1, 1, 1);
+INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (1, 1, 0);
 INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (1, 2, 0);
-INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (1, 8, 1);
-INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (3, 7, 1);
+INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (1, 8, 0);
+INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (3, 7, 0);
 INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (11, 1, 0);
 INSERT INTO "execution_documents" ("execution_id", "document_id", "is_new") VALUES (11, 2, 0);
 
