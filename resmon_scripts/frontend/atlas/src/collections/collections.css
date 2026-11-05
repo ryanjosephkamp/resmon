@@ -10,7 +10,7 @@
  * hangs from its left edge.
  */
 .scope {
-  display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 220px; height: 32px;
+  display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 200px; height: 32px;
   margin-left: -8px; padding: 0 6px 0 14px; position: relative; anchor-name: --collection-scope;
   border: 0; border-radius: 8px; background: transparent; cursor: pointer;
   color: var(--ink-2); font: italic 400 15.5px/1 var(--serif); white-space: nowrap;
@@ -49,8 +49,17 @@
 .scope-action .scope-check { color: var(--ink-3); }
 .scope-empty { margin: 4px 10px 6px; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); }
 
-@media (max-width: 1199px) {
-  .scope { max-width: 150px; padding-left: 12px; }
+/*
+ * The bar's budget: the switch gives way with the controls beside it. Between
+ * 1,200 and 1,279 pixels, where the run monitor has its words and New search
+ * its label, the sections draw a little closer, as they do below 1,200.
+ */
+@media (max-width: 1439px) { .scope { max-width: 160px; } }
+@media (max-width: 1279px) { .scope { max-width: 140px; padding-left: 12px; } }
+@media (min-width: 1200px) and (max-width: 1279px) {
+  .bar { gap: 14px; }
+  .tabs a { padding: 0 10px; }
+  .tabs a[aria-current="page"]::after { left: 10px; right: 10px; }
 }
 
 /* Move to and Copy to: each a button whose menu hangs from it. */

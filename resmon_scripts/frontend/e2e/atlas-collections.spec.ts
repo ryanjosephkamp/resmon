@@ -295,6 +295,20 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.screenshot({ path: path.join(shots, 'switch-menu-960-light.png') });
     await win.keyboard.press('Escape');
 
+    // A long name gives way with the bar's other controls at every width the window takes.
+    await engine(win, '/api/collections/current', 'PUT', { collection: 'Fluid dynamics and turbulence' });
+    await win.reload();
+    await expect(scope).toContainText('Fluid dynamics');
+    for (const width of [960, 1000, 1100, 1199, 1200, 1240, 1279, 1360, 1361, 1439, 1440, 1600]) {
+      await widen(app, win, width);
+      const inner = await win.evaluate(() => window.innerWidth);
+      const boxes = await win.locator('header.bar').evaluate((bar) => [...bar.querySelectorAll('.lockup, .scope, .tabs li, .mon, .newsearch, .cmdk, .iconbtn')]
+        .map((node) => node.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right })));
+      for (let i = 1; i < boxes.length; i += 1) expect(boxes[i]!.left, `the bar overlaps at ${inner}`).toBeGreaterThanOrEqual(boxes[i - 1]!.right);
+      expect(boxes[boxes.length - 1]!.right, `the bar spills at ${inner}`).toBeLessThanOrEqual(inner);
+    }
+    await win.screenshot({ path: path.join(shots, 'bar-long-name-1600-light.png') });
+
     expect(problems).toEqual([]);
     expect(fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '').toBe('');
