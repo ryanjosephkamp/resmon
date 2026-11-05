@@ -144,10 +144,24 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
     const served = await engine<Overview>(win, '/api/analytics/overview');
     const shot = (name: string) => win.screenshot({ path: path.join(shots, `${name}.png`), animations: 'disabled' });
 
+    // A paper saved to read, so the Library shows its cover: its piece of the map.
+    await engine(win, '/api/reading-queue', 'POST', { document_id: seed.old_protein[0] });
+
     for (const theme of ['light', 'dark'] as const) {
       await engine(win, '/api/appearance', 'PUT', { theme, accent: null });
       await win.reload();
       await expect(win.locator('html')).toHaveAttribute('data-theme', theme, { timeout: 60_000 });
+
+      // — the Library: a paper's cover, its piece of the map --------------------------------
+      await go(win, '#/library');
+      const cover = win.locator(`[data-cover="atlas"][data-placed="true"]`).first();
+      await cover.hover({ timeout: 60_000 });
+      await expect(tip.locator('.chart-tip-name')).toHaveText('On the collection map');
+      await expect(tip.locator('.chart-tip-value')).toHaveText(/^[A-H][1-8](, .+)?$/);
+      // The card opens the paper already: the tip offers no click of its own.
+      await expect(tip.locator('.chart-tip-opens')).toHaveCount(0);
+      await besideAndInside(win, tip, cover.locator('.cov-chart'));
+      await shot(`library-cover-${theme}`);
 
       // — Analytics -----------------------------------------------------------------
       await go(win, '#/health/analytics');
@@ -392,6 +406,22 @@ test('every chart has the one tip with the engine\'s numbers, and a click or Ent
     } finally {
       await embedder.close();
     }
+
+    // A second window draws its own tip over its own page, and the first draws none.
+    const opening = app.waitForEvent('window');
+    await win.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+n`);
+    const second = await opening;
+    second.on('pageerror', (e) => problems.push(`second: ${e.message}`));
+    await second.locator('nav[aria-label="Sections"]').waitFor({ timeout: 60_000 });
+    await second.evaluate(() => { window.location.hash = '#/health/analytics'; });
+    const secondBar = second.locator('[data-analytics="sources"] .bar-row[data-source="arxiv"] .chart-bar');
+    await secondBar.hover({ timeout: 60_000 });
+    const secondTip = second.getByRole('tooltip');
+    await expect(secondTip.locator('.chart-tip-name')).toHaveText('arXiv');
+    await besideAndInside(second, secondTip, secondBar);
+    await expect(tip).toHaveCount(0);
+    await second.screenshot({ path: path.join(shots, 'second-window-analytics.png'), animations: 'disabled' });
+    await second.close();
 
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
