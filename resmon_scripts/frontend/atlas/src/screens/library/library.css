@@ -9,7 +9,7 @@
 .lib-page { position: relative; padding-top: 34px; }
 .lib-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 20px; min-height: 44px; }
 .lib-tools .seg { flex: none; }
-.lib-tools .grow, .selbar .grow, .card-acts .grow { flex: 1; }
+.lib-tools .grow, .card-acts .grow { flex: 1; }
 .lib-find { flex: 1 1 220px; max-width: 340px; min-width: 160px; }
 /* The shelf's own actions keep together at the row's end, and wrap together when the row is full. */
 .lib-acts { display: flex; align-items: center; gap: 10px; margin-left: auto; }
@@ -29,20 +29,8 @@
 .lib-import[aria-disabled="true"] { opacity: .5; cursor: default; }
 .lib-import:focus-within { outline: 2px solid var(--accent-mark); outline-offset: 2px; }
 
-/* The selection bar takes the toolbar's place and height, washed in the accent as the run log's export bar is. */
-.selbar {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 20px; min-height: 44px; padding: 6px 8px 6px 12px;
-  border: 1px solid var(--rule); border-radius: 8px; background: var(--accent-wash); font: 500 13px/1.3 var(--sans);
-}
-.selbar .n { margin-right: 6px; display: inline-flex; align-items: center; gap: 9px; font-variant-numeric: tabular-nums; }
-.selbar .seg.export button:disabled { color: var(--ink-3); cursor: default; }
-.tick {
-  display: inline-grid; place-content: center; width: 15px; height: 15px; flex: none;
-  border: 1.5px solid var(--field-edge); border-radius: 4px; background: var(--plate);
-}
-.tick.on, .tick.part { background: var(--accent-fill); border-color: var(--accent-fill); }
-.tick.on::before { content: ""; width: 9px; height: 9px; background: var(--on-accent); clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%); }
-.tick.part::before { content: ""; width: 8px; height: 2px; border-radius: 1px; background: var(--on-accent); }
+/* The selection bar (`screens/selection/selection.css`) takes the toolbar's place and height here. */
+.lib-page .selbar { margin-top: 20px; }
 
 .lib-reading, .lib-empty { margin-top: 26px; }
 .lib-foot { margin-top: 28px; font: 400 13px/1.5 var(--sans); color: var(--ink-3); }

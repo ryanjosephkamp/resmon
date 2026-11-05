@@ -9,7 +9,7 @@ import { duration, when } from './today/format';
 import { useRunEnding } from './today/freshness';
 import {
   deletedSentence, deleteQuestion, FINAL_EVENTS, interruptedSentence, liveSources, RESTARTABLE, runKind, runTitle,
-  selectedSources, type CoverageSource, type ProgressEvent, type Run as RunData,
+  selectedSources, type CoverageSource, type LiveSource, type ProgressEvent, type Run as RunData,
 } from './runs/model';
 import { saveBundle } from './runs/downloads';
 import { useDeleteRuns } from './runs/remove';
@@ -31,6 +31,8 @@ import { useMinute } from '../lib/useMinute';
 import { collectionParam, useCollection } from '../collections/current';
 import { useNow } from '../lib/useNow';
 import { elapsedWords, liveStage, secondsSince, sourcesFinished } from './runs/live';
+import { finishedTip, recordedTip } from './runs/runTips';
+import { useChartTip } from '../charts/ChartTip';
 
 /** How many of a run's papers its Papers tab reads at a time; More papers reads the next. */
 const PAPERS_PAGE = 200;
@@ -103,7 +105,12 @@ function RunClock({ start }: { start: string | null | undefined }) {
  * answered. A run that asks no source (a person watch checking retractions)
  * has no bar.
  */
-function RunProgress({ stage, count, finished, total }: { stage: string; count: string | null; finished: number; total: number }) {
+function RunProgress({ stage, count, sources, nameOf }: {
+  stage: string; count: string | null; sources: readonly LiveSource[]; nameOf: (slug: string) => string;
+}) {
+  const tip = useChartTip();
+  const finished = sourcesFinished(sources);
+  const total = sources.length;
   return (
     <div className="run-progress" data-run="progress">
       <p className="coverage-sentence run-stage">
@@ -116,11 +123,15 @@ function RunProgress({ stage, count, finished, total }: { stage: string; count: 
         </p>
       )}
       {total > 0 && (
-        <div className="run-meter" role="progressbar" aria-label="Sources finished" aria-valuemin={0} aria-valuemax={total}
-          aria-valuenow={finished} aria-valuetext={`${finished} of ${total} finished`}>
-          <span style={{ width: `${(finished / total) * 100}%` }} />
+        // What takes the pointer is the bar and a band around it; the tip is set beside the bar.
+        <div className="meter-at" {...tip.mark(finishedTip(sources, nameOf), (at) => at.firstElementChild)}>
+          <div className="run-meter" role="progressbar" aria-label="Sources finished" aria-valuemin={0} aria-valuemax={total}
+            aria-valuenow={finished} aria-valuetext={`${finished} of ${total} finished`}>
+            <span style={{ width: `${(finished / total) * 100}%` }} />
+          </div>
         </div>
       )}
+      {tip.layer}
     </div>
   );
 }
@@ -134,6 +145,7 @@ export function Run() {
   // The run's small map is the shown collection's, so it reads the run's papers in that collection.
   const { id: collection } = useCollection();
   const [tab, setTab] = useState<Tab>('Papers');
+  const recordedTips = useChartTip();
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
   const openMap = () => {
     setTab('Map');
@@ -466,17 +478,21 @@ export function Run() {
         <section className="run-sources" aria-label="Sources" hidden={onMap !== null}>
           {running ? (
             <>
-              <RunProgress stage={stage.words} count={stage.count} finished={sourcesFinished(live)} total={live.length} />
+              <RunProgress stage={stage.words} count={stage.count} sources={live} nameOf={(slug) => names.get(slug) ?? slug} />
               <LivePanel sources={live} names={names} />
             </>
           ) : (
             <>
               <p className="coverage-sentence" data-coverage-summary>{data.coverage.summary}</p>
               <ol className="recorded" aria-label="Recorded outcome of each source">
+                {recordedTips.layer}
                 {recorded.map((source) => (
                   <li key={source.source} className="recorded-row" data-source={source.source} data-category={source.category}
                     data-in-part={source.in_part ? 'true' : undefined}>
-                    <OutcomeMark category={source.category} inPart={source.in_part} />
+                    {/* The mark's tip says the outcome and its count, for a pointer; the row says them in words. It opens nothing: this is the run's page. */}
+                    <span className="omark-at" {...recordedTips.mark(recordedTip(source, names.get(source.source) ?? source.source))}>
+                      <OutcomeMark category={source.category} inPart={source.in_part} />
+                    </span>
                     <span className="src-name">{names.get(source.source) ?? source.source}</span>
                     <span className="src-label">{source.label}</span>
                     <span className="src-count num">

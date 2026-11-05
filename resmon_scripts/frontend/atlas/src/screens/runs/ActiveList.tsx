@@ -11,8 +11,11 @@ import {
   type ActiveRun, type WaitingRun,
 } from './active';
 import { elapsedWords, liveMarkState, liveStage, secondsSince, sourcesFinished } from './live';
-import { liveLabel, runKind, type LiveSource, type ProgressEvent } from './model';
+import { runKind, type LiveSource, type ProgressEvent } from './model';
 import { RunMark } from './RunMark';
+import { liveTip, orbitTip } from './runTips';
+import { tipWords, useChartTip } from '../../charts/ChartTip';
+import { joined, useRoving } from '../../charts/roving';
 
 /** "arXiv", "arXiv and CORE", "arXiv, CORE, and 2 more". */
 function namesWords(names: readonly string[]): string {
@@ -37,17 +40,32 @@ export function runningWords(sources: readonly LiveSource[], events: readonly Pr
   return [stage.words, stage.count].filter(Boolean).join(' · ');
 }
 
-/** Each of a run's sources in the Source wall's marks, in the order it chose them, each named for a reader. */
-export function SourceMarks({ sources, nameOf }: { sources: readonly LiveSource[]; nameOf: (slug: string) => string }) {
+/**
+ * Each of a run's sources in the Source wall's marks, in the order it chose
+ * them. Each mark has the charts' tip and opens the run, whose page has every
+ * source's account; the marks are one stop for the keyboard, the arrow keys
+ * between them.
+ */
+export function SourceMarks({ runId, sources, nameOf }: {
+  runId: number; sources: readonly LiveSource[]; nameOf: (slug: string) => string;
+}) {
+  const tip = useChartTip();
+  const roving = useRoving(sources.length);
   const largest = Math.max(0, ...sources.map((source) => source.count ?? 0));
   return (
     <ol className="src-marks" aria-label="Its sources">
-      {sources.map((source) => (
-        <li key={source.slug} data-source={source.slug} data-state={source.state} title={`${nameOf(source.slug)}: ${liveLabel(source)}`}>
-          <WallMark state={liveMarkState(source)} count={source.count} largest={largest} />
-          <span className="sr-only">{nameOf(source.slug)}: {liveLabel(source)}</span>
-        </li>
-      ))}
+      {sources.map((source, i) => {
+        const content = liveTip(source, nameOf(source.slug), runId);
+        return (
+          <li key={source.slug} data-source={source.slug} data-state={source.state}>
+            <Link to={`/runs/${runId}`} className="src-mark" aria-label={tipWords(content)}
+              {...joined(roving.item(i), tip.mark(content))}>
+              <WallMark state={liveMarkState(source)} count={source.count} largest={largest} />
+            </Link>
+          </li>
+        );
+      })}
+      {tip.layer}
     </ol>
   );
 }
@@ -68,6 +86,7 @@ interface ListProps {
  */
 export function RunningList({ running, nameOf, watchName, compact = false }: Omit<ListProps, 'waiting'>) {
   const now = useNow(1_000, running.length > 0);
+  const tip = useChartTip();
   const client = useQueryClient();
   const stop = useMutation({
     mutationFn: (id: number) => answer(engine().POST('/api/executions/{exec_id}/cancel', { params: { path: { exec_id: id } } })),
@@ -75,6 +94,7 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
   });
   return (
     <ol className={`active-list${compact ? ' compact' : ''}`} data-runs="running">
+      {tip.layer}
       {running.map((run) => {
         const sources = activeSources(run);
         const events = run.events as unknown as ProgressEvent[];
@@ -86,7 +106,10 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
         const title = activeTitle(run, watchName);
         return (
           <li key={run.id} className="active-row" data-run={run.id} data-stalled={stalled ? 'true' : undefined}>
-            <RunMark state="running" orbits={[{ share: sources.length ? finished / sources.length : 0, stalled }]} />
+            {/* The orbit's tip says the share it draws; the run's title beside it is the way to the run. */}
+            <span className="active-orbit" {...tip.mark(orbitTip(title, sources, stalled))}>
+              <RunMark state="running" orbits={[{ share: sources.length ? finished / sources.length : 0, stalled }]} />
+            </span>
             <div className="active-body">
               <Link to={`/runs/${run.id}`} className={run.routine_id ? 'active-title it' : 'active-title'}>{breakable(title)}</Link>
               <p className="active-meta">
@@ -95,7 +118,7 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
                 {ran !== null && <> · <span className="num" data-runs="elapsed">{elapsedWords(ran)}</span></>}
               </p>
               <div className="active-said">
-                {sources.length > 0 && <SourceMarks sources={sources} nameOf={nameOf} />}
+                {sources.length > 0 && <SourceMarks runId={run.id} sources={sources} nameOf={nameOf} />}
                 <span data-runs="said">{runningWords(sources, events, nameOf)}</span>
               </div>
               {stalled && silent !== null && (

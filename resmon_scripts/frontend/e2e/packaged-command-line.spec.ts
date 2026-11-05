@@ -33,6 +33,7 @@ import {
 } from './fixtures/packaged-app';
 import { changesBetween, snapshotTree } from './fixtures/app-tree';
 import { consoleWindowsShown, describeWindows, startWindowWatch, type WindowWatch } from './fixtures/console-windows';
+import { removeStateDir } from './fixtures/cleanup';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const { bundleVersionFor } = require('../scripts/bundle-version.js') as { bundleVersionFor: (v: string) => string };
@@ -214,8 +215,8 @@ test('the command line in the packaged app answers from the instance, and no con
     expect(changes, 'the app wrote into its own folder').toEqual([]);
   } finally {
     await watch?.stop().catch(() => undefined);
-    fs.rmSync(stateDir, { recursive: true, force: true });
-    fs.rmSync(scratch, { recursive: true, force: true });
+    removeStateDir(stateDir);
+    removeStateDir(scratch);
   }
 });
 
@@ -292,7 +293,7 @@ test('Install and Uninstall "resmon" Command write a launcher that runs the app\
   } finally {
     await app.close().catch(() => { /* already gone */ });
     expect(changesBetween(before, snapshotTree(folder)), 'the app wrote into its own folder').toEqual([]);
-    fs.rmSync(stateDir, { recursive: true, force: true });
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(stateDir);
+    removeStateDir(root);
   }
 });

@@ -26,6 +26,7 @@ import * as path from 'path';
 import { spawnSync } from 'child_process';
 import { resolveInterpreter } from '../../e2e/fixtures/python-interpreter';
 import { targetAppRoot } from '../drivers/session';
+import { removeStateDir } from '../../e2e/fixtures/cleanup';
 
 /** What a gate run left behind: enough for a spec to assert on and to quote. */
 export interface GateOutcome {
@@ -102,6 +103,6 @@ export function runGate(gate: string): GateOutcome {
     }
     return { gate, status: run.status, output, python, repo: root.repo, summary: summary.replace(/=/g, '').trim(), counts };
   } finally {
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 }

@@ -236,13 +236,14 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       return map.state === 'ready' ? [...map.points.id].sort((a, b) => a - b) : map.state;
     }, { timeout: 90_000 }).toEqual([...corpus].sort((a, b) => a - b));
 
-    // — Move a picked paper, and undo it ---------------------------------------
-    await win.locator('[data-collection="pick"]').click();
-    const picking = win.locator('[data-collection="picking"]');
-    await expect(picking).toContainText('None picked');
+    // — Move a selected paper, from the selection's bar beside Save to read, and undo it ----------------
+    await win.locator('[data-collection="select"]').click();
+    const picking = win.getByRole('group', { name: 'The selected matches' });
+    await expect(picking).toContainText('0 of 3 selected');
     const first = corpus[0]!;
-    await win.locator(`.result[data-document="${first}"] .result-pick input`).check();
-    await expect(picking).toContainText('1 picked');
+    await win.locator(`.result[data-document="${first}"] input.pickbox`).check();
+    await expect(picking).toContainText('1 of 3 selected');
+    await expect(picking.getByRole('button', { name: /Save/ })).toBeVisible();
     await picking.getByRole('button', { name: 'Move to' }).click();
     await win.getByRole('menu', { name: 'Move to' }).getByRole('menuitem', { name: /Photonics/ }).click();
     const moved = win.locator('[data-collection="moved"]');

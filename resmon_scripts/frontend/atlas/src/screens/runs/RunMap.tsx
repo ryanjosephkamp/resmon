@@ -3,13 +3,16 @@ import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
-import { Tip, findPosition } from '../Today';
+import { Tip, findPosition, paperTip } from '../Today';
+import { tipWords } from '../../charts/ChartTip';
+import { opensWords } from '../sky/PaperSky';
 import { mapKey, readMap } from '../today/freshness';
 import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
+import { SaveLit } from '../sky/SaveLit';
 import { filterCount } from '../sky/look';
 import { useMapLook } from '../sky/useMapLook';
 import { count, number } from '../today/format';
@@ -118,7 +121,8 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
         {sky && (
           <MapBar name="run" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
             facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
-            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
         )}
         {sky && field && built ? (
           <Plate
@@ -132,6 +136,7 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
             pointed={null}
             onSelect={(index) => setSelectedId(index === null ? null : sky.ids[index] ?? null)}
             onHover={setHover}
+            onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
             label={`Map of this run's ${count(sky.count, 'paper')} the map has placed, in ${count(built.regions.length, 'region')}, each where the map of ${shownWords.named ? shownWords.name : 'your whole collection'} puts it.`}
             onAway={() => undefined}
@@ -140,12 +145,19 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
           >
             {hover && (
               <Tip hover={hover} brief={brief.data ?? undefined} now={now} sourceName={sourceName}
-                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)} />
+                cell={gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds)}
+                opens={opensWords(hover.via ?? 'pointer', true, hovered === selectedId)} />
             )}
           </Plate>
         ) : (
           <div className="plate plate-waiting"><p role="status">{account.waiting ?? account.sentence}</p></div>
         )}
+        {/* The paper the keyboard chose, said as its tip says it: the map itself is one picture to a screen reader. */}
+        <p className="sr-only" aria-live="polite" data-map-said="">
+          {hover?.via === 'keyboard' && sky ? tipWords(paperTip({
+            brief: brief.data ?? undefined, now, sourceName, cell: gridCell(sky.x[hover.index] ?? 0, sky.y[hover.index] ?? 0, sky.bounds),
+          })) : ''}
+        </p>
         {sky && (
           <PlateKey showWatches={false}
             colors={look && look.legend.length > 0 ? <ColorKey look={look} /> : undefined}

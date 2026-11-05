@@ -36,7 +36,7 @@ from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
 from implementation_scripts import library_folder, library_removal, library_thumbs
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
-from implementation_scripts import delivery
+from implementation_scripts import delivery, upgrade_copy
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -343,7 +343,9 @@ def _get_db():
         _db_generation += 1
         _shared_conn = _open_connection()
         if not _db_initialized:
-            init_db(conn=_shared_conn)
+            # ``":memory:"`` stands for a throwaway database (a temporary file
+            # here), which keeps no copy of itself before an upgrade.
+            init_db(conn=_shared_conn, keep_upgrade_copy=_db_path != ":memory:")
             _db_initialized = True
 
     conn = getattr(_db_local, "conn", None)
@@ -5087,15 +5089,21 @@ class CollectionPapersBody(BaseModel):
 
     The papers are named by id (``document_ids``) or by a search of the
     collection they come from (``matching``: the Explorer's filters, whose own
-    ``collection`` is that collection), never both. A move takes them out of
-    ``from_collection``, which is the search's collection where ``matching`` is
-    given and the default collection where neither names one.
+    ``collection`` is that collection), never both. A search's papers leave
+    out ``except_ids``, and ``at_most`` is how many the person was told would
+    move or copy: a search that matches more by the time it is read is
+    refused, so a filter lost on the way can never move a whole collection. A
+    move takes them out of ``from_collection``, which is the search's
+    collection where ``matching`` is given and the default collection where
+    neither names one.
     """
 
     mode: Literal["move", "copy"]
     document_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
     from_collection: CollectionRef = None
     matching: Optional[ExplorerFilters] = None
+    except_ids: list[int] = Field(default_factory=list, max_length=paper_collections.IDS_MAX)
+    at_most: Optional[int] = Field(default=None, ge=1)
 
 
 class CollectionMembershipBody(BaseModel):
@@ -5218,10 +5226,14 @@ def change_collection_papers(collection_id: int, body: CollectionPapersBody):
             if body.mode == "move" and body.from_collection is not None \
                     and _collection_id(conn, body.from_collection) != source:
                 raise HTTPException(400, "A move by a search takes papers out of the collection searched.")
-            ids = explorer.matching_ids(conn, **filters)
+            skip = set(body.except_ids)
+            ids = [i for i in explorer.matching_ids(conn, **filters) if i not in skip]
             if len(ids) > paper_collections.IDS_MAX:
                 raise HTTPException(400, f"A search moves or copies at most {paper_collections.IDS_MAX:,} "
                                          f"papers at once, and this one matches {len(ids):,}.")
+            if body.at_most is not None and len(ids) > body.at_most:
+                raise HTTPException(409, f"This search matches {len(ids):,} papers now, more than the "
+                                         f"{body.at_most:,} you were asked about. Nothing was moved or copied.")
         else:
             ids = body.document_ids
         if body.mode == "copy":
@@ -5681,6 +5693,135 @@ def explorer_export(body: ExplorerExportBody):
         close()
         raise
     return _reference_response(documents, body.format, "resmon-explorer", total, close=close)
+
+
+# ---------------------------------------------------------------------------
+# The reading queue, many papers at once
+# ---------------------------------------------------------------------------
+#
+# Beside the search routes because a save of every match takes the search's own
+# filters. The rules are the single save's (``reading_queue.save_many``): a paper
+# already in the queue stays exactly as it is and is counted as such, and every
+# entry one save adds carries that save's moment, which is what its Undo names.
+
+
+class ReadingQueueBatchBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+
+
+class ReadingQueueAllBody(BaseModel):
+    """Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+
+    ``scope`` says which set: ``search``, the papers ``search`` matches (the
+    filters as Search › Your collection sends them, the words left out where it
+    ranked by meaning, since there they order the list and do not narrow it);
+    ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+    it found first; ``today``, Today's new papers in ``collection`` (the default
+    one where none is named). ``except_ids`` are left out.
+    ``at_most`` is how many the person was told would be saved: a set that holds
+    more by the time it is read is refused, so a filter lost on the way can never
+    save the whole collection.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    scope: Literal["search", "run", "today"]
+    search: Optional[ExplorerFilters] = None
+    execution_id: Optional[int] = None
+    collection: CollectionRef = None
+    only_new: bool = False
+    except_ids: list[int] = Field(default_factory=list, max_length=reading_queue.BATCH_MOST)
+    at_most: int = Field(ge=1)
+
+
+class ReadingQueueUndoBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    document_ids: list[int] = Field(min_length=1, max_length=reading_queue.BATCH_MOST)
+    saved_at: str = Field(min_length=1, max_length=40)
+
+
+@app.post("/api/reading-queue/batch", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_many_to_reading_queue(body: ReadingQueueBatchBody):
+    """Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+
+    The answer counts both, and the ids it does not hold (``missing``), and
+    lists the ids it added with the moment they carry, for Undo
+    (``POST /api/reading-queue/batch/undo``).
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.save_many(conn, body.document_ids)
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/all", response_model=response_models.ReadingQueueBatchSaved,
+          response_model_exclude_unset=True)
+def save_all_to_reading_queue(body: ReadingQueueAllBody):
+    """Save every paper of a search, a run, or Today, read by the engine rather than listed.
+
+    At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+    how many it holds. 409 when the set holds more than ``at_most``, the number
+    the person was asked about. Otherwise the answer of ``/batch``.
+    """
+    conn = _get_db()
+    try:
+        most = reading_queue.BATCH_MOST
+        skip = set(body.except_ids)
+        # One more than the limit is read, past the papers left out, so a set too large is known without reading it all.
+        reach = most + len(skip) + 1
+        if body.scope == "search":
+            if body.search is None:
+                raise HTTPException(400, "A save of a search's matches needs the search's filters.")
+            ids = explorer.matching_ids(conn, **_filter_kwargs(body.search, conn), limit=reach)
+            what = "this search matches"
+        elif body.scope == "run":
+            if body.execution_id is None:
+                raise HTTPException(400, "A save of a run's papers needs the run's id.")
+            if get_execution_by_id(conn, body.execution_id) is None:
+                raise HTTPException(404, "Execution not found")
+            ids = reading_queue.run_paper_ids(conn, body.execution_id, only_new=body.only_new, limit=reach)
+            what = f"run {body.execution_id} {'found first' if body.only_new else 'stored'}"
+        else:
+            # Today's new papers in the collection the window shows, as Today reads them.
+            cid = _collection_id(conn, body.collection)
+            floor = today.new_window(conn, None, cid)["floor"]
+            ids = [int(r[0]) for r in conn.execute(
+                f"SELECT d.id FROM {today.NEW_PAPERS_FROM} WHERE {today.NEW_PAPERS_WHERE} "
+                "ORDER BY m.added_at DESC, d.id DESC LIMIT ?", (cid, floor, reach))]
+            what = "Today lists"
+        chosen = [i for i in ids if i not in skip]
+        if len(chosen) > most:
+            raise HTTPException(400, (
+                f"A save takes at most {most:,} papers at once, and {what} more than that. Nothing was saved. "
+                "Narrow it with a filter, or save part of it."))
+        if len(chosen) > body.at_most:
+            raise HTTPException(409, (
+                f"{what[0].upper()}{what[1:]} {len(chosen):,} papers now, more than the {body.at_most:,} you were "
+                "asked about. Nothing was saved."))
+        return reading_queue.save_many(conn, chosen)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
+
+
+@app.post("/api/reading-queue/batch/undo", response_model=response_models.ReadingQueueBatchUndone,
+          response_model_exclude_unset=True)
+def undo_save_to_reading_queue(body: ReadingQueueUndoBody):
+    """Undo a save of many: the entries it added go, unless they changed since.
+
+    ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+    read since, or removed and saved again, stays, and is counted as ``kept``.
+    """
+    conn = _get_db()
+    try:
+        return reading_queue.unsave_many(conn, body.document_ids, body.saved_at)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    finally:
+        _close_db(conn)
 
 
 # ---------------------------------------------------------------------------
@@ -8692,6 +8833,11 @@ def _erase_corpus(conn) -> int:
     from implementation_scripts import collection_map, shared_wording  # noqa: PLC0415 - see the imports
     collection_map.forget(conn, every=True)
     shared_wording.forget(conn)
+    # The copy kept before the last schema upgrade is a whole database, these
+    # papers included, that resmon made on its own beside this one; it goes
+    # with them too. A backup the person wrote to their own folder is theirs
+    # and stays.
+    upgrade_copy.remove_all(upgrade_copy.database_file(conn))
     try:
         conn.execute("INSERT INTO documents_fts(documents_fts) VALUES ('rebuild')")
     except sqlite3.Error:
@@ -9111,11 +9257,12 @@ def restore_stage(body: RestoreRequest):
 @app.get("/api/backup/last", response_model=response_models.BackupLast,
          response_model_exclude_unset=True)
 def backup_last():
-    """The last bundle, the last restore outcome, and whether an undo copy exists."""
+    """The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade."""
     conn = _get_db()
     try:
         last_path = get_setting(conn, "last_backup_path") or ""
         drive_upload_retired = _drive_upload_was_on(conn)
+        db_file = upgrade_copy.database_file(conn)
     finally:
         _close_db(conn)
     state = _backup_state_dir()
@@ -9152,6 +9299,7 @@ def backup_last():
         "last_restore": backup_module.last_restore(state),
         "undo_copies": backup_module.undo_copies(state),
         "drive_upload_retired": drive_upload_retired,
+        "pre_upgrade_copy": upgrade_copy.latest(db_file),
     }
 
 
@@ -9251,7 +9399,10 @@ def _apply_pending_restore_on_startup() -> dict | None:
             _backup_state_dir(),
             Path(db_path),
             this_schema_version=SCHEMA_VERSION,
-            init_db=lambda path: init_db(path),
+            # The backup being restored is the copy of this database from
+            # before its upgrade, so none is made beside it; and making one
+            # would delete the copy from before the last update.
+            init_db=lambda path: init_db(path, keep_upgrade_copy=False),
             daemon_lock_held=another_process_holds_it,
         )
     except Exception:
@@ -9426,10 +9577,11 @@ def assistant_status():
     """
     conn = _get_db()
     try:
-        status = assistant_runtime.runtime_status(
-            _assistant_settings(conn), backend_port=serving_port(),
-        )
-        status["composer_choices"] = assistant_choices.descriptor(_assistant_settings(conn), backend_port=serving_port())
+        # One read of the settings for the whole answer, so a save landing between two
+        # reads can never give a runtime and composer choices that disagree.
+        settings = _assistant_settings(conn)
+        status = assistant_runtime.runtime_status(settings, backend_port=serving_port())
+        status["composer_choices"] = assistant_choices.descriptor(settings, backend_port=serving_port())
         status["contract_version"] = _mcp_contract_version()
         return status
     finally:

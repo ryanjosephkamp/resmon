@@ -8,7 +8,6 @@ import { CollectionSwitcher } from '../CollectionSwitcher';
 import { MoveCopy, useChangeNotice } from '../MoveCopy';
 import { CollectionsSettings } from '../CollectionsSettings';
 import { changedWords, type PapersChanged } from '../papers';
-import { pickedWords, usePicking } from '../PickBar';
 import { collectionWords, YOUR_COLLECTION } from '../words';
 import { countSentence, facetCaption, facetEmptyWords } from '../../screens/collection/filters';
 import { embeddedWords, missingWords, ranking, type EmbeddingStatus } from '../../screens/settings/embeddingWords';
@@ -139,12 +138,13 @@ test('Move to sends the picked papers to the collection chosen, says what happen
   expect(undone?.body).toEqual({ added: [11, 12], from_collection: 2, removed: MOVED.removed });
 });
 
-test('a copy by search sends the search, not ids, and a copy offers only the collections that lack the paper', async () => {
+test('a copy by search sends the search, the papers left out, and how many were asked about; a copy offers only the collections that lack the paper', async () => {
   const calls = engineAnswering({
     'GET /api/collections': () => LIST,
     'POST /api/collections/{collection_id}/papers': () => ({ ...MOVED, mode: 'copy', collection_id: 1, from_collection_id: null, removed: [], added: [5] }),
   });
-  render(<Wrapped><MoveCopy which={{ matching: { sources: ['arxiv'], authors: [], categories: [], collection: 2 } }} from={2} count={40} canMove={false} skip={[3]} /></Wrapped>);
+  render(<Wrapped><MoveCopy which={{ matching: { sources: ['arxiv'], authors: [], categories: [], collection: 2 }, except: [7], atMost: 40 }}
+    from={2} count={40} canMove={false} skip={[3]} /></Wrapped>);
   expect(screen.queryByRole('button', { name: 'Move to' })).toBeNull();
   await screen.findByRole('button', { name: 'Copy to' });
   await waitFor(() => expect(screen.getAllByRole('menuitem', { hidden: true }).length).toBe(2));
@@ -153,7 +153,7 @@ test('a copy by search sends the search, not ids, and a copy offers only the col
   await screen.findByRole('status');
   expect(calls.find((c) => c.path === '/api/collections/{collection_id}/papers')?.params).toEqual({ path: { collection_id: 1 } });
   expect(calls.find((c) => c.path === '/api/collections/{collection_id}/papers')?.body)
-    .toEqual({ mode: 'copy', matching: { sources: ['arxiv'], authors: [], categories: [], collection: 2 } });
+    .toEqual({ mode: 'copy', matching: { sources: ['arxiv'], authors: [], categories: [], collection: 2 }, except_ids: [7], at_most: 40 });
 });
 
 test('what a move or a copy did, in words', () => {
@@ -162,21 +162,6 @@ test('what a move or a copy did, in words', () => {
     .toBe('Nothing copied: Optics holds that paper already.');
   expect(changedWords({ ...MOVED, removed: MOVED.removed.slice(0, 2), already_there: 0, not_in_source: 1, missing: 1 }, 'Optics'))
     .toBe('Moved 2 papers to Optics. 1 paper was not in it to move; 1 paper no longer stored.');
-});
-
-test('a pick starts empty again when the search changes, and Select all picks every match', () => {
-  const { result, rerender } = renderHook(({ search }) => usePicking(search), { initialProps: { search: 'a' } });
-  act(() => result.current.start());
-  act(() => result.current.toggle(4));
-  act(() => result.current.toggle(9));
-  expect([...result.current.picking.picked]).toEqual([4, 9]);
-  expect(pickedWords(result.current.picking, 100)).toBe('2 picked');
-  act(() => result.current.pickAll());
-  expect(pickedWords(result.current.picking, 4210)).toBe('All 4,210 picked');
-  rerender({ search: 'b' });
-  expect(result.current.picking.all).toBe(false);
-  expect(result.current.picking.picked.size).toBe(0);
-  expect(result.current.picking.on).toBe(true);
 });
 
 test('deleting a collection asks first, and says what happens to its papers and watches', async () => {

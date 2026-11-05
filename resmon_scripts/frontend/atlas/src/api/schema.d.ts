@@ -681,7 +681,7 @@ export interface paths {
         };
         /**
          * Backup Last
-         * @description The last bundle, the last restore outcome, and whether an undo copy exists.
+         * @description The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade.
          */
         get: operations["backup_last_api_backup_last_get"];
         put?: never;
@@ -3196,6 +3196,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reading-queue/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Many To Reading Queue
+         * @description Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+         *
+         *     The answer counts both, and the ids it does not hold (``missing``), and
+         *     lists the ids it added with the moment they carry, for Undo
+         *     (``POST /api/reading-queue/batch/undo``).
+         */
+        post: operations["save_many_to_reading_queue_api_reading_queue_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save All To Reading Queue
+         * @description Save every paper of a search, a run, or Today, read by the engine rather than listed.
+         *
+         *     At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+         *     how many it holds. 409 when the set holds more than ``at_most``, the number
+         *     the person was asked about. Otherwise the answer of ``/batch``.
+         */
+        post: operations["save_all_to_reading_queue_api_reading_queue_batch_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Save To Reading Queue
+         * @description Undo a save of many: the entries it added go, unless they changed since.
+         *
+         *     ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+         *     read since, or removed and saved again, stays, and is counted as ``kept``.
+         */
+        post: operations["undo_save_to_reading_queue_api_reading_queue_batch_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reading-queue/{document_id}": {
         parameters: {
             query?: never;
@@ -5530,6 +5601,8 @@ export interface components {
          *     while this database still has the removed upload to Google Drive after
          *     each run switched on, until ``POST
          *     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+         *     ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+         *     last schema upgrade, ``None`` when there is none there.
          *
          *     A pointer or record edited by hand into a shape no resmon wrote matches
          *     neither model of its union, and this route then answers 500 rather than a
@@ -5549,6 +5622,7 @@ export interface components {
             pending_restore_runs_on: ("app_restart" | "service_restart" | "service_stopped") | null;
             /** Pending Restore Runs When */
             pending_restore_runs_when: string | null;
+            pre_upgrade_copy: components["schemas"]["PreUpgradeCopy"] | null;
             /** Undo Copies */
             undo_copies: string[];
         } & {
@@ -6032,13 +6106,21 @@ export interface components {
          *
          *     The papers are named by id (``document_ids``) or by a search of the
          *     collection they come from (``matching``: the Explorer's filters, whose own
-         *     ``collection`` is that collection), never both. A move takes them out of
-         *     ``from_collection``, which is the search's collection where ``matching`` is
-         *     given and the default collection where neither names one.
+         *     ``collection`` is that collection), never both. A search's papers leave
+         *     out ``except_ids``, and ``at_most`` is how many the person was told would
+         *     move or copy: a search that matches more by the time it is read is
+         *     refused, so a filter lost on the way can never move a whole collection. A
+         *     move takes them out of ``from_collection``, which is the search's
+         *     collection where ``matching`` is given and the default collection where
+         *     neither names one.
          */
         CollectionPapersBody: {
+            /** At Most */
+            at_most?: number | null;
             /** Document Ids */
             document_ids?: number[];
+            /** Except Ids */
+            except_ids?: number[];
             /** From Collection */
             from_collection?: number | string | null;
             matching?: components["schemas"]["ExplorerFilters"] | null;
@@ -6693,13 +6775,15 @@ export interface components {
         };
         /**
          * DiscoveryLag
-         * @description ``GET /api/analytics/discovery-lag``.
+         * @description ``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.
          */
         DiscoveryLag: {
             /** Insufficient Reason */
             insufficient_reason: string | null;
             /** Minimum Sample */
             minimum_sample: number;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Sources */
@@ -6718,6 +6802,8 @@ export interface components {
             fastest_days: number | null;
             /** Median Days */
             median_days: number | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Slowest Days */
@@ -9231,6 +9317,27 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * PreUpgradeCopy
+         * @description The copy of the database kept beside it before the last schema upgrade, read from the file.
+         *
+         *     ``schema_version`` is the schema the database was at when it was copied,
+         *     from the file's name. ``written_at_utc`` is the file's modification time,
+         *     which is when the copy was finished unless something has written to the
+         *     file since. ``bytes`` is its size. Nothing is opened or checked here.
+         */
+        PreUpgradeCopy: {
+            /** Bytes */
+            bytes: number;
+            /** Path */
+            path: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Written At Utc */
+            written_at_utc: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ProfileImportBody
          * @description One exported profile, or a list of them.
          */
@@ -9253,7 +9360,7 @@ export interface components {
         };
         /**
          * PublicationVolume
-         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``.
+         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.
          */
         PublicationVolume: {
             /** Group By */
@@ -9262,6 +9369,8 @@ export interface components {
             groups: string[];
             /** Insufficient Reason */
             insufficient_reason: string | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Series */
@@ -9284,6 +9393,86 @@ export interface components {
             month: string;
             /** Total */
             total: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueAllBody
+         * @description Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+         *
+         *     ``scope`` says which set: ``search``, the papers ``search`` matches (the
+         *     filters as Search › Your collection sends them, the words left out where it
+         *     ranked by meaning, since there they order the list and do not narrow it);
+         *     ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+         *     it found first; ``today``, Today's new papers in ``collection`` (the default
+         *     one where none is named). ``except_ids`` are left out.
+         *     ``at_most`` is how many the person was told would be saved: a set that holds
+         *     more by the time it is read is refused, so a filter lost on the way can never
+         *     save the whole collection.
+         */
+        ReadingQueueAllBody: {
+            /** At Most */
+            at_most: number;
+            /** Collection */
+            collection?: number | string | null;
+            /** Except Ids */
+            except_ids?: number[];
+            /** Execution Id */
+            execution_id?: number | null;
+            /**
+             * Only New
+             * @default false
+             */
+            only_new: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "search" | "run" | "today";
+            search?: components["schemas"]["ExplorerFilters"] | null;
+        };
+        /** ReadingQueueBatchBody */
+        ReadingQueueBatchBody: {
+            /** Document Ids */
+            document_ids: number[];
+        };
+        /**
+         * ReadingQueueBatchSaved
+         * @description ``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+         *
+         *     ``asked`` is how many distinct papers the request named or described;
+         *     ``saved`` were added now, ``already`` were in the queue and are as they
+         *     were, and ``missing`` are not in the collection. ``saved_ids`` and
+         *     ``saved_at`` (``None`` when nothing was added) are what an Undo names.
+         */
+        ReadingQueueBatchSaved: {
+            /** Already */
+            already: number;
+            /** Asked */
+            asked: number;
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Missing */
+            missing: number;
+            /** Saved */
+            saved: number;
+            /** Saved At */
+            saved_at: string | null;
+            /** Saved Ids */
+            saved_ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueBatchUndone
+         * @description ``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+         *     changed since the save, so its Undo left them.
+         */
+        ReadingQueueBatchUndone: {
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Kept */
+            kept: number;
+            /** Removed */
+            removed: number;
         } & {
             [key: string]: unknown;
         };
@@ -9471,6 +9660,13 @@ export interface components {
         ReadingQueueStatusBody: {
             /** Status */
             status: string;
+        };
+        /** ReadingQueueUndoBody */
+        ReadingQueueUndoBody: {
+            /** Document Ids */
+            document_ids: number[];
+            /** Saved At */
+            saved_at: string;
         };
         /** ReferenceExportBody */
         ReferenceExportBody: {
@@ -10265,17 +10461,24 @@ export interface components {
             sufficient: boolean;
             /** Total New */
             total_new: number;
+            /** Unrecorded Runs */
+            unrecorded_runs: number;
         } & {
             [key: string]: unknown;
         };
-        /** RoutineHealthRun */
+        /**
+         * RoutineHealthRun
+         * @description One completed run of a watch, oldest first.
+         */
         RoutineHealthRun: {
+            /** Execution Id */
+            execution_id: number;
             /** New Results */
-            new_results: number;
+            new_results: number | null;
             /** Start Time */
             start_time: string | null;
             /** Total Results */
-            total_results: number;
+            total_results: number | null;
         } & {
             [key: string]: unknown;
         };
@@ -18538,6 +18741,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingQueueEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_many_to_reading_queue_api_reading_queue_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueBatchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_all_to_reading_queue_api_reading_queue_batch_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueAllBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_save_to_reading_queue_api_reading_queue_batch_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueUndoBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchUndone"];
                 };
             };
             /** @description Validation Error */

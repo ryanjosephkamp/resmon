@@ -28,6 +28,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const RETRACTED = '10.5555/lifecycle-retracted-fixture';
 const CORRECTED = '10.5555/lifecycle-corrected-fixture';
@@ -352,6 +353,6 @@ lifecycle._ARXIV_URL = ${JSON.stringify(`${base}/arxiv/api/query`)}
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
     expect(blocked).toBe('');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

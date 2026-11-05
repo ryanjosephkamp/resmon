@@ -9,7 +9,7 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import runtime_identity
+from . import runtime_identity, upgrade_copy
 from .config import DEFAULT_DB_PATH
 from .utils import compute_metadata_hash, month_from_name
 
@@ -678,8 +678,19 @@ def get_connection(db_path: str | Path | None = None) -> sqlite3.Connection:
     return conn
 
 
-def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | None = None) -> None:
-    """Create all tables if they do not exist. Accepts an existing connection or a path."""
+def init_db(
+    db_path: str | Path | None = None,
+    *,
+    conn: sqlite3.Connection | None = None,
+    keep_upgrade_copy: bool = True,
+) -> None:
+    """Create all tables if they do not exist, and bring an older database to ``SCHEMA_VERSION``.
+
+    Accepts an existing connection or a path. Before the first step of an
+    upgrade, a copy of the database is kept beside it (``upgrade_copy``);
+    ``keep_upgrade_copy=False`` is for a database that has another copy of
+    itself already, such as one a restore has just put in place from a backup.
+    """
     if conn is None:
         conn = get_connection(db_path)
         own_conn = True
@@ -688,6 +699,11 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys=ON;")
         own_conn = False
+
+    # Before anything below changes the database, including the two early
+    # steps that follow.
+    upgrade_marked = upgrade_copy.before_upgrade(
+        conn, stored=_stored_schema_version(conn), target=SCHEMA_VERSION, keep=keep_upgrade_copy)
 
     # pub_sort must exist before _SCHEMA_SQL runs, because an older database
     # reaching this point already has a documents table without it.
@@ -749,6 +765,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     # -- an in-memory database shared through cache=shared then answers "no
     # such table: executions" on the next connection to touch it.
     conn.commit()
+    upgrade_copy.after_upgrade(conn, upgrade_marked)
 
     if own_conn:
         conn.close()
@@ -2730,6 +2747,20 @@ def get_schema_version(conn: sqlite3.Connection) -> int:
         "SELECT value FROM app_settings WHERE key = ?", (_SCHEMA_VERSION_KEY,)
     ).fetchone()
     return int(row[0]) if row else 0
+
+
+def _stored_schema_version(conn: sqlite3.Connection) -> int | None:
+    """The schema a database records before ``init_db`` touches it: ``None`` with no tables at all.
+
+    A database with tables and no record (no ``app_settings``, or no
+    ``schema_version`` in it) is from before the record existed, and is 0.
+    """
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' LIMIT 1").fetchone() is None:
+        return None
+    try:
+        return get_schema_version(conn)
+    except (sqlite3.OperationalError, TypeError, ValueError):
+        return 0
 
 
 # ---------------------------------------------------------------------------

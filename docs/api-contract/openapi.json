@@ -2558,7 +2558,7 @@
       },
       "BackupLast": {
         "additionalProperties": true,
-        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made. ``drive_upload_retired`` is true\nwhile this database still has the removed upload to Google Drive after\neach run switched on, until ``POST\n/api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
+        "description": "``GET /api/backup/last``: the last bundle, a staged restore, the last restore's record, and the undo copies.\n\n``last_backup`` is ``None`` when no backup is recorded, or when the\nrecorded bundle's manifest is gone or unreadable;\n``last_backup_path_recorded`` is the recorded path either way, ``None``\nwhen there is none. ``pending_restore`` is the staged pointer, its\nunreadable form, or ``None``; ``pending_restore_runs_when`` is the sentence\non what will apply it, ``None`` when nothing is staged, and\n``pending_restore_runs_on`` the same answer as a code: ``app_restart``\n(this window's own backend applies it when resmon next starts),\n``service_restart`` (the background service this window uses holds the\ndatabase, so it applies when that service restarts) or ``service_stopped``\n(another live service holds the database, and nothing restores until it is\nstopped); ``None`` when nothing is staged. ``last_restore``\nis the record of the last restore a start acted on, applied or refused,\nand ``None`` when there is none or its file is not a JSON object.\n``undo_copies`` lists the folders restores set aside, sorted by name,\nwhich is the UTC time each was made. ``drive_upload_retired`` is true\nwhile this database still has the removed upload to Google Drive after\neach run switched on, until ``POST\n/api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.\n``pre_upgrade_copy`` is the copy of the database kept beside it before the\nlast schema upgrade, ``None`` when there is none there.\n\nA pointer or record edited by hand into a shape no resmon wrote matches\nneither model of its union, and this route then answers 500 rather than a\nbody.",
         "properties": {
           "drive_upload_retired": {
             "title": "Drive Upload Retired",
@@ -2640,6 +2640,16 @@
             ],
             "title": "Pending Restore Runs When"
           },
+          "pre_upgrade_copy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreUpgradeCopy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "undo_copies": {
             "items": {
               "type": "string"
@@ -2656,7 +2666,8 @@
           "pending_restore_runs_on",
           "last_restore",
           "undo_copies",
-          "drive_upload_retired"
+          "drive_upload_retired",
+          "pre_upgrade_copy"
         ],
         "title": "BackupLast",
         "type": "object"
@@ -3649,14 +3660,34 @@
         "type": "object"
       },
       "CollectionPapersBody": {
-        "description": "Move or copy papers into the collection in the path.\n\nThe papers are named by id (``document_ids``) or by a search of the\ncollection they come from (``matching``: the Explorer's filters, whose own\n``collection`` is that collection), never both. A move takes them out of\n``from_collection``, which is the search's collection where ``matching`` is\ngiven and the default collection where neither names one.",
+        "description": "Move or copy papers into the collection in the path.\n\nThe papers are named by id (``document_ids``) or by a search of the\ncollection they come from (``matching``: the Explorer's filters, whose own\n``collection`` is that collection), never both. A search's papers leave\nout ``except_ids``, and ``at_most`` is how many the person was told would\nmove or copy: a search that matches more by the time it is read is\nrefused, so a filter lost on the way can never move a whole collection. A\nmove takes them out of ``from_collection``, which is the search's\ncollection where ``matching`` is given and the default collection where\nneither names one.",
         "properties": {
+          "at_most": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "At Most"
+          },
           "document_ids": {
             "items": {
               "type": "integer"
             },
             "maxItems": 100000,
             "title": "Document Ids",
+            "type": "array"
+          },
+          "except_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 100000,
+            "title": "Except Ids",
             "type": "array"
           },
           "from_collection": {
@@ -5110,7 +5141,7 @@
       },
       "DiscoveryLag": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/discovery-lag``.",
+        "description": "``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.",
         "properties": {
           "insufficient_reason": {
             "anyOf": [
@@ -5125,6 +5156,10 @@
           },
           "minimum_sample": {
             "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "not_a_day": {
+            "title": "Not A Day",
             "type": "integer"
           },
           "sample_size": {
@@ -5146,6 +5181,7 @@
         "required": [
           "sources",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "minimum_sample",
           "insufficient_reason"
@@ -5179,6 +5215,10 @@
             ],
             "title": "Median Days"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -5209,7 +5249,8 @@
           "sufficient",
           "median_days",
           "fastest_days",
-          "slowest_days"
+          "slowest_days",
+          "not_a_day"
         ],
         "title": "DiscoveryLagRow",
         "type": "object"
@@ -11018,6 +11059,36 @@
         "title": "PaperWhySource",
         "type": "object"
       },
+      "PreUpgradeCopy": {
+        "additionalProperties": true,
+        "description": "The copy of the database kept beside it before the last schema upgrade, read from the file.\n\n``schema_version`` is the schema the database was at when it was copied,\nfrom the file's name. ``written_at_utc`` is the file's modification time,\nwhich is when the copy was finished unless something has written to the\nfile since. ``bytes`` is its size. Nothing is opened or checked here.",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "schema_version": {
+            "title": "Schema Version",
+            "type": "integer"
+          },
+          "written_at_utc": {
+            "title": "Written At Utc",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "schema_version",
+          "written_at_utc",
+          "bytes"
+        ],
+        "title": "PreUpgradeCopy",
+        "type": "object"
+      },
       "ProfileImportBody": {
         "description": "One exported profile, or a list of them.",
         "properties": {
@@ -11050,7 +11121,7 @@
       },
       "PublicationVolume": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``.",
+        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.",
         "properties": {
           "group_by": {
             "title": "Group By",
@@ -11074,6 +11145,10 @@
             ],
             "title": "Insufficient Reason"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -11095,6 +11170,7 @@
           "groups",
           "series",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "insufficient_reason"
         ],
@@ -11127,6 +11203,177 @@
           "groups"
         ],
         "title": "PublicationVolumeMonth",
+        "type": "object"
+      },
+      "ReadingQueueAllBody": {
+        "additionalProperties": false,
+        "description": "Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.\n\n``scope`` says which set: ``search``, the papers ``search`` matches (the\nfilters as Search › Your collection sends them, the words left out where it\nranked by meaning, since there they order the list and do not narrow it);\n``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones\nit found first; ``today``, Today's new papers in ``collection`` (the default\none where none is named). ``except_ids`` are left out.\n``at_most`` is how many the person was told would be saved: a set that holds\nmore by the time it is read is refused, so a filter lost on the way can never\nsave the whole collection.",
+        "properties": {
+          "at_most": {
+            "minimum": 1.0,
+            "title": "At Most",
+            "type": "integer"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "except_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "title": "Except Ids",
+            "type": "array"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "only_new": {
+            "default": false,
+            "title": "Only New",
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "search",
+              "run",
+              "today"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplorerFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "at_most"
+        ],
+        "title": "ReadingQueueAllBody",
+        "type": "object"
+      },
+      "ReadingQueueBatchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "ReadingQueueBatchBody",
+        "type": "object"
+      },
+      "ReadingQueueBatchSaved": {
+        "additionalProperties": true,
+        "description": "``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.\n\n``asked`` is how many distinct papers the request named or described;\n``saved`` were added now, ``already`` were in the queue and are as they\nwere, and ``missing`` are not in the collection. ``saved_ids`` and\n``saved_at`` (``None`` when nothing was added) are what an Undo names.",
+        "properties": {
+          "already": {
+            "title": "Already",
+            "type": "integer"
+          },
+          "asked": {
+            "title": "Asked",
+            "type": "integer"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ReadingQueueCounts"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "saved": {
+            "title": "Saved",
+            "type": "integer"
+          },
+          "saved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At"
+          },
+          "saved_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Saved Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "asked",
+          "saved",
+          "already",
+          "missing",
+          "saved_at",
+          "saved_ids",
+          "counts"
+        ],
+        "title": "ReadingQueueBatchSaved",
+        "type": "object"
+      },
+      "ReadingQueueBatchUndone": {
+        "additionalProperties": true,
+        "description": "``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:\nchanged since the save, so its Undo left them.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ReadingQueueCounts"
+          },
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "removed",
+          "kept",
+          "counts"
+        ],
+        "title": "ReadingQueueBatchUndone",
         "type": "object"
       },
       "ReadingQueueCounts": {
@@ -11588,6 +11835,32 @@
           "status"
         ],
         "title": "ReadingQueueStatusBody",
+        "type": "object"
+      },
+      "ReadingQueueUndoBody": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "saved_at": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Saved At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_ids",
+          "saved_at"
+        ],
+        "title": "ReadingQueueUndoBody",
         "type": "object"
       },
       "ReferenceExportBody": {
@@ -13139,6 +13412,10 @@
           "total_new": {
             "title": "Total New",
             "type": "integer"
+          },
+          "unrecorded_runs": {
+            "title": "Unrecorded Runs",
+            "type": "integer"
           }
         },
         "required": [
@@ -13153,6 +13430,7 @@
           "runs_since_new",
           "last_new_result_at",
           "total_new",
+          "unrecorded_runs",
           "status",
           "sample_size",
           "sufficient"
@@ -13162,10 +13440,22 @@
       },
       "RoutineHealthRun": {
         "additionalProperties": true,
+        "description": "One completed run of a watch, oldest first.",
         "properties": {
-          "new_results": {
-            "title": "New Results",
+          "execution_id": {
+            "title": "Execution Id",
             "type": "integer"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
           },
           "start_time": {
             "anyOf": [
@@ -13179,11 +13469,19 @@
             "title": "Start Time"
           },
           "total_results": {
-            "title": "Total Results",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
           }
         },
         "required": [
+          "execution_id",
           "start_time",
           "new_results",
           "total_results"
@@ -22173,7 +22471,7 @@
     },
     "/api/backup/last": {
       "get": {
-        "description": "The last bundle, the last restore outcome, and whether an undo copy exists.",
+        "description": "The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade.",
         "operationId": "backup_last_api_backup_last_get",
         "responses": {
           "200": {
@@ -27903,6 +28201,123 @@
           }
         },
         "summary": "Save To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch": {
+      "post": {
+        "description": "Save many papers at once: each one not in the queue is added, each one in it is left as it is.\n\nThe answer counts both, and the ids it does not hold (``missing``), and\nlists the ids it added with the moment they carry, for Undo\n(``POST /api/reading-queue/batch/undo``).",
+        "operationId": "save_many_to_reading_queue_api_reading_queue_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueBatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Many To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch/all": {
+      "post": {
+        "description": "Save every paper of a search, a run, or Today, read by the engine rather than listed.\n\nAt most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with\nhow many it holds. 409 when the set holds more than ``at_most``, the number\nthe person was asked about. Otherwise the answer of ``/batch``.",
+        "operationId": "save_all_to_reading_queue_api_reading_queue_batch_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueAllBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save All To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch/undo": {
+      "post": {
+        "description": "Undo a save of many: the entries it added go, unless they changed since.\n\n``document_ids`` and ``saved_at`` are the save's own answer. An entry marked\nread since, or removed and saved again, stays, and is counted as ``kept``.",
+        "operationId": "undo_save_to_reading_queue_api_reading_queue_batch_undo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueUndoBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchUndone"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Save To Reading Queue"
       }
     },
     "/api/reading-queue/{document_id}": {

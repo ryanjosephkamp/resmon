@@ -12,6 +12,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const PAPERS = 2_500;
 
@@ -70,14 +71,15 @@ print(run)
     await more.click();
     await expect(page.locator('.paper-row')).toHaveCount(400);
     await expect(page.locator('.run-panel .record-cap')).toHaveText('The first 400 of 2,500 papers this run stored.');
-    // One read of every id for the map, which is the shown collection's; the papers only as the tab asked for them.
+    // One read of every id for the map, which is the shown collection's; the papers only as the tab asked for
+    // them, and one count of the run's new papers (a page of one), for Save this run's new papers.
     expect(asked.filter((a) => a.startsWith('/document-ids'))).toEqual(['/document-ids?collection=1']);
     expect(asked.filter((a) => a.startsWith('/documents?')).sort()).toEqual([
-      '/documents?limit=200&offset=0', '/documents?limit=200&offset=200',
+      '/documents?limit=200&offset=0', '/documents?limit=200&offset=200', '/documents?only_new=true&limit=1',
     ]);
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

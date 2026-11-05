@@ -113,6 +113,18 @@ def required_credential_for_sweep(repo_name: str) -> str | None:
 _ASKED_AND_DID_NOT_ANSWER = frozenset({"upstream_failure", "parse_failure"})
 
 
+def _utc_clock(stamp: object) -> str:
+    """A UTC time as ``YYYY-MM-DD HH:MM:SS``, so SQLite's and ISO's shapes compare as times.
+
+    ``documents.first_seen_at`` is SQLite's ``datetime('now')``
+    (``2026-11-05 10:00:00``) and a run's start is ``now_iso()``
+    (``2026-11-05T10:00:00Z``). Compared as they are, the space sorts before
+    the ``T``, so a paper a run stored that same day read as older than the run
+    and was linked as not new.
+    """
+    return str(stamp or "").replace("T", " ").rstrip("Z")[:19]
+
+
 class SweepEngine:
     """Orchestrates complete sweep/dive workflows from query to report.
 
@@ -529,7 +541,7 @@ class SweepEngine:
                     self.db, nr.source_repository, nr.external_id
                 )
                 if doc_row:
-                    is_new = doc_row.get("first_seen_at", "") >= start_time
+                    is_new = _utc_clock(doc_row.get("first_seen_at")) >= _utc_clock(start_time)
                     link_execution_document(self.db, exec_id, doc_row["id"], is_new=is_new)
                     linked_ids.append(int(doc_row["id"]))
                     if is_new:

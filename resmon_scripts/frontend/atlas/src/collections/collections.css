@@ -1,6 +1,7 @@
 /*
- * Collections: the switch beside the lockup, its menu, Move to and Copy to,
- * the notice a move leaves, a paper's collections, and Settings › Collections.
+ * Collections: the switch beside the lockup, its menu, Move to and Copy to
+ * (on the selection's bar, `screens/selection/`), the notice a move leaves,
+ * a paper's collections, and Settings › Collections.
  */
 
 /*
@@ -86,14 +87,6 @@
 @keyframes collection-notice-in { from { opacity: 0; transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) { .collection-notice { animation: none; } }
 
-/* Search › Your collection: a row's tick while papers are being picked. */
-.result.picking { padding-left: 34px; }
-.result-pick { position: absolute; left: 4px; top: 14px; display: grid; place-items: center; width: 22px; height: 22px; cursor: pointer; }
-.result-pick input { position: absolute; opacity: 0; width: 22px; height: 22px; margin: 0; cursor: pointer; }
-.result-pick input:focus-visible + .tick { outline: 2px solid var(--accent-mark); outline-offset: 2px; }
-.result.picked { background: var(--accent-wash); }
-.collection-picking { margin-top: 12px; }
-.collection-picking .selbar { margin-top: 0; }
 
 /* A paper's collections, on its page. */
 .paper-collections ul { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 6px; }

@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-232 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+235 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 143 of 232 routes that have one. The remaining 89 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 146 of 235 routes that have one. The remaining 89 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 194 of 232 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 197 of 235 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -281,7 +281,7 @@ No route. A GitHub Actions workflow over `verification_scripts/live_suite.py` an
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
 | `POST` | `/api/backup/drive-upload-notice/acknowledge` | token | — | `DriveUploadNoticeAcknowledged` | Dismiss the notice that the upload to Google Drive is gone, by deleting the settings it is read from. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `GET` | `/api/settings/storage` | token | — | `StorageSettings` | *Get Storage Settings* |
 | `PUT` | `/api/settings/storage` | token | — | `SettingsSaved` | *Update Storage Settings* |
 
@@ -313,6 +313,9 @@ No route. Recorded in the register as not carried forward.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/reading-queue` | token | — | `ReadingQueuePage` | One page of a collection's saved papers. `status` omitted (or `all`) means both. |
 | `POST` | `/api/reading-queue` | token | — | `ReadingQueueEntry` | Save a stored paper. Saving one already saved returns it unchanged. |
+| `POST` | `/api/reading-queue/batch` | token | — | `ReadingQueueBatchSaved` | Save many papers at once: each one not in the queue is added, each one in it is left as it is. |
+| `POST` | `/api/reading-queue/batch/all` | token | — | `ReadingQueueBatchSaved` | Save every paper of a search, a run, or Today, read by the engine rather than listed. |
+| `POST` | `/api/reading-queue/batch/undo` | token | — | `ReadingQueueBatchUndone` | Undo a save of many: the entries it added go, unless they changed since. |
 | `DELETE` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueRemoval` | Take a paper out of the queue. The paper itself is not touched. |
 | `PUT` | `/api/reading-queue/{document_id}` | token | — | `ReadingQueueEntry` | Mark a saved paper read or unread. |
 | `POST` | `/api/reading-queue/{document_id}/restore` | token | — | `ReadingQueueRestored` | Undo a removal: the entry back with the state and dates it had. |
@@ -455,7 +458,7 @@ No route. Recorded in the register as not carried forward.
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/backup` | token | — | `BackupWritten` | Write one bundle: the snapshotted database, the vault's bytes, optionally reports. |
-| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | token | — | `BackupLast` | The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade. |
 | `POST` | `/api/backup/verify` | token | — | `BundleReport` | Recompute every hash and report what a restore would and would not do. |
 | `POST` | `/api/restore` | token | — | `RestoreStaged` | Verify a bundle and stage it. The restore itself happens on the next start. |
 | `POST` | `/api/restore/acknowledge` | token | — | `RestoreAcknowledged` | Dismiss the one-time "what a restore did not bring back" card. |
@@ -471,7 +474,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 232 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 235 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 

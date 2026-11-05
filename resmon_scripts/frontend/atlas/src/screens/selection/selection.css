@@ -1,0 +1,65 @@
+/*
+ * Picking many at once, wherever a list offers it: the Library's covers,
+ * Search's matches, a run's papers, and Today's list. One bar, one tick, one
+ * row box, so picking reads the same in each. Every color is a token from
+ * `theme/tokens.css`.
+ */
+
+/* The bar takes the toolbar's place and height, washed in the accent as the run log's export bar is. */
+.selbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 44px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--rule); border-radius: 8px; background: var(--accent-wash); font: 500 13px/1.3 var(--sans);
+  color: var(--ink);
+}
+.selbar .n { margin-right: 6px; display: inline-flex; align-items: center; gap: 9px; font-variant-numeric: tabular-nums; }
+.selbar .done { margin-left: auto; }
+.selbar .seg.export button:disabled { color: var(--ink-3); cursor: default; }
+.selbar .confirm, .selbar .field-error, .selbar .select-note { flex-basis: 100%; margin: 2px 0 0; }
+.selbar .select-note { font: 400 12.5px/1.45 var(--sans); color: var(--ink-2); }
+.tick {
+  display: inline-grid; place-content: center; width: 15px; height: 15px; flex: none;
+  border: 1.5px solid var(--field-edge); border-radius: 4px; background: var(--plate);
+}
+.tick.on, .tick.part { background: var(--accent-fill); border-color: var(--accent-fill); }
+.tick.on::before { content: ""; width: 9px; height: 9px; background: var(--on-accent); clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0, 43% 62%); }
+.tick.part::before { content: ""; width: 8px; height: 2px; border-radius: 1px; background: var(--on-accent); }
+
+/* A row's box: the Runs tab's, drawn in the accent when ticked. */
+.pickbox { flex: none; margin: 3px 0 0; width: 15px; height: 15px; accent-color: var(--accent-fill); cursor: pointer; }
+.pickbox:focus-visible { outline: 2px solid var(--accent-mark); outline-offset: 2px; }
+
+/* Search's matches in select mode: the box in its own column, the row as it was beside it. */
+.result.picking { display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 10px; }
+.result.picking > :not(.pickbox) { grid-column: 2; }
+.result.picking > .pickbox { grid-column: 1; grid-row: 1 / span 6; margin-top: 4px; }
+/* A run's papers: the box leads the row. */
+.paper-row.picking > .pickbox { margin-top: 4px; }
+/* Today's list: the box before the number. */
+.entry.picking { grid-template-columns: 22px 28px minmax(0, 1fr); }
+.entry.picking > .pickbox { margin-top: 4px; }
+/* A picked row is washed as a chosen entry is. */
+/* In select mode a row reaches a little past the text on each side, so a picked row's wash has room around it. */
+.result-list.virtual > .result.picking { left: -8px; width: calc(100% + 16px); padding-left: 8px; padding-right: 8px; }
+.paper-row.picking { margin: 0 -8px; padding-left: 8px; padding-right: 8px; }
+:is(.result, .paper-row, .entry).picked { background: var(--accent-wash); }
+
+/* Search › Your collection: Select at the end of the export's row, and the bar in that row's place. */
+.collection-select-start { margin-left: auto; }
+.selbar.collection-select { margin-top: 8px; }
+
+/* A run's Papers: the count, then Save this run's new papers and Select at the row's end; the bar in that row's place. */
+.run-papers-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; min-height: 44px; margin-bottom: 8px; }
+.run-papers-head .record-cap { margin: 0; }
+.run-papers-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-left: auto; }
+.run-papers-head .confirm, .run-papers-head .field-error { flex-basis: 100%; margin: 4px 0 0; }
+.selbar.run-papers-select { margin-bottom: 8px; }
+
+/* Today's list: the bar under the list's bar, across the column. */
+.selbar.today-select { flex: none; margin: 10px 22px 0 28px; }
+
+/* A map's bar: Save to read after how many it lights; a question or a refusal on a line of its own. */
+.map-save { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.map-save .select-note { flex-basis: 100%; margin: 0; font: 400 12px/1.4 var(--sans); color: var(--ink-3); text-align: right; }
+.map-bar > .confirm, .map-bar > .field-error { flex-basis: 100%; margin: 4px 0 0; }
+/* Select and Mark all read keep together at the list bar's end, and move to a line of their own together. */
+.index-acts { display: flex; align-items: center; gap: 8px; margin-left: auto; }

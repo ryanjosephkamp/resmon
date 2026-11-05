@@ -29,6 +29,7 @@ A map flattens many dimensions into two, so it is a drawing of similarities, not
 - **A dashed outline** encloses one watch's papers.
 - **Shading** marks where more papers sit nearby.
 - **Pointing at a paper** shows its title, authors, source, its grid cell (such as B3), and when it was collected.
+- **From the keyboard**, with the map focused, **Enter** chooses the paper nearest the middle and **Shift** with an arrow key the nearest one that way. The chosen paper is named in the same tip, and **Escape** clears the choice.
 - **Clicking a paper** opens it beside the map, with **Back to the list** to return.
 
 Scroll or pinch to zoom, and drag to move. The buttons at the corner zoom in, zoom out, and show the whole collection again.
@@ -41,6 +42,8 @@ The bar above the map has three controls. They change what is lit, not what exis
 - **Filters** narrow by **Watch**, **Source**, **Dates**, and **Your reading**. Under **Dates** you choose whether to read the dates as when resmon found a paper or when it was published. The published date is the one each source recorded, and a paper with no publication date is dimmed once either day is set.
 - **Color** colors the papers by **Region**, **Watch**, **Source**, or **Age**. For a watch or a source it colors the four with the most papers here, each its own color.
 
+While a find or a filter leaves some papers dimmed, **Save N to read** after the count saves the papers lit, and nothing the map dims, to your **Library** at once. The same bar on a run's map does the same for the run's papers.
+
 resmon keeps the filters and colors you chose in its database and restores them the next time you open Today.
 
 ## The list
@@ -49,7 +52,7 @@ The list's heading names the window ("New since" a day, or "New this week") with
 
 Under each watch's name is its last run: when it ran, how long it took, how many papers it found, and how many of its sources answered. If any source did not answer, one line names each source by what happened to it, with one mark for a failure and another for an unknown, and **Why** opens each source's own sentence. **Open run** leads to the run's whole record. A watch that found nothing new is listed under **Nothing new from**, with its last run, so a quiet watch and a broken one are told apart here too.
 
-Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library**, under **To read**, and the arrow opens it at its source. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
+Each paper shows its number, its title, any retraction or correction recorded against it, its authors, its source, and its grid cell. Choosing the cell shows the paper on the map. The bookmark saves a paper to your **Library**, under **To read**, and the arrow opens it at its source. **Select**, beside **Mark all read**, puts a box beside each paper: pick some, or **Select all** for every new paper, listed yet or not, and **Save to read** saves them at once. Below the title, **From the abstract** is the opening of the abstract as the source gave it. It is not a summary: resmon keeps model-written summaries only inside run reports.
 
 Each group lists 25 papers at first, and **Show 50 more** lists the next 50.
 

@@ -17,6 +17,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 test.skip(process.platform !== 'darwin', 'The check of the service at launch is the Mac\'s.');
@@ -97,6 +98,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     await expect(page.getByRole('heading', { name: 'resmon is starting' })).toBeVisible();
     await expect(page.locator('body')).toContainText('Waiting for its background service to finish starting.');
     await expect(page.locator('body')).toContainText('updates the database that holds your collection, which can take a few minutes');
+    await expect(page.locator('body')).toContainText('Before it changes anything, it keeps a copy of the database in the same folder, if the disk has room.');
     // All of it in the window, none cut off at the bottom.
     expect(await page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight)).toBe(true);
     await expect(page.locator('body')).toContainText('This window closes when resmon opens.');
@@ -132,7 +134,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
       console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
     }
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -155,6 +157,10 @@ test('closing the starting window stops waiting, and leaves the service starting
     expect(fs.existsSync(path.join(stateDir, 'daemon.lock'))).toBe(false);
   } finally {
     await waiting.close().catch(() => { /* gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    for (const { pid, command } of leftOn(profile)) {
+      console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+    removeStateDir(stateDir);
   }
 });

@@ -1,4 +1,4 @@
-import { useId, useMemo, useState, type KeyboardEvent, type ToggleEvent } from 'react';
+import { useId, useMemo, useState, type KeyboardEvent, type ReactNode, type ToggleEvent } from 'react';
 import { Icon } from '../../shell/Icon';
 import { number } from '../today/format';
 import {
@@ -25,6 +25,8 @@ interface Props {
   onWant: () => void;
   /** Why the view just chosen could not be remembered, when it could not. */
   keepError?: Error | null;
+  /** What can be done with the papers it lights, after how many it lights: Save to read. */
+  save?: ReactNode;
 }
 
 /**
@@ -34,7 +36,7 @@ interface Props {
  * the collection's (native popovers, Escape or a click outside closes them).
  */
 export function MapBar(props: Props) {
-  const { name, view, onView, look, facts, facetsError, total, names, find, findAt, onStep, onWant, keepError } = props;
+  const { name, view, onView, look, facts, facetsError, total, names, find, findAt, onStep, onWant, keepError, save } = props;
   const filters = filterCount(view);
   const findId = useId();
   const onFindKey = (event: KeyboardEvent<HTMLInputElement>) => {
@@ -82,6 +84,7 @@ export function MapBar(props: Props) {
           : find.typed.trim().length > 0 && find.typed.trim().length < FIND_MIN ? 'Type two letters or more to find.'
             : find.waiting ? 'Finding.' : look?.waiting ? 'Reading the filters.' : said}
       </span>
+      {save}
     </div>
   );
 }

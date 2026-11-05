@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { useChartTip } from '../../charts/ChartTip';
 import { invalidateFor } from '../today/freshness';
 import { count } from '../today/format';
 import {
-  EMBEDDING_STATUS_KEY, embeddedWords, estimateWords, indexWords, missingCount, missingWords, nothingToEmbedWords,
+  EMBEDDING_STATUS_KEY, embeddedWords, estimateWords, indexWords, meterTip, missingCount, missingWords, nothingToEmbedWords,
   orderProviders, outcomeWords, progressWords, providerLabel, providerName, ranking, rebuiltWords,
   type EmbeddingPage, type EmbeddingStatus, type Estimate, type ProbeResult, type Rebuilt,
 } from './embeddingWords';
@@ -265,6 +266,7 @@ function LaneForm({ page }: { page: EmbeddingPage }) {
 function Backfill({ status }: { status: EmbeddingStatus }) {
   const { several } = useCollection();
   const client = useQueryClient();
+  const tip = useChartTip();
   const run = status.run;
   const missing = missingCount(status);
   // An estimate holds for the coverage it was made against; once that moves, it is asked for again.
@@ -307,8 +309,12 @@ function Backfill({ status }: { status: EmbeddingStatus }) {
         <>
           <p className="emb-progress" role="status" data-embeddings="progress">{progressWords(run)}</p>
           {run.total > 0 && (
-            <div className="emb-meter" aria-hidden="true">
-              <span style={{ width: `${Math.min(100, (run.processed / run.total) * 100)}%` }} />
+            // The sentence above says it for a screen reader; the bar's tip, for a pointer, with the band around it.
+            <div className="meter-at" {...tip.mark(meterTip(run), (at) => at.firstElementChild)}>
+              <div className="emb-meter" aria-hidden="true">
+                <span style={{ width: `${Math.min(100, (run.processed / run.total) * 100)}%` }} />
+              </div>
+              {tip.layer}
             </div>
           )}
           <div className="form-actions">

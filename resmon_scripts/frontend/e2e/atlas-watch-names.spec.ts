@@ -118,7 +118,8 @@ test('a long watch name stays whole in the Calendar, on Today, and in the run lo
           expect(shown, `${NAMES[i]} in a Calendar cell at ${width} wide`).toEqual({ text: NAMES[i], clipped: false });
           // The whole name for a pointer and a screen reader as well.
           const mark = month.locator('.fire-mark').filter({ has: win.locator(`.fire[data-routine="${id}"]`) }).first();
-          await expect(mark).toHaveAttribute('title', new RegExp(`^${NAMES[i]} at `));
+          await mark.hover();
+          await expect(win.getByRole('tooltip').locator('.chart-tip-name')).toHaveText(NAMES[i] ?? '');
           await expect(mark).toHaveAttribute('aria-label', new RegExp(`^${NAMES[i]} at `));
           const next = month.locator('.next-fires a').filter({ hasText: NAMES[i] }).first();
           expect(await whole(next), `${NAMES[i]} in Next due at ${width} wide`).toEqual({ text: NAMES[i], clipped: false });

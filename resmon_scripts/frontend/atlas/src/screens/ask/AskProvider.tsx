@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { EngineError } from '../../api/client';
 import { useCollection } from '../../collections/current';
 import { ask, type ChoiceRequest, type Status } from './askApi';
@@ -8,6 +8,22 @@ import { applyEvent, firstChoice, startLive, type Live } from './askModel';
 export const STATUS_KEY = ['ask', 'status'] as const;
 export const CHATS_KEY = ['ask', 'chats'] as const;
 export const chatKey = (id: number) => ['ask', 'chat', id] as const;
+
+/**
+ * Reads the assistant's status again, with a read that starts now.
+ *
+ * React Query hands a new read the answer of a read already under way, and an
+ * invalidation cancels that read only when an earlier answer is in hand. A
+ * read under way when a command path is saved, a key is added, or Ask is
+ * opened (the window's first read, often) may have been answered from the
+ * settings as they were before, and its answer would then stand, with nothing
+ * reading again. So the read under way is cancelled, and its answer dropped,
+ * before the new one starts.
+ */
+export async function readStatusAgain(client: QueryClient): Promise<void> {
+  await client.cancelQueries({ queryKey: STATUS_KEY, exact: true });
+  await client.invalidateQueries({ queryKey: STATUS_KEY, exact: true });
+}
 
 /**
  * A failure, and the conversation it belongs to (`null`: the one not yet
@@ -101,7 +117,7 @@ export function AskProvider({ children }: { children: ReactNode }) {
     if (id === null) {
       chosen.current = false;
       setDraftState(firstChoice(client.getQueryData<Status>(STATUS_KEY)?.composer_choices));
-      void client.invalidateQueries({ queryKey: STATUS_KEY });
+      void readStatusAgain(client);
     }
     setSelected(id);
     setFailure((f) => (f && f.session === id ? f : null));

@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine, EngineError } from '../../api/client';
 import { platform } from '../../bridge';
-import { STATUS_KEY } from '../ask/AskProvider';
+import { readStatusAgain } from '../ask/AskProvider';
 import { providerWords } from '../ask/askModel';
 import { keychainName } from './model';
 
@@ -45,7 +45,7 @@ export function ProviderKey({ name, provider, id = 'ai-key', note, test }: {
   const state = credentials.data?.credentials[name]?.status ?? null;
   const done = () => Promise.all([
     client.invalidateQueries({ queryKey: ['credentials'] }),
-    client.invalidateQueries({ queryKey: STATUS_KEY }),
+    readStatusAgain(client),
   ]);
   // An answer about another provider, or about a key since replaced or removed, is not this key's.
   const tried = useMutation({

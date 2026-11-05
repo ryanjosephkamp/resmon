@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const feed = (term: string) => `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
   <id>https://arxiv.org/abs/2611.9${term.length}${term.charCodeAt(0)}v1</id><title>Authored monitor fixture on ${term}</title>
@@ -272,6 +273,6 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
     expect(blocked).toBe('');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

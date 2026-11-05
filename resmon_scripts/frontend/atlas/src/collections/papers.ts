@@ -8,14 +8,23 @@ export type PapersChanged = components['schemas']['CollectionPapersChanged'];
 export type ExplorerFilters = components['schemas']['ExplorerFilters'];
 export type Mode = 'move' | 'copy';
 
-/** The papers a move or a copy names: by id, or every paper a search of their collection matches. */
-export type Which = { ids: readonly number[] } | { matching: ExplorerFilters };
+/**
+ * The papers a move or a copy names: by id, or every paper a search of their
+ * collection matches but the ones left out (`except`). `atMost` is how many
+ * the person was told: the engine refuses a search that matches more by then.
+ */
+export type Which = { ids: readonly number[] }
+  | { matching: ExplorerFilters; except?: readonly number[]; atMost?: number };
 
 /** Move or copy papers into `target`. A move takes them out of `from`, which a search names itself. */
 export function changePapers(mode: Mode, target: number, which: Which, from: number | null): Promise<PapersChanged> {
   const body = 'ids' in which
     ? { mode, document_ids: [...which.ids], ...(mode === 'move' && from !== null ? { from_collection: from } : {}) }
-    : { mode, matching: which.matching };
+    : {
+      mode, matching: which.matching,
+      ...(which.except?.length ? { except_ids: [...which.except] } : {}),
+      ...(which.atMost ? { at_most: which.atMost } : {}),
+    };
   return answer(engine().POST('/api/collections/{collection_id}/papers', {
     params: { path: { collection_id: target } }, body,
   }));

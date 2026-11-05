@@ -6,6 +6,8 @@
  */
 import type { components } from '../../api/schema';
 import { providerWords } from '../ask/askModel';
+import type { TipContent } from '../../charts/ChartTip';
+import { exactCount } from '../../charts/exact';
 import { count, number } from '../today/format';
 import { YOUR_COLLECTION, type CollectionWords } from '../../collections/words';
 
@@ -236,6 +238,18 @@ export function nothingToEmbedWords(missing: number, documents: number): string 
 export function progressWords(run: EmbeddingRun): string {
   if (run.total === 0) return `Starting: finding the papers with no vector${run.model ? ` from ${run.model}` : ''}.`;
   return `Embedding with ${run.model ?? 'the model set'}: ${number(run.processed)} of ${count(run.total, 'paper')} so far.`;
+}
+
+/** The backfill's bar, in the charts' tip: the papers embedded so far of those it set out to, whole, and with what. */
+export function meterTip(run: EmbeddingRun): TipContent {
+  return {
+    name: `Embedding${run.model ? ` with ${run.model}` : ''}`,
+    value: `${exactCount(run.processed)} of ${count(run.total, 'paper')}`,
+    notes: [
+      'The papers that had no vector when the backfill started.',
+      ...(run.skipped_no_text > 0 ? [`${count(run.skipped_no_text, 'paper')} so far had no title or abstract to embed.`] : []),
+    ],
+  };
 }
 
 /** How the last backfill ended, or null when there has been none in this engine's life. */

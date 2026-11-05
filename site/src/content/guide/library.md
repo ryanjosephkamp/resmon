@@ -12,7 +12,7 @@ The reading queue works everywhere. **Your files** and **Projects** are unavaila
 Each card is a cover the shape of a page, then the title, one line (authors, source, and year, or a file's kind and size), one label, and its actions.
 
 - **A paper with a PDF** in your Library, linked to it, shows that PDF's first page.
-- **A paper without one** shows its piece of your collection's map: the grid cell it is in, its neighbors, its region's name, and the paper itself, crossed, over a title block with its title, authors, source, and year. A paper the map has not placed yet says so on its cover. Until the map has been drawn, the cover is the title block alone.
+- **A paper without one** shows its piece of your collection's map: the grid cell it is in, its neighbors, its region's name, and the paper itself, crossed, over a title block with its title, authors, source, and year. A paper the map has not placed yet says so on its cover. Until the map has been drawn, the cover is the title block alone. Pointing at the cover names the paper's cell and region in a tip.
 - **A text file** shows its first lines, with their numbers.
 - **A project** shows its first PDFs fanned over its name.
 
@@ -24,7 +24,7 @@ The order is **Saved, newest first**, **Published**, **Title**, **Source**, or *
 
 ## To read and Read
 
-Papers get here when you press **Save to read** on a paper's page or a run's **Papers** tab, or the bookmark on a paper in Today or on the map. The label under a paper names the run that first collected it (a watch's, by its name, or a search) and the day you saved it. The queue is one list, and each collection shows the saved papers it holds: **To read** and **Read** list those of the collection the window shows, with their counts.
+Papers get here one at a time when you press **Save to read** on a paper's page or a run's **Papers** tab, or the bookmark on a paper in Today or on the map, and many at once from **Select** in Search › Your collection, a run's **Papers**, and Today's list, from **Save this run's new papers**, and from **Save to read** on a map's bar, which saves the papers its find or filters leave lit. A paper already in the queue stays as it is, and the notice after a save of many says how many were already there and offers **Undo**. The label under a paper names the run that first collected it (a watch's, by its name, or a search) and the day you saved it. The queue is one list, and each collection shows the saved papers it holds: **To read** and **Read** list those of the collection the window shows, with their counts.
 
 - **Read** opens the paper's PDF in the reader when one is linked to it, and the paper's page otherwise.
 - **Mark read** moves a paper to **Read**; **Mark unread** moves it back. Marking one paper leaves every other card's controls as they are.

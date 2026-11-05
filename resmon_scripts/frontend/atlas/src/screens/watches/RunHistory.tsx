@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
+import { tipWords, useChartTip, type TipContent } from '../../charts/ChartTip';
+import { exactCount } from '../../charts/exact';
+import { joined, useRoving } from '../../charts/roving';
 import { count, number, when } from '../today/format';
 import { historyScale, instant } from './model';
 
@@ -36,6 +39,30 @@ function going(run: RunRow): boolean {
 const STRIP = 30;
 
 /**
+ * A run's bar: when it ran, how many papers were new and how many it found in
+ * all, the sources that did not answer, and the way to its page. A run still
+ * going has no count to give yet, and a count the run did not record is said
+ * so, never as none.
+ */
+export function nightTip(run: RunRow, now: Date, names: ReadonlyMap<string, string>, cut: boolean): TipContent {
+  const silent = run.source_outcomes?.sources_that_could_not_answer ?? [];
+  const missing = run.source_outcomes?.could_not_answer ?? 0;
+  const found = going(run) ? null : run.new_result_count;
+  return {
+    name: `Run ${run.id} · ${when(instant(run.start_time)?.toISOString(), now)}`,
+    value: going(run) ? 'Still going: counted when it ends' : found === null ? 'New papers not recorded' : count(found, 'new paper'),
+    lines: !going(run) && run.result_count !== null ? [{ value: exactCount(run.result_count), label: 'found in all' }] : undefined,
+    notes: [
+      ...(run.status !== 'completed' && !going(run) ? [`The run ${run.status === 'failed' ? 'failed' : `was ${run.status}`}.`] : []),
+      ...(silent.length ? [`${silent.map((s) => names.get(s) ?? s).join(', ')} did not answer.`]
+        : missing ? [`${count(missing, 'source')} did not answer.`] : []),
+      ...(cut ? ['Drawn cut off at the tallest of the rest.'] : []),
+    ],
+    opens: `Opens run ${run.id}`,
+  };
+}
+
+/**
  * A watch's runs: each one it made, on its schedule or because someone asked,
  * the latest first, with how many papers were new to the collection and which
  * sources did not answer.
@@ -47,7 +74,8 @@ const STRIP = 30;
  * largest is drawn cut off at that one's height, with a line under the strip
  * saying which and how many it found. Where no run brought in a new paper the
  * strip has no tallest bar to state, and the line says that instead. "Not
- * recorded" where the run stored no count, never a zero.
+ * recorded" where the run stored no count, never a zero. Each bar has the
+ * charts' tip and opens its run.
  */
 export function RunHistory({ runs, now, names }: {
   runs: readonly RunRow[] | null; now: Date; names: ReadonlyMap<string, string>;
@@ -62,23 +90,7 @@ export function RunHistory({ runs, now, names }: {
       <h2 className="nights-title">Runs</h2>
       {runs === null && <p className="record-cap">Reading this watch&rsquo;s runs.</p>}
       {runs && !runs.length && <p className="record-cap">This watch has not run yet.</p>}
-      {strip.length > 0 && (
-        <div className="night-strip" aria-hidden="true">
-          {strip.map((run) => {
-            const missing = run.source_outcomes?.could_not_answer ?? 0;
-            const found = going(run) ? null : run.new_result_count;
-            return (
-              <span key={run.id} className="night-bar" data-status={run.status}
-                data-cut={scale !== null && found !== null && found > scale ? 'true' : undefined}
-                title={`Run ${run.id}: ${going(run) ? 'still going' : found === null ? 'count not recorded' : `${number(found)} new`}`}>
-                <span className="night-amount"
-                  style={{ height: `${found === null ? 0 : Math.max(4, scale === null ? 0 : Math.min(1, found / scale) * 100)}%` }} />
-                <span className={missing ? 'night-fault' : 'night-ok'} />
-              </span>
-            );
-          })}
-        </div>
-      )}
+      {strip.length > 0 && <NightStrip strip={strip} scale={scale} now={now} names={names} />}
       {strip.length > 0 && (
         <p className="night-scale" data-scale={scale ?? 'none'}>
           {scale !== null
@@ -118,5 +130,37 @@ export function RunHistory({ runs, now, names }: {
         })}
       </ol>
     </section>
+  );
+}
+
+/**
+ * The strip: a bar a run, oldest at the left, each one a way to its run. One
+ * stop for the keyboard; the arrow keys move between runs, and Enter opens one.
+ */
+function NightStrip({ strip, scale, now, names }: {
+  strip: readonly RunRow[]; scale: number | null; now: Date; names: ReadonlyMap<string, string>;
+}) {
+  const tip = useChartTip();
+  const roving = useRoving(strip.length, strip.length - 1);
+  return (
+    <div className="night-strip" role="group" aria-label={`Papers new in each of the last ${count(strip.length, 'run')}, oldest first`}>
+      {strip.map((run, i) => {
+        const missing = run.source_outcomes?.could_not_answer ?? 0;
+        const found = going(run) ? null : run.new_result_count;
+        const cut = scale !== null && found !== null && found > scale;
+        const content = nightTip(run, now, names, cut);
+        return (
+          <Link key={run.id} to={`/runs/${run.id}`} className="night-bar" data-status={run.status} data-run={run.id}
+            data-cut={cut ? 'true' : undefined}
+            data-unrecorded={!going(run) && found === null ? 'true' : undefined}
+            aria-label={tipWords(content)} {...joined(roving.item(i), tip.mark(content))}>
+            <span className="night-amount" style={!going(run) && found === null ? undefined
+              : { height: `${found === null ? 0 : Math.max(4, scale === null ? 0 : Math.min(1, found / scale) * 100)}%` }} />
+            <span className={missing ? 'night-fault' : 'night-ok'} />
+          </Link>
+        );
+      })}
+      {tip.layer}
+    </div>
   );
 }

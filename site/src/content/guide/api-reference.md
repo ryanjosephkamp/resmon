@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 232 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 235 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -179,6 +179,9 @@ Searching what resmon holds, one paper, links between records of the same work, 
 | `PUT` | `/api/reading-queue/{document_id}` | Mark a saved paper read or unread. |
 | `DELETE` | `/api/reading-queue/{document_id}` | Take a paper out of the queue, answering with the entry as it was. The paper is not touched. |
 | `POST` | `/api/reading-queue/{document_id}/restore` | Undo a removal: the entry back with the state and dates it had. |
+| `POST` | `/api/reading-queue/batch` | Save many papers at once, up to 20,000: each one not in the queue is added, each one in it is left as it is, and the answer counts both and lists what it added, for Undo. |
+| `POST` | `/api/reading-queue/batch/all` | Save every paper of a search, a run (or only its new papers), or Today, without listing them, up to 20,000. Refused when the set holds more than the number the person was asked about. |
+| `POST` | `/api/reading-queue/batch/undo` | Undo a save of many: the entries it added go, unless they were marked read or saved again since. |
 | `POST` | `/api/export/references` | Render a selection of papers as BibTeX, RIS, CSV, or JSON, with one entry per stored paper. |
 | `GET` | `/api/shared-wording` | The last scan, the scan in progress, and the pairs it found by group. |
 | `POST` | `/api/shared-wording/scan` | Compare every abstract with every other, in the background. Returns at once. |

@@ -657,6 +657,41 @@ def test_papers_are_moved_copied_and_put_back_by_id_and_by_search(http):
     assert both.status_code == 400
 
 
+def test_every_match_but_the_unticked_moves_only_if_the_search_holds_no_more_than_was_asked(http):
+    """Select all, less the rows unticked: the engine reads the search again, leaves the unticked
+    out, and refuses when the search now matches more than the person was told would move."""
+    resmon_mod, client = http
+    conn = resmon_mod._get_db()
+    physics = client.post("/api/collections", json={"name": "Physics"}).json()["id"]
+    a, b, c = (_paper(conn, key, source="pubmed") for key in ("a", "b", "c"))
+    grown = client.post(f"/api/collections/{physics}/papers", json={
+        "mode": "move", "matching": {"sources": ["pubmed"], "collection": 1}, "except_ids": [a], "at_most": 1})
+    assert grown.status_code == 409 and "more than the 1" in grown.json()["detail"]
+    assert client.post("/api/explorer/search", json={"collection": physics}).json()["total"] == 0, "nothing moved"
+    moved = client.post(f"/api/collections/{physics}/papers", json={
+        "mode": "move", "matching": {"sources": ["pubmed"], "collection": 1}, "except_ids": [a], "at_most": 2})
+    assert moved.status_code == 200, moved.text
+    assert sorted(moved.json()["added"]) == sorted([b, c])
+    assert _homes(conn, a) == {1: "run"}
+
+
+def test_a_save_of_todays_every_new_paper_is_the_shown_collections(http):
+    """Today is per collection, and so is Save to read of every paper on it."""
+    resmon_mod, client = http
+    conn = resmon_mod._get_db()
+    physics = client.post("/api/collections", json={"name": "Physics"}).json()["id"]
+    a = _paper(conn, "a")
+    p = _paper(conn, "p", collection_id=physics)
+    saved = client.post("/api/reading-queue/batch/all", json={"scope": "today", "collection": "Physics", "at_most": 5})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["saved_ids"] == [p]
+    default = client.post("/api/reading-queue/batch/all", json={"scope": "today", "at_most": 5}).json()
+    assert default["saved_ids"] == [a]
+    by_search = client.post("/api/reading-queue/batch/all", json={
+        "scope": "search", "search": {"collection": physics}, "at_most": 5}).json()
+    assert by_search["saved"] == 0 and by_search["already"] == 1
+
+
 def test_the_embedding_coverage_of_one_collection_counts_its_papers_alone(conn, two):
     """Search says how many of the shown collection's papers have a vector; a backfill
     still covers every paper, which ``coverage`` keeps counting."""
