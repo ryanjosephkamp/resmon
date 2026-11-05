@@ -5067,7 +5067,10 @@ class SettingsReset(LosslessModel):
 
 
 class FactoryReset(LosslessModel):
-    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+    """``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+
+    ``collections_removed`` counts the collections deleted; the default one is
+    kept, empty, under its first name.
 
     The counts are as the single-purpose routes and ``SettingsReset`` count
     them, so the key counts are of keys found and removed. It does not clear a
@@ -5084,6 +5087,7 @@ class FactoryReset(LosslessModel):
     ai_keys_removed: int
     repo_keys_removed: int
     smtp_credentials_removed: int
+    collections_removed: int
 
 
 # ===========================================================================

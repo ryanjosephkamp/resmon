@@ -7553,10 +7553,14 @@
       },
       "FactoryReset": {
         "additionalProperties": true,
-        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.\n\nThe counts are as the single-purpose routes and ``SettingsReset`` count\nthem, so the key counts are of keys found and removed. It does not clear a\nGoogle Drive sign-in stored by the removed upload or a delivery target's\nwebhook secret, and it does not touch the Library's files, report files on\ndisk, or a restore's undo copies.",
+        "description": "``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.\n\n``collections_removed`` counts the collections deleted; the default one is\nkept, empty, under its first name.\n\nThe counts are as the single-purpose routes and ``SettingsReset`` count\nthem, so the key counts are of keys found and removed. It does not clear a\nGoogle Drive sign-in stored by the removed upload or a delivery target's\nwebhook secret, and it does not touch the Library's files, report files on\ndisk, or a restore's undo copies.",
         "properties": {
           "ai_keys_removed": {
             "title": "Ai Keys Removed",
+            "type": "integer"
+          },
+          "collections_removed": {
+            "title": "Collections Removed",
             "type": "integer"
           },
           "configs_removed": {
@@ -7596,7 +7600,8 @@
           "settings_cleared",
           "ai_keys_removed",
           "repo_keys_removed",
-          "smtp_credentials_removed"
+          "smtp_credentials_removed",
+          "collections_removed"
         ],
         "title": "FactoryReset",
         "type": "object"

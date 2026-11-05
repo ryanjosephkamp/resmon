@@ -41,6 +41,7 @@ from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
 from implementation_scripts.database import (
+    DEFAULT_COLLECTION_NAME,
     get_connection,
     init_db,
     get_routines,
@@ -8685,6 +8686,17 @@ def _erase_corpus(conn) -> int:
     return int(count)
 
 
+def _reset_collections(conn) -> int:
+    """A factory reset's collections: every one but the default deleted, and the
+    default back to its first name. The papers are erased before this, so no
+    membership is left to move; their maps went with them."""
+    removed = conn.execute("DELETE FROM collections WHERE id <> ?",
+                           (paper_collections.DEFAULT_COLLECTION_ID,)).rowcount
+    conn.execute("UPDATE collections SET name = ? WHERE id = ?",
+                 (DEFAULT_COLLECTION_NAME, paper_collections.DEFAULT_COLLECTION_ID))
+    return int(removed)
+
+
 def _reset_settings(conn) -> int:
     """Clear settings except the schema marker; Library catalog and files remain."""
     # Preserve only the schema-version marker so the next daemon start
@@ -8834,6 +8846,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         e = _erase_executions(conn)
         d = _erase_corpus(conn)
         s = _reset_settings(conn)
+        k = _reset_collections(conn)
         conn.commit()
     finally:
         _close_db(conn)
@@ -8849,6 +8862,7 @@ def admin_factory_reset(body: AdminConfirmBody):
         "ai_keys_removed": a,
         "repo_keys_removed": r,
         "smtp_credentials_removed": m,
+        "collections_removed": k,
     }
 
 

@@ -7686,7 +7686,10 @@ export interface components {
         };
         /**
          * FactoryReset
-         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, and AI, repository and SMTP keys.
+         * @description ``POST /api/admin/factory-reset``: papers, configurations, runs, settings, collections, and AI, repository and SMTP keys.
+         *
+         *     ``collections_removed`` counts the collections deleted; the default one is
+         *     kept, empty, under its first name.
          *
          *     The counts are as the single-purpose routes and ``SettingsReset`` count
          *     them, so the key counts are of keys found and removed. It does not clear a
@@ -7697,6 +7700,8 @@ export interface components {
         FactoryReset: {
             /** Ai Keys Removed */
             ai_keys_removed: number;
+            /** Collections Removed */
+            collections_removed: number;
             /** Configs Removed */
             configs_removed: number;
             /** Documents Removed */

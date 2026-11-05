@@ -617,3 +617,20 @@ def test_a_watch_chooses_its_collection_and_a_search_lands_in_the_one_it_names(h
     sweep = client.post("/api/search/sweep", json={"repositories": ["arxiv"], "query": "q"})
     assert sweep.status_code in (200, 202), sweep.text
     assert [run["collection_id"] for run in launched] == [physics, physics, 1]
+
+
+def test_erasing_the_papers_keeps_the_collections_and_a_factory_reset_leaves_the_default_alone(http):
+    resmon_mod, client = http
+    conn = resmon_mod._get_db()
+    physics = client.post("/api/collections", json={"name": "Physics"}).json()["id"]
+    client.put("/api/collections/1", json={"name": "Machine learning"})
+    _paper(conn, "a")
+    _paper(conn, "p", collection_id=physics)
+    assert client.post("/api/admin/erase-corpus", json={"confirm": "CONFIRM"}).status_code == 200
+    rows = client.get("/api/collections").json()["collections"]
+    assert [(c["name"], c["papers"]) for c in rows] == [("Machine learning", 0), ("Physics", 0)]
+    reset = client.post("/api/admin/factory-reset", json={"confirm": "CONFIRM"})
+    assert reset.status_code == 200 and reset.json()["collections_removed"] == 1
+    listed = client.get("/api/collections").json()
+    assert [(c["id"], c["name"]) for c in listed["collections"]] == [(1, "Your collection")]
+    assert listed["current_id"] == 1
