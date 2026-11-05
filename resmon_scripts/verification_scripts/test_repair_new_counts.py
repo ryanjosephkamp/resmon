@@ -16,8 +16,8 @@ works out once which papers were new to each earlier run. These hold it to that:
   left as it was and counted;
 * a fresh install records the marker and recounts nothing;
 * on an upgrade, the recount runs after the copy kept before it, and the log
-  names that copy; on a database already at the current schema, it says none
-  was kept.
+  names that copy; on a database already at the current schema, or one a
+  restore starts without a copy, it says none was kept.
 
 Every database here is in the test's own temporary folder.
 """
@@ -25,8 +25,10 @@ Every database here is in the test's own temporary folder.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -373,6 +375,24 @@ def test_on_an_upgrade_it_runs_after_the_copy_and_names_it(tmp_path, caplog):
     [line] = _recount_lines(caplog)
     assert "The copy of the database kept before this start's upgrade is " in line
     assert line.endswith(f"{copy.name}.")
+
+
+def test_a_copy_an_earlier_upgrade_left_is_not_named_as_this_starts(tmp_path, caplog):
+    """A restore starts the restored database without keeping a copy of it first."""
+    path = tmp_path / "resmon.db"
+    conn = _open(path)
+    conn.executescript((FIXTURES / "schema-21" / "corpus.sql").read_text(encoding="utf-8"))
+    conn.commit()
+    conn.close()
+    stale = upgrade_copy.copy_path(path, 21)
+    stale.write_bytes(b"")
+    a_day_ago = time.time() - 86400
+    os.utime(stale, (a_day_ago, a_day_ago))
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        init_db(str(path), keep_upgrade_copy=False)
+    [line] = _recount_lines(caplog)
+    assert line.endswith("No copy of the database was kept before this start's upgrade.")
+    assert str(stale) not in line
 
 
 def test_on_a_database_at_the_current_schema_it_says_no_copy_was_kept(db, caplog):

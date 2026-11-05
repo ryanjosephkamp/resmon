@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -697,9 +698,11 @@ def init_db(
 
     # Before anything below changes the database, including the two early
     # steps that follow.
+    began = time.time()
     stored = _stored_schema_version(conn)
     upgrade_marked = upgrade_copy.before_upgrade(
         conn, stored=stored, target=SCHEMA_VERSION, keep=keep_upgrade_copy)
+    kept_copy = _copy_kept_this_start(conn, stored, keep=keep_upgrade_copy, since=began)
 
     # pub_sort must exist before _SCHEMA_SQL runs, because an older database
     # reaching this point already has a documents table without it.
@@ -754,7 +757,7 @@ def init_db(
     _repair_biorxiv_published_detail(conn)
     # After every schema step, so it reads the tables in their final shape, and
     # so on an upgrade it runs after the copy ``before_upgrade`` kept above.
-    _recount_run_new_papers(conn, stored=stored)
+    _recount_run_new_papers(conn, stored=stored, kept_copy=kept_copy)
     # Commit before returning. Each thread holds its own connection (sharing
     # one sqlite3 connection across threads can segfault CPython), so schema
     # left inside an open transaction on this one is invisible to every other
@@ -2503,26 +2506,36 @@ KEPT_THROUGH_SETTINGS_RESET = (_SCHEMA_VERSION_KEY, RUN_NEW_PAPERS_RECOUNTED_KEY
 _UTC_CLOCK_SQL = "substr(rtrim(replace(COALESCE({}, ''), 'T', ' '), 'Z'), 1, 19)"
 
 
-def _copy_kept_this_start(conn: sqlite3.Connection, stored: int | None) -> Path | None:
-    """The copy ``upgrade_copy.before_upgrade`` kept before this start's upgrade, if there is one.
+def _copy_kept_this_start(
+    conn: sqlite3.Connection, stored: int | None, *, keep: bool, since: float,
+) -> Path | None:
+    """The copy ``upgrade_copy.before_upgrade`` has just kept before this start's upgrade, if it kept one.
 
-    The unfinished-upgrade file names it until ``init_db`` has run every step,
-    which includes a copy kept by an earlier start whose upgrade did not finish.
+    Read straight after ``before_upgrade``. The unfinished-upgrade file names the
+    copy, including one an earlier start kept before an upgrade this start
+    finishes. Without that file (it could not be written), a copy under this
+    schema's name counts only if it was written since *since*, so a copy left by
+    an earlier upgrade from the same schema is never named as this one's.
     """
     db_file = upgrade_copy.database_file(conn)
-    if db_file is None or stored is None or stored >= SCHEMA_VERSION:
+    if not keep or db_file is None or stored is None or stored >= SCHEMA_VERSION:
         return None
     try:
         named = upgrade_copy.unfinished_marker(db_file).read_text(encoding="utf-8").strip()
     except OSError:
         named = ""
-    for candidate in ([db_file.with_name(named)] if named else []) + [upgrade_copy.copy_path(db_file, stored)]:
-        if candidate.is_file():
-            return candidate
-    return None
+    if named and db_file.with_name(named).is_file():
+        return db_file.with_name(named)
+    candidate = upgrade_copy.copy_path(db_file, stored)
+    try:
+        return candidate if candidate.stat().st_mtime >= since else None
+    except OSError:
+        return None
 
 
-def _recount_run_new_papers(conn: sqlite3.Connection, *, stored: int | None) -> dict | None:
+def _recount_run_new_papers(
+    conn: sqlite3.Connection, *, stored: int | None, kept_copy: Path | None = None,
+) -> dict | None:
     """Work out once, for every earlier run, which of its papers were new to it.
 
     Before November 5, 2026, the sweep engine linked a paper to a run as new by
@@ -2542,7 +2555,7 @@ def _recount_run_new_papers(conn: sqlite3.Connection, *, stored: int | None) -> 
       ``[start_time, end_time]`` and that run is the earliest-starting of the runs
       that linked the paper and whose windows hold that time; between two that
       started in the same second, the one recorded first. So a paper is new to
-      one run at most. Every other link of that run is not new.
+      one run at most. Every other link of a run with a window is not new.
     * A run with no ``end_time`` (one interrupted, or still open at the upgrade)
       takes its ``last_seen_at_utc`` as its end. A run with neither is left as it
       was, links and count, and takes no part in deciding which run a paper was
@@ -2562,8 +2575,9 @@ def _recount_run_new_papers(conn: sqlite3.Connection, *, stored: int | None) -> 
     ``SCHEMA_VERSION`` bump.
 
     *stored* is the schema the database was at when this start began (``None``
-    for one with no tables). Returns the counts the log line gives, or ``None``
-    when nothing was recounted.
+    for one with no tables), and *kept_copy* the copy kept before this start's
+    upgrade, which the log line names. Returns the counts the log line gives, or
+    ``None`` when nothing was recounted.
     """
     if conn.execute(
         "SELECT 1 FROM app_settings WHERE key = ?", (RUN_NEW_PAPERS_RECOUNTED_KEY,)
@@ -2575,7 +2589,6 @@ def _recount_run_new_papers(conn: sqlite3.Connection, *, stored: int | None) -> 
             (RUN_NEW_PAPERS_RECOUNTED_KEY,),
         )
         return None
-    kept = _copy_kept_this_start(conn, stored)
     conn.commit()
     conn.execute("BEGIN")
     try:
@@ -2597,8 +2610,8 @@ def _recount_run_new_papers(conn: sqlite3.Connection, *, stored: int | None) -> 
             "Run %d keeps %d new paper(s), its dedup_new, counted as it stored them; "
             "the recount from when each paper was first stored gives %d.",
             run_id, dedup_new, recount)
-    if kept is not None:
-        copy_words = f"The copy of the database kept before this start's upgrade is {kept}."
+    if kept_copy is not None:
+        copy_words = f"The copy of the database kept before this start's upgrade is {kept_copy}."
     elif stored >= SCHEMA_VERSION:
         copy_words = (f"No copy of the database was kept this start: it was already at schema "
                       f"{SCHEMA_VERSION}.")
