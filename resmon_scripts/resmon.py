@@ -142,6 +142,17 @@ from implementation_scripts.repo_catalog import (
 # App setup
 # ---------------------------------------------------------------------------
 
+def _ensure_clients_loaded_on_startup() -> None:
+    """Import every source client before the engine answers or fires anything."""
+    from implementation_scripts import api_registry
+    try:
+        api_registry._ensure_loaded()
+    except Exception:
+        # A client that cannot be imported is a bug the first run reports in
+        # its own words; it must not stop the engine from starting.
+        logging.getLogger(__name__).exception("Could not load the source clients at startup")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup/shutdown hooks.
@@ -155,6 +166,9 @@ async def _lifespan(_app: FastAPI):
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.
     _apply_pending_restore_on_startup()
+    # Every source client registers on import. Loaded here, once, so no run is
+    # ever the registry's first user (``api_registry._ensure_loaded``).
+    _ensure_clients_loaded_on_startup()
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
     # Before the scheduler: a routine that fires the moment it starts must not
