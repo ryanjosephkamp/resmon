@@ -15,6 +15,8 @@ import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import sqlite3
+
 import pytest
 
 from implementation_scripts import database, full_text, fulltext_download as fd, library, open_access
@@ -407,6 +409,55 @@ def test_asking_again_for_a_paper_skipped_for_the_same_reason_records_nothing_ne
     _routine, run = _watch_run(db)
     watched = full_text.request(db, paper, requested_by="watch", execution_id=run, wake=False)
     assert watched["id"] != changed["id"] and watched["execution_id"] == run
+
+
+def test_the_database_holds_one_waiting_or_downloading_request_a_paper(db, server):
+    paper = _paper(db, 70, url=server.url("/one.pdf"))
+    copy = {"pdf_url": server.url("/one.pdf"), "license": "cc-by", "reported_by": "openalex"}
+    full_text._record(db, paper, "person", None, "waiting", copy=copy)
+    with pytest.raises(sqlite3.IntegrityError):
+        full_text._record(db, paper, "watch", None, "waiting", copy=copy)
+    db.rollback()
+    # A finished request is not in the way of the next.
+    full_text._record(db, paper, "person", None, "skipped", reason="daily_cap", copy=copy)
+    assert db.execute("SELECT count(*) FROM full_text_downloads WHERE document_id = ?", (paper,)).fetchone()[0] == 2
+
+
+def test_two_requests_for_one_paper_at_once_make_one(db, server, monkeypatch):
+    """``request`` checks for a pending request and then writes one; another can go in between."""
+    paper = _paper(db, 71, url=server.url("/race.pdf"))
+    path = db.execute("PRAGMA database_list").fetchone()[2]
+    looked = full_text.library_pdf
+
+    def meanwhile(conn, document_id):
+        # Another window's request for the same paper lands after this one looked.
+        other = database.get_connection(path)
+        try:
+            full_text._record(other, document_id, "person", None, "waiting",
+                              copy={"pdf_url": server.url("/race.pdf"), "license": "cc-by", "reported_by": "openalex"})
+        finally:
+            other.close()
+        monkeypatch.setattr(full_text, "library_pdf", looked)
+        return looked(conn, document_id)
+
+    monkeypatch.setattr(full_text, "library_pdf", meanwhile)
+    asked = full_text.request(db, paper, wake=False)
+    rows = db.execute("SELECT id, state FROM full_text_downloads WHERE document_id = ?", (paper,)).fetchall()
+    assert [tuple(r) for r in rows] == [(asked["id"], "waiting")]
+
+
+def test_a_paper_the_library_got_meanwhile_is_not_downloaded_again(db, server, tmp_path):
+    _serve(server, "/later.pdf")
+    paper = _paper(db, 72, url=server.url("/later.pdf"))
+    asked = full_text.request(db, paper, wake=False)
+    vault = library.vault_row(db)["vault_id"]
+    with library.Import(db, vault, "by hand.pdf", document_id=paper) as receipt:
+        receipt.write(pdf_body(2000))
+        receipt.finish()
+    claimed = full_text.worker._claim(db)
+    full_text.worker._download(db, claimed, tmp_path)
+    assert (_row(db, asked["id"])["state"], _row(db, asked["id"])["reason"]) == ("skipped", "already_in_library")
+    assert server.requests == []
 
 
 class _OAI(http.server.BaseHTTPRequestHandler):

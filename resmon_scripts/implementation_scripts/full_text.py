@@ -275,7 +275,19 @@ def request(conn: sqlite3.Connection, document_id: int, *, requested_by: str = "
         return _skip(conn, document_id, requested_by, execution_id, "run_cap", copy=summary["best"])
     if attempted_today(conn) >= DAILY_CAP:
         return _skip(conn, document_id, requested_by, execution_id, "daily_cap", copy=summary["best"])
-    row = _record(conn, document_id, requested_by, execution_id, "waiting", copy=summary["best"])
+    try:
+        row = _record(conn, document_id, requested_by, execution_id, "waiting", copy=summary["best"])
+    except sqlite3.IntegrityError:
+        # Another request for this paper went in after the check above: the
+        # database keeps one waiting or downloading at a time, and that one is
+        # the answer.
+        conn.rollback()
+        pending = conn.execute(
+            "SELECT * FROM full_text_downloads WHERE document_id = ? AND state IN ('waiting', 'downloading') "
+            "ORDER BY id DESC LIMIT 1", (document_id,)).fetchone()
+        if pending is None:
+            raise
+        return _projection(dict(pending))
     if wake:
         worker.wake()
     return row
@@ -588,6 +600,11 @@ class Worker:
         withdrawn = watch_withdrew(conn, row)
         if withdrawn is not None:
             self._finish(conn, row["id"], "skipped", reason=withdrawn)
+            return
+        # The Library may have got this paper's PDF since it was asked for:
+        # imported by hand, or through another copy of the paper.
+        if library_pdf(conn, row["document_id"]) is not None:
+            self._finish(conn, row["id"], "skipped", reason="already_in_library")
             return
         url, license_slug = row["url"], row["license"]
         if license_slug is None:

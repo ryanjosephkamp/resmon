@@ -494,7 +494,8 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "idx_full_text_downloads_document",
                             "idx_full_text_downloads_state",
                             "idx_full_text_downloads_execution",
-                            "idx_full_text_downloads_requested"}
+                            "idx_full_text_downloads_requested",
+                            "idx_full_text_downloads_one_pending"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

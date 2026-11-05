@@ -2679,6 +2679,11 @@ _FULL_TEXT_DDL = {
         "WHERE execution_id IS NOT NULL",
     "idx_full_text_downloads_requested":
         "CREATE INDEX idx_full_text_downloads_requested ON full_text_downloads(requested_at_utc)",
+    # One request at a time for a paper: two asked at once (two windows, a
+    # watch run and a person) cannot both wait or both download.
+    "idx_full_text_downloads_one_pending":
+        "CREATE UNIQUE INDEX idx_full_text_downloads_one_pending ON full_text_downloads(document_id) "
+        "WHERE state IN ('waiting', 'downloading')",
 }
 
 # Added with ALTER on every database, fresh or upgraded, as schema 26's column

@@ -674,6 +674,7 @@ CREATE INDEX idx_full_text_downloads_document ON full_text_downloads(document_id
 CREATE INDEX idx_full_text_downloads_state ON full_text_downloads(state, id);
 CREATE INDEX idx_full_text_downloads_execution ON full_text_downloads(execution_id) WHERE execution_id IS NOT NULL;
 CREATE INDEX idx_full_text_downloads_requested ON full_text_downloads(requested_at_utc);
+CREATE UNIQUE INDEX idx_full_text_downloads_one_pending ON full_text_downloads(document_id) WHERE state IN ('waiting', 'downloading');
 
 -- documents: 13 row(s)
 INSERT INTO "documents" ("id", "source_repository", "external_id", "doi", "title", "authors", "abstract", "publication_date", "url", "categories", "metadata_hash", "first_seen_at") VALUES (1, 'arxiv', '2401.00001', '10.48550/arXiv.2401.00001', 'Diffusion models for turbulent flow reconstruction', 'Ada Lovelace, Alan Turing, Grace Hopper', 'A study of diffusion models applied to turbulence.', '2026-01-15', 'https://example.org/arxiv/2401.00001', 'cs.LG, physics.flu-dyn', 'hash-arxiv-0001', '2026-02-01 05:37:00');
