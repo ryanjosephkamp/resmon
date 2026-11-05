@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 237 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 244 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -34,7 +34,17 @@ Starting a Deep Dive or a Deep Sweep, and the catalog they choose from. Both sta
 | `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once, or, at the run limit, with its place in the queue. Its papers land in `collection` (an id or a name), or the default collection. |
 | `POST` | `/api/search/sweep` | Start a Deep Sweep on several sources. The cap on papers applies to each source. Its papers land in `collection`, as a Deep Dive's do. |
 | `GET` | `/api/search/repositories` | The slugs of the sources this copy of resmon can ask. |
-| `GET` | `/api/repositories/catalog` | The source catalog: each source's coverage, key requirement, pace, how it combines terms and dates papers, credit, and whether it can be asked about an author. It never returns a secret. |
+| `GET` | `/api/repositories/catalog` | The source catalog: each source's coverage, key requirement, pace, how it combines terms and dates papers, credit, whether it can be asked about an author, and what it can be asked for one paper by. It never returns a secret. |
+
+### Find a paper
+
+One paper, by DOI, arXiv id, PMID, or title, asked of every source that can look it up. A find is a run: it is listed with the others, its papers land in `collection`, and Health counts each source's answer.
+
+| Method | Path | What it does |
+|---|---|---|
+| `GET` | `/api/find/plan` | What `q` reads as (a DOI, an arXiv id, a PMID, or a title) and which sources a find would ask, with why each other source would not be asked. |
+| `POST` | `/api/find` | Start a find. `repositories` names the sources to ask (absent, every source that can look up that kind). Answers like a Deep Sweep: the run's id, or its place in the queue. |
+| `GET` | `/api/executions/{exec_id}/find` | What each source said: found or not, how its copy matched (by DOI, arXiv id, PMID, exact title, or close title), what differs from the reference copy, and its open copy with its license. |
 
 ## Runs
 
@@ -272,6 +282,17 @@ Every Library route needs the header `X-Resmon-Library: 1`, and a vault id the c
 | `GET` | `/api/library/files/{file_id}/shared-wording` | The last comparison of this file since the engine started, or that there is none. |
 | `POST` | `/api/library/files/{file_id}/shared-wording` | Compare this file, page by page, with the abstracts and the other Library files. |
 | `GET` | `/api/library/export` | A JSON inventory of what the database records about each file. |
+
+### Get the PDF
+
+Open-access PDFs into the Library. These routes need no Library header. A PDF is fetched only where a source states an open license for the copy, never from NASA ADS, Springer, or CORE.
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/documents/{doc_id}/full-text` | Ask for a paper's PDF. Recorded before anything is fetched; a request that cannot go ahead comes back `skipped` with its reason and sends nothing. |
+| `POST` | `/api/full-text/for-documents` | For each paper: its open copies, the one resmon would get or why there is none, its latest request, and the PDF the Library holds for it. |
+| `GET` | `/api/executions/{exec_id}/full-text` | Every PDF a watch's run asked for, and what came of each: stored, skipped, or failed, with why. |
+| `GET` | `/api/full-text/rules` | The limits (a watch run's cap, the day's cap, one download at a time from a site and its pace, the size limit) and the license rule. |
 
 ## Evidence
 

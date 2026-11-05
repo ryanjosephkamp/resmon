@@ -448,6 +448,18 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("DELETE", "/api/collections/{collection_id}"): ("J12",),
     ("POST", "/api/collections/{collection_id}/papers"): ("J12",),
     ("POST", "/api/collections/{collection_id}/papers/undo"): ("J12",),
+    # --- Full text (schema 27) ---------------------------------------------
+    # Find a paper is a run asked of many sources at once, as a Deep Sweep is,
+    # and one submission is one run; its record is each source's answer.
+    ("GET", "/api/find/plan"): ("J02",),
+    ("POST", "/api/find"): ("J02", "J39"),
+    ("GET", "/api/executions/{exec_id}/find"): ("J02", "J29"),
+    # Get the PDF lands files in the owned Library; a watch's opt-in is the
+    # routine's, and a run's page says what it fetched.
+    ("GET", "/api/full-text/rules"): ("J34",),
+    ("POST", "/api/full-text/for-documents"): ("J34",),
+    ("POST", "/api/documents/{doc_id}/full-text"): ("J34",),
+    ("GET", "/api/executions/{exec_id}/full-text"): ("J34", "J03"),
 }
 
 

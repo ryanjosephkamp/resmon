@@ -1592,6 +1592,22 @@ class RepositoryEntitySearch(LosslessModel):
     established: str
 
 
+class RepositoryPaperLookup(LosslessModel):
+    """Whether a source can be asked for one paper (Find a paper), and by what.
+
+    ``kinds`` are the queries it can be asked by: ``doi``, ``arxiv``, ``pmid``,
+    ``title``. ``syntax`` maps a kind to the field syntax put into the
+    source's ordinary search (``{value}`` where the query goes); a kind with no
+    syntax is asked through the client's own lookup endpoint. ``established``
+    is the dated observation behind the row, or why the source is asked by
+    nothing.
+    """
+
+    kinds: list[str]
+    syntax: dict[str, str]
+    established: str
+
+
 class RepositorySourceNotice(LosslessModel):
     """One sentence the interface shows before a search is submitted.
 
@@ -1677,6 +1693,7 @@ class RepositoryCatalogEntry(LosslessModel):
     result_order_established: str
     entity_search: RepositoryEntitySearch
     constraints: RepositoryConstraints
+    paper_lookup: RepositoryPaperLookup
 
 
 class CredentialPresence(LosslessModel):
@@ -2613,6 +2630,7 @@ class RoutineRow(LosslessModel):
     updated_at: str
     last_executed_at: Optional[str]
     collection_id: Optional[int]
+    download_full_text: int
     last_execution: Optional[str]
     last_status: Optional[str]
     missed_fires: MissedFires
@@ -2642,6 +2660,7 @@ class Routine(LosslessModel):
     updated_at: str
     last_executed_at: Optional[str]
     collection_id: Optional[int]
+    download_full_text: bool
     missed_fires: MissedFires
     missed_fire_details: list[MissedFire]
     date_window_next: Optional[DateWindowComputed] = None
@@ -2678,6 +2697,7 @@ class RoutineUpdated(LosslessModel):
     storage_settings: Optional[str] = None
     notify_on_complete: Optional[int] = None
     collection_id: Optional[int] = None
+    download_full_text: Optional[int] = None
 
 
 class RoutineActivation(LosslessModel):
@@ -5644,3 +5664,201 @@ class SharedWordingLibrary(LosslessModel):
     result: Optional[SharedWordingFileResult] = None
     error: Optional[str] = None
     reason: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Full text: Find a paper and Get the PDF (schema 27)
+# ---------------------------------------------------------------------------
+
+
+class FindPlanSource(LosslessModel):
+    """One source a find would not ask, and why, in a sentence."""
+
+    source: str
+    why: str
+
+
+class FindPlan(LosslessModel):
+    """``GET /api/find/plan``: what a typed query reads as, and which sources it would ask.
+
+    ``kind`` is ``doi``, ``arxiv``, ``pmid`` or ``title``; ``value`` is the
+    identifier as resmon will send it (a DOI lowercased, an arXiv id without
+    its version). ``asked`` keeps the order the sources were named in.
+    """
+
+    kind: str
+    value: str
+    typed: str
+    asked: list[str]
+    not_asked: list[FindPlanSource]
+
+
+class FindOpenCopy(LosslessModel):
+    """The open copy of a found record resmon would get, or the first one a source named.
+
+    ``downloadable`` is resmon's rule (a stated open license, never NASA ADS,
+    Springer or CORE). ``license_to_be_read`` is an arXiv copy whose license
+    is read from arXiv when its PDF is asked for.
+    """
+
+    downloadable: bool
+    license: Optional[str]
+    license_words: Optional[str]
+    host: Optional[str]
+    pdf_url: Optional[str]
+    license_to_be_read: bool
+
+
+class FindDifference(LosslessModel):
+    """One field where a copy differs from the reference copy: ``title``, ``year``,
+    ``doi``, ``first_author`` or ``author_count``."""
+
+    field: str
+    this: Any
+    reference: Any
+
+
+class FindSourceResult(LosslessModel):
+    """What one source said to a find.
+
+    ``outcome`` is ``found``, ``not_found`` (it answered, and no record was the
+    paper), ``did_not_answer``, or ``not_asked`` (with ``why_not_asked``).
+    ``matched_by`` says how the copy kept was matched: ``doi``, ``arxiv``,
+    ``pmid``, ``exact_title`` or ``close_title``, with ``title_similarity``
+    for a title. ``candidates`` is how many records the source returned.
+    ``reference`` marks the copy the others are compared with.
+    """
+
+    source: str
+    name: str
+    outcome: str
+    matched_by: Optional[str]
+    title_similarity: Optional[float]
+    document_id: Optional[int]
+    candidates: Optional[int]
+    differences: list[FindDifference]
+    reference: bool
+    why_not_asked: Optional[str]
+    open_copy: Optional[FindOpenCopy]
+
+
+class FindQuery(LosslessModel):
+    kind: Optional[str]
+    value: Optional[str]
+    typed: Optional[str]
+
+
+class FindResult(LosslessModel):
+    """``GET /api/executions/{exec_id}/find``: a find's question and every source's answer.
+
+    Empty ``sources`` while the run is going: each row is written when every
+    source has answered. ``counts`` totals the outcomes.
+    """
+
+    execution_id: int
+    status: str
+    query: FindQuery
+    reference_document_id: Optional[int]
+    sources: list[FindSourceResult]
+    counts: dict[str, int]
+
+
+class FullTextRequest(LosslessModel):
+    """One PDF asked for, and what came of it.
+
+    ``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with
+    the ``reason`` no request was sent) or ``failed`` (with why). ``words`` is
+    the reason in a sentence. A stored request carries the Library ``file_id``,
+    ``final_url`` (where the PDF came from after every redirect), its
+    ``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null
+    only for the answer that the Library already holds the paper's PDF, which
+    records nothing new.
+    """
+
+    id: Optional[int]
+    document_id: int
+    execution_id: Optional[int]
+    requested_by: str
+    state: str
+    reason: Optional[str]
+    words: Optional[str]
+    url: Optional[str]
+    final_url: Optional[str]
+    host: Optional[str]
+    license: Optional[str]
+    license_words: Optional[str]
+    version: Optional[str]
+    reported_by: Optional[str]
+    file_id: Optional[str]
+    byte_size: Optional[int]
+    requested_at_utc: str
+    finished_at_utc: Optional[str]
+
+
+class FullTextCopy(LosslessModel):
+    """One open copy a source reported, as stored."""
+
+    reported_by: str
+    pdf_url: Optional[str]
+    landing_url: Optional[str]
+    host: Optional[str]
+    license: Optional[str]
+    license_words: Optional[str]
+    license_basis: Optional[str]
+    version: Optional[str]
+    license_to_be_read: bool
+
+
+class FullTextLibraryFile(LosslessModel):
+    file_id: str
+    version_id: str
+    vault_id: str
+    byte_size: int
+
+
+class FullTextStatus(LosslessModel):
+    """A paper's full text: its open copies (its own and its stored copies'), the
+    one resmon would get, why there is none to get, its latest request, and the
+    PDF the Library holds for it."""
+
+    document_id: int
+    downloadable: bool
+    why_not: Optional[str]
+    why_not_words: Optional[str]
+    best: Optional[FullTextCopy]
+    copies: list[FullTextCopy]
+    download: Optional[FullTextRequest]
+    in_library: Optional[FullTextLibraryFile]
+
+
+class RunFullText(LosslessModel):
+    """``GET /api/executions/{exec_id}/full-text``: every PDF a run asked for, and the counts."""
+
+    execution_id: int
+    requests: list[FullTextRequest]
+    counts: dict[str, int]
+    per_run_cap: int
+
+
+class FullTextLicense(LosslessModel):
+    license: str
+    words: str
+
+
+class FullTextRefusedSource(LosslessModel):
+    source: str
+    why: str
+
+
+class FullTextRules(LosslessModel):
+    """``GET /api/full-text/rules``: the limits and the license rule, as Settings states them."""
+
+    per_run_cap: int
+    daily_cap: int
+    host_interval_seconds: float
+    one_at_a_time_per_host: bool
+    max_bytes: int
+    https_only: bool
+    open_licenses: list[FullTextLicense]
+    refused_sources: list[FullTextRefusedSource]
+
