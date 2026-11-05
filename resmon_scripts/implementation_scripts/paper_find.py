@@ -374,3 +374,45 @@ def result(conn: sqlite3.Connection, execution_id: int) -> dict | None:
         "counts": {outcome: sum(1 for s in sources if s["outcome"] == outcome)
                    for outcome in ("found", "not_found", "did_not_answer", "not_asked")},
     }
+
+
+# ---------------------------------------------------------------------------
+# A finished find's notification
+# ---------------------------------------------------------------------------
+
+
+def asked_words(kind: object, value: object) -> str:
+    """What a find asked for, as a sentence names it: "the DOI 10.1000/x", "the title “A paper”"."""
+    text = str(value or "")
+    if kind in ("doi", "arxiv", "pmid"):
+        return f"the {KIND_WORDS[str(kind)]} {text}"
+    return f"the title \u201c{text}\u201d"
+
+
+def notice_words(conn: sqlite3.Connection, execution_id: int) -> str | None:
+    """A finished find's notification: how many of the sources asked hold the paper, as its page says it.
+
+    None when the run is not a find or recorded no source as asked.
+    """
+    row = conn.execute("SELECT parameters FROM executions WHERE id = ? AND execution_type = 'find_paper'",
+                       (int(execution_id),)).fetchone()
+    if row is None:
+        return None
+    find = (json.loads(row["parameters"] or "{}").get("find") or {})
+    outcomes = {r[0]: int(r[1]) for r in conn.execute(
+        "SELECT outcome, COUNT(*) FROM execution_find_results WHERE execution_id = ? GROUP BY outcome",
+        (int(execution_id),))}
+    asked = sum(outcomes.get(k, 0) for k in ("found", "not_found", "did_not_answer"))
+    if not asked:
+        return None
+    what = asked_words(find.get("kind"), find.get("value"))
+    sources = "source" if asked == 1 else "sources"
+    found = outcomes.get("found", 0)
+    if found:
+        words = f"{found} of {asked} {sources} asked {'holds' if found == 1 else 'hold'} {what}"
+    else:
+        words = f"None of the {asked} {sources} asked holds {what}"
+    silent = outcomes.get("did_not_answer", 0)
+    if silent:
+        words += f"; {silent} did not answer"
+    return words + "."

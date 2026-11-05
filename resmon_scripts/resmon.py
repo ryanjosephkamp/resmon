@@ -1055,14 +1055,15 @@ def _should_dispatch_desktop_notification(
     Mirrors the in-renderer logic in
     ``ExecutionContext.maybeNotifyCompletion``:
 
-    * Manual runs (``deep_dive`` / ``deep_sweep``) honor ``notify_manual``.
+    * Manual runs (``deep_dive`` / ``deep_sweep``, and ``find_paper``, Find a
+      paper) honor ``notify_manual``.
     * Automated runs (``automated_sweep``) honor the per-routine
       ``notify_on_complete`` flag first; otherwise fall back to the
       global ``notify_automatic_mode`` (``all`` fires for every routine,
       ``none`` and ``selected`` suppress when the per-routine flag is
       false).
     """
-    if execution_type in ("deep_dive", "deep_sweep"):
+    if execution_type in ("deep_dive", "deep_sweep", "find_paper"):
         return bool(notify_manual)
     if execution_type == "automated_sweep":
         if routine_notify_on_complete:
@@ -1158,6 +1159,8 @@ def _desktop_notification_words(
     renderer's names for them made every notification say "0 results (0
     new)". A count the row does not hold is said to be unrecorded, never
     printed as zero: a quiet run and an unmeasured one must not read the same.
+    A finished find says instead how many of the sources it asked hold the
+    paper (``paper_find.notice_words``).
     """
     execution_type = str(execution_row.get("execution_type") or "").strip()
     if routine_name:
@@ -1191,6 +1194,16 @@ def _desktop_notification_words(
     title = f"resmon: {subject} {verb}"
     if status != "completed":
         return title, _sentence(coverage_phrase)
+    if execution_type == "find_paper":
+        # A find says whether the sources hold the paper, as its page does,
+        # rather than how many new papers it stored.
+        try:
+            found_words = paper_find.notice_words(conn, int(execution_row["id"]))
+        except Exception:
+            logging.getLogger(__name__).debug("A find's answers could not be read", exc_info=True)
+            found_words = None
+        if found_words:
+            return title, found_words
     total = execution_row.get("result_count")
     new = execution_row.get("new_result_count")
 
@@ -1234,7 +1247,7 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         return
 
     execution_type = str(execution_row.get("execution_type") or "").strip()
-    if execution_type not in ("deep_dive", "deep_sweep", "automated_sweep"):
+    if execution_type not in ("deep_dive", "deep_sweep", "find_paper", "automated_sweep"):
         return
 
     raw = _get_settings_group(conn, "notifications")

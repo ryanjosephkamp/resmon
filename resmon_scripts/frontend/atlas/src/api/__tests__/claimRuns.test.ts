@@ -31,7 +31,8 @@ describe('a run this window starts is said to be this window\'s', () => {
     const restore = withBridge(claimed);
     try {
       for (const route of STARTS_A_RUN) await onResponse(answered(route, { execution_id: 40 + claimed.length }));
-      expect(claimed).toEqual([40, 41, 42, 43]);
+      expect(claimed).toEqual([40, 41, 42, 43, 44]);
+      expect(STARTS_A_RUN.has('/api/find')).toBe(true);
     } finally {
       restore();
     }

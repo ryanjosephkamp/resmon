@@ -52,7 +52,7 @@ The record says what resmon did: it handed the message to your mail server, wrot
 
 **Settings › Notifications** sets when resmon posts a desktop notification. Clicking one opens the run. Whether it shows, and how, is up to your operating system's notification settings for resmon.
 
-- **When a search I start finishes** notifies you about Deep Dives and Deep Sweeps.
+- **When a search I start finishes** notifies you about Deep Dives, Deep Sweeps, and finds (Find a paper). A find's notification says how many of the sources it asked hold the paper.
 - **When a watch finishes** is **Every watch** or **Only the watches set to notify**. A watch whose own **Notify me when it finishes** switch is on notifies whichever you choose, and the page lists those watches.
 
 A watch run by the background service notifies you whether or not a window is open.

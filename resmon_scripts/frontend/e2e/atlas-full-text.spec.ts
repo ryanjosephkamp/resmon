@@ -124,6 +124,9 @@ with sqlite3.connect('file:' + sys.argv[1] + '?mode=ro', uri=True) as c:
 print(json.dumps(out))
 `;
 
+/** A notice the main process wrote instead of posting it, and the window a click would show it in. */
+interface Notice { title: string; body: string; executionId: number | null; window: number | null }
+
 interface Stored {
   downloads: Record<string, unknown>[]; files: Record<string, unknown>[]; links: Record<string, unknown>[];
   documents: { id: number; source_repository: string; external_id: string; doi: string | null; title: string }[];
@@ -213,6 +216,11 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
   });
   registerStateDir(stateDir);
+  // Under the suite, the main process writes each notice it would post as a line (`postNotice`).
+  const output: string[] = [];
+  app.process().stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()));
+  const notices = () => output.join('').split('\n').filter((line) => line.startsWith('[main] notice '))
+    .map((line) => JSON.parse(line.slice('[main] notice '.length)) as Notice);
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     const problems: string[] = [];
@@ -280,9 +288,19 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     expect(findRows.find((r) => r.source === 'zenodo')).toMatchObject({ outcome: 'not_asked', detail: 'Left out of this find.' });
     expect(record.sources.filter((s) => s.execution_id === run!.id).map((s) => s.source)).toContain('openalex');
     expect(record.same_paper).toHaveLength(1);
-    const found = await call('GET', `/api/executions/${run!.id}/find`) as { counts: Record<string, number> };
+    const found = await call('GET', `/api/executions/${run!.id}/find`) as { counts: Record<string, number>; query: { value: string } };
     expect(found.counts.found).toBe(2);
     expect(runId).toBe(run!.id);
+
+    // Its notification, in the app's words, for the window that started it.
+    await expect.poll(() => notices().find((n) => n.executionId === run!.id), { timeout: 30_000 }).toBeTruthy();
+    const notice = notices().find((n) => n.executionId === run!.id)!;
+    const askedCount = findRows.filter((r) => r.outcome !== 'not_asked').length;
+    const silent = findRows.filter((r) => r.outcome === 'did_not_answer').length;
+    expect(notice.title).toBe('Find a paper finished');
+    expect(notice.body).toBe(
+      `2 of ${askedCount} sources asked hold the DOI ${found.query.value}${silent ? `; ${silent} did not answer` : ''}.`);
+    expect(notice.window).toBe(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.id ?? null));
 
     // — Get the PDF, from the find -----------------------------------------------------
     const getting = Date.now();

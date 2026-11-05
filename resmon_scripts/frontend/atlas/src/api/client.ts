@@ -42,14 +42,15 @@ const withToken: Middleware = {
 
 /**
  * The routes that start a run, by their address in the contract: a Deep Dive,
- * a Deep Sweep, a watch's Run now, and Restart and Run again (`again`). A run
+ * a Deep Sweep, Find a paper, a watch's Run now, and Restart and Run again (`again`). A run
  * started here is this window's: the main process shows the run's
  * notification in this window (`electron/windows.ts`). One that waits at the
  * run limit (202) has no id yet; it is told by its `ticket`, or by its watch
  * for a Run now, and is this window's once it starts.
  */
 export const STARTS_A_RUN: ReadonlySet<string> = new Set([
-  '/api/search/dive', '/api/search/sweep', '/api/routines/{routine_id}/run', '/api/executions/{exec_id}/restart',
+  '/api/search/dive', '/api/search/sweep', '/api/find', '/api/routines/{routine_id}/run',
+  '/api/executions/{exec_id}/restart',
 ]);
 
 export const claimRuns: Middleware = {
