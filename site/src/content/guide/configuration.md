@@ -76,4 +76,6 @@ Each erasure opens a warning that says what it removes and what it does not. The
 | **Reset all settings** | Every setting back to its default, and every key and the email password erased. Runs and saved searches are kept |
 | **Factory reset** | Every key, saved search, run, paper, and setting on this computer. The Library is kept |
 
+**Erase the paper corpus**, **Erase all app data**, and **Factory reset** also delete the copy of the database resmon kept before its last update, because it holds the papers. The other erasures leave it.
+
 Erasures cannot be undone from inside resmon. A backup made before one can bring back what the backup holds, which never includes keys or passwords. See [Backup and restore](/resmon/guide/backup/).

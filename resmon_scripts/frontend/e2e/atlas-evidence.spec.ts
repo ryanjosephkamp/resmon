@@ -30,6 +30,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { findCard } from './fixtures/gallery';
+import { removeStateDir } from './fixtures/cleanup';
 
 const FIXTURES = path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'evidence');
 const PAGE_ONE = 'Alpha evidence — exact version.';
@@ -315,6 +316,6 @@ with zipfile.ZipFile(sys.argv[1]) as z:
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    for (const dir of [stateDir, parent, downloads]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [stateDir, parent, downloads]) removeStateDir(dir);
   }
 });

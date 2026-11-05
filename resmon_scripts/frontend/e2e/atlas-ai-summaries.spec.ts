@@ -31,6 +31,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** A test value for the loopback provider below, and for nothing else. */
 const KEY = 'e2e-loopback-key-not-a-real-one';
@@ -437,7 +438,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await new Promise<void>((resolve) => source.close(() => resolve()));
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl'))
       ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
     expect(blocked, 'the engine tried to reach something other than this computer').toBe('');
   }
 });

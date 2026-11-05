@@ -22,6 +22,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Locator, type Page } from '@playwright/test';
 import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fixtures/resmon-app';
 import { resize } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 const LONG = 'a_deliberately_long_watch_name_that_checks_wrapping_in_lists_headers_and_the_calendar';
 
@@ -202,6 +203,6 @@ test('at about 1,024 points wide: the run log, the source table, the Source wall
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

@@ -23,6 +23,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 async function api<T>(win: Page, method: string, route: string, body?: unknown): Promise<T> {
   return win.evaluate(async ([m, r, b]) => {
@@ -189,6 +190,6 @@ test('a run saved as a search, and that search changed in place, read back from 
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

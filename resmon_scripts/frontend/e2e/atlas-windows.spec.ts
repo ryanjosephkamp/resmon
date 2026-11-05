@@ -27,6 +27,7 @@ import { test, expect, _electron as electron, type ElectronApplication, type Pag
 import { ATLAS_LANDMARK, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { windowTitle } from '../atlas/src/windowTitle';
 import { cascade, type Rect } from '../electron/windows';
+import { removeStateDir } from './fixtures/cleanup';
 
 const TITLE = 'Authored windows fixture on tidal dissipation';
 const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
@@ -338,7 +339,9 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await mark(first).click();
     await seen;
     await expect(mark(first)).toHaveAttribute('data-monitor', 'idle');
-    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 15_000 });
+    // The other window learns it at its next read of the running runs, which comes every 15 s
+    // while nothing runs; twice that leaves room for a read that had just gone out.
+    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 30_000 });
     expect((await api<{ failed_unseen: number[] }>(second, '/api/executions/active')).failed_unseen).not.toContain(broken.execution_id);
     await first.keyboard.press('Escape');
 
@@ -485,7 +488,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await app.close().catch(() => { /* already gone */ });
     await new Promise<void>((resolve) => source.close(() => resolve()));
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl')) ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
     expect(blocked).toBe('');
   }
 });

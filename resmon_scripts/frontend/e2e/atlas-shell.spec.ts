@@ -21,6 +21,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
 import { SCREEN_PATHS } from '../atlas/src/screenPaths';
+import { removeStateDir } from './fixtures/cleanup';
 
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 
@@ -42,7 +43,7 @@ test('the app serves the Atlas shell, connected to its own backend', async () =>
     expect(port, 'the installed service port is never used').not.toBe('8742');
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -77,7 +78,7 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
     app, win, problems,
     done: async () => {
       await app.close().catch(() => { /* already gone */ });
-      fs.rmSync(root, { recursive: true, force: true });
+      removeStateDir(root);
     },
   };
 }

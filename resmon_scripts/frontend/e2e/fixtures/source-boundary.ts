@@ -21,6 +21,7 @@ import { execFileSync } from 'child_process';
 import { _electron as electron, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, atlasEnv, launchEnv } from './resmon-app';
+import { removeStateDir } from './cleanup';
 
 type Mode = 'paper' | 'empty' | 'failure' | '503' | 'malformed'
   | 'authored-person' | 'authored-corpus' | 'authored-duplicates';
@@ -402,7 +403,7 @@ api_openalex._OPENALEX_API_URL = ${JSON.stringify(openAlexEndpoint)}
       if (ownedProcess) expect(appExited).toBe(true);
       console.log('SOURCE_CLEANUP', JSON.stringify({ stateDir, backendPid, sourcePort,
         serverListening: server.listening, blocked, appExited, backendExited: backendPid ? true : null }));
-      fs.rmSync(stateDir, { recursive: true, force: true });
+      removeStateDir(stateDir);
     }
   };
   try {

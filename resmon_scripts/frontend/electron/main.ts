@@ -1705,7 +1705,7 @@ p { margin: 0; color: ${ink2}; }
 </style></head><body>
 <div class="track" role="progressbar" aria-label="Waiting for the background service"></div>
 <h1>resmon is starting</h1>
-<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes.</p>
+<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes. Before it changes anything, it keeps a copy of the database in the same folder, if the disk has room.</p>
 <p class="small">This window closes when resmon opens. Close it to stop waiting; the service goes on starting.</p>
 </body></html>`;
 }
@@ -1723,7 +1723,7 @@ function showStartingWindow(why: 'starting' | 'started'): void {
     const dark = nativeTheme.shouldUseDarkColors;
     const window = new BrowserWindow({
       width: 440,
-      height: 228,
+      height: 248,
       useContentSize: true,
       resizable: false,
       maximizable: false,

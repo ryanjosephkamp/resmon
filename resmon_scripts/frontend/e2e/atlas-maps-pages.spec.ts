@@ -23,6 +23,7 @@ import { launchEnv, registerStateDir, FRONTEND_ROOT, SCREENSHOT_DIR } from './fi
 import {
   SEED, chooseByKeyboard, clickCenter, engine, mapsEnv, resize, stillView, throttle, type MapBody, type Seeded,
 } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** A plate drawn, and holding still. */
 async function drawn(win: Page, canvas: string): Promise<void> {
@@ -234,6 +235,6 @@ test('every map: hover names a paper, a click opens it beside the map or on its 
     expect(problems, 'the page reported errors').toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

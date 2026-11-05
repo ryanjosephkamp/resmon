@@ -24,6 +24,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const WATCH = { name: 'Denied Atlas watch', schedule: '0 7 * * 1', sources: ['arxiv'], keywords: ['perovskite'] };
 const LONG = 'longword'.repeat(150);
@@ -158,6 +159,6 @@ c.commit()`, env.RESMON_DB_PATH], { env, encoding: 'utf8', cwd: REPO_ROOT });
     expect(problems).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });
