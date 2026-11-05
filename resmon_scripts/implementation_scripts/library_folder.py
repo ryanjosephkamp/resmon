@@ -146,7 +146,7 @@ def _move(conn: sqlite3.Connection, expected: str, parent: str) -> dict:
             if os.path.realpath(parent).startswith(os.path.realpath(str(old_path)) + os.sep):
                 raise LibraryError('inside', 'The Library cannot be moved into its own folder.', 400)
             try:
-                lock = library._regular('.import.lock', old_root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                lock = library.take_lock(old_root)
             except FileExistsError:
                 raise LibraryError('busy', 'An import or another change to the Library is still finishing.') from None
             os.close(lock)
@@ -179,7 +179,7 @@ def _move(conn: sqlite3.Connection, expected: str, parent: str) -> dict:
             finally:
                 # The descriptor follows the folder through a rename, so this is
                 # the lock in whichever place the folder now is.
-                os.unlink('.import.lock', dir_fd=old_root)
+                os.unlink(library.LOCK_NAME, dir_fd=old_root)
     return {'previous': vault['root_path'], 'path': new_path, 'same_disk': kept is None, 'old_folder_kept': kept}
 
 

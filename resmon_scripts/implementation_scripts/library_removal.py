@@ -52,14 +52,14 @@ def _locked(conn: sqlite3.Connection, expected: str) -> Iterator[tuple[dict, int
     """The vault, its folder open, and the one lock an import also takes."""
     with library.checked_vault(conn, expected) as (vault, root):
         try:
-            lock = library._regular('.import.lock', root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+            lock = library.take_lock(root)
         except FileExistsError:
             raise LibraryError('busy', 'An import or another change to the Library is still finishing. Try again in a moment.') from None
         try:
             yield vault, root
         finally:
             os.close(lock)
-            os.unlink('.import.lock', dir_fd=root)
+            os.unlink(library.LOCK_NAME, dir_fd=root)
 
 
 def _what_goes(conn: sqlite3.Connection, file_id: str) -> dict:

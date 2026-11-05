@@ -17,6 +17,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 from pathlib import Path
 import sqlite3
 import stat
@@ -24,6 +25,8 @@ import threading
 import unicodedata
 import uuid
 from typing import Iterator
+
+from . import runtime_identity
 
 MAX_FILE_BYTES = 64 * 1024 * 1024
 #: One limit for keeping a file and for every reader of it: the PDF reader, the
@@ -495,7 +498,14 @@ def read_bytes(conn: sqlite3.Connection, expected: str, file_id: str, version: s
 
 logger = logging.getLogger(__name__)
 
-#: How many imports hold the Library's ``.import.lock`` in this process now.
+#: The Library's one lock: an import, a removal, and a move of its folder each
+#: hold it, created exclusively in the vault's root.
+LOCK_NAME = '.import.lock'
+#: An import's unpublished bytes in the vault's root: ``.staging-<pid>-<uuid>``.
+#: A name with no pid in it was written by an earlier build.
+_STAGING_WITH_PID = re.compile(r'^\.staging-(\d+)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')
+
+#: How many imports hold the Library's lock in this process now.
 _imports_running = 0
 _imports_lock = threading.Lock()
 
@@ -506,17 +516,67 @@ def imports_running() -> int:
         return _imports_running
 
 
-def recover_stale_import_lock(conn: sqlite3.Connection, started_at: float) -> list[str]:
-    """At an engine's start: remove an import lock, and its unpublished bytes, that a stopped import left.
+def lock_owner() -> str:
+    """Who takes a lock or writes staging bytes here: ``<pid>:<runtime id>``, as a PDF download's claim says it."""
+    return f"{os.getpid()}:{runtime_identity.current_runtime_id()}"
 
-    An import that was stopped (resmon quit or crashed in the middle of one)
-    leaves ``.import.lock`` behind, and the Library then reads busy for good,
-    with every import refused. A lock is stale when it is older than this
-    engine's start (*started_at*, as ``time.time()``) and this process is not
-    importing: no import that is still going wrote it. Its ``.staging-*`` files,
-    the bytes of an import that was never published, go with it when they are
-    as old. Returns the names removed; nothing when there is no Library folder,
-    or none can be read.
+
+def take_lock(root: int) -> int:
+    """Create the Library's lock in *root*, exclusively, with its owner written in it. Its descriptor.
+
+    ``FileExistsError`` when another operation holds it. The owner is what lets
+    an engine that starts tell a lock a stopped engine left from one another
+    engine on the same Library holds now (``recover_stale_import_lock``).
+    """
+    fd = _regular(LOCK_NAME, root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+    try:
+        os.write(fd, lock_owner().encode('ascii'))
+    except BaseException:
+        os.close(fd)
+        os.unlink(LOCK_NAME, dir_fd=root)
+        raise
+    return fd
+
+
+def _staging_name() -> str:
+    return f'.staging-{os.getpid()}-{uuid.uuid4()}'
+
+
+def _owner_gone(owner: str) -> bool | None:
+    """Whether the engine named ``<pid>:<runtime id>`` is gone; None when *owner* names none.
+
+    The rule a PDF download's claim keeps (``full_text._claimant_is_gone``):
+    this engine's own is not gone, and a pid that answers is taken as alive,
+    because another engine may be using the same Library folder.
+    """
+    pid_text, sep, runtime = owner.strip().partition(':')
+    if not sep or not pid_text.isdigit() or not runtime_identity.valid_runtime_id(runtime):
+        return None
+    if runtime == runtime_identity.current_runtime_id():
+        return False
+    return not runtime_identity.process_is_alive(int(pid_text))
+
+
+def recover_stale_import_lock(conn: sqlite3.Connection, started_at: float) -> list[str]:
+    """At an engine's start: remove a lock, and unpublished bytes, that an engine that stopped left.
+
+    An import, a removal or a move that was stopped (resmon quit or crashed in
+    the middle of one) leaves ``.import.lock`` behind, and the Library then
+    reads busy for good. Another engine on the same Library folder (the
+    background service beside a window's engine, a checkout beside the service)
+    may hold the lock now, for minutes in a move to another disk, so a lock is
+    removed only when it is established to be stale:
+
+    * a lock that names its owner (``<pid>:<runtime id>``) is stale when that
+      pid no longer answers; one that answers is left, a reused pid included;
+    * a lock that names none, from an earlier build, is stale when it is older
+      than this engine's start (*started_at*, as ``time.time()``) and this
+      process is not importing.
+
+    A ``.staging-<pid>-…`` file is removed when its pid no longer answers, with
+    a lock or without; one whose name has no pid only with a lock judged stale,
+    and only when it is older than this engine's start. Returns the names
+    removed; nothing when there is no Library folder, or none can be read.
     """
     try:
         vault = vault_row(conn)
@@ -525,24 +585,41 @@ def recover_stale_import_lock(conn: sqlite3.Connection, started_at: float) -> li
     removed: list[str] = []
     try:
         with checked_vault(conn, vault['vault_id']) as (_, root):
-            if imports_running():
-                return []
             names = os.listdir(root)
-            if '.import.lock' not in names:
-                return []
-            if os.stat('.import.lock', dir_fd=root, follow_symlinks=False).st_mtime >= started_at:
-                return []
+            stale_lock = False
+            if LOCK_NAME in names:
+                fd = _regular(LOCK_NAME, root)
+                try:
+                    owner = os.read(fd, 256).decode('ascii', 'replace')
+                finally:
+                    os.close(fd)
+                gone = _owner_gone(owner)
+                if gone is None:
+                    stale_lock = (not imports_running() and os.stat(
+                        LOCK_NAME, dir_fd=root, follow_symlinks=False).st_mtime < started_at)
+                else:
+                    stale_lock = gone
             for name in sorted(n for n in names if n.startswith('.staging-')):
                 info = os.stat(name, dir_fd=root, follow_symlinks=False)
-                if stat.S_ISREG(info.st_mode) and info.st_mtime < started_at:
+                if not stat.S_ISREG(info.st_mode):
+                    continue
+                named = _STAGING_WITH_PID.match(name)
+                if named:
+                    pid = int(named.group(1))
+                    stale = pid != os.getpid() and not runtime_identity.process_is_alive(pid)
+                else:
+                    stale = stale_lock and info.st_mtime < started_at
+                if stale:
                     os.unlink(name, dir_fd=root)
                     removed.append(name)
-            os.unlink('.import.lock', dir_fd=root)
-            removed.append('.import.lock')
+            if stale_lock:
+                os.unlink(LOCK_NAME, dir_fd=root)
+                removed.append(LOCK_NAME)
     except (LibraryError, OSError):
-        logger.warning("The Library's import lock could not be checked at the start", exc_info=True)
+        logger.warning("The Library's lock could not be checked at the start", exc_info=True)
         return removed
-    logger.warning("Removed what an import that stopped left in the Library folder: %s", ", ".join(removed))
+    if removed:
+        logger.warning("Removed what an engine that stopped left in the Library folder: %s", ", ".join(removed))
     return removed
 
 
@@ -561,7 +638,7 @@ class Import:
         self.decoder = codecs.getincrementaldecoder('utf-8')('strict') if self.extension != 'pdf' else None
         self.size = 0
         self.prefix = b''
-        self.temp_name = '.staging-' + str(uuid.uuid4())
+        self.temp_name = _staging_name()
         self.temp = None
         self.lock = None
         self.folder = None
@@ -577,7 +654,7 @@ class Import:
             global _imports_running
             with _imports_lock:
                 try:
-                    self.lock = _regular('.import.lock', self.root, os.O_WRONLY | os.O_CREAT | os.O_EXCL)
+                    self.lock = take_lock(self.root)
                 except FileExistsError:
                     raise LibraryError('busy', 'An import lock exists: another import is under way, or one that '
                                       'stopped left it, which resmon removes when it next starts.') from None
@@ -690,7 +767,7 @@ class Import:
             if self.lock is not None:
                 try:
                     os.close(self.lock)
-                    os.unlink('.import.lock', dir_fd=self.root)
+                    os.unlink(LOCK_NAME, dir_fd=self.root)
                 finally:
                     self._released()
         finally:

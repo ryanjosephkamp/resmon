@@ -189,8 +189,8 @@ async def _lifespan(_app: FastAPI):
     reads routines and therefore needs the database ready). The handlers stay as
     ordinary module-level functions so tests can still call them directly.
     """
-    # This engine's start: an import lock older than it was left by an import
-    # that stopped (``_recover_library_on_startup``).
+    # This engine's start: a Library lock that names no owner and is older than
+    # it was left by an import that stopped (``_recover_library_on_startup``).
     started_at = time.time()
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.

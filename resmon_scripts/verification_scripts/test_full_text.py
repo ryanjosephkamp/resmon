@@ -8,14 +8,14 @@ from __future__ import annotations
 import http.server
 import os
 import socket
+import sqlite3
 import subprocess
 import sys
 import threading
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
-
-import sqlite3
+from pathlib import Path
 
 import pytest
 
@@ -579,6 +579,99 @@ def test_an_import_lock_this_engine_may_hold_is_left(db, tmp_path):
         receipt.write(pdf_body(1000))
         receipt.finish()
     assert library.imports_running() == 0 and not (root / ".import.lock").exists()
+
+
+@pytest.fixture()
+def other_engine():
+    """A real process that is running, standing for another engine on the same Library folder."""
+    proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    yield proc.pid
+    proc.kill()
+    proc.wait()
+
+
+def _left(root, name: str, content: bytes = b"", *, age: float = 3600.0) -> None:
+    (root / name).write_bytes(content)
+    then = time.time() - age
+    os.utime(root / name, (then, then))
+
+
+def test_a_lock_and_staging_bytes_another_running_engine_holds_survive_a_second_engines_start(
+        db, tmp_path, other_engine):
+    """A lock was removed on its age alone, under an engine still importing or moving the folder."""
+    root = _vault_root(db, tmp_path)
+    staging = f".staging-{other_engine}-{uuid.uuid4()}"
+    _left(root, ".import.lock", f"{other_engine}:{uuid.uuid4()}".encode())
+    _left(root, staging, b"%PDF-1.7 still being written")
+    assert library.recover_stale_import_lock(db, time.time()) == []
+    assert (root / ".import.lock").exists() and (root / staging).exists()
+    for name in (".import.lock", staging):
+        (root / name).unlink()
+
+
+def test_a_lock_whose_engine_is_gone_is_removed_however_new_it_is(db, tmp_path):
+    root = _vault_root(db, tmp_path)
+    staging = f".staging-{_ended_pid()}-{uuid.uuid4()}"
+    # Written after this engine's start: the age alone would keep it.
+    _left(root, ".import.lock", f"{_ended_pid()}:{uuid.uuid4()}".encode(), age=-30)
+    _left(root, staging, b"%PDF-1.7 half", age=-30)
+    assert sorted(library.recover_stale_import_lock(db, time.time())) == sorted([".import.lock", staging])
+    assert library.status(db)["status"] == "ready"
+
+
+def test_a_lock_that_names_no_owner_is_judged_by_its_age(db, tmp_path):
+    root = _vault_root(db, tmp_path)
+    _left(root, ".import.lock")
+    assert library.recover_stale_import_lock(db, time.time()) == [".import.lock"]
+    _left(root, ".import.lock", age=-30)
+    assert library.recover_stale_import_lock(db, time.time()) == []
+    (root / ".import.lock").unlink()
+
+
+def test_staging_bytes_whose_engine_is_gone_are_removed_with_no_lock(db, tmp_path, other_engine):
+    root = _vault_root(db, tmp_path)
+    gone = f".staging-{_ended_pid()}-{uuid.uuid4()}"
+    running = f".staging-{other_engine}-{uuid.uuid4()}"
+    unnamed = f".staging-{uuid.uuid4()}"
+    for name in (gone, running, unnamed):
+        _left(root, name, b"%PDF-1.7")
+    assert library.recover_stale_import_lock(db, time.time()) == [gone]
+    # One with no pid in its name goes only with a lock judged stale.
+    assert (root / running).exists() and (root / unnamed).exists()
+    for name in (running, unnamed):
+        (root / name).unlink()
+
+
+def test_every_operation_that_takes_the_lock_writes_its_owner_in_it(db, tmp_path, monkeypatch):
+    from implementation_scripts import library_folder, library_removal
+
+    root = _vault_root(db, tmp_path)
+    vault = library.vault_row(db)["vault_id"]
+    owner = library.lock_owner()
+    seen: list[str] = []
+    with library.Import(db, vault, "owned.pdf") as receipt:
+        seen.append((root / ".import.lock").read_text())
+        assert receipt.temp_name.startswith(f".staging-{os.getpid()}-")
+        receipt.write(pdf_body(1500))
+        kept = receipt.finish()["file"]
+    what_goes = library_removal._what_goes
+    monkeypatch.setattr(library_removal, "_what_goes",
+                        lambda conn, file_id: (seen.append((root / ".import.lock").read_text()), what_goes(conn, file_id))[1])
+    library_removal.remove(db, vault, kept["file_id"], kept["version_id"], True)
+    catalog = library._catalog_tree
+    monkeypatch.setattr(library, "_catalog_tree",
+                        lambda conn, fd, **kw: (seen.append((root / ".import.lock").read_text()), catalog(conn, fd, **kw))[1])
+    (tmp_path / "elsewhere").mkdir()
+    library_folder.move(db, vault, str(tmp_path / "elsewhere"))
+    assert seen == [owner, owner, owner]
+    # No lock is taken anywhere but through ``take_lock``.
+    scripts = Path(library.__file__).parent
+    for path in scripts.glob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if ("import.lock" in line or "LOCK_NAME" in line) and "O_EXCL" in line:
+                assert path.name == "library.py" and "def take_lock" not in line and "_regular(LOCK_NAME" in line, (
+                    path.name, line)
 
 
 class _OAI(http.server.BaseHTTPRequestHandler):
