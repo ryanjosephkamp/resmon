@@ -14,6 +14,7 @@ import { emptiestCorner, epochDay, gridCell, watchShape, type Sky } from './toda
 import { collectionSky } from './sky/collectionSky';
 import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
+import { SaveLit } from './sky/SaveLit';
 import { filterCount } from './sky/look';
 import { useMapLook } from './sky/useMapLook';
 import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
@@ -276,7 +277,8 @@ export function Today() {
         {sky && ready && (
           <MapBar name="today" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
             facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
-            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
         )}
         {sky && field && ready ? (
           <Plate
