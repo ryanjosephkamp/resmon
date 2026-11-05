@@ -12,6 +12,7 @@ import { Evidence } from './screens/library/Evidence';
 import { Files } from './screens/library/Files';
 import { ReadingQueue } from './screens/library/ReadingQueue';
 import { Run } from './screens/Run';
+import { Runs } from './screens/runs/Runs';
 import { Search } from './screens/Search';
 import { Settings } from './screens/Settings';
 import { Today } from './screens/Today';
@@ -37,7 +38,8 @@ export interface Section {
 export const SECTIONS: readonly Section[] = [
   { path: '/today', label: 'Today', keywords: 'new papers morning plate index', element: <Today /> },
   { path: '/watches', label: 'Watches', keywords: 'routines constellations profiles people authors orcid schedule delivery coverage new watch create', element: <Watches /> },
-  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep runs export shared wording text reuse passages', element: <Collection /> },
+  { path: '/search', label: 'Search', keywords: 'find papers collection corpus explorer deep dive sweep export shared wording text reuse passages', element: <Collection /> },
+  { path: '/runs', label: 'Runs', keywords: 'runs running now waiting queue history log deep dive sweep watch failed stop restart run again activity monitor', element: <Runs /> },
   { path: '/library', label: 'Library', keywords: 'saved reading queue to read files pdf owned library vault import evidence passages notes projects', element: <ReadingQueue /> },
   { path: '/ask', label: 'Ask', keywords: 'assistant question chat chats conversations saved transcript export model', element: <Ask /> },
   { path: '/health', label: 'Health', keywords: 'sources coverage diagnostics source wall watchdog findings broken analytics statistics charts keywords yield engine runtime identity', element: <SourceWall /> },
@@ -52,7 +54,7 @@ export const SETTINGS: Section = {
 
 /**
  * Screens reached from a section rather than from the top bar: a run is
- * opened from Search's run log, from a notification, or from Today.
+ * opened from the Runs tab, from a notification, or from Today.
  */
 export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },

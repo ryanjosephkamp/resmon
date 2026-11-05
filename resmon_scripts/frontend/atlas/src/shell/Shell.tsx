@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router-do
 import { HOME, SECTIONS, SETTINGS } from '../routes';
 import { bridge, isMac } from '../bridge';
 import { useAsk } from '../screens/ask/AskProvider';
+import { RunMonitor } from '../screens/runs/RunMonitor';
+import { useAppearance } from '../theme/appearance';
 import { startSearch, type SearchKind } from '../screens/searchStart';
 import { CommandPalette } from './CommandPalette';
 import { EngineNotice } from './EngineNotice';
@@ -13,8 +15,8 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
 import {
-  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionIndex,
-  shortcut, shortcutFor, type ShortcutId,
+  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
+  sectionShortcut, shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
 
 const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? 'Today';
@@ -43,6 +45,8 @@ export function Shell() {
   const navigate = useNavigate();
   const location = useLocation();
   const { answering, requestFocus, select } = useAsk();
+  // Settings › Appearance can hide the run monitor; runs still notify, and the Runs tab still lists them.
+  const { stored: appearance } = useAppearance();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret
@@ -75,10 +79,9 @@ export function Shell() {
       return;
     }
     closeDialogs();
-    const section = sectionIndex(id);
+    const section = sectionPath(id);
     if (section !== null) {
-      const target = SECTIONS[section];
-      if (target) go(target.path);
+      go(section);
       return;
     }
     switch (id) {
@@ -156,13 +159,13 @@ export function Shell() {
         </Link>
         <nav className="tabs" aria-label="Sections">
           <ul>
-            {SECTIONS.map((section, index) => (
+            {SECTIONS.map((section) => (
               <li key={section.path}>
                 <NavLink
                   to={section.path}
                   onMouseDown={keepFocus}
-                  aria-keyshortcuts={[keys(`section-${index + 1}` as ShortcutId), section.path === '/ask' ? keys('ask') : '']
-                    .filter(Boolean).join(' ')}
+                  aria-keyshortcuts={[sectionShortcut(section.path), section.path === '/ask' ? 'ask' : null]
+                    .filter((id): id is ShortcutId => id !== null).map(keys).join(' ') || undefined}
                 >
                   {section.label}
                   {section.path === '/ask' && answering && <span className="tab-live" role="img" aria-label=", answering" />}
@@ -172,6 +175,7 @@ export function Shell() {
           </ul>
         </nav>
         <span className="spacer" />
+        {appearance.run_monitor && <RunMonitor />}
         <NewSearch mac={mac} onStart={newSearch} />
         <button
           type="button"

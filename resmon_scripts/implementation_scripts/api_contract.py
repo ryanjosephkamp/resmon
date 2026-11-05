@@ -313,6 +313,8 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("POST", "/api/export/references"): ("J18",),
     # --- Live monitoring and restart ---------------------------------------
     ("GET", "/api/executions/active"): ("J19",),
+    ("DELETE", "/api/executions/waiting/{ticket}"): ("J19",),
+    ("POST", "/api/executions/seen"): ("J19",),
     ("POST", "/api/executions/{exec_id}/cancel"): ("J19",),
     ("GET", "/api/executions/{exec_id}/progress/events"): ("J19", "J01", "J02"),
     ("GET", "/api/executions/{exec_id}/progress/stream"): ("J19", "J01", "J02"),

@@ -8,7 +8,9 @@ import { SearchTabs } from './collection/SearchTabs';
 import { SAVED_KEY, savedAsks, savedParameters } from './collection/savedSearches';
 import { ASK_PATH, KINDS, type AskState, type SearchKind } from './searchStart';
 import { useFocusOnArrival } from './arrival';
-import { RunLog } from './runs/RunLog';
+import { ACTIVE_KEY } from './runs/active';
+import { LatestRuns } from './runs/LatestRuns';
+import type { RunsNotice } from './runs/Runs';
 import { PlaceHelp } from './watches/people/People';
 import { formStart, startNeeded, windowSpan } from './watches/window';
 import {
@@ -48,7 +50,7 @@ function windowDates(days: number | null): { from: string; to: string } {
 /**
  * Search: ask the sources. One source in depth (a Deep Dive) or several at
  * once (a Deep Sweep), from a catalog that states each source's limits before
- * anything is asked, beside the log of every run so far.
+ * anything is asked, beside the newest runs.
  *
  * The limits are the catalog's own statements about each upstream, and the
  * two sentences under the button are derived from them for this selection:
@@ -193,7 +195,14 @@ export function Search() {
     onSuccess: (started) => {
       // A started search is a run now, not a draft: Back finds the form as the address sets it.
       draft.drop();
-      navigate(`/runs/${started.execution_id}`);
+      // What runs now is read at once, so the run monitor shows this run even if it ends before its next read.
+      void client.invalidateQueries({ queryKey: ACTIVE_KEY });
+      // One that waits for a free slot has no page yet: the Runs tab lists it under Waiting, and says so.
+      if (started.execution_id === null) {
+        navigate('/runs', { state: { queued: started.detail ?? 'This search waits for a free run slot.' } satisfies RunsNotice });
+      } else {
+        navigate(`/runs/${started.execution_id}`);
+      }
     },
   });
 
@@ -254,8 +263,8 @@ export function Search() {
   const merged = !!needs && !filled && needs.entries.every((entry) => notices
     .some((notice) => notice.slug === entry.slug && notice.scope === 'beyond_default_start'));
 
-  const refusal = start.error instanceof EngineError && start.error.status === 429
-    ? 'resmon is already running as many runs at once as Settings › In the background allows. Try again when one finishes.'
+  const refusal = start.error instanceof EngineError && start.error.status === 429 && start.error.detail
+    ? start.error.detail
     : start.error ? `The search could not start: ${start.error.message}.` : null;
 
   return (
@@ -456,7 +465,7 @@ export function Search() {
           )}
         </div>
       </form>
-      <RunLog />
+      <LatestRuns />
     </div>
   );
 }

@@ -80,9 +80,152 @@
         "title": "AIModelsRequest",
         "type": "object"
       },
+      "ActiveRun": {
+        "additionalProperties": true,
+        "description": "A run this engine is running now, with its search and its events so far.\n\n``events`` is the run's progress events with the repeating ones folded to\ntheir latest: each source's newest heartbeat, and the newest count of the\npapers linked, embedded or summarized. Every event that changes a source's\nor the run's state is kept, in order, so a reader folds them as it folds\nthe whole list (``/progress/events``).",
+        "properties": {
+          "current_stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Stage"
+          },
+          "events": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "execution_type": {
+            "title": "Execution Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "repositories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositories"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          },
+          "restarted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarted From"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
+          },
+          "saved_configuration_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved Configuration Id"
+          },
+          "start_time": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Time"
+          }
+        },
+        "required": [
+          "id",
+          "execution_type",
+          "routine_id",
+          "saved_configuration_id",
+          "query",
+          "keywords",
+          "repositories",
+          "start_time",
+          "current_stage",
+          "restarted_from",
+          "request_id",
+          "events"
+        ],
+        "title": "ActiveRun",
+        "type": "object"
+      },
       "ActiveRuns": {
         "additionalProperties": true,
-        "description": "``GET /api/executions/active``: the runs this backend is running now.",
+        "description": "``GET /api/executions/active``: the runs this backend is running now, and those waiting.\n\n``active_ids`` is the running runs' ids, as it always was. ``running`` is\neach of them in the order it started; ``waiting`` the queue, next first.\n``max_concurrent`` and ``queue_limit`` are the limits Settings › In the\nbackground sets, as this engine holds them. ``failed_unseen`` is the runs\nthat failed since the run monitor's panel was last opened (``seen_at``,\nnull before it ever was; failures since this engine started count then),\nnewest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the\nnewest run's id and the latest any run ended (null with no runs): a\nreader that lists runs reads again when either changes, which catches a\nrun that started and ended between two reads of this route.",
         "properties": {
           "active_ids": {
             "items": {
@@ -90,10 +233,80 @@
             },
             "title": "Active Ids",
             "type": "array"
+          },
+          "failed_unseen": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Failed Unseen",
+            "type": "array"
+          },
+          "last_ended_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Ended At"
+          },
+          "max_concurrent": {
+            "title": "Max Concurrent",
+            "type": "integer"
+          },
+          "newest_run_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Run Id"
+          },
+          "queue_limit": {
+            "title": "Queue Limit",
+            "type": "integer"
+          },
+          "running": {
+            "items": {
+              "$ref": "#/components/schemas/ActiveRun"
+            },
+            "title": "Running",
+            "type": "array"
+          },
+          "seen_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seen At"
+          },
+          "waiting": {
+            "items": {
+              "$ref": "#/components/schemas/WaitingRun"
+            },
+            "title": "Waiting",
+            "type": "array"
           }
         },
         "required": [
-          "active_ids"
+          "active_ids",
+          "running",
+          "waiting",
+          "max_concurrent",
+          "queue_limit",
+          "failed_unseen",
+          "seen_at",
+          "newest_run_id",
+          "last_ended_at"
         ],
         "title": "ActiveRuns",
         "type": "object"
@@ -631,6 +844,10 @@
             ],
             "title": "Accent"
           },
+          "run_monitor": {
+            "title": "Run Monitor",
+            "type": "boolean"
+          },
           "theme": {
             "enum": [
               "system",
@@ -643,13 +860,14 @@
         },
         "required": [
           "theme",
-          "accent"
+          "accent",
+          "run_monitor"
         ],
         "title": "Appearance",
         "type": "object"
       },
       "AppearanceBody": {
-        "description": "The whole appearance, every time: a PUT replaces both values.",
+        "description": "The whole appearance, every time: a PUT replaces the theme and the accent.\n\n``run_monitor`` (Settings › Appearance, \"Show the run monitor in the top\nbar\") is stored when it is sent and left as it is when it is not, so a\ncaller that knows only the theme and the accent changes only those.",
         "properties": {
           "accent": {
             "anyOf": [
@@ -662,6 +880,17 @@
               }
             ],
             "title": "Accent"
+          },
+          "run_monitor": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Monitor"
           },
           "theme": {
             "enum": [
@@ -10255,6 +10484,11 @@
       "RestartRequest": {
         "description": "Body of ``POST /api/executions/{id}/restart``. Every field optional.\n\nThe route took no body at all before this; it still answers a request that\nsends none, because the renderer's Restart button and every existing caller\ndo exactly that.",
         "properties": {
+          "again": {
+            "default": false,
+            "title": "Again",
+            "type": "boolean"
+          },
           "request_id": {
             "anyOf": [
               {
@@ -12974,11 +13208,22 @@
       },
       "RunRestarted": {
         "additionalProperties": true,
-        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``.",
+        "description": "``POST /api/executions/{exec_id}/restart``: a new run with the old one's\nparameters, linked back to it. ``duplicate`` as on ``RunStarted``; and\nat the run limit, as there, no ``execution_id`` yet, ``queued``, its\n``queue_position``, its ``ticket``, and a ``detail``.",
         "properties": {
           "ai_enabled": {
             "title": "Ai Enabled",
             "type": "boolean"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           },
           "duplicate": {
             "anyOf": [
@@ -12992,8 +13237,37 @@
             "title": "Duplicate"
           },
           "execution_id": {
-            "title": "Execution Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
+          "queued": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued"
           },
           "restarted_from": {
             "anyOf": [
@@ -13005,6 +13279,17 @@
               }
             ],
             "title": "Restarted From"
+          },
+          "ticket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket"
           }
         },
         "required": [
@@ -13466,8 +13751,19 @@
       },
       "RunStarted": {
         "additionalProperties": true,
-        "description": "``POST /api/search/dive`` and ``POST /api/search/sweep``.\n\n``duplicate`` is present only when ``request_id`` matched a submission\nalready made, and the id is that earlier run's: a retried click starts\nnothing new. Absent rather than ``false`` on a first submission.",
+        "description": "``POST /api/search/dive`` and ``POST /api/search/sweep``.\n\n``duplicate`` is present only when ``request_id`` matched a submission\nalready made, and the id is that earlier run's: a retried click starts\nnothing new. Absent rather than ``false`` on a first submission.\n\nAt the run limit the run waits for a free slot (HTTP 202): there is no\n``execution_id`` yet, ``queued`` is true, ``queue_position`` is its place\n(1 for next), and ``ticket`` names it in ``GET /api/executions/active``'s\n``waiting`` and in the ``request_id`` its row carries once it starts.\n``detail`` says so in a sentence.",
         "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
           "duplicate": {
             "anyOf": [
               {
@@ -13480,14 +13776,69 @@
             "title": "Duplicate"
           },
           "execution_id": {
-            "title": "Execution Id",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "queue_position": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue Position"
+          },
+          "queued": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queued"
+          },
+          "ticket": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket"
           }
         },
         "required": [
           "execution_id"
         ],
         "title": "RunStarted",
+        "type": "object"
+      },
+      "RunsSeen": {
+        "additionalProperties": true,
+        "description": "``POST /api/executions/seen``: when the run monitor's panel was opened, as stored.",
+        "properties": {
+          "seen_at": {
+            "title": "Seen At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seen_at"
+        ],
+        "title": "RunsSeen",
         "type": "object"
       },
       "RuntimeIdentity": {
@@ -17561,6 +17912,145 @@
           "reason"
         ],
         "title": "VectorExtensionStatus",
+        "type": "object"
+      },
+      "WaitingRun": {
+        "additionalProperties": true,
+        "description": "A run waiting for a free slot, in the order it will start.\n\n``kind`` is ``watch`` (a watch's fire, scheduled or Run now) or ``manual``\n(a Deep Dive, a Deep Sweep, a restart, or a run asked for again).\n``queued_at`` is when it joined the queue (for a scheduled fire, when it\ncame due). ``run_now`` is set for a watch's fire only. A manual run also\nsays its search: ``execution_type``, ``query``, ``keywords`` and\n``repositories``, and ``restarted_from`` when it repeats a run.",
+        "properties": {
+          "execution_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Type"
+          },
+          "keywords": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Keywords"
+          },
+          "kind": {
+            "enum": [
+              "watch",
+              "manual"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "title": "Position",
+            "type": "integer"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "queued_at": {
+            "title": "Queued At",
+            "type": "string"
+          },
+          "repositories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositories"
+          },
+          "restarted_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restarted From"
+          },
+          "routine_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routine Id"
+          },
+          "run_now": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Now"
+          },
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ticket",
+          "kind",
+          "position",
+          "queued_at",
+          "routine_id",
+          "run_now"
+        ],
+        "title": "WaitingRun",
+        "type": "object"
+      },
+      "WaitingWithdrawn": {
+        "additionalProperties": true,
+        "description": "``DELETE /api/executions/waiting/{ticket}``: the run is out of the queue and will not start.",
+        "properties": {
+          "ticket": {
+            "title": "Ticket",
+            "type": "string"
+          },
+          "withdrawn": {
+            "title": "Withdrawn",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "withdrawn",
+          "ticket"
+        ],
+        "title": "WaitingWithdrawn",
         "type": "object"
       },
       "WatchProfile": {
@@ -21795,6 +22285,7 @@
     },
     "/api/executions": {
       "get": {
+        "description": "The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.\n\n``type`` and ``status`` each take one value or several, comma-separated\n(``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``\nmatches a run's terms, its sources, its watch's or saved search's name,\nor its number. ``omit_events`` leaves each row's stored\n``progress_events`` out (null): the Runs tab lists runs and reads a run's\nevents only on its own page. The total is a header, so the body stays\nthe list every reader of this route already reads.",
         "operationId": "list_executions_api_executions_get",
         "parameters": [
           {
@@ -21851,6 +22342,49 @@
               ],
               "title": "Routine Id"
             }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "omit_events",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Omit Events",
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -21866,7 +22400,15 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Successful Response",
+            "headers": {
+              "X-Resmon-Total": {
+                "description": "How many runs match the filters, however many this page holds.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
           },
           "422": {
             "content": {
@@ -21884,6 +22426,7 @@
     },
     "/api/executions/active": {
       "get": {
+        "description": "The runs this engine is running, each with its search and its events, and the queue.\n\nFor the Runs tab's Running now and Waiting, read every two seconds while\nanything runs or waits. A run is here from the moment it is registered\nuntil its thread has finished with it; a run another engine is running\nis not, and the run log lists it as running.",
         "operationId": "active_executions_api_executions_active_get",
         "responses": {
           "200": {
@@ -21975,6 +22518,65 @@
           }
         },
         "summary": "Export Executions"
+      }
+    },
+    "/api/executions/seen": {
+      "post": {
+        "description": "The run monitor's panel was opened: every run that has failed until now is seen.\n\nClears the monitor's red mark (``failed_unseen`` on ``/active``) until a\nrun fails again. Nothing about any run changes.",
+        "operationId": "mark_runs_seen_api_executions_seen_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunsSeen"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mark Runs Seen"
+      }
+    },
+    "/api/executions/waiting/{ticket}": {
+      "delete": {
+        "description": "Take a run that waits for a free slot out of the queue, before it starts.\n\nOnly a run asked for by hand: a watch's fire runs as its watch says, and\nis stopped by pausing the watch. A run that has already started is not\nwaiting any more (404), and is stopped from its own page.",
+        "operationId": "withdraw_waiting_run_api_executions_waiting__ticket__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ticket",
+            "required": true,
+            "schema": {
+              "title": "Ticket",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WaitingWithdrawn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Withdraw Waiting Run"
       }
     },
     "/api/executions/{exec_id}": {
@@ -22337,6 +22939,7 @@
     },
     "/api/executions/{exec_id}/progress/events": {
       "get": {
+        "description": "The run's progress events, from the ``since``-th on (0, every one).\n\nA running run's page reads only the events it has not seen: a sweep's\nheartbeat adds one event every two seconds for each source still being\nasked, and reading the whole list every second read it again and again.\nThe list only grows while the run runs, and once it has ended the\npersisted list is the same list, so an index into one is an index into\nthe other.",
         "operationId": "get_execution_progress_events_api_executions__exec_id__progress_events_get",
         "parameters": [
           {
@@ -22345,6 +22948,17 @@
             "required": true,
             "schema": {
               "title": "Exec Id",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Since",
               "type": "integer"
             }
           }
@@ -22528,7 +23142,7 @@
     },
     "/api/executions/{exec_id}/restart": {
       "post": {
-        "description": "Start a fresh execution with the source's parameters, linked back to it.\n\nRestart is not resume. ``progress_events`` is persisted once, at the end,\nso an interrupted run has nothing to resume *from* -- there is no durable\nrecord of which sources it had already asked. What resmon can honestly\noffer is the same search again, and a link saying where it came from.\n\nThe source row is never touched. Its history is what happened, and a\nrestart is a second thing that happened, not a correction of the first.",
+        "description": "Start a fresh execution with the source's parameters, linked back to it.\n\nRestart is not resume. ``progress_events`` is persisted once, at the end,\nso an interrupted run has nothing to resume *from* -- there is no durable\nrecord of which sources it had already asked. What resmon can honestly\noffer is the same search again, and a link saying where it came from.\n\nThe source row is never touched. Its history is what happened, and a\nrestart is a second thing that happened, not a correction of the first.\n\n``again`` asks for a completed run's search once more (Run again, on the\nRuns tab); without it only an interrupted, failed or cancelled run is\nrestarted. At the run limit the new run waits in the queue\n(``_start_or_queue``) and its row is written only when it starts: the\nanswer then carries no execution id, ``queued``, and its place.\n\n**A watch's run is never run alongside its watch.** Restart or Run again\non a watch's run is that watch's Run now (``run_routine_now``): the\nwatch's claim, its queue, a paused watch run once, and delivery as it is\nset, with the watch's current settings rather than the old run's copy,\nand refused with the run that holds the watch when it is already running,\nsince two runs of one watch would both deliver and email. The new run is\nthe watch's, so it is not linked back (``restarted_from`` is null). A Deep\nDive's or Deep Sweep's run is copied, as below.",
         "operationId": "restart_execution_api_executions__exec_id__restart_post",
         "parameters": [
           {
@@ -25314,6 +25928,7 @@
     },
     "/api/search/dive": {
       "post": {
+        "description": "Start a Deep Dive, or queue it when resmon runs as many as it allows (202).",
         "operationId": "search_dive_api_search_dive_post",
         "requestBody": {
           "content": {
@@ -25374,6 +25989,7 @@
     },
     "/api/search/sweep": {
       "post": {
+        "description": "Start a Deep Sweep, or queue it when resmon runs as many as it allows (202).",
         "operationId": "search_sweep_api_search_sweep_post",
         "requestBody": {
           "content": {

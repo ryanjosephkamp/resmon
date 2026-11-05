@@ -435,3 +435,71 @@ def test_the_routine_claim_is_released_before_the_admission_slot(
         "still held: a fire drained from the queue would have been refused "
         "for a run that had already finished"
     )
+
+
+# ---------------------------------------------------------------------------
+# (i) manual runs past the cap wait in the same queue, and keep their slot
+# ---------------------------------------------------------------------------
+
+def test_a_manual_run_past_the_cap_waits_and_is_started_with_a_reserved_slot():
+    c = _fresh(max_concurrent=1, queue_limit=2)
+    c.note_admitted(1)
+    started: list[int] = []
+    begun = threading.Event()
+
+    def start(token: int) -> None:
+        started.append(token)
+        begun.set()
+
+    assert c.admit_manual("one", start, {"execution_type": "deep_dive"}) == "queued"
+    assert c.admit_manual("two", lambda token: None) == "queued"
+    assert c.admit_manual("three", lambda token: None) == "full"
+    assert [(w["ticket"], w["kind"], w["position"]) for w in c.waiting()] == [
+        ("one", "manual", 1), ("two", "manual", 2)]
+    assert c.waiting()[0]["execution_type"] == "deep_dive"
+    assert c.ticket_position("two") == 2
+
+    c.note_finished(1)
+    assert begun.wait(2)
+    token = started[0]
+    assert token < 0, "a reservation is a placeholder below every real id"
+    # The slot is the waiting run's while it starts: a search asked now waits behind it.
+    assert c.current_active() == 1
+    assert c.admit_manual("four", lambda token: None) == "queued"
+    # Its own id takes the slot over, and nothing more is drained for that.
+    c.note_admitted(41)
+    c.release_reservation(token)
+    assert c.current_active() == 1
+    assert [w["ticket"] for w in c.waiting()] == ["two", "four"]
+
+
+def test_a_queued_manual_run_that_cannot_start_gives_its_slot_to_the_next():
+    c = _fresh(max_concurrent=1, queue_limit=3)
+    c.note_admitted(1)
+    second = threading.Event()
+
+    def broken(token: int) -> None:
+        raise RuntimeError("the database would not open")
+
+    assert c.admit_manual("broken", broken) == "queued"
+    assert c.admit_manual("next", lambda token: second.set()) == "queued"
+    c.note_finished(1)
+    assert second.wait(2), "the run after one that could not start was never started"
+    assert c.queue_depth() == 0
+
+
+def test_a_withdrawn_manual_run_never_starts_and_a_watch_fire_is_not_withdrawn():
+    c = _fresh(max_concurrent=1, queue_limit=3)
+    c.note_admitted(1)
+    ran = threading.Event()
+    assert c.admit_manual("mine", lambda token: ran.set()) == "queued"
+    assert c.admit_routine(5, "{}") == "queued"
+    fire = c.waiting()[1]["ticket"]
+    assert c.withdraw("mine") == "manual"
+    assert c.withdraw("mine") is None
+    assert c.withdraw(fire) == "routine"
+    assert [w["kind"] for w in c.waiting()] == ["watch"]
+    assert c.queue_position(5) == 1
+    c.note_finished(1)
+    time.sleep(0.2)
+    assert not ran.is_set()

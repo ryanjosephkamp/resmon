@@ -3,7 +3,7 @@ title: "HTTP API reference"
 summary: "The local HTTP API, route by route. The generated contract for every route is in the reference section."
 order: 17
 ---
-**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 210 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
+**The machine-readable contract is [`docs/api-contract/`](docs/api-contract/).** `openapi.json` there describes every one of the 212 routes: method, path, parameters, and request body. `http.md` indexes them against the user journeys they serve, with each route's auth class, whether it streams, the response model it declares, and a one-line purpose. Both are generated from the running app, and a test fails when they drift, so they cannot describe an engine that no longer exists. The tables below are the guided tour of the same surface. Where the two differ, the contract is the one that was checked.
 
 ## Using it
 
@@ -11,7 +11,7 @@ The engine serves HTTP on `127.0.0.1` only. The background service uses port 874
 
 Every request needs the engine's local API token in `Authorization: Bearer <token>` and a loopback `Host`. A request from a browser must also carry the exact origin of resmon's own renderer. The token is in an owner-only file named `api-token-<port>` in resmon's state directory. Refusals are `401 token_missing`, `401 token_invalid`, `403 host_refused`, and `403 origin_refused`. See [`docs/local-api-security.md`](docs/local-api-security.md).
 
-Requests and responses are JSON unless a route says otherwise. An error response is FastAPI's standard `{"detail": "..."}`, and a search refused because the engine is already running as many runs as it allows is `429` with a `Retry-After: 5` header. Most routes declare a response model, and `http.md` says which. Three kinds of route stream: a run's progress, a selected-evidence answer's events, and a message to the assistant.
+Requests and responses are JSON unless a route says otherwise. An error response is FastAPI's standard `{"detail": "..."}`. A search asked for while the engine runs as many runs as it allows waits its turn: the answer is `202` with no run id yet, `queued: true`, its place, and a ticket. Only when as many more are waiting as the engine queues is it refused, with `429` and a `Retry-After: 5` header. Most routes declare a response model, and `http.md` says which. Three kinds of route stream: a run's progress, a selected-evidence answer's events, and a message to the assistant.
 
 Credentials never travel back: a route reports whether one is stored, as `present`, `absent`, or `unreadable`, and never its value.
 
@@ -31,7 +31,7 @@ Starting a Deep Dive or a Deep Sweep, and the catalog they choose from. Both sta
 
 | Method | Path | What it does |
 |---|---|---|
-| `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once. |
+| `POST` | `/api/search/dive` | Start a Deep Dive on one source. Answers with the run's id at once, or, at the run limit, with its place in the queue. |
 | `POST` | `/api/search/sweep` | Start a Deep Sweep on several sources. The cap on papers applies to each source. |
 | `GET` | `/api/search/repositories` | The slugs of the sources this copy of resmon can ask. |
 | `GET` | `/api/repositories/catalog` | The source catalog: each source's coverage, key requirement, pace, how it combines terms and dates papers, credit, and whether it can be asked about an author. It never returns a secret. |
@@ -42,19 +42,21 @@ Every run, whether you started it or a watch fired it. A run's progress is read 
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/executions` | One page of runs, newest first, with each run's coverage. |
-| `GET` | `/api/executions/active` | The ids of runs that are going now. |
+| `GET` | `/api/executions` | One page of runs, newest first, with each run's coverage. Filter by `type` and `status` (one value or several, comma-separated) and by `q` (a run's terms, sources, watch, saved search, or number); the `X-Resmon-Total` header says how many match. |
+| `GET` | `/api/executions/active` | The runs going now, each with its search and its events so far; the runs waiting for a free slot, next first; and the runs that failed since the run monitor's panel was last opened. |
+| `DELETE` | `/api/executions/waiting/{ticket}` | Take a run you asked for out of the queue before it starts. A watch's run is not taken out here. |
+| `POST` | `/api/executions/seen` | The run monitor's panel was opened: runs that failed until now are seen, and `failed_unseen` on `/api/executions/active` is empty until another fails. |
 | `GET` | `/api/executions/{exec_id}` | One run: its kind, status, parameters, times, counts, coverage, and the summary connections it tried. |
 | `DELETE` | `/api/executions/{exec_id}` | Delete a run's record. Its report and log files stay where they were written, and its papers stay in the collection. |
 | `POST` | `/api/executions/{exec_id}/cancel` | Ask a running run to stop at its next checkpoint. |
-| `POST` | `/api/executions/{exec_id}/restart` | Start a fresh run with this one's parameters, linked back to it. It is not a resume. |
+| `POST` | `/api/executions/{exec_id}/restart` | Start a fresh run with this one's parameters, linked back to it. It is not a resume. With `again: true` a completed run's search runs once more. At the run limit it waits in the queue. |
 | `GET` | `/api/executions/{exec_id}/report` | The run's Markdown report. |
 | `GET` | `/api/executions/{exec_id}/log` | The run's log text. |
 | `GET` | `/api/executions/{exec_id}/search-record` | The complete, dated account of one search, as JSON or Markdown. |
 | `GET` | `/api/executions/{exec_id}/documents` | One page of the papers the run stored, each with its stored id and its place in the reading queue. |
 | `GET` | `/api/executions/{exec_id}/document-ids` | Every paper the run stored that is still in the collection, by id. |
 | `GET` | `/api/executions/{exec_id}/references` | Export one run's papers as BibTeX, RIS, CSV, or JSON. JSON can include stored ids with `include_ids=true`. |
-| `GET` | `/api/executions/{exec_id}/progress/events` | The run's events so far, live or as saved after it ended. |
+| `GET` | `/api/executions/{exec_id}/progress/events` | The run's events so far, live or as saved after it ended; `since` skips the ones already read. |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | The same events as server-sent events, with resumption from a cursor. |
 | `GET` | `/api/executions/{exec_id}/deliveries` | Where this run's report was sent, and the state of each delivery. |
 | `GET` | `/api/executions/{exec_id}/bundle` | One run's bundle as bytes: report, log, metadata, and search record. |
@@ -293,8 +295,8 @@ A credential's value is never returned. The engine reports only whether one is s
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/appearance` | The theme and accent. |
-| `PUT` | `/api/appearance` | Store the theme and accent. |
+| `GET` | `/api/appearance` | The theme, the accent, and whether the top bar shows the run monitor. |
+| `PUT` | `/api/appearance` | Store the theme and accent, and the run monitor's switch when it is sent. |
 | `GET` | `/api/settings/ai` | Summary settings, including the connection chain. |
 | `PUT` | `/api/settings/ai` | Store them. |
 | `GET` | `/api/settings/ai/cli-status` | Whether each command can be found, and where. |

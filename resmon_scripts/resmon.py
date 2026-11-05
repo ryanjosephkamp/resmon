@@ -13,6 +13,7 @@ import tempfile
 import threading
 from collections import OrderedDict
 import time
+import uuid
 import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
@@ -47,6 +48,7 @@ from implementation_scripts.database import (
     update_routine,
     delete_routine,
     get_executions,
+    count_executions,
     get_execution_by_id,
     get_execution_by_request_id,
     record_missed_fire,
@@ -140,6 +142,17 @@ from implementation_scripts.repo_catalog import (
 # App setup
 # ---------------------------------------------------------------------------
 
+def _ensure_clients_loaded_on_startup() -> None:
+    """Import every source client before the engine answers or fires anything."""
+    from implementation_scripts import api_registry
+    try:
+        api_registry._ensure_loaded()
+    except Exception:
+        # A client that cannot be imported is a bug the first run reports in
+        # its own words; it must not stop the engine from starting.
+        logging.getLogger(__name__).exception("Could not load the source clients at startup")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup/shutdown hooks.
@@ -153,6 +166,9 @@ async def _lifespan(_app: FastAPI):
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.
     _apply_pending_restore_on_startup()
+    # Every source client registers on import. Loaded here, once, so no run is
+    # ever the registry's first user (``api_registry._ensure_loaded``).
+    _ensure_clients_loaded_on_startup()
     _init_admission_on_startup()
     _migrate_legacy_ai_key_on_startup()
     # Before the scheduler: a routine that fires the moment it starts must not
@@ -392,6 +408,10 @@ class RestartRequest(BaseModel):
 
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
+    # Run again: a completed run's search, once more. Without it only a run
+    # that stopped before it finished (interrupted, failed, cancelled) is
+    # restarted, as Restart has always done.
+    again: bool = False
 
 
 class DeliveryTargetCreate(BaseModel):
@@ -1233,6 +1253,7 @@ def _launch_execution(
     conn,
     ephemeral_credentials: Optional[dict[str, str]] = None,
     claimed_routine_id: Optional[int] = None,
+    reservation: Optional[int] = None,
 ) -> None:
     """Run the pipeline in a background thread, then persist progress events.
 
@@ -1241,6 +1262,11 @@ def _launch_execution(
     ``_dispatch_routine_fire`` *before* this thread starts -- that ordering is
     the whole guard -- and released here, in the ``finally``, which is the only
     place that runs whether the pipeline finished, failed or raised.
+
+    ``reservation`` is the slot a queued manual run was given when the queue
+    drained (``admission.admit_manual``). This execution's own id takes it
+    over once it is admitted; if the thread dies before that, the
+    reservation is released here, which hands the slot to the next in line.
     """
 
     def _run() -> None:
@@ -1279,9 +1305,15 @@ def _launch_execution(
             if claimed_routine_id is not None:
                 routine_claims.release(claimed_routine_id)
             admission.note_finished(exec_id)
+            if reservation is not None:
+                # Already handed to the run below in the ordinary case, and
+                # then this does nothing.
+                admission.note_finished(reservation)
 
     def _run_pipeline() -> None:
         admission.note_admitted(exec_id)
+        if reservation is not None:
+            admission.release_reservation(reservation)
         heartbeat_thread, heartbeat_stop = _start_execution_heartbeat(exec_id)
         # Take this thread's own connection rather than reusing the request
         # thread's. The two run concurrently -- the endpoint returns
@@ -1456,23 +1488,130 @@ def _reserve_request_id(conn, exec_id: int, request_id: Optional[str]) -> Option
         return winner
 
 
-def _reject_if_at_manual_cap() -> None:
-    """Raise 429 when the admission controller is at the manual cap."""
-    if not admission.try_admit(kind="manual"):
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                f"resmon is already running the maximum of {admission.max()} "
-                "concurrent executions. Wait for one to finish, then try "
-                "again."
-            ),
-            headers={"Retry-After": "5"},
+def _queue_full_refusal(what: str) -> HTTPException:
+    """The answer when resmon runs as many as it allows and as many more wait as it queues."""
+    cap = admission.max()
+    return HTTPException(
+        status_code=429,
+        detail=(
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it "
+            f"allows at once, and {admission.queue_limit()} more are waiting, as many as it "
+            f"queues. This {what} was not queued; ask again once one of them has finished."
+        ),
+        headers={"Retry-After": "5", "X-Resmon-Conflict": "admission_queue_full"},
+    )
+
+
+def _queued_answer(ticket: str, what: str) -> dict:
+    """What a manual run that waits for a slot is told: where it stands, and that it starts on its own."""
+    cap = admission.max()
+    position = admission.ticket_position(ticket) or 1
+    ahead = position - 1
+    return {
+        "queued": True,
+        "queue_position": position,
+        "ticket": ticket,
+        "detail": (
+            f"resmon is already running {cap} run{'s' if cap != 1 else ''}, as many as it allows "
+            f"at once, so this {what} waits"
+            + (f" behind {ahead} other{'s' if ahead != 1 else ''}" if ahead else "")
+            + ". It starts on its own when a run finishes; there is nothing more to do."
+        ),
+    }
+
+
+def _start_or_queue(
+    *,
+    request_id: Optional[str],
+    what: str,
+    info: dict,
+    launch: Callable[[Optional[int], Optional[str]], int],
+    response: Response,
+) -> dict:
+    """Start a manual run now, or queue it for the next free slot, and say which.
+
+    The door every manual run comes through: a Deep Dive, a Deep Sweep, and a
+    restart or a run asked for again. Past the run limit it waits in the same
+    queue a watch's fire waits in (``admission.admit_manual``) and is started
+    in turn, rather than refused as it once was, when a person had to watch
+    for a free slot and ask again. Only a full queue refuses it (429).
+
+    ``launch(reservation, ticket)`` prepares and starts the run and returns
+    its id; for a queued run it is called when its turn comes, on a fresh
+    thread, with the slot reserved for it and the ticket to stamp on its row.
+    A submission whose ``request_id`` is already waiting is answered with that
+    entry again rather than queued twice.
+    """
+    if request_id and admission.ticket_position(request_id) is not None:
+        response.status_code = 202
+        return {"execution_id": None, "duplicate": True, **_queued_answer(request_id, what)}
+    ticket = request_id or uuid.uuid4().hex
+
+    def start(reservation: int) -> None:
+        launch(reservation, ticket)
+
+    decision = admission.admit_manual(ticket, start, info)
+    if decision == "full":
+        raise _queue_full_refusal(what)
+    if decision == "queued":
+        response.status_code = 202
+        return {"execution_id": None, **_queued_answer(ticket, what)}
+    return {"execution_id": launch(None, request_id)}
+
+
+def _search_info(execution_type: str, repositories: list[str], query_params: dict) -> dict:
+    """What a waiting manual run is shown as, on the Runs tab: its kind and its search."""
+    keywords = query_params.get("keywords")
+    return {
+        "execution_type": execution_type,
+        "query": query_params.get("query"),
+        "keywords": list(keywords) if isinstance(keywords, list) else None,
+        "repositories": list(repositories),
+    }
+
+
+def _launch_search(
+    execution_type: str,
+    repositories: list[str],
+    query_params: dict,
+    *,
+    ai_enabled: bool,
+    ai_settings: Optional[dict],
+    ephemeral_credentials: Optional[dict[str, str]],
+    saved_configuration_id: Optional[int],
+) -> Callable[[Optional[int], Optional[str]], int]:
+    """Prepare and start a Deep Dive or Deep Sweep, on whichever thread its turn comes."""
+
+    def launch(reservation: Optional[int], request_id: Optional[str]) -> int:
+        conn = _get_db()
+        engine = SweepEngine(
+            db_conn=conn,
+            config={"ai_enabled": ai_enabled, "ai_settings": ai_settings},
         )
+        exec_id = engine.prepare_execution(execution_type, repositories, query_params)
+        winner = _reserve_request_id(conn, exec_id, request_id)
+        if winner is not None:
+            # Another process started this very submission between the check
+            # and here; that run is the answer, and this slot is not needed.
+            if reservation is not None:
+                admission.note_finished(reservation)
+            return int(winner["id"])
+        # Link the new execution back to the saved
+        # configuration the user picked in ConfigLoader (if any).
+        if saved_configuration_id is not None:
+            set_execution_saved_configuration(conn, exec_id, saved_configuration_id)
+        progress_store.register(exec_id)
+        _launch_execution(engine, exec_id, conn, ephemeral_credentials=ephemeral_credentials,
+                          reservation=reservation)
+        return exec_id
+
+    return launch
 
 
 @app.post("/api/search/dive", response_model=response_models.RunStarted,
           response_model_exclude_unset=True)
-def search_dive(body: DiveRequest):
+def search_dive(body: DiveRequest, response: Response):
+    """Start a Deep Dive, or queue it when resmon runs as many as it allows (202)."""
     conn = _get_db()
     # Before the cap check, deliberately: a resubmission of a run that is
     # already going is not a new demand on capacity, and answering it with 429
@@ -1481,11 +1620,6 @@ def search_dive(body: DiveRequest):
     existing = _duplicate_execution_for(conn, body.request_id)
     if existing is not None:
         return {"execution_id": existing["id"], "duplicate": True}
-    _reject_if_at_manual_cap()
-    engine = SweepEngine(
-        db_conn=conn,
-        config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
-    )
     query_params = {
         "query": body.query,
         "keywords": body.keywords,
@@ -1493,35 +1627,28 @@ def search_dive(body: DiveRequest):
         "date_to": body.date_to,
         "max_results": body.max_results,
     }
-    exec_id = engine.prepare_execution("deep_dive", [body.repository], query_params)
-    winner = _reserve_request_id(conn, exec_id, body.request_id)
-    if winner is not None:
-        return {"execution_id": winner["id"], "duplicate": True}
-    # Link the new execution back to the saved
-    # configuration the user picked in ConfigLoader (if any).
-    if body.saved_configuration_id is not None:
-        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
-    progress_store.register(exec_id)
-    _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
-    return {"execution_id": exec_id}
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Dive",
+        info=_search_info("deep_dive", [body.repository], query_params),
+        launch=_launch_search(
+            "deep_dive", [body.repository], query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
 
 
 @app.post("/api/search/sweep", response_model=response_models.RunStarted,
           response_model_exclude_unset=True)
-def search_sweep(body: SweepRequest):
+def search_sweep(body: SweepRequest, response: Response):
+    """Start a Deep Sweep, or queue it when resmon runs as many as it allows (202)."""
     conn = _get_db()
-    # Before the cap check, deliberately: a resubmission of a run that is
-    # already going is not a new demand on capacity, and answering it with 429
-    # would tell the user resmon is busy when what it is busy with is their own
-    # first click.
+    # Before the cap check, deliberately: see ``search_dive``.
     existing = _duplicate_execution_for(conn, body.request_id)
     if existing is not None:
         return {"execution_id": existing["id"], "duplicate": True}
-    _reject_if_at_manual_cap()
-    engine = SweepEngine(
-        db_conn=conn,
-        config={"ai_enabled": body.ai_enabled, "ai_settings": body.ai_settings},
-    )
     query_params = {
         "query": body.query,
         "keywords": body.keywords,
@@ -1529,17 +1656,17 @@ def search_sweep(body: SweepRequest):
         "date_to": body.date_to,
         "max_results": body.max_results,
     }
-    exec_id = engine.prepare_execution("deep_sweep", body.repositories, query_params)
-    winner = _reserve_request_id(conn, exec_id, body.request_id)
-    if winner is not None:
-        return {"execution_id": winner["id"], "duplicate": True}
-    # Link the new execution back to the saved
-    # configuration the user picked in ConfigLoader (if any).
-    if body.saved_configuration_id is not None:
-        set_execution_saved_configuration(conn, exec_id, body.saved_configuration_id)
-    progress_store.register(exec_id)
-    _launch_execution(engine, exec_id, conn, ephemeral_credentials=body.ephemeral_credentials)
-    return {"execution_id": exec_id}
+    return _start_or_queue(
+        request_id=body.request_id, what="Deep Sweep",
+        info=_search_info("deep_sweep", list(body.repositories), query_params),
+        launch=_launch_search(
+            "deep_sweep", list(body.repositories), query_params,
+            ai_enabled=body.ai_enabled, ai_settings=body.ai_settings,
+            ephemeral_credentials=body.ephemeral_credentials,
+            saved_configuration_id=body.saved_configuration_id,
+        ),
+        response=response,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2586,26 +2713,131 @@ def source_wall_grid(
         _close_db(conn)
 
 
+def _listed(value: Optional[str]) -> Optional[list[str]]:
+    """A comma-separated query value as its parts; None when there are none."""
+    parts = [part.strip() for part in (value or "").split(",") if part.strip()]
+    return parts or None
+
+
 @app.get("/api/executions", response_model=list[response_models.RunRow],
-         response_model_exclude_unset=True)
+         response_model_exclude_unset=True,
+         responses={200: {"headers": {"X-Resmon-Total": {
+             "description": "How many runs match the filters, however many this page holds.",
+             "schema": {"type": "integer"},
+         }}}})
 def list_executions(
+    response: Response,
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     type: Optional[str] = Query(None, alias="type"),
     routine_id: Optional[int] = Query(None),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None, max_length=200),
+    omit_events: bool = Query(False),
 ):
+    """The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
+
+    ``type`` and ``status`` each take one value or several, comma-separated
+    (``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``
+    matches a run's terms, its sources, its watch's or saved search's name,
+    or its number. ``omit_events`` leaves each row's stored
+    ``progress_events`` out (null): the Runs tab lists runs and reads a run's
+    events only on its own page. The total is a header, so the body stays
+    the list every reader of this route already reads.
+    """
     conn = _get_db()
     try:
         # ``routine_id`` is one watch's runs, its nights, for a page that lists
         # them without fetching every run resmon has made to filter them.
-        rows = get_executions(conn, limit=limit, offset=offset, execution_type=type,
-                              routine_id=routine_id)
+        types = _listed(type)
+        statuses = _listed(status)
+        rows = get_executions(conn, limit=limit, offset=offset, routine_id=routine_id,
+                              execution_types=types, statuses=statuses, text=q,
+                              without_events=omit_events)
+        total = count_executions(conn, routine_id=routine_id, execution_types=types,
+                                 statuses=statuses, text=q)
         outcomes = _source_outcomes(conn, [int(r["id"]) for r in rows])
         for row in rows:
             row["coverage"] = source_coverage.build(row, get_execution_sources(conn, int(row["id"])))
             _enrich_execution_row(row)
             row["source_outcomes"] = outcomes.get(int(row["id"]))
+        response.headers["X-Resmon-Total"] = str(total)
+        # Readable by the renderer, which is another origin.
+        response.headers["Access-Control-Expose-Headers"] = "X-Resmon-Total"
         return rows
+    finally:
+        _close_db(conn)
+
+
+def _active_events(events: list[dict]) -> list[dict]:
+    """A running run's events with the repeating ones folded to their newest.
+
+    Each source's heartbeats (``query_progress``, phase ``searching``) to its
+    latest, and the counts of papers linked, embedded or summarized to theirs;
+    the start and end of each search and the log's lines are left out. Every
+    event that changes a source's or the run's state is kept, in order.
+    """
+    keep: set[int] = set()
+    latest: dict[tuple, int] = {}
+    for at, event in enumerate(events):
+        kind = event.get("type")
+        if kind == "query_progress":
+            if event.get("phase") == "searching":
+                latest[("beat", event.get("repository"))] = at
+            continue
+        if kind in ("link_progress", "ai_progress", "dedup_progress"):
+            latest[(kind, event.get("stage"))] = at
+            continue
+        if kind == "log_entry":
+            continue
+        keep.add(at)
+    keep.update(latest.values())
+    return [events[at] for at in sorted(keep)]
+
+
+# When the run monitor's panel was last opened: a run that failed after it is
+# the monitor's red mark until the panel is opened again. Kept in the engine,
+# so it holds across launches; until the panel is first opened, failures since
+# this engine started count.
+_RUNS_SEEN_KEY = "runs_seen_at"
+
+
+def _run_stamp() -> str:
+    """Now, as the sweep engine writes a run's ``end_time``, so the two compare as text."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_ENGINE_STARTED_AT = _run_stamp()
+
+
+def _failed_unseen(conn) -> tuple[list[int], Optional[str]]:
+    """The runs that failed since the panel was last opened, newest first, and when that was."""
+    seen = get_setting(conn, _RUNS_SEEN_KEY) or None
+    since = seen or _ENGINE_STARTED_AT
+    # ``>=``: both stamps are to the second, so a run that failed in the second
+    # the panel was opened cannot be told to be before it or after. It counts as
+    # unseen: a failure shown red once too often is better than one never shown.
+    rows = conn.execute(
+        "SELECT id FROM executions WHERE status = 'failed' AND end_time >= ? "
+        "ORDER BY end_time DESC, id DESC LIMIT 20",
+        (since,),
+    ).fetchall()
+    return [int(row[0]) for row in rows], seen
+
+
+@app.post("/api/executions/seen", response_model=response_models.RunsSeen,
+          response_model_exclude_unset=True)
+def mark_runs_seen():
+    """The run monitor's panel was opened: every run that has failed until now is seen.
+
+    Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+    run fails again. Nothing about any run changes.
+    """
+    conn = _get_db()
+    try:
+        at = _run_stamp()
+        set_setting(conn, _RUNS_SEEN_KEY, at)
+        return {"seen_at": at}
     finally:
         _close_db(conn)
 
@@ -2613,7 +2845,74 @@ def list_executions(
 @app.get("/api/executions/active", response_model=response_models.ActiveRuns,
          response_model_exclude_unset=True)
 def active_executions():
-    return {"active_ids": progress_store.get_active_ids()}
+    """The runs this engine is running, each with its search and its events, and the queue.
+
+    For the Runs tab's Running now and Waiting, read every two seconds while
+    anything runs or waits. A run is here from the moment it is registered
+    until its thread has finished with it; a run another engine is running
+    is not, and the run log lists it as running.
+    """
+    ids = progress_store.get_active_ids()
+    conn = _get_db()
+    try:
+        running = []
+        for exec_id in ids:
+            row = get_execution_by_id(conn, exec_id)
+            if not row:
+                continue
+            _enrich_execution_row(row)
+            running.append({
+                "id": int(row["id"]),
+                "execution_type": row["execution_type"],
+                "routine_id": row.get("routine_id"),
+                "saved_configuration_id": row.get("saved_configuration_id"),
+                "query": row.get("query"),
+                "keywords": row.get("keywords"),
+                "repositories": row.get("repositories"),
+                "start_time": row.get("start_time"),
+                "current_stage": row.get("current_stage"),
+                "restarted_from": row.get("restarted_from"),
+                "request_id": row.get("request_id"),
+                "events": _active_events(progress_store.get_events(exec_id)),
+            })
+        running.sort(key=lambda run: (run["start_time"] or "", run["id"]))
+        failed, seen = _failed_unseen(conn)
+        # What changes when any run starts or ends, here or in another engine
+        # on the same database: a run that starts and ends between two reads
+        # of this route changes nothing above, and the run log would not know
+        # to read itself again.
+        newest, ended = conn.execute("SELECT MAX(id), MAX(end_time) FROM executions").fetchone()
+        return {
+            "active_ids": ids,
+            "running": running,
+            "waiting": admission.waiting(),
+            "max_concurrent": admission.max(),
+            "queue_limit": admission.queue_limit(),
+            "failed_unseen": failed,
+            "seen_at": seen,
+            "newest_run_id": newest,
+            "last_ended_at": ended,
+        }
+    finally:
+        _close_db(conn)
+
+
+@app.delete("/api/executions/waiting/{ticket}", response_model=response_models.WaitingWithdrawn,
+            response_model_exclude_unset=True)
+def withdraw_waiting_run(ticket: str):
+    """Take a run that waits for a free slot out of the queue, before it starts.
+
+    Only a run asked for by hand: a watch's fire runs as its watch says, and
+    is stopped by pausing the watch. A run that has already started is not
+    waiting any more (404), and is stopped from its own page.
+    """
+    kind = admission.withdraw(ticket)
+    if kind is None:
+        raise HTTPException(404, "No run is waiting with that ticket; it may have started already.")
+    if kind == "routine":
+        raise HTTPException(409, (
+            "This is a watch's run, and it runs as its watch is set. Pause the watch to stop its runs."))
+    return {"withdrawn": True, "ticket": ticket}
 
 
 @app.get("/api/executions/{exec_id}", response_model=response_models.Run,
@@ -2987,9 +3286,44 @@ def cancel_execution(exec_id: int):
     return {"status": "cancellation_requested"}
 
 
+def _was_set_to_summarize(conn, exec_id: int) -> bool:
+    """Whether a run was set to summarize, as its ``ai_choice`` event recorded at its start.
+
+    Not whether it got as far as summarizing: ``execution_ai`` holds a row only
+    for a lane that was tried, so a run set to summarize that failed before
+    any paper was summarized has none, and a restart read from those rows came
+    back with summaries off (two watches' failed runs on November 4, 2026,
+    whose pages said "Summaries: On" and "Restart does not summarize"). A run
+    without the event (one from before it existed, or one interrupted before
+    its events were saved) is read from those rows, as it was.
+    """
+    for event in reversed(get_progress_events(conn, exec_id)):
+        if isinstance(event, dict) and event.get("type") == "ai_choice" and isinstance(event.get("enabled"), bool):
+            return bool(event["enabled"])
+    return bool(get_execution_ai(conn, exec_id))
+
+
+def _run_as_its_watch(routine_id: int, watch: dict, response: Response) -> dict:
+    """Restart or Run again on a watch's run: the watch's own Run now, answered as a restart answers.
+
+    Everything ``run_routine_now`` refuses (the watch already running, a full
+    queue, a window it cannot read) is refused here in its words.
+    """
+    ran = run_routine_now(routine_id, response)
+    answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
+                    "ai_enabled": bool(watch.get("ai_enabled"))}
+    if ran.get("queued"):
+        ticket = next((w["ticket"] for w in admission.waiting()
+                       if w["kind"] == "watch" and w["routine_id"] == routine_id), None)
+        answer.update({"queued": True, "queue_position": ran.get("queue_position"), "ticket": ticket})
+    answer["detail"] = ran.get("detail")
+    response.status_code = 202
+    return answer
+
+
 @app.post("/api/executions/{exec_id}/restart", status_code=202,
           response_model=response_models.RunRestarted, response_model_exclude_unset=True)
-def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
+def restart_execution(exec_id: int, response: Response, body: Optional[RestartRequest] = None):
     """Start a fresh execution with the source's parameters, linked back to it.
 
     Restart is not resume. ``progress_events`` is persisted once, at the end,
@@ -2999,8 +3333,24 @@ def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
 
     The source row is never touched. Its history is what happened, and a
     restart is a second thing that happened, not a correction of the first.
+
+    ``again`` asks for a completed run's search once more (Run again, on the
+    Runs tab); without it only an interrupted, failed or cancelled run is
+    restarted. At the run limit the new run waits in the queue
+    (``_start_or_queue``) and its row is written only when it starts: the
+    answer then carries no execution id, ``queued``, and its place.
+
+    **A watch's run is never run alongside its watch.** Restart or Run again
+    on a watch's run is that watch's Run now (``run_routine_now``): the
+    watch's claim, its queue, a paused watch run once, and delivery as it is
+    set, with the watch's current settings rather than the old run's copy,
+    and refused with the run that holds the watch when it is already running,
+    since two runs of one watch would both deliver and email. The new run is
+    the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+    Dive's or Deep Sweep's run is copied, as below.
     """
     request_id = body.request_id if body is not None else None
+    again = bool(body.again) if body is not None else False
     conn = _get_db()
     try:
         duplicate = _duplicate_execution_for(conn, request_id)
@@ -3013,54 +3363,78 @@ def restart_execution(exec_id: int, body: Optional[RestartRequest] = None):
         if not row:
             raise HTTPException(404, "Execution not found")
         state = row.get("status")
-        if state not in _RESTARTABLE_STATES:
+        if state not in _RESTARTABLE_STATES and not (again and state == "completed"):
             # A string, for the same reason ``cancel_execution`` gives one.
             raise HTTPException(409, (
+                f"Execution {exec_id} is {state}; only a run that has ended can be run again."
+                if again else
                 f"Execution {exec_id} is {state}; only an interrupted, failed "
                 "or cancelled run can be restarted."))
-        # The same door a manual Deep Dive or Deep Sweep comes through, so a
-        # restart cannot get resmon past its own concurrency cap. Like those
-        # two, it only *checks* the cap here; the slot is claimed by
-        # ``admission.note_admitted`` on the worker thread.
-        _reject_if_at_manual_cap()
+        # The watch this run belongs to, if it still exists: a deleted watch's
+        # runs keep their kind and lose their ``routine_id``.
+        watch_id = row.get("routine_id") if row["execution_type"] == "automated_sweep" else None
+        watch = get_routine_by_id(conn, int(watch_id)) if watch_id is not None else None
+        if watch is not None:
+            return _run_as_its_watch(int(watch_id), watch, response)
         # The AI lane, reproduced as far as the record allows. ``parameters``
-        # holds the search, never the AI settings, so what the source row can
-        # answer is whether AI ran at all: ``execution_ai`` has one row per lane
-        # that was tried. A restart therefore reproduces the *choice* -- AI on
-        # or off -- and runs it against whatever is configured today, which is
-        # the same thing a second click of Deep Sweep would do. Reconstructing
-        # the provider, model and credential of the day from a lane record would
-        # be a guess wearing the original run's clothes.
-        ai_enabled = bool(get_execution_ai(conn, exec_id))
-        # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
-        # **not** written into it. That JSON is the search the user asked for --
-        # terms, databases, date window -- and the search record and the
-        # reference exports render it as such; an AI flag in there would be read
-        # as part of the query. The fact is durable anyway: the new run writes
-        # its own ``execution_ai`` rows, which is where this decision was read
-        # from in the first place.
-        new_id = insert_execution(conn, {
-            "execution_type": row["execution_type"],
-            "routine_id": row.get("routine_id"),
-            "saved_configuration_id": row.get("saved_configuration_id"),
-            "parameters": row["parameters"],
-            "start_time": utc_now_iso(),
-            "restarted_from": exec_id,
-        })
-        winner = _reserve_request_id(conn, new_id, request_id)
-        if winner is not None:
-            return {"execution_id": winner["id"],
-                    "restarted_from": winner.get("restarted_from"),
-                    "ai_enabled": bool(get_execution_ai(conn, winner["id"])),
-                    "duplicate": True}
-        # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
-        # the repositories and query parameters back out of it. Passing them a
-        # second time would be a second copy to keep honest.
-        engine = SweepEngine(db_conn=conn, config={"ai_enabled": ai_enabled, "ai_settings": None})
-        progress_store.register(new_id)
-        _launch_execution(engine, new_id, conn)
-        return {"execution_id": new_id, "restarted_from": exec_id,
-                "ai_enabled": ai_enabled}
+        # holds the search, never the AI settings. A restart reproduces the
+        # *choice* -- AI on or off -- and runs it against whatever is configured
+        # today, which is the same thing a second click of Deep Sweep would do.
+        # Reconstructing the provider, model and credential of the day from a
+        # lane record would be a guess wearing the original run's clothes.
+        ai_enabled = _was_set_to_summarize(conn, exec_id)
+        try:
+            stored = json.loads(row["parameters"] or "{}")
+        except (json.JSONDecodeError, TypeError):
+            stored = {}
+        if not isinstance(stored, dict):
+            stored = {}
+        repositories = stored.get("repositories") if isinstance(stored.get("repositories"), list) else []
+        info = {**_search_info(row["execution_type"], [str(r) for r in repositories], stored),
+                "routine_id": row.get("routine_id"), "restarted_from": exec_id}
+
+        def launch(reservation: Optional[int], ticket: Optional[str]) -> int:
+            own = _get_db()
+            # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
+            # **not** written into it. That JSON is the search the user asked for
+            # -- terms, databases, date window -- and the search record and the
+            # reference exports render it as such; an AI flag in there would be
+            # read as part of the query. The fact is durable anyway: the new run
+            # writes its own ``execution_ai`` rows, which is where this decision
+            # was read from in the first place.
+            new_id = insert_execution(own, {
+                "execution_type": row["execution_type"],
+                "routine_id": row.get("routine_id"),
+                "saved_configuration_id": row.get("saved_configuration_id"),
+                "parameters": row["parameters"],
+                "start_time": utc_now_iso(),
+                "restarted_from": exec_id,
+            })
+            winner = _reserve_request_id(own, new_id, ticket)
+            if winner is not None:
+                if reservation is not None:
+                    admission.note_finished(reservation)
+                return int(winner["id"])
+            # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
+            # the repositories and query parameters back out of it. Passing them a
+            # second time would be a second copy to keep honest.
+            engine = SweepEngine(db_conn=own, config={"ai_enabled": ai_enabled, "ai_settings": None})
+            progress_store.register(new_id)
+            _launch_execution(engine, new_id, own, reservation=reservation)
+            return new_id
+
+        # The same door a manual Deep Dive or Deep Sweep comes through, so a
+        # restart cannot get resmon past its own concurrency cap.
+        started = _start_or_queue(request_id=request_id, what="run", info=info,
+                                  launch=launch, response=response)
+        response.status_code = 202
+        if started.get("execution_id") is not None:
+            return {"execution_id": started["execution_id"], "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        answer = {"execution_id": None, "restarted_from": exec_id, "ai_enabled": ai_enabled}
+        if started.get("duplicate"):
+            answer["duplicate"] = True
+        answer.update({key: started[key] for key in ("queued", "queue_position", "ticket", "detail")})
+        return answer
     finally:
         _close_db(conn)
 
@@ -3143,7 +3517,18 @@ async def stream_progress(exec_id: int, last_event_id: int = 0):
 
 
 @app.get("/api/executions/{exec_id}/progress/events")
-def get_execution_progress_events(exec_id: int, response: Response):
+def get_execution_progress_events(
+    exec_id: int, response: Response, since: int = Query(0, ge=0),
+):
+    """The run's progress events, from the ``since``-th on (0, every one).
+
+    A running run's page reads only the events it has not seen: a sweep's
+    heartbeat adds one event every two seconds for each source still being
+    asked, and reading the whole list every second read it again and again.
+    The list only grows while the run runs, and once it has ended the
+    persisted list is the same list, so an index into one is an index into
+    the other.
+    """
     conn = _get_db()
     row = get_execution_by_id(conn, exec_id)
     if not row:
@@ -3157,8 +3542,8 @@ def get_execution_progress_events(exec_id: int, response: Response):
     # window between mark_complete and cleanup).  Fall back to persisted
     # events after cleanup removes the live store entry.
     if progress_store.is_registered(exec_id):
-        return progress_store.get_events(exec_id)
-    return get_progress_events(conn, exec_id)
+        return progress_store.get_events(exec_id, since=since)
+    return get_progress_events(conn, exec_id)[since:]
 
 
 @app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,
@@ -6344,15 +6729,24 @@ def update_notification_settings(body: SettingsBody):
 
 _APPEARANCE_THEME_KEY = "ui_theme"
 _APPEARANCE_ACCENT_KEY = "ui_accent"
+# Whether the top bar shows the run monitor: "0" hides it, anything else (and
+# nothing stored) shows it.
+_APPEARANCE_RUN_MONITOR_KEY = "ui_run_monitor"
 _APPEARANCE_THEMES = ("system", "light", "dark")
 _ACCENT_PATTERN = r"^#[0-9a-fA-F]{6}$"
 
 
 class AppearanceBody(BaseModel):
-    """The whole appearance, every time: a PUT replaces both values."""
+    """The whole appearance, every time: a PUT replaces the theme and the accent.
+
+    ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+    bar") is stored when it is sent and left as it is when it is not, so a
+    caller that knows only the theme and the accent changes only those.
+    """
 
     theme: Literal["system", "light", "dark"]
     accent: Optional[str] = Field(..., pattern=_ACCENT_PATTERN)
+    run_monitor: Optional[bool] = None
 
 
 def _read_appearance(conn) -> dict:
@@ -6363,6 +6757,7 @@ def _read_appearance(conn) -> dict:
     return {
         "theme": theme if theme in _APPEARANCE_THEMES else "system",
         "accent": accent if re.fullmatch(_ACCENT_PATTERN, accent) else None,
+        "run_monitor": str(get_setting(conn, _APPEARANCE_RUN_MONITOR_KEY) or "1") != "0",
     }
 
 
@@ -6383,6 +6778,8 @@ def update_appearance(body: AppearanceBody):
     try:
         set_setting(conn, _APPEARANCE_THEME_KEY, body.theme)
         set_setting(conn, _APPEARANCE_ACCENT_KEY, (body.accent or "").lower())
+        if body.run_monitor is not None:
+            set_setting(conn, _APPEARANCE_RUN_MONITOR_KEY, "1" if body.run_monitor else "0")
         return _read_appearance(conn)
     finally:
         _close_db(conn)
@@ -6623,6 +7020,8 @@ def _dispatch_routine_fire(
                 config={
                     "ai_enabled": bool(row.get("ai_enabled")),
                     "ai_settings": ai_settings,
+                    # A scheduled fire has nobody waiting on it; a Run now does.
+                    "unattended": not run_now,
                 },
             )
             exec_id = engine.prepare_execution(

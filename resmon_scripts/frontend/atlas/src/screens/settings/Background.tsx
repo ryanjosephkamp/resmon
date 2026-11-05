@@ -260,8 +260,8 @@ function RunLimitsForm({ stored }: { stored: ExecutionSettings }) {
           <input id="limit-runs" type="number" inputMode="numeric" min={RUN_LIMITS.runs.min} max={RUN_LIMITS.runs.max}
             step={1} value={runs} onChange={(event) => setRuns(event.target.value)} />
           <span className="form-hint">
-            From 1 to 8. While this many are running, a search you start, or a Restart, is refused with a sentence
-            saying so, and a watch run waits for a turn.
+            From 1 to 8. While this many are running, a search you start, a Restart, a Run again, and a watch run
+            each wait for a turn, under Waiting on the Runs tab.
           </span>
         </label>
         <label className="form-field" htmlFor="limit-queue">
@@ -269,9 +269,9 @@ function RunLimitsForm({ stored }: { stored: ExecutionSettings }) {
           <input id="limit-queue" type="number" inputMode="numeric" min={RUN_LIMITS.queue.min} max={RUN_LIMITS.queue.max}
             step={1} value={queue} onChange={(event) => setQueue(event.target.value)} />
           <span className="form-hint">
-            From 1 to 64. A waiting watch run starts when a run finishes. One that comes due while this many are
-            already waiting is skipped, and runs at its next scheduled time. What is waiting when its engine stops
-            does not run.
+            From 1 to 64. A waiting run starts when a run finishes. A search asked while this many are already
+            waiting is refused with a sentence saying so; a watch run that comes due then is skipped, and runs at
+            its next scheduled time. What is waiting when its engine stops does not run.
           </span>
         </label>
       </div>

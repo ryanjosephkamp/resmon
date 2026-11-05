@@ -11,7 +11,7 @@
 
 export type ShortcutId =
   | 'palette' | 'shortcuts' | 'ask' | 'new-conversation' | 'new-dive' | 'new-sweep'
-  | 'section-1' | 'section-2' | 'section-3' | 'section-4' | 'section-5' | 'section-6'
+  | 'section-1' | 'section-2' | 'section-3' | 'section-4' | 'section-5' | 'section-6' | 'section-7'
   | 'settings' | 'back' | 'forward';
 
 /** The commands the app menu sends the renderer (`resmon:command`), by the same ids. */
@@ -53,6 +53,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { id: 'section-4', chord: cmd('4') },
   { id: 'section-5', chord: cmd('5') },
   { id: 'section-6', chord: cmd('6') },
+  { id: 'section-7', chord: cmd('7') },
   { id: 'settings', chord: cmd(',') },
   // The History menu's alternates: ⌘← and ⌘→ on macOS, Alt+← and Alt+→ elsewhere (`installApplicationMenu`).
   { id: 'back', chord: cmd('['), also: { mac: cmd('ArrowLeft'), other: { key: 'ArrowLeft', alt: true } } },
@@ -65,10 +66,24 @@ export function shortcut(id: ShortcutId): Shortcut {
   return found;
 }
 
-/** The section a ⌘1 to ⌘6 shortcut opens, counted from 0 in the top bar's order; null for any other. */
-export function sectionIndex(id: ShortcutId): number | null {
+/**
+ * The section each of ⌘1 to ⌘7 opens, by its address. ⌘1 to ⌘6 open the six
+ * sections they always opened, in the order the bar first had them; Runs,
+ * added after Search, takes ⌘7 rather than moving Library, Ask, and Health
+ * off the keys people know.
+ */
+export const SECTION_KEYS: readonly string[] = ['/today', '/watches', '/search', '/library', '/ask', '/health', '/runs'];
+
+/** The section a ⌘1 to ⌘7 shortcut opens, by its address; null for any other shortcut. */
+export function sectionPath(id: ShortcutId): string | null {
   const match = /^section-(\d)$/.exec(id);
-  return match ? Number(match[1]) - 1 : null;
+  return match ? SECTION_KEYS[Number(match[1]) - 1] ?? null : null;
+}
+
+/** The shortcut that opens a section, by its address; null for a section with none. */
+export function sectionShortcut(path: string): ShortcutId | null {
+  const at = SECTION_KEYS.indexOf(path);
+  return at < 0 ? null : (`section-${at + 1}` as ShortcutId);
 }
 
 /** The part of a keyboard event a shortcut is matched against. */

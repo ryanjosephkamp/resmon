@@ -17,7 +17,7 @@ export type Appearance = components['schemas']['Appearance'];
 export type ThemeChoice = Appearance['theme'];
 
 export const APPEARANCE_KEY = ['appearance'] as const;
-export const FALLBACK_APPEARANCE: Appearance = { theme: 'system', accent: null };
+export const FALLBACK_APPEARANCE: Appearance = { theme: 'system', accent: null, run_monitor: true };
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
 
@@ -76,7 +76,8 @@ export interface AppearanceState {
 }
 
 const same = (a: Appearance, b: Appearance) =>
-  a.theme === b.theme && (a.accent ?? '').toLowerCase() === (b.accent ?? '').toLowerCase();
+  a.theme === b.theme && (a.accent ?? '').toLowerCase() === (b.accent ?? '').toLowerCase()
+  && a.run_monitor === b.run_monitor;
 
 const AppearanceContext = createContext<AppearanceState | null>(null);
 

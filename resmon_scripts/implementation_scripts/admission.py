@@ -1,9 +1,10 @@
 """Execution admission controller for manual and routine-fired executions.
 
 Implements ADQ-R3 from resmon_routines.md: a single global semaphore gates
-concurrent executions. Manual admission is reject-or-pass (the REST layer
-raises HTTP 429); routine admission falls through to a bounded FIFO queue
-that drains as slots free.
+concurrent executions. Past the cap, a routine fire and a manual run (a Deep
+Dive, a Deep Sweep, a restart, a run asked for again) both wait in one bounded
+FIFO queue that drains as slots free; only when the queue is full too is a
+manual run refused (the REST layer answers 429).
 
 Thread-safety: all public methods take ``_lock`` while mutating state.
 Queue drains spawn a fresh daemon thread per dispatch so the call site that
@@ -15,14 +16,22 @@ params_json, run_now=..., queued_at=...)``: ``run_now`` says a person asked for
 this run (Run now), so it runs even if the routine is paused, and
 ``queued_at`` is when the fire joined the queue, which for a scheduled fire is
 when it came due.
+
+A queued manual run carries its own ``start``, which prepares and launches it.
+Its slot is **reserved** when it is drained: a placeholder (a negative id) is
+counted as active until the run's own id takes its place
+(``release_reservation``), so a search asked in that moment cannot take the
+slot the waiting run was given.
 """
 
 from __future__ import annotations
 
+import itertools
 import logging
 import threading
+import uuid
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Literal, Optional
 
@@ -30,15 +39,30 @@ from typing import Callable, Literal, Optional
 #: slot, or turned away because the queue was full too.
 RoutineAdmission = Literal["admitted", "queued", "dropped"]
 
+#: What ``admit_manual`` decided: start now, wait in the queue, or refused
+#: because the queue is full too.
+ManualAdmission = Literal["admitted", "queued", "full"]
+
 
 @dataclass
 class _Waiting:
-    """One routine fire in the queue."""
+    """One run in the queue: a routine's fire, or a manual run.
 
-    routine_id: int
+    ``ticket`` names the entry: a manual run's is the ``request_id`` it was
+    submitted with (or one made for it), which its execution row carries once
+    it starts, so whoever submitted it can find the run it became. ``info`` is
+    what the queue's readers are shown about a manual run (its kind and its
+    search), and ``start`` is what runs it, handed its slot's reservation.
+    """
+
+    routine_id: Optional[int]
     params_json: str
     run_now: bool
     queued_at: str
+    ticket: str = field(default_factory=lambda: uuid.uuid4().hex)
+    kind: Literal["routine", "manual"] = "routine"
+    info: dict = field(default_factory=dict)
+    start: Optional[Callable[[int], None]] = None
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +88,8 @@ class ExecutionAdmissionController:
         self._queue: deque[_Waiting] = deque()
         self._lock = threading.Lock()
         self._dispatcher: Optional[Callable[..., None]] = None
+        # Placeholders for drained manual runs, below every real id.
+        self._reservations = itertools.count(-1, -1)
 
     # ------------------------------------------------------------------
     # Configuration
@@ -190,7 +216,7 @@ class ExecutionAdmissionController:
                 return "admitted"
             if run_now:
                 for waiting in self._queue:
-                    if waiting.routine_id == rid:
+                    if waiting.kind == "routine" and waiting.routine_id == rid:
                         waiting.run_now = True
                         return "queued"
             if len(self._queue) < self._queue_limit:
@@ -214,9 +240,86 @@ class ExecutionAdmissionController:
         """Where a routine's queued fire stands, 1 for next; None when not queued."""
         with self._lock:
             for at, waiting in enumerate(self._queue, start=1):
-                if waiting.routine_id == int(routine_id):
+                if waiting.kind == "routine" and waiting.routine_id == int(routine_id):
                     return at
         return None
+
+    def admit_manual(
+        self, ticket: str, start: Callable[[int], None], info: Optional[dict] = None,
+    ) -> ManualAdmission:
+        """Start a manual run now, queue it for the next free slot, or refuse it.
+
+        ``admitted`` is the caller's to start at once, as a manual run always
+        started: its slot is claimed by ``note_admitted`` on its own thread.
+        ``queued`` means ``start`` will be called with a reservation when a
+        slot frees, in the order it joined. ``full`` means the queue holds as
+        many as it allows, and nothing was queued.
+        """
+        with self._lock:
+            if len(self._active) < self._max:
+                return "admitted"
+            if len(self._queue) < self._queue_limit:
+                self._queue.append(_Waiting(
+                    None, "", True,
+                    datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                    ticket=str(ticket), kind="manual", info=dict(info or {}), start=start,
+                ))
+                logger.info("Admission at its cap; queued a manual run (depth=%d)", len(self._queue))
+                return "queued"
+            return "full"
+
+    def ticket_position(self, ticket: str) -> Optional[int]:
+        """Where the queued run with this ticket stands, 1 for next; None when not queued."""
+        with self._lock:
+            for at, waiting in enumerate(self._queue, start=1):
+                if waiting.ticket == ticket:
+                    return at
+        return None
+
+    def withdraw(self, ticket: str) -> Optional[str]:
+        """Take a queued run out of the queue, by its ticket.
+
+        Returns the kind of what was withdrawn (``manual``), ``routine`` for a
+        routine's fire, which is left where it is (a watch's run is stopped
+        by pausing the watch), or None when nothing with that ticket waits.
+        """
+        with self._lock:
+            for waiting in self._queue:
+                if waiting.ticket != ticket:
+                    continue
+                if waiting.kind != "manual":
+                    return "routine"
+                self._queue.remove(waiting)
+                return "manual"
+        return None
+
+    def waiting(self) -> list[dict]:
+        """What waits in the queue, in order: each entry's kind, place, and what it is.
+
+        A plain copy, read under the lock; ``start`` is never handed out.
+        """
+        with self._lock:
+            return [
+                {
+                    "ticket": waiting.ticket,
+                    "kind": "watch" if waiting.kind == "routine" else "manual",
+                    "position": at,
+                    "queued_at": waiting.queued_at,
+                    "routine_id": waiting.routine_id,
+                    "run_now": waiting.run_now if waiting.kind == "routine" else None,
+                    **waiting.info,
+                }
+                for at, waiting in enumerate(self._queue, start=1)
+            ]
+
+    def release_reservation(self, token: int) -> None:
+        """A drained manual run's own id is active now: drop its placeholder, draining nothing.
+
+        Its slot is still taken, by the run, so nothing new may start for it.
+        A token not held (already released) is ignored.
+        """
+        with self._lock:
+            self._active.discard(int(token))
 
     def note_admitted(self, exec_id: int) -> None:
         """Record a freshly-known exec_id as active. Idempotent."""
@@ -244,25 +347,50 @@ class ExecutionAdmissionController:
         """
         drained: Optional[_Waiting] = None
         dispatcher: Optional[Callable[..., None]] = None
+        reservation: Optional[int] = None
         with self._lock:
             was_active = int(exec_id) in self._active
             self._active.discard(int(exec_id))
-            if (
-                was_active
-                and self._queue
-                and len(self._active) < self._max
-                and self._dispatcher is not None
-            ):
-                drained = self._queue.popleft()
-                dispatcher = self._dispatcher
+            if was_active and self._queue and len(self._active) < self._max:
+                # A manual run brings its own start; a routine fire needs the
+                # dispatcher, and waits for one where none is installed yet.
+                if self._queue[0].kind == "manual":
+                    drained = self._queue.popleft()
+                    reservation = next(self._reservations)
+                    self._active.add(reservation)
+                elif self._dispatcher is not None:
+                    drained = self._queue.popleft()
+                    dispatcher = self._dispatcher
 
-        if drained is not None and dispatcher is not None:
+        if drained is not None:
+            self._hand_over(drained, dispatcher, reservation)
+
+    def _hand_over(
+        self, drained: _Waiting, dispatcher: Optional[Callable[..., None]], reservation: Optional[int],
+    ) -> None:
+        """Start a drained run on a fresh daemon thread, so the caller never waits on it."""
+        if drained.kind == "manual":
+            threading.Thread(
+                target=self._safe_start, args=(drained, reservation),
+                daemon=True, name=f"admission-drain-manual-{drained.ticket[:8]}",
+            ).start()
+        elif dispatcher is not None:
             threading.Thread(
                 target=self._safe_dispatch,
                 args=(dispatcher, drained),
                 daemon=True,
                 name=f"admission-drain-routine-{drained.routine_id}",
             ).start()
+
+    def _safe_start(self, waiting: _Waiting, reservation: Optional[int]) -> None:
+        """Run a drained manual run's ``start``; on failure give its slot back, which drains the next."""
+        try:
+            assert waiting.start is not None
+            waiting.start(int(reservation) if reservation is not None else 0)
+        except Exception:
+            logger.exception("Queued manual run %s could not start", waiting.ticket)
+            if reservation is not None:
+                self.note_finished(reservation)
 
     @staticmethod
     def _safe_dispatch(dispatcher: Callable[..., None], waiting: _Waiting) -> None:
@@ -280,16 +408,15 @@ class ExecutionAdmissionController:
         runs on a daemon thread for symmetry with ``note_finished``.
         """
         while True:
+            reservation: Optional[int] = None
             with self._lock:
                 if not self._queue or len(self._active) >= self._max:
                     return
                 waiting = self._queue.popleft()
-            threading.Thread(
-                target=self._safe_dispatch,
-                args=(dispatch_fn, waiting),
-                daemon=True,
-                name=f"admission-drain-routine-{waiting.routine_id}",
-            ).start()
+                if waiting.kind == "manual":
+                    reservation = next(self._reservations)
+                    self._active.add(reservation)
+            self._hand_over(waiting, dispatch_fn, reservation)
 
 
 class RoutineAlreadyRunning(Exception):

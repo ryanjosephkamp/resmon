@@ -193,7 +193,12 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
   '/search/ask': {
     rows: ['J01', 'J02', 'J18', 'J38', 'J19', 'J29', 'J22'],
     why: 'Ask the sources is where a dive or a sweep starts, with every source and its limits; its '
-      + 'run log opens each run\'s live progress, outcomes, report, and Restart.',
+      + 'column of the newest runs opens each run\'s live progress, outcomes, report, and Restart.',
+  },
+  '/runs': {
+    rows: ['J18', 'J19', 'J38'],
+    why: 'Every run in one place: the runs going now, live, with Stop; those waiting for a free slot; and '
+      + 'the history, whose selection exports, bundles, and deletes, and whose rows restart a run that stopped.',
   },
   '/search/saved': { rows: ['J21'] },
   '/search/wording': { rows: ['J49'] },

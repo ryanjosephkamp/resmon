@@ -273,7 +273,11 @@ app.on('window-all-closed', () => app.quit());
     selectedAnswer: (project, answerId) => answerOf(project, answerId),
     sourceWall: () => session.api<StoredSourceWall>('GET', '/api/coverage/source-wall?limit=12'),
     // — the Atlas interface: facts any renderer can read ---------------------
-    appearance: () => session.api('GET', '/api/appearance'),
+    // The theme and the accent: the run monitor's switch, kept beside them, is not this journey's.
+    appearance: async () => {
+      const kept = await session.api<{ theme: 'system' | 'light' | 'dark'; accent: string | null }>('GET', '/api/appearance');
+      return { theme: kept.theme, accent: kept.accent };
+    },
     collectionMap: () => session.api('GET', '/api/map'),
     today: () => session.api('GET', '/api/today'),
     sharedWording: () => session.api('GET', '/api/shared-wording'),

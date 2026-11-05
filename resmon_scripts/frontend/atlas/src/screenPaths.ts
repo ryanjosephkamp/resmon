@@ -27,6 +27,7 @@ export const SCREEN_PATHS: readonly ScreenPath[] = [
   { path: '/search/ask', name: 'Search › Ask the sources' },
   { path: '/search/saved', name: 'Search › Saved' },
   { path: '/search/wording', name: 'Search › Shared wording' },
+  { path: '/runs', name: 'Runs' },
   { path: '/library', name: 'Library › Reading queue' },
   { path: '/library/files', name: 'Library › Your files' },
   { path: '/library/evidence', name: 'Library › Evidence' },

@@ -560,8 +560,10 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "Conservative by design. Do not drop the delay. When arXiv answers "
             "429 or 503, resmon waits and asks again: 5 seconds, doubling, or "
             "longer when arXiv's Retry-After asks for longer, up to three minutes "
-            "of waiting in one search. A run that still gets 429 or 503 records "
-            "how many attempts it made and how long it waited."
+            "of waiting in one search. A watch's scheduled run, which nobody is "
+            "waiting on, waits up to fifteen minutes, no single wait longer than "
+            "five. A run that still gets 429 or 503 records how many attempts it "
+            "made and how long it waited."
         ),
         # arXiv's own default between bare words is OR, measured October 30,
         # 2026 (`_search_query` in api_arxiv.py has the figures). The AND is

@@ -1550,7 +1550,18 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Executions */
+        /**
+         * List Executions
+         * @description The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
+         *
+         *     ``type`` and ``status`` each take one value or several, comma-separated
+         *     (``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``
+         *     matches a run's terms, its sources, its watch's or saved search's name,
+         *     or its number. ``omit_events`` leaves each row's stored
+         *     ``progress_events`` out (null): the Runs tab lists runs and reads a run's
+         *     events only on its own page. The total is a header, so the body stays
+         *     the list every reader of this route already reads.
+         */
         get: operations["list_executions_api_executions_get"];
         put?: never;
         post?: never;
@@ -1567,7 +1578,15 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Active Executions */
+        /**
+         * Active Executions
+         * @description The runs this engine is running, each with its search and its events, and the queue.
+         *
+         *     For the Runs tab's Running now and Waiting, read every two seconds while
+         *     anything runs or waits. A run is here from the moment it is registered
+         *     until its thread has finished with it; a run another engine is running
+         *     is not, and the run log lists it as running.
+         */
         get: operations["active_executions_api_executions_active_get"];
         put?: never;
         post?: never;
@@ -1624,6 +1643,53 @@ export interface paths {
          */
         post: operations["export_executions_api_executions_export_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/seen": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark Runs Seen
+         * @description The run monitor's panel was opened: every run that has failed until now is seen.
+         *
+         *     Clears the monitor's red mark (``failed_unseen`` on ``/active``) until a
+         *     run fails again. Nothing about any run changes.
+         */
+        post: operations["mark_runs_seen_api_executions_seen_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/waiting/{ticket}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Withdraw Waiting Run
+         * @description Take a run that waits for a free slot out of the queue, before it starts.
+         *
+         *     Only a run asked for by hand: a watch's fire runs as its watch says, and
+         *     is stopped by pausing the watch. A run that has already started is not
+         *     waiting any more (404), and is stopped from its own page.
+         */
+        delete: operations["withdraw_waiting_run_api_executions_waiting__ticket__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1815,7 +1881,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Execution Progress Events */
+        /**
+         * Get Execution Progress Events
+         * @description The run's progress events, from the ``since``-th on (0, every one).
+         *
+         *     A running run's page reads only the events it has not seen: a sweep's
+         *     heartbeat adds one event every two seconds for each source still being
+         *     asked, and reading the whole list every second read it again and again.
+         *     The list only grows while the run runs, and once it has ended the
+         *     persisted list is the same list, so an index into one is an index into
+         *     the other.
+         */
         get: operations["get_execution_progress_events_api_executions__exec_id__progress_events_get"];
         put?: never;
         post?: never;
@@ -1899,6 +1975,21 @@ export interface paths {
          *
          *     The source row is never touched. Its history is what happened, and a
          *     restart is a second thing that happened, not a correction of the first.
+         *
+         *     ``again`` asks for a completed run's search once more (Run again, on the
+         *     Runs tab); without it only an interrupted, failed or cancelled run is
+         *     restarted. At the run limit the new run waits in the queue
+         *     (``_start_or_queue``) and its row is written only when it starts: the
+         *     answer then carries no execution id, ``queued``, and its place.
+         *
+         *     **A watch's run is never run alongside its watch.** Restart or Run again
+         *     on a watch's run is that watch's Run now (``run_routine_now``): the
+         *     watch's claim, its queue, a paused watch run once, and delivery as it is
+         *     set, with the watch's current settings rather than the old run's copy,
+         *     and refused with the run that holds the watch when it is already running,
+         *     since two runs of one watch would both deliver and email. The new run is
+         *     the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+         *     Dive's or Deep Sweep's run is copied, as below.
          */
         post: operations["restart_execution_api_executions__exec_id__restart_post"];
         delete?: never;
@@ -3250,7 +3341,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Search Dive */
+        /**
+         * Search Dive
+         * @description Start a Deep Dive, or queue it when resmon runs as many as it allows (202).
+         */
         post: operations["search_dive_api_search_dive_post"];
         delete?: never;
         options?: never;
@@ -3284,7 +3378,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Search Sweep */
+        /**
+         * Search Sweep
+         * @description Start a Deep Sweep, or queue it when resmon runs as many as it allows (202).
+         */
         post: operations["search_sweep_api_search_sweep_post"];
         delete?: never;
         options?: never;
@@ -3873,12 +3970,79 @@ export interface components {
             purpose?: string | null;
         };
         /**
+         * ActiveRun
+         * @description A run this engine is running now, with its search and its events so far.
+         *
+         *     ``events`` is the run's progress events with the repeating ones folded to
+         *     their latest: each source's newest heartbeat, and the newest count of the
+         *     papers linked, embedded or summarized. Every event that changes a source's
+         *     or the run's state is kept, in order, so a reader folds them as it folds
+         *     the whole list (``/progress/events``).
+         */
+        ActiveRun: {
+            /** Current Stage */
+            current_stage: string | null;
+            /** Events */
+            events: {
+                [key: string]: unknown;
+            }[];
+            /** Execution Type */
+            execution_type: string;
+            /** Id */
+            id: number;
+            /** Keywords */
+            keywords: string[] | null;
+            /** Query */
+            query: string | null;
+            /** Repositories */
+            repositories: string[] | null;
+            /** Request Id */
+            request_id: string | null;
+            /** Restarted From */
+            restarted_from: number | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Saved Configuration Id */
+            saved_configuration_id: number | null;
+            /** Start Time */
+            start_time: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ActiveRuns
-         * @description ``GET /api/executions/active``: the runs this backend is running now.
+         * @description ``GET /api/executions/active``: the runs this backend is running now, and those waiting.
+         *
+         *     ``active_ids`` is the running runs' ids, as it always was. ``running`` is
+         *     each of them in the order it started; ``waiting`` the queue, next first.
+         *     ``max_concurrent`` and ``queue_limit`` are the limits Settings › In the
+         *     background sets, as this engine holds them. ``failed_unseen`` is the runs
+         *     that failed since the run monitor's panel was last opened (``seen_at``,
+         *     null before it ever was; failures since this engine started count then),
+         *     newest first, at most 20. ``newest_run_id`` and ``last_ended_at`` are the
+         *     newest run's id and the latest any run ended (null with no runs): a
+         *     reader that lists runs reads again when either changes, which catches a
+         *     run that started and ended between two reads of this route.
          */
         ActiveRuns: {
             /** Active Ids */
             active_ids: number[];
+            /** Failed Unseen */
+            failed_unseen: number[];
+            /** Last Ended At */
+            last_ended_at: string | null;
+            /** Max Concurrent */
+            max_concurrent: number;
+            /** Newest Run Id */
+            newest_run_id: number | null;
+            /** Queue Limit */
+            queue_limit: number;
+            /** Running */
+            running: components["schemas"]["ActiveRun"][];
+            /** Seen At */
+            seen_at: string | null;
+            /** Waiting */
+            waiting: components["schemas"]["WaitingRun"][];
         } & {
             [key: string]: unknown;
         };
@@ -4158,6 +4322,8 @@ export interface components {
         Appearance: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor: boolean;
             /**
              * Theme
              * @enum {string}
@@ -4168,11 +4334,17 @@ export interface components {
         };
         /**
          * AppearanceBody
-         * @description The whole appearance, every time: a PUT replaces both values.
+         * @description The whole appearance, every time: a PUT replaces the theme and the accent.
+         *
+         *     ``run_monitor`` (Settings › Appearance, "Show the run monitor in the top
+         *     bar") is stored when it is sent and left as it is when it is not, so a
+         *     caller that knows only the theme and the accent changes only those.
          */
         AppearanceBody: {
             /** Accent */
             accent: string | null;
+            /** Run Monitor */
+            run_monitor?: boolean | null;
             /**
              * Theme
              * @enum {string}
@@ -8528,6 +8700,11 @@ export interface components {
          *     do exactly that.
          */
         RestartRequest: {
+            /**
+             * Again
+             * @default false
+             */
+            again: boolean;
             /** Request Id */
             request_id?: string | null;
         };
@@ -9624,17 +9801,27 @@ export interface components {
         /**
          * RunRestarted
          * @description ``POST /api/executions/{exec_id}/restart``: a new run with the old one's
-         *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``.
+         *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
+         *     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
+         *     ``queue_position``, its ``ticket``, and a ``detail``.
          */
         RunRestarted: {
             /** Ai Enabled */
             ai_enabled: boolean;
+            /** Detail */
+            detail?: string | null;
             /** Duplicate */
             duplicate?: boolean | null;
             /** Execution Id */
-            execution_id: number;
+            execution_id: number | null;
+            /** Queue Position */
+            queue_position?: number | null;
+            /** Queued */
+            queued?: boolean | null;
             /** Restarted From */
             restarted_from: number | null;
+            /** Ticket */
+            ticket?: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -9746,12 +9933,36 @@ export interface components {
          *     ``duplicate`` is present only when ``request_id`` matched a submission
          *     already made, and the id is that earlier run's: a retried click starts
          *     nothing new. Absent rather than ``false`` on a first submission.
+         *
+         *     At the run limit the run waits for a free slot (HTTP 202): there is no
+         *     ``execution_id`` yet, ``queued`` is true, ``queue_position`` is its place
+         *     (1 for next), and ``ticket`` names it in ``GET /api/executions/active``'s
+         *     ``waiting`` and in the ``request_id`` its row carries once it starts.
+         *     ``detail`` says so in a sentence.
          */
         RunStarted: {
+            /** Detail */
+            detail?: string | null;
             /** Duplicate */
             duplicate?: boolean | null;
             /** Execution Id */
-            execution_id: number;
+            execution_id: number | null;
+            /** Queue Position */
+            queue_position?: number | null;
+            /** Queued */
+            queued?: boolean | null;
+            /** Ticket */
+            ticket?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunsSeen
+         * @description ``POST /api/executions/seen``: when the run monitor's panel was opened, as stored.
+         */
+        RunsSeen: {
+            /** Seen At */
+            seen_at: string;
         } & {
             [key: string]: unknown;
         };
@@ -11471,6 +11682,58 @@ export interface components {
             extension: string | null;
             /** Reason */
             reason: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * WaitingRun
+         * @description A run waiting for a free slot, in the order it will start.
+         *
+         *     ``kind`` is ``watch`` (a watch's fire, scheduled or Run now) or ``manual``
+         *     (a Deep Dive, a Deep Sweep, a restart, or a run asked for again).
+         *     ``queued_at`` is when it joined the queue (for a scheduled fire, when it
+         *     came due). ``run_now`` is set for a watch's fire only. A manual run also
+         *     says its search: ``execution_type``, ``query``, ``keywords`` and
+         *     ``repositories``, and ``restarted_from`` when it repeats a run.
+         */
+        WaitingRun: {
+            /** Execution Type */
+            execution_type?: string | null;
+            /** Keywords */
+            keywords?: string[] | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "watch" | "manual";
+            /** Position */
+            position: number;
+            /** Query */
+            query?: string | null;
+            /** Queued At */
+            queued_at: string;
+            /** Repositories */
+            repositories?: string[] | null;
+            /** Restarted From */
+            restarted_from?: number | null;
+            /** Routine Id */
+            routine_id: number | null;
+            /** Run Now */
+            run_now: boolean | null;
+            /** Ticket */
+            ticket: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * WaitingWithdrawn
+         * @description ``DELETE /api/executions/waiting/{ticket}``: the run is out of the queue and will not start.
+         */
+        WaitingWithdrawn: {
+            /** Ticket */
+            ticket: string;
+            /** Withdrawn */
+            withdrawn: boolean;
         } & {
             [key: string]: unknown;
         };
@@ -14567,6 +14830,9 @@ export interface operations {
                 offset?: number;
                 type?: string | null;
                 routine_id?: number | null;
+                status?: string | null;
+                q?: string | null;
+                omit_events?: boolean;
             };
             header?: never;
             path?: never;
@@ -14577,6 +14843,8 @@ export interface operations {
             /** @description Successful Response */
             200: {
                 headers: {
+                    /** @description How many runs match the filters, however many this page holds. */
+                    "X-Resmon-Total"?: number;
                     [name: string]: unknown;
                 };
                 content: {
@@ -14667,6 +14935,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    mark_runs_seen_api_executions_seen_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunsSeen"];
+                };
+            };
+        };
+    };
+    withdraw_waiting_run_api_executions_waiting__ticket__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                ticket: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WaitingWithdrawn"];
                 };
             };
             /** @description Validation Error */
@@ -14936,7 +15255,9 @@ export interface operations {
     };
     get_execution_progress_events_api_executions__exec_id__progress_events_get: {
         parameters: {
-            query?: never;
+            query?: {
+                since?: number;
+            };
             header?: never;
             path: {
                 exec_id: number;

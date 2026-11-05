@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import { SECTIONS, SETTINGS } from '../routes';
 import { Icon } from './Icon';
-import { COMMAND_ENTER_CHORD, FIND_CHORD, keysText, sectionIndex, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
+import { COMMAND_ENTER_CHORD, FIND_CHORD, keysText, sectionPath, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
 
 /** What each shortcut does, in the words the sheet uses. Sections are named from the route table. */
 const SAYS: Partial<Record<ShortcutId, string>> = {
@@ -24,15 +24,15 @@ const COLUMNS: readonly (readonly { title: string; ids: readonly ShortcutId[] }[
     { title: 'Reading a file', ids: [] },
   ],
   [
-    { title: 'Go to', ids: ['section-1', 'section-2', 'section-3', 'section-4', 'section-5', 'section-6', 'settings'] },
+    { title: 'Go to', ids: ['section-1', 'section-2', 'section-3', 'section-7', 'section-4', 'section-5', 'section-6', 'settings'] },
     { title: 'Anywhere', ids: ['palette', 'shortcuts'] },
   ],
 ];
 
 /** The words for a shortcut: what it does, from the table above or the section it opens. */
 export function shortcutWords(id: ShortcutId): string {
-  const index = sectionIndex(id);
-  return index === null ? SAYS[id] ?? id : SECTIONS[index]?.label ?? id;
+  const path = sectionPath(id);
+  return path === null ? SAYS[id] ?? id : SECTIONS.find((section) => section.path === path)?.label ?? id;
 }
 
 function Keys({ shortcut, mac }: { shortcut: Shortcut; mac: boolean }) {

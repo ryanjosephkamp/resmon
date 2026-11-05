@@ -288,7 +288,7 @@ would make an honest product dishonest through an integration.
 
 | Tool | Arguments | Returns | Backed by |
 |---|---|---|---|
-| `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `execution_id`, immediately | `POST /api/search/sweep` |
+| `run_sweep` | `query`, `sources`, `date_from?`, `date_to?`, `max_results?`, `ai_enabled?` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position`, a `ticket` (the `request_id` its run carries once it starts) and `execution_id: null` instead, the sweep starting on its own when a slot frees; a `conflict` error when the queue is full as well | `POST /api/search/sweep` |
 | `create_routine` | `name`, `keywords`, `sources`, `schedule`, optional `intent`, optional `entity` (`profile_id` + `mode`), plus optional notification and AI settings | the created routine, plus `entity_warning` where none of the named sources can be asked about an author | `POST /api/routines` |
 | `create_watch_profile` | `name`, optional `orcid`, `orcid_cited`, `aliases`, `affiliations`, `field_hints` | the created profile, with `basis_warning` **lifted to the top of the answer** when it has no identifier | `POST /api/profiles` |
 | `run_routine` | `routine_id` | `execution_id`, immediately; at resmon's run limit, `queued: true`, `queue_position` and `execution_id: null` instead, the run starting on its own when a slot frees; or a `conflict` error carrying `{"conflict": "routine_already_running", "execution_id": N}` when that routine is already running, and a `conflict` error when the queue is full as well | `POST /api/routines/{id}/run` |

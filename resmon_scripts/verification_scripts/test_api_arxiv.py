@@ -20,6 +20,7 @@ replaced by a recorder so no test sleeps.
 
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -29,6 +30,9 @@ import pytest
 
 from implementation_scripts import api_arxiv, api_base, config, zero_reason
 from implementation_scripts.api_base import NormalizedResult, ServerCooldownActive
+
+# The real wait, before the fixture below replaces it with one that records.
+_REAL_WAIT = api_arxiv._wait
 
 _FEED_OPEN = "<feed xmlns='http://www.w3.org/2005/Atom'>"
 _EMPTY_FEED = _FEED_OPEN + "</feed>"
@@ -386,6 +390,117 @@ def test_the_patience_is_one_budget_for_the_whole_search(arxiv):
 
 
 # ---------------------------------------------------------------------------
+# A watch's scheduled run, which nobody is waiting on, waits longer
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def unattended(arxiv, monkeypatch):
+    """The search as the engine starts it for a watch's scheduled run."""
+    monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS", raising=False)
+    monkeypatch.delenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", raising=False)
+    api_base.search_outcome().unattended = True
+    return arxiv
+
+
+def test_a_scheduled_run_waits_out_fifteen_minutes_and_no_wait_is_longer_than_five(unattended):
+    """November 4, 2026: three minutes of 429 at midnight failed a watch; a scheduled run now waits longer."""
+    unattended.otherwise = (429, {}, "")
+
+    assert _search() == []
+
+    # 5 + 10 + 20 + 40 + 80 + 160 + 300 = 615 seconds, the doubling held at
+    # five minutes; the next 300 would pass fifteen, so the eighth answer stands.
+    assert unattended.waits == [5.0, 10.0, 20.0, 40.0, 80.0, 160.0, 300.0]
+    assert unattended.hits == 8
+    reason, detail = zero_reason.derive(api_base.search_outcome().snapshot())
+    assert (reason, detail) == ("upstream_failure", {
+        "detail": "rate_limited", "status": 429, "attempts": 8,
+        "waited_seconds": 615,
+    })
+
+
+def test_a_scheduled_run_that_arxiv_answers_after_ten_minutes_has_its_papers(unattended):
+    unattended.script = [(429, {}, "")] * 7
+
+    assert [r.external_id for r in _search()] == ["2410.00001v1"]
+    assert sum(unattended.waits) == 615.0
+
+
+def test_a_scheduled_run_honors_retry_after_up_to_five_minutes_a_wait(unattended):
+    """Retry-After 300 three times is 900 seconds, all of the budget; an hour is not waited for."""
+    unattended.script = [(429, {"Retry-After": "300"}, "")] * 3
+
+    assert len(_search()) == 1
+    assert unattended.waits == [300.0, 300.0, 300.0]
+
+    api_base.reset_search_outcome()
+    api_base.search_outcome().unattended = True
+    unattended.waits.clear()
+    unattended.otherwise = (429, {"Retry-After": "301"}, "")
+    assert _search() == []
+    assert unattended.waits == []
+
+
+def test_a_cooldown_longer_than_five_minutes_is_not_waited_by_a_scheduled_run(unattended):
+    unattended.limiter.cooldown = 400.0
+
+    assert _search() == []
+    assert unattended.waits == []
+    assert unattended.hits == 0
+
+
+def test_a_run_a_person_started_keeps_three_minutes(arxiv, monkeypatch):
+    monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS", raising=False)
+    patience = api_arxiv._Patience()
+    assert (patience.unattended, patience.budget, patience.longest) == (False, 180.0, None)
+    assert patience.allows(170.0)       # one long Retry-After, inside three minutes
+    assert not patience.allows(181.0)
+
+
+def test_each_budget_has_its_own_seam_that_only_shortens_it(monkeypatch):
+    monkeypatch.setenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", "8")
+    monkeypatch.setenv("RESMON_ARXIV_PATIENCE_SECONDS", "1000")
+    assert api_arxiv._patience_seconds(unattended=True) == 8.0
+    assert api_arxiv._patience_seconds() == 180.0
+    assert api_arxiv._Patience(unattended=True).budget == 8.0
+    monkeypatch.setenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", "5000")
+    assert api_arxiv._patience_seconds(unattended=True) == 900.0
+    monkeypatch.setenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", "soon")
+    assert api_arxiv._patience_seconds(unattended=True) == 900.0
+
+
+def test_only_a_watchs_scheduled_fire_is_unattended(app_client, monkeypatch, tmp_path):
+    """Followed from the fire to the arXiv client: a scheduled fire waits longer; Run now and a search do not."""
+    import resmon as resmon_mod  # noqa: PLC0415
+    from implementation_scripts import database  # noqa: PLC0415
+
+    monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS", raising=False)
+    monkeypatch.delenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", raising=False)
+    made: list[tuple] = []
+    real = api_arxiv._Patience.__init__
+
+    def noting(self, unattended=None):
+        real(self, unattended)
+        made.append((self.unattended, self.budget, self.longest))
+
+    monkeypatch.setattr(api_arxiv._Patience, "__init__", noting)
+    parameters = json.dumps({"repositories": ["arxiv"], "keywords": ["graphs"], "query": "graphs", "max_results": 5})
+    watch = database.insert_routine(resmon_mod._get_db(), {
+        "name": "Graphs at midnight", "schedule_cron": "0 0 * * *", "is_active": 1, "parameters": parameters,
+    })
+
+    _asked_of_arxiv(app_client, monkeypatch, tmp_path, lambda: resmon_mod._dispatch_routine_fire(watch, parameters))
+    _asked_of_arxiv(app_client, monkeypatch, tmp_path,
+                    lambda: app_client.post(f"/api/routines/{watch}/run").json()["execution_id"])
+    _asked_of_arxiv(app_client, monkeypatch, tmp_path, lambda: app_client.post("/api/search/sweep", json={
+        "repositories": ["arxiv"], "query": "graphs", "keywords": ["graphs"], "max_results": 5,
+    }).json()["execution_id"])
+
+    assert made == [(True, 900.0, 300.0), (False, 180.0, None), (False, 180.0, None)]
+
+
+# ---------------------------------------------------------------------------
 # Live
 # ---------------------------------------------------------------------------
 
@@ -453,3 +568,32 @@ def test_a_stand_in_for_arxiv_can_shorten_its_patience(monkeypatch):
     assert api_arxiv._patience_seconds() == 180.0
     monkeypatch.delenv("RESMON_ARXIV_PATIENCE_SECONDS")
     assert api_arxiv._patience_seconds() == 180.0
+
+
+def test_a_cancelled_runs_search_stops_waiting_and_asks_arxiv_nothing_more(arxiv, monkeypatch):
+    """A watch's scheduled run may wait minutes for arXiv; once the run is cancelled, the wait ends at once."""
+    monkeypatch.setattr(api_arxiv, "_wait", _REAL_WAIT)
+    arxiv.script = [(429, {}, "")] * 10
+    seen: dict = {}
+
+    def search() -> None:
+        api_base.reset_search_outcome()
+        outcome = api_base.search_outcome()
+        outcome.unattended = True
+        seen["outcome"] = outcome
+        seen["results"] = _search()
+
+    thread = threading.Thread(target=search, daemon=True)
+    began = time.monotonic()
+    thread.start()
+    until = time.monotonic() + 5
+    while time.monotonic() < until and (seen.get("outcome") is None or seen["outcome"].waiting is None):
+        time.sleep(0.01)
+    assert seen["outcome"].waiting is not None, "the search never began its first wait"
+    seen["outcome"].stop.set()                 # what the engine does when the run is cancelled
+    thread.join(timeout=5)
+
+    assert not thread.is_alive()
+    assert time.monotonic() - began < 4        # the first wait alone is five seconds
+    assert seen["results"] == []
+    assert arxiv.hits == 1                     # nothing was asked after the cancel
