@@ -18,7 +18,7 @@ import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar
+from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar, get_args
 
 import httpx
 
@@ -30,7 +30,7 @@ from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Response
 from starlette.requests import Request
 from starlette.responses import FileResponse, Response, StreamingResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from implementation_scripts import backup as backup_module
 from implementation_scripts import api_auth, runtime_identity, library, library_export, library_text, evidence, evidence_reader, evidence_export
@@ -6996,6 +6996,122 @@ def update_appearance(body: AppearanceBody):
         if body.run_monitor is not None:
             set_setting(conn, _APPEARANCE_RUN_MONITOR_KEY, "1" if body.run_monitor else "0")
         return _read_appearance(conn)
+    finally:
+        _close_db(conn)
+
+
+# ---------------------------------------------------------------------------
+# The top bar: its sections' order, the ones it hides, and where a window opens
+# ---------------------------------------------------------------------------
+#
+# In the engine for the appearance's reason, and outside ``_SETTINGS_GROUPS`` for
+# the same one: how the window is arranged is the person's to change in Settings,
+# so ``update_settings`` has no path to it.
+#
+# Hiding a section takes it out of the bar and nothing more: its address, its
+# shortcut, and the command palette still open it, and Settings is not a section
+# here, so it cannot be hidden.
+#
+# An order is kept whole. One a build stored before a section existed gets that
+# section back after the section it follows by default, shown, so a section a
+# newer build adds is never lost to an arrangement an older one saved. A name the
+# engine does not know (from a newer build, or a hand edit) is dropped on reading
+# rather than handed to an interface that has no screen for it.
+
+_TOP_BAR_SECTIONS: tuple[str, ...] = get_args(response_models.TopBarSection)
+_TOP_BAR_PAGES: tuple[str, ...] = get_args(response_models.TopBarPage)
+_TOP_BAR_ORDER_KEY = "ui_top_bar_order"
+_TOP_BAR_HIDDEN_KEY = "ui_top_bar_hidden"
+_TOP_BAR_START_KEY = "ui_start_page"
+_TOP_BAR_LOCKUP_KEY = "ui_lockup_page"
+_TOP_BAR_DEFAULT_START = "/today"
+
+
+def _top_bar_order(names: Iterable[str]) -> list[str]:
+    """The sections in ``names``' order, the unknown and repeated dropped, every missing one put back.
+
+    A missing section goes after the section that comes before it in the default
+    order, or first if none does; the missing ones are placed in default order,
+    so two that were added together keep their order too.
+    """
+    order: list[str] = []
+    for name in names:
+        if name in _TOP_BAR_SECTIONS and name not in order:
+            order.append(name)
+    for index, name in enumerate(_TOP_BAR_SECTIONS):
+        if name in order:
+            continue
+        before = next((p for p in reversed(_TOP_BAR_SECTIONS[:index]) if p in order), None)
+        order.insert(order.index(before) + 1 if before else 0, name)
+    return order
+
+
+def _stored_names(conn, key: str) -> list[str]:
+    """A stored JSON list of names; anything else, and nothing stored, reads as an empty list."""
+    try:
+        value = json.loads(str(get_setting(conn, key) or "[]"))
+    except (TypeError, ValueError):
+        return []
+    return [str(v) for v in value if isinstance(v, str)] if isinstance(value, list) else []
+
+
+def _read_top_bar(conn) -> dict:
+    order = _top_bar_order(_stored_names(conn, _TOP_BAR_ORDER_KEY))
+    hidden = set(_stored_names(conn, _TOP_BAR_HIDDEN_KEY))
+    start = str(get_setting(conn, _TOP_BAR_START_KEY) or "")
+    lockup = str(get_setting(conn, _TOP_BAR_LOCKUP_KEY) or "")
+    return {
+        "order": order,
+        "hidden": [name for name in order if name in hidden],
+        "start": start if start in _TOP_BAR_PAGES else _TOP_BAR_DEFAULT_START,
+        "lockup": lockup if lockup in _TOP_BAR_PAGES else None,
+    }
+
+
+class TopBarBody(BaseModel):
+    """The whole arrangement, every time: a PUT replaces all four.
+
+    ``order`` may leave sections out, and they are put back where they go by
+    default; it may not name one twice, and neither may ``hidden``. A section
+    or a page the engine does not know is refused.
+    """
+
+    order: list[response_models.TopBarSection]
+    hidden: list[response_models.TopBarSection]
+    start: response_models.TopBarPage
+    lockup: Optional[response_models.TopBarPage] = Field(...)
+
+    @field_validator("order", "hidden")
+    @classmethod
+    def _each_once(cls, names: list[str]) -> list[str]:
+        repeated = sorted({name for name in names if names.count(name) > 1})
+        if repeated:
+            raise ValueError(f"names {', '.join(repeated)} more than once")
+        return names
+
+
+@app.get("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def get_top_bar():
+    """The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes."""
+    conn = _get_db()
+    try:
+        return _read_top_bar(conn)
+    finally:
+        _close_db(conn)
+
+
+@app.put("/api/top-bar", response_model=response_models.TopBar,
+         response_model_exclude_unset=True)
+def update_top_bar(body: TopBarBody):
+    """Store the whole arrangement, and answer it as it was stored."""
+    conn = _get_db()
+    try:
+        set_setting(conn, _TOP_BAR_ORDER_KEY, json.dumps(_top_bar_order(body.order)))
+        set_setting(conn, _TOP_BAR_HIDDEN_KEY, json.dumps(list(body.hidden)))
+        set_setting(conn, _TOP_BAR_START_KEY, body.start)
+        set_setting(conn, _TOP_BAR_LOCKUP_KEY, body.lockup or "")
+        return _read_top_bar(conn)
     finally:
         _close_db(conn)
 

@@ -18695,6 +18695,203 @@
         "title": "TodayWatch",
         "type": "object"
       },
+      "TopBar": {
+        "additionalProperties": true,
+        "description": "``GET`` and ``PUT /api/top-bar``: how the top bar is arranged.\n\n``order`` names all seven sections, always: one an older build's stored\norder lacked is put back after the section it follows by default.\n``hidden`` is the ones the bar leaves out, in that order; a hidden section\nstill has its address and its shortcut. ``start`` is the page a launch and\na new window open on, and ``lockup`` is where the resmon name goes, null\nwhen it goes to the start page.",
+        "properties": {
+          "hidden": {
+            "items": {
+              "enum": [
+                "today",
+                "watches",
+                "search",
+                "runs",
+                "library",
+                "ask",
+                "health"
+              ],
+              "type": "string"
+            },
+            "title": "Hidden",
+            "type": "array"
+          },
+          "lockup": {
+            "anyOf": [
+              {
+                "enum": [
+                  "/today",
+                  "/watches",
+                  "/watches/calendar",
+                  "/watches/people",
+                  "/search",
+                  "/search/ask",
+                  "/search/saved",
+                  "/search/wording",
+                  "/runs",
+                  "/library",
+                  "/library/files",
+                  "/library/evidence",
+                  "/ask",
+                  "/health",
+                  "/health/watchdog",
+                  "/health/analytics",
+                  "/health/engine"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lockup"
+          },
+          "order": {
+            "items": {
+              "enum": [
+                "today",
+                "watches",
+                "search",
+                "runs",
+                "library",
+                "ask",
+                "health"
+              ],
+              "type": "string"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "start": {
+            "enum": [
+              "/today",
+              "/watches",
+              "/watches/calendar",
+              "/watches/people",
+              "/search",
+              "/search/ask",
+              "/search/saved",
+              "/search/wording",
+              "/runs",
+              "/library",
+              "/library/files",
+              "/library/evidence",
+              "/ask",
+              "/health",
+              "/health/watchdog",
+              "/health/analytics",
+              "/health/engine"
+            ],
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order",
+          "hidden",
+          "start",
+          "lockup"
+        ],
+        "title": "TopBar",
+        "type": "object"
+      },
+      "TopBarBody": {
+        "description": "The whole arrangement, every time: a PUT replaces all four.\n\n``order`` may leave sections out, and they are put back where they go by\ndefault; it may not name one twice, and neither may ``hidden``. A section\nor a page the engine does not know is refused.",
+        "properties": {
+          "hidden": {
+            "items": {
+              "enum": [
+                "today",
+                "watches",
+                "search",
+                "runs",
+                "library",
+                "ask",
+                "health"
+              ],
+              "type": "string"
+            },
+            "title": "Hidden",
+            "type": "array"
+          },
+          "lockup": {
+            "anyOf": [
+              {
+                "enum": [
+                  "/today",
+                  "/watches",
+                  "/watches/calendar",
+                  "/watches/people",
+                  "/search",
+                  "/search/ask",
+                  "/search/saved",
+                  "/search/wording",
+                  "/runs",
+                  "/library",
+                  "/library/files",
+                  "/library/evidence",
+                  "/ask",
+                  "/health",
+                  "/health/watchdog",
+                  "/health/analytics",
+                  "/health/engine"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lockup"
+          },
+          "order": {
+            "items": {
+              "enum": [
+                "today",
+                "watches",
+                "search",
+                "runs",
+                "library",
+                "ask",
+                "health"
+              ],
+              "type": "string"
+            },
+            "title": "Order",
+            "type": "array"
+          },
+          "start": {
+            "enum": [
+              "/today",
+              "/watches",
+              "/watches/calendar",
+              "/watches/people",
+              "/search",
+              "/search/ask",
+              "/search/saved",
+              "/search/wording",
+              "/runs",
+              "/library",
+              "/library/files",
+              "/library/evidence",
+              "/ask",
+              "/health",
+              "/health/watchdog",
+              "/health/analytics",
+              "/health/engine"
+            ],
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "order",
+          "hidden",
+          "start",
+          "lockup"
+        ],
+        "title": "TopBarBody",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -28358,6 +28555,62 @@
           }
         },
         "summary": "Get Today Papers"
+      }
+    },
+    "/api/top-bar": {
+      "get": {
+        "description": "The top bar's sections in order, the hidden ones, the start page, and where the resmon name goes.",
+        "operationId": "get_top_bar_api_top_bar_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopBar"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Top Bar"
+      },
+      "put": {
+        "description": "Store the whole arrangement, and answer it as it was stored.",
+        "operationId": "update_top_bar_api_top_bar_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopBarBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopBar"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Top Bar"
       }
     },
     "/api/watchdog": {
