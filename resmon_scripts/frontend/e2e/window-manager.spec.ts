@@ -21,6 +21,7 @@
 import { test, expect } from '@playwright/test';
 import type { ElectronApplication } from '@playwright/test';
 import { launchResmon, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -81,8 +82,7 @@ test('the app opens maximized, where a window manager exists to honour it', asyn
     console.log('WM MAXIMIZE ON OPEN — verified: a window manager honoured it');
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    const fs = await import('fs');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -184,8 +184,7 @@ test('the in-app link window is a child of the main window and comes to the fron
     }
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    const fs = await import('fs');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -232,7 +231,6 @@ test('the swipe handler moves history back and forward', async () => {
     console.log('WM SWIPE — left went back, right went forward');
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    const fs = await import('fs');
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

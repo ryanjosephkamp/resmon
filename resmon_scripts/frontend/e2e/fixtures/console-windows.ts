@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { removeStateDir } from './cleanup';
 
 /** The window classes of a console: the classic one, Windows Terminal, and ConEmu. */
 export const CONSOLE_CLASSES = ['ConsoleWindowClass', 'CASCADIA_HOSTING_WINDOW_CLASS', 'VirtualConsoleClass'];
@@ -75,7 +76,7 @@ export async function startWindowWatch(): Promise<WindowWatch> {
       const code = await Promise.race([exited, new Promise<null>((r) => setTimeout(() => r(null), 30_000))]);
       if (code === null) child.kill();
       const text = fs.readFileSync(log, 'utf8');
-      fs.rmSync(folder, { recursive: true, force: true });
+      removeStateDir(folder);
       if (!text.includes('"done"')) throw new Error(`the window watcher did not finish cleanly:\n${output}\n${text.slice(-2000)}`);
       return PARSE(text);
     },

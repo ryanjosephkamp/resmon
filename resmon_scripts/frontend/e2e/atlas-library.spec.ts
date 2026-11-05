@@ -26,6 +26,7 @@ import { FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } 
 import { inView, shelfHolds } from './fixtures/gallery';
 import { writePdf, type PdfLine } from './fixtures/pdf';
 import { resize } from './fixtures/maps';
+import { removeStateDir } from './fixtures/cleanup';
 
 const SEED = String.raw`
 import json, os, sys
@@ -475,7 +476,7 @@ async function walk(size: [number, number] | null): Promise<void> {
   } finally {
     await app.close();
     // Every folder here was made by this spec, under the system's temporary folder.
-    for (const dir of [stateDir, first, elsewhere, second, staging, trash]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [stateDir, first, elsewhere, second, staging, trash]) removeStateDir(dir);
   }
 }
 

@@ -34,6 +34,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { longPdf, writePdf } from './fixtures/pdf';
+import { removeStateDir } from './fixtures/cleanup';
 
 const WEB = 'https://example.org/resmon-reader';
 /** As long as the paper names the reader is given in practice, with no space to break at. */
@@ -708,6 +709,6 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     expect(refused).toEqual([]);
   } finally {
     await app.close();
-    for (const dir of [stateDir, parent, fixtures]) fs.rmSync(dir, { recursive: true, force: true });
+    for (const dir of [stateDir, parent, fixtures]) removeStateDir(dir);
   }
 });

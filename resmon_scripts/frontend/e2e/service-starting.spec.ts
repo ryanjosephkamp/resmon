@@ -17,6 +17,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 test.skip(process.platform !== 'darwin', 'The check of the service at launch is the Mac\'s.');
@@ -133,7 +134,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
       console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
     }
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -156,6 +157,10 @@ test('closing the starting window stops waiting, and leaves the service starting
     expect(fs.existsSync(path.join(stateDir, 'daemon.lock'))).toBe(false);
   } finally {
     await waiting.close().catch(() => { /* gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    for (const { pid, command } of leftOn(profile)) {
+      console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
+      try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
+    }
+    removeStateDir(stateDir);
   }
 });

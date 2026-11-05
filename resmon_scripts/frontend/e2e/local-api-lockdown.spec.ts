@@ -23,6 +23,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron } from '@playwright/test';
 import { FRONTEND_ROOT, atlasEnv, launchEnv, launchResmon, e2eAuth, ATLAS_LANDMARK } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -81,7 +82,7 @@ test('the spawned backend is guarded, and the renderer sends the token in a head
     if (process.platform !== 'win32') expect(fs.statSync(file).mode & 0o777).toBe(0o600);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -143,7 +144,7 @@ test('a daemon that published no token file is never probed or attached to', asy
     } finally { await app.close().catch(() => { /* gone */ }); }
   } finally {
     await daemon.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -168,6 +169,6 @@ test('a daemon with a token file is attached with the token and told the rendere
     } finally { await app.close().catch(() => { /* gone */ }); }
   } finally {
     await daemon.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
