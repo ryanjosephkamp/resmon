@@ -2076,8 +2076,10 @@ app.whenReady().then(async () => {
     // where the person can still put it back. Only a file directly inside
     // `resmon-library-<id>/removed/<id>/` is taken: the engine hands this path
     // over after checking it (`library_removal.release_request`), and nothing
-    // else on the disk can be sent to the Trash through this channel.
-    ipcMain.handle('resmon:trash-path', async (_evt, targetPath: string) => {
+    // else on the disk can be sent to the Trash through this channel. Asked only by the
+    // renderer's own top frame in one of resmon's windows, as the other window channels are.
+    ipcMain.handle('resmon:trash-path', async (evt, targetPath: string) => {
+      if (!fromRenderer(evt)) return 'Only resmon\u2019s own window can move a file to the Trash.';
       if (!libraryRemovedFile(targetPath)) return 'Only a file the Library holds as removed can be moved to the Trash.';
       try {
         await shell.trashItem(targetPath);
