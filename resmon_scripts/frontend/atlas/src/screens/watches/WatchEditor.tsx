@@ -33,6 +33,7 @@ import { CountField } from '../../shell/CountField';
 import { useDraft } from '../../shell/drafts';
 import { useCollection } from '../../collections/current';
 import { LIBRARY, LIBRARY_KEY } from '../library/libraryApi';
+import { orWords } from '../fulltext/fullText';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -42,6 +43,9 @@ const FOLLOWS: readonly { follows: Follows; label: string }[] = [
   { follows: 'new_papers', label: 'A person: their new papers' },
   { follows: 'retractions', label: 'A person: retractions and corrections on their papers' },
 ];
+
+/** Who the PDFs switch never downloads from, until the engine's rules (`/api/full-text/rules`) say it. */
+const NEVER_FROM = ['NASA ADS', 'Springer', 'CORE', 'BMC', 'nature.com'];
 
 function errorWords(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -416,7 +420,8 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
               onFlip={(pdfs) => set({ pdfs })} />
             <p className="form-hint">
               After each run, resmon downloads into the Library the PDF of each new paper a source states an open license
-              for (Creative Commons, public domain, or arXiv’s own), never from NASA ADS, Springer, or CORE. At most{' '}
+              for (Creative Commons, public domain, or arXiv’s own), never from{' '}
+              {orWords(rules.data?.refused_sources.map((source) => source.name) ?? NEVER_FROM)}. At most{' '}
               {rules.data?.per_run_cap ?? 20} a run and {rules.data?.daily_cap ?? 100} in any 24 hours, one at a time from
               each site. The run’s page says what it got, skipped, and why.
               {!library.data?.vault && <> The Library needs its folder first: <Link to="/library">Library</Link>.</>}

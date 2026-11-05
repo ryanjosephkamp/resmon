@@ -176,9 +176,21 @@ export function differencesWords(source: Pick<FindSourceResult, 'differences' | 
   return listWords(source.differences.map(differenceWords));
 }
 
-/** A sentence that begins with a capital, whatever the engine's phrase began with. */
+/**
+ * A sentence that begins with a capital, whatever the engine's phrase began
+ * with. A name that is written with a small first letter (arXiv, bioRxiv,
+ * medRxiv, resmon) keeps it.
+ */
 export function sentenceCase(text: string): string {
+  const first = text.split(/\s/, 1)[0] ?? '';
+  if (/^[a-z]+[A-Z]/.test(first) || /^resmon\b/.test(first)) return text;
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** "A or B", "A, B, or C": the sites a download never comes from, as a sentence names them. */
+export function orWords(names: readonly string[]): string {
+  if (names.length < 3) return names.join(' or ');
+  return `${names.slice(0, -1).join(', ')}, or ${names[names.length - 1]}`;
 }
 
 /** The order the outcome groups are listed in. */

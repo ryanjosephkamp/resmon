@@ -306,6 +306,8 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await expect(row('arxiv')).toHaveAttribute('data-outcome', 'not_asked');
     await expect(row('zenodo')).toHaveAttribute('data-outcome', 'not_asked');
     await expect(row('zenodo')).toContainText('Left out of this find.');
+    // A source's name keeps its own case at the head of a sentence.
+    await expect(row('arxiv')).toContainText('arXiv can be asked by arXiv id and title, not by DOI.');
     await expect(win.locator('[data-find="paper"]')).toContainText(TITLE);
     await win.locator('details.find-not-asked summary').click();
     await result.scrollIntoViewIfNeeded();
@@ -393,6 +395,7 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     const pdfSwitch = win.locator('[data-switch="download_full_text"]');
     await expect(pdfSwitch).toHaveAttribute('aria-checked', 'true', { timeout: 30_000 });
     await expect(win.locator('[data-editor="pdfs"]')).toContainText('At most 20 a run and 100 in any 24 hours');
+    await expect(win.locator('[data-editor="pdfs"]')).toContainText('never from NASA ADS, Springer, CORE, BMC, or nature.com.');
     await pdfSwitch.scrollIntoViewIfNeeded();
     await shoot(win, 'atlas-watch-pdfs-switch.png');
     await gallery(app, win, 'watch-pdfs-switch', win.locator('[data-editor="pdfs"]'));

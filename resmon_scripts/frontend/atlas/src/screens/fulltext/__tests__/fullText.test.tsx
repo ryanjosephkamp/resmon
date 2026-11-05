@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import {
-  askedWords, differencesWords, differenceWords, hostWords, licenseWords, matchedWords, outcomeWords, pending,
-  requestWords, type FindSourceResult, type FullTextRequest,
+  askedWords, differencesWords, differenceWords, hostWords, licenseWords, matchedWords, orWords, outcomeWords, pending,
+  requestWords, sentenceCase, type FindSourceResult, type FullTextRequest,
 } from '../fullText';
 
 function request(fields: Partial<FullTextRequest>): FullTextRequest {
@@ -83,6 +83,22 @@ describe('a find, in words', () => {
     expect(differencesWords(source({}))).toBeNull();
     expect(differencesWords(source({ reference: true }))).toBe('The copy the others are compared with');
     expect(differenceWords({ field: 'year', this: '2026', reference: null })).toBe('year 2026, where the reference copy gives none');
+  });
+});
+
+describe('a sentence from the engine’s words', () => {
+  test('begins with a capital, but a name written with a small first letter keeps it', () => {
+    expect(sentenceCase('left out of this find.')).toBe('Left out of this find.');
+    expect(sentenceCase('arXiv can be asked by arXiv id and title, not by DOI.')).toBe('arXiv can be asked by arXiv id and title, not by DOI.');
+    expect(sentenceCase("bioRxiv's DOIs all begin 10.1101/, and this one does not.")).toBe("bioRxiv's DOIs all begin 10.1101/, and this one does not.");
+    expect(sentenceCase('resmon cannot look a paper up at DBLP.')).toBe('resmon cannot look a paper up at DBLP.');
+    expect(sentenceCase('Crossref can be asked by DOI and title.')).toBe('Crossref can be asked by DOI and title.');
+  });
+
+  test('the sites a download never comes from, with the Oxford comma and "or"', () => {
+    expect(orWords(['CORE'])).toBe('CORE');
+    expect(orWords(['BMC', 'nature.com'])).toBe('BMC or nature.com');
+    expect(orWords(['NASA ADS', 'Springer', 'CORE', 'BMC', 'nature.com'])).toBe('NASA ADS, Springer, CORE, BMC, or nature.com');
   });
 });
 
