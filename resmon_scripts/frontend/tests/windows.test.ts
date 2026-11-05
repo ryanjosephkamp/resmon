@@ -135,6 +135,11 @@ describe('the window something without a window goes to', () => {
     expect(owners.unsettled(52)).toBe(false);
     expect(owners.settle(52, { request_id: 'tk-1', routine_id: 7 })).toBeNull();
     expect(noticeWindow(set, owners, 52)).toBe(first);
+    // A watch's run queued by Restart or Run again comes with a ticket and its watch; it starts as the
+    // watch's fire, with no request id, so it is found by its watch.
+    expect(owners.claimQueued({ ticket: 'tk-watch', routineId: 9 }, second.id)).toBe(true);
+    expect(owners.settle(53, { request_id: null, routine_id: 9 })).toBe(second.id);
+    expect(noticeWindow(set, owners, 53)).toBe(second);
     // A run with an owner is never read again.
     owners.claimQueued({ ticket: 'tk-2' }, first.id);
     expect(owners.unsettled(50)).toBe(false);

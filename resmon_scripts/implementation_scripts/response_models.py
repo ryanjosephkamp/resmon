@@ -2084,11 +2084,13 @@ class RunRestarted(LosslessModel):
     """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
-    ``queue_position``, its ``ticket``, and a ``detail``."""
+    ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+    for a watch's run, which runs as its watch's Run now."""
 
     execution_id: Optional[int]
     restarted_from: Optional[int]
     ai_enabled: bool
+    routine_id: Optional[int] = None
     duplicate: Optional[bool] = None
     queued: Optional[bool] = None
     queue_position: Optional[int] = None

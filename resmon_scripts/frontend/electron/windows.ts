@@ -208,8 +208,10 @@ export class RunOwners {
 
   /** A run queued at the run limit: by its ticket, or by its watch for a watch's Run now. */
   claimQueued(what: { ticket?: unknown; routineId?: unknown }, windowId: number): boolean {
-    const key = typeof what.ticket === 'string' && what.ticket.length > 0 && what.ticket.length <= 200 ? `ticket:${what.ticket}`
-      : typeof what.routineId === 'number' && Number.isInteger(what.routineId) && what.routineId > 0 ? `watch:${what.routineId}`
+    // A watch's run is found by its watch first: a watch's fire carries no request id, so a ticket
+    // (which a queued Restart or Run again of a watch's run also gets) would never match it.
+    const key = typeof what.routineId === 'number' && Number.isInteger(what.routineId) && what.routineId > 0 ? `watch:${what.routineId}`
+      : typeof what.ticket === 'string' && what.ticket.length > 0 && what.ticket.length <= 200 ? `ticket:${what.ticket}`
         : null;
     if (key === null) return false;
     this.waiting.delete(key);
