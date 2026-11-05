@@ -3,9 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { MapRegion, Sky } from '../today/model';
 import { cropFor, VIEW } from './coverChart';
-import { firstLines } from './galleryModel';
+import { COVER_LINES, firstLines } from './galleryModel';
 import { LIBRARY, type Version } from './libraryApi';
 import { firstPage } from './thumbnails';
+
+/**
+ * How long a cover's picture or first lines stay in memory once its card has
+ * left the page. Short: a shelf of hundreds scrolls past most of its covers,
+ * and a picture is a few dozen kilobytes held as text. Scrolling back reads
+ * the kept picture or the few lines again, which is quick.
+ */
+const COVER_GC_MS = 60_000;
 
 /** How far a cover is from the middle of the window, for the drawing queue's order: nearest first. */
 function distance(node: HTMLElement | null): number {
@@ -25,7 +33,7 @@ export const PdfCover = memo(function PdfCover({ version, label }: { version: Ve
     queryKey: ['library-picture', version.vault_id, version.file_id, version.version_id],
     queryFn: ({ signal }) => firstPage(version, () => distance(sheet.current), signal),
     staleTime: Infinity,
-    gcTime: 15 * 60_000,
+    gcTime: COVER_GC_MS,
     retry: false,
   });
   return (
@@ -39,15 +47,24 @@ export const PdfCover = memo(function PdfCover({ version, label }: { version: Ve
   );
 });
 
-/** A text file's first lines, literal, with their numbers, as the reader shows them. */
+/**
+ * A text file's first lines, literal, with their numbers, as the reader shows
+ * them. Only those lines come back (`lines`): the engine still reads and
+ * checks the whole file, and the window holds a few hundred bytes a cover,
+ * not up to 256 KiB.
+ */
 export const TextCover = memo(function TextCover({ version }: { version: Version }) {
   const text = useQuery({
-    queryKey: ['library-text', version.vault_id, version.file_id, version.version_id],
+    queryKey: ['library-text-head', version.vault_id, version.file_id, version.version_id, COVER_LINES],
     queryFn: () => answer(engine().GET('/api/library/files/{file_id}/text', {
       ...LIBRARY,
-      params: { path: { file_id: version.file_id }, query: { expected_vault_id: version.vault_id, expected_version_id: version.version_id } },
+      params: {
+        path: { file_id: version.file_id },
+        query: { expected_vault_id: version.vault_id, expected_version_id: version.version_id, lines: COVER_LINES },
+      },
     })),
     staleTime: Infinity,
+    gcTime: COVER_GC_MS,
     retry: false,
   });
   const lines = text.data ? firstLines(text.data.text) : [];

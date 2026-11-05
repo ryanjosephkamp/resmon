@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { columnsFor, NARROW, rowEstimate } from './galleryModel';
+import { columnsFor, NARROW, readsMore, rowEstimate } from './galleryModel';
 
 /** Rows drawn past each edge of the view, so a scroll and Tab land on covers already there. */
 const OVERSCAN = 2;
@@ -23,7 +23,8 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
   label: string;
   /** Every card on the shelf, when the engine counted them; the set size for a screen reader. */
   total: number | null;
-  more: { has: boolean; reading: boolean; read: () => void };
+  /** The next page: whether there is one, whether it is being read, whether the last ask failed, and the ask. */
+  more: { has: boolean; reading: boolean; failed: boolean; read: () => void };
   children: (item: T, index: number, narrow: boolean) => ReactNode;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -74,10 +75,10 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
   useEffect(() => { virtual.measure(); }, [columns, virtual]);
   const drawn = virtual.getVirtualItems();
   const last = drawn.length ? drawn[drawn.length - 1]!.index : -1;
-  const { has, reading, read } = more;
+  const { has, reading, failed, read } = more;
   useEffect(() => {
-    if (has && !reading && rows > 0 && last >= rows - READ_AHEAD) read();
-  }, [has, reading, read, last, rows]);
+    if (readsMore({ has, reading, failed, last, rows, ahead: READ_AHEAD })) read();
+  }, [has, reading, failed, read, last, rows]);
 
   return (
     <>
@@ -99,7 +100,8 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
       </div>
       {has && (
         <p className="gal-more">
-          <button type="button" className="btn sm" disabled={reading} onClick={read}>{reading ? 'Reading more' : 'Show more'}</button>
+          {failed && !reading && <span className="field-error" role="alert">The next covers could not be read. </span>}
+          <button type="button" className="btn sm" disabled={reading} onClick={read}>{reading ? 'Reading more' : failed ? 'Try again' : 'Show more'}</button>
         </p>
       )}
     </>

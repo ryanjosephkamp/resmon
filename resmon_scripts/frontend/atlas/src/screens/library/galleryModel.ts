@@ -172,7 +172,10 @@ export function sourceUrl(doc: { url?: string | null; doi?: string | null } | nu
 }
 
 /** The first lines of a text file, as its cover shows them: literal, at most `n`. */
-export function firstLines(text: string, n = 18): string[] {
+/** How many lines a text file's cover shows. */
+export const COVER_LINES = 18;
+
+export function firstLines(text: string, n = COVER_LINES): string[] {
   return text.replace(/\r\n?/g, '\n').split('\n').slice(0, n);
 }
 
@@ -204,9 +207,71 @@ export function pickedWords(picked: number, total: number | null): string {
 export const UNDO_SECONDS = 10;
 
 /** The notice after a removal: what went, and from where. */
-export function removedWords(titles: readonly string[], from: string): { lead: string; name: string | null; rest: string } {
-  if (titles.length === 1) return { lead: 'Removed ', name: titles[0]!, rest: ` from ${from}.` };
-  return { lead: `Removed ${number(titles.length)} from ${from}.`, name: null, rest: '' };
+export function removedWords(titles: readonly string[], from: string, stayed: readonly Stayed[] = []): { lead: string; name: string | null; rest: string } {
+  const not = stayed.length ? ` ${notRemovedWords(stayed)}` : '';
+  if (titles.length === 1) return { lead: 'Removed ', name: titles[0]!, rest: ` from ${from}.${not}` };
+  return { lead: `Removed ${number(titles.length)} from ${from}.`, name: null, rest: not };
+}
+
+/** One card a removal of several could not take, by its name, and what the engine said. */
+export interface Stayed { name: string; why: string }
+
+/** The cards a removal of several could not take: “A” (why); “B” (why). */
+export function notRemovedWords(stayed: readonly Stayed[]): string {
+  const named = stayed.slice(0, 3).map((s) => `“${s.name}” (${s.why})`).join('; ');
+  const more = stayed.length > 3 ? `; and ${count(stayed.length - 3, 'other')}` : '';
+  return `${stayed.length === 1 ? 'This one was' : `These ${number(stayed.length)} were`} not removed: ${named}${more}.`;
+}
+
+/**
+ * Remove each card in turn, carrying on past one that fails: what went, for
+ * its Undo, and what stayed, with why. Each card is its own request, so one
+ * refused (a file changed outside resmon, a paper already gone) leaves the
+ * others to go as asked.
+ */
+export async function removeEach<T, R>(items: readonly T[], removeOne: (item: T) => Promise<R>, nameOf: (item: T) => string,
+  why: (error: unknown) => string): Promise<{ went: R[]; stayed: Stayed[] }> {
+  const went: R[] = [];
+  const stayed: Stayed[] = [];
+  for (const item of items) {
+    try {
+      went.push(await removeOne(item));
+    } catch (error) {
+      stayed.push({ name: nameOf(item), why: why(error) });
+    }
+  }
+  return { went, stayed };
+}
+
+/**
+ * Read a shelf's every page, one after another, for Select all: until the
+ * last page, or until the shelf is gone. A page that fails ends it with that
+ * failure (`fetchNextPage({ throwOnError: true })`); without that, a failed
+ * page answers with the pages it already had, and the shelf would be asked
+ * for it again, about once a second, for as long as the window was open.
+ */
+export async function readEveryPage<R extends { hasNextPage: boolean }>(
+  hasNextPage: boolean, next: () => Promise<R>, alive: () => boolean,
+): Promise<R | null> {
+  let last: R | null = null;
+  let more = hasNextPage;
+  while (more && alive()) {
+    last = await next();
+    more = last.hasNextPage;
+  }
+  return last;
+}
+
+/**
+ * Whether the gallery asks for its next page by itself: it is near the end of
+ * what it has, and the last ask did not fail. After a failure, Show more is
+ * the way to ask again, so a page that cannot be read is not asked for again
+ * on every render.
+ */
+export function readsMore({ has, reading, failed, last, rows, ahead }: {
+  has: boolean; reading: boolean; failed: boolean; last: number; rows: number; ahead: number;
+}): boolean {
+  return has && !reading && !failed && rows > 0 && last >= rows - ahead;
 }
 
 /** What a confirmation before removing a file says goes with it. */

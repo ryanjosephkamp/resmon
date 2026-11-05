@@ -92,8 +92,8 @@ export function VaultTrouble({ status }: { status: LibraryStatus }) {
           checks that it is this Library’s folder and changes nothing in it. If it was deleted, put it back from the Trash first.
         </p>
         <div className="setup-row">
-          <button type="button" className="btn primary" disabled={!chooser || relink.isPending} onClick={() => relink.mutate()}>
-            {relink.isPending ? 'Checking the folder' : 'Choose where it is now'}
+          <button type="button" className="btn primary" disabled={!chooser || relink.isPending || !!status.changing} onClick={() => relink.mutate()}>
+            {relink.isPending || status.changing === 'relinking' ? 'Checking the folder' : 'Choose where it is now'}
           </button>
           <Link className="btn quiet sm" to="/settings/library">Settings › Library</Link>
         </div>
@@ -104,7 +104,11 @@ export function VaultTrouble({ status }: { status: LibraryStatus }) {
   }
   return (
     <section className="lib-trouble" role="alert" data-library="trouble">
-      <p>{TROUBLE[status.status] ?? `The Library reports “${status.status}”.`} Nothing was changed.</p>
+      <p>
+        {status.changing === 'moving'
+          ? 'The Library folder is being moved. Your files are back here once the move has finished.'
+          : `${TROUBLE[status.status] ?? `The Library reports “${status.status}”.`} Nothing was changed.`}
+      </p>
       <p className="form-hint"><Link to="/settings/library">Settings › Library</Link> shows where the folder is.</p>
     </section>
   );

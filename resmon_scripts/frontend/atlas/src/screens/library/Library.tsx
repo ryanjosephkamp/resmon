@@ -11,10 +11,11 @@ import { count, number } from '../today/format';
 import { errorWords, FileCard, PaperCard, ProjectCard } from './Cards';
 import type { Atlas } from './Cover';
 import { evidence, type Project } from './evidenceApi';
+import { useFindDraft } from './findDraft';
 import { Gallery } from './Gallery';
 import {
-  FIND_WORDS, LEDE, SHOWS, SORTS, UNDO_SECONDS, pick, pickedWords, removedWords, showFrom, sortFrom,
-  type LibraryFileRow, type QueueEntry, type Show,
+  FIND_WORDS, LEDE, SHOWS, SORTS, UNDO_SECONDS, notRemovedWords, pick, pickedWords, readEveryPage, removeEach, removedWords, showFrom,
+  sortFrom, type LibraryFileRow, type QueueEntry, type Show,
 } from './galleryModel';
 import { AddToProject, ConfirmRemoval, PaperPicker, removalSummaries } from './LibraryDialogs';
 import {
@@ -48,7 +49,6 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
   const show = params.get('show') ? showFrom(params.get('show')) : shelf;
   const sort = sortFrom(show, params.get('sort'));
   const q = params.get('q') ?? '';
-  const [draft, setDraft] = useState(q);
   const [selecting, setSelecting] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [dropping, setDropping] = useState(false);
@@ -63,17 +63,13 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
       return next;
     }, { replace: true });
   }, [setParams]);
-  // The find field follows the address when the shelf or the search changes there (Back, a shelf's button):
-  // set while rendering, as React's own pattern for state that follows other state.
-  const [following, setFollowing] = useState(`${show}\u0000${q}`);
-  if (following !== `${show}\u0000${q}`) { setFollowing(`${show}\u0000${q}`); setDraft(q); }
-  useEffect(() => {
-    if (draft.trim() === q) return undefined;
-    const settle = window.setTimeout(() => set({ q: draft.trim() || null }), 300);
-    return () => window.clearTimeout(settle);
-  }, [draft, q, set]);
+  const writeFind = useCallback((next: string | null) => set({ q: next }), [set]);
+  const [draft, setDraft] = useFindDraft(show, q, writeFind);
 
-  const status = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)), retry: retryLibrary });
+  const status = useQuery({
+    queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)), retry: retryLibrary,
+    refetchInterval: (query) => (query.state.data?.changing ? 1000 : false),
+  });
   const vault = status.data?.status === 'ready' ? status.data.vault?.vault_id ?? null : null;
   const queueCounts = useQuery({
     queryKey: ['reading-queue', 'counts'],
@@ -144,7 +140,7 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
     if (!chosen.length) return;
     if (show !== 'files') navigate('/library?show=files', { replace: true });
     if (vault) importing.mutate(chosen);
-    else setImported({ said: 'Nothing was kept: make the Library folder first.', refused: [] });
+    else setImported({ said: 'No files added: make the Library folder first.', refused: [] });
   };
 
   // A file removed on its own page comes back here with its Undo.
@@ -313,6 +309,16 @@ function SelectBar({ picked, total, allPicked, onAll, onDone, children }: {
   );
 }
 
+/** Whether the shelf asking is still on the page, for the work it started that outlives a render. */
+function useAlive(): () => boolean {
+  const alive = useRef(true);
+  useEffect(() => {
+    alive.current = true;
+    return () => { alive.current = false; };
+  }, []);
+  return useCallback(() => alive.current, []);
+}
+
 function useSelection(order: readonly string[], selecting: boolean) {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -354,15 +360,21 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   const chosen = entries.filter((e) => picked.has(`p:${e.document_id}`));
 
   const removeEntries = useCallback(async (gone: QueueEntry[]) => {
-    const removed: QueueEntry[] = [];
-    for (const entry of gone) {
-      const answered = await answer(engine().DELETE('/api/reading-queue/{document_id}', { params: { path: { document_id: entry.document_id } } }));
-      removed.push(answered.entry);
+    const titleOf = (e: QueueEntry) => e.document?.title ?? `Paper ${e.document_id}`;
+    let removed: QueueEntry[] = [];
+    let stayed: { name: string; why: string }[] = [];
+    try {
+      ({ went: removed, stayed } = await removeEach(gone, async (entry) => (await answer(engine().DELETE('/api/reading-queue/{document_id}', {
+        params: { path: { document_id: entry.document_id } },
+      }))).entry, titleOf, errorWords));
+    } finally {
+      // Whatever went, the shelf is read again: a card that went never stays on it without its Undo.
+      onChanged();
     }
-    onChanged();
-    const titles = gone.map((e) => e.document?.title ?? `Paper ${e.document_id}`);
+    if (!removed.length) throw new Error(`Nothing was removed. ${notRemovedWords(stayed)}`);
+    const titles = removed.map((e) => titleOf(gone.find((g) => g.document_id === e.document_id) ?? e));
     say({
-      ...removedWords(titles, shelfName),
+      ...removedWords(titles, shelfName, stayed),
       undo: async () => {
         for (const entry of removed) {
           await answer(engine().POST('/api/reading-queue/{document_id}/restore', {
@@ -386,13 +398,21 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   const exporting = useMutation({
     mutationFn: (format: ReferenceFormat) => exportReferences({ document_ids: chosen.map((e) => e.document_id) }, format, 'resmon-library'),
   });
+  const alive = useAlive();
+  const [allFailed, setAllFailed] = useState<string | null>(null);
   const selectAll = async () => {
-    let data = queue.data;
-    while (queue.hasNextPage && data && data.pages[data.pages.length - 1]!.offset + data.pages[data.pages.length - 1]!.entries.length < (total ?? 0)) {
-      data = (await queue.fetchNextPage()).data;
+    setAllFailed(null);
+    try {
+      const last = await readEveryPage(queue.hasNextPage, () => queue.fetchNextPage({ throwOnError: true }), alive);
+      if (!alive()) return;
+      const data = last?.data ?? queue.data;
+      setPicked(new Set((data?.pages.flatMap((p) => p.entries) ?? entries).map((e) => `p:${e.document_id}`)));
+    } catch (error) {
+      if (alive()) setAllFailed(`Not every saved paper could be read, so nothing more was picked (${errorWords(error)}).`);
     }
-    setPicked(new Set((data?.pages.flatMap((p) => p.entries) ?? entries).map((e) => `p:${e.document_id}`)));
   };
+  const nextQueuePage = queue.fetchNextPage;
+  const readMore = useCallback(() => { void nextQueuePage(); }, [nextQueuePage]);
   const actionable = chosen.length > 0 && !bulk.isPending && !remove.isPending;
 
   return (
@@ -417,6 +437,7 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
       {(bulk.error || exporting.error || remove.error) && (
         <p className="field-error" role="alert">{errorWords(bulk.error ?? exporting.error ?? remove.error)}</p>
       )}
+      {selecting && allFailed && <p className="field-error" role="alert">{allFailed}</p>}
       {queue.isPending && <p className="index-cap lib-reading">Reading the reading queue.</p>}
       {queue.isError && <p className="field-error" role="alert">The reading queue could not be read ({errorWords(queue.error)}).</p>}
       {queue.data && total === 0 && (q ? <p className="index-empty lib-empty">No saved paper’s title, authors, or source contains “{q}”.</p>
@@ -424,7 +445,7 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
           : <EmptyQueue />)}
       {entries.length > 0 && (
         <Gallery items={entries} keyOf={(e) => `p:${e.document_id}`} label={`${shelfName}: saved papers`} total={total}
-          more={{ has: !!queue.hasNextPage, reading: queue.isFetchingNextPage, read: () => void queue.fetchNextPage() }}>
+          more={{ has: !!queue.hasNextPage, reading: queue.isFetchingNextPage, failed: queue.isFetchNextPageError, read: readMore }}>
           {(entry, _i, narrow) => (
             <PaperCard entry={entry} atlas={atlas} vault={vault} sourceName={sourceName} narrow={narrow} onChanged={onChanged}
               picking={{ on: selecting, picked: picked.has(`p:${entry.document_id}`), onPick }}
@@ -497,22 +518,25 @@ function FileShelf({ vault, sort, q, selecting, onSelecting, say, onChanged, too
 
   const removeNow = useMutation({
     mutationFn: async ({ gone, cascade }: { gone: LibraryFileRow[]; cascade: boolean }) => {
-      const done: LibraryFileRow[] = [];
-      for (const file of gone) {
+      const { went, stayed } = await removeEach(gone, async (file) => {
         await answer(engine().DELETE('/api/library/files/{file_id}', {
           ...LIBRARY, params: { path: { file_id: file.file_id } },
           body: { expected_vault_id: vault, expected_version_id: file.version_id, cascade },
         }));
-        done.push(file);
-      }
-      return done;
+        return file;
+      }, (file) => file.original_name, errorWords);
+      if (!went.length) throw new Error(`Nothing was removed. ${notRemovedWords(stayed)}`);
+      return { done: went, stayed };
     },
-    onSuccess: (done) => {
+    // Whatever went, the shelf is read again and the picks let go, failed or not.
+    onSettled: () => {
       setConfirming(null);
       setPicked(new Set());
       onChanged();
+    },
+    onSuccess: ({ done, stayed }) => {
       say({
-        ...removedWords(done.map((f) => f.original_name), 'Your files'),
+        ...removedWords(done.map((f) => f.original_name), 'Your files', stayed),
         undo: async () => {
           for (const file of done) {
             await answer(engine().POST('/api/library/removed/{file_id}/restore', {
@@ -533,11 +557,21 @@ function FileShelf({ vault, sort, q, selecting, onSelecting, say, onChanged, too
       else removeNow.mutate({ gone, cascade: false });
     },
   });
+  const alive = useAlive();
+  const [allFailed, setAllFailed] = useState<string | null>(null);
   const selectAll = async () => {
-    let data = files.data;
-    while (data && data.pages[data.pages.length - 1]!.has_more) data = (await files.fetchNextPage()).data;
-    setPicked(new Set((data?.pages.flatMap((p) => p.files) ?? list).map((f) => `f:${f.file_id}`)));
+    setAllFailed(null);
+    try {
+      const last = await readEveryPage(files.hasNextPage, () => files.fetchNextPage({ throwOnError: true }), alive);
+      if (!alive()) return;
+      const data = last?.data ?? files.data;
+      setPicked(new Set((data?.pages.flatMap((p) => p.files) ?? list).map((f) => `f:${f.file_id}`)));
+    } catch (error) {
+      if (alive()) setAllFailed(`Not every file could be read, so nothing more was picked (${errorWords(error)}).`);
+    }
   };
+  const nextFilePage = files.fetchNextPage;
+  const readMore = useCallback(() => { void nextFilePage(); }, [nextFilePage]);
   const busy = ask.isPending || removeNow.isPending;
 
   return (
@@ -557,6 +591,7 @@ function FileShelf({ vault, sort, q, selecting, onSelecting, say, onChanged, too
       )}
       {said && <p className="settings-said" role="status">{said}</p>}
       {(ask.error || removeNow.error) && <p className="field-error" role="alert">{errorWords(ask.error ?? removeNow.error)}</p>}
+      {selecting && allFailed && <p className="field-error" role="alert">{allFailed}</p>}
       {files.isPending && <p className="index-cap lib-reading">Reading your files.</p>}
       {files.isError && <p className="field-error" role="alert">Your files could not be read ({errorWords(files.error)}).</p>}
       {files.data && total === 0 && (
@@ -566,7 +601,7 @@ function FileShelf({ vault, sort, q, selecting, onSelecting, say, onChanged, too
       )}
       {list.length > 0 && (
         <Gallery items={list} keyOf={(f) => `f:${f.file_id}`} label="Your files" total={total}
-          more={{ has: !!files.hasNextPage, reading: files.isFetchingNextPage, read: () => void files.fetchNextPage() }}>
+          more={{ has: !!files.hasNextPage, reading: files.isFetchingNextPage, failed: files.isFetchNextPageError, read: readMore }}>
           {(file, _i, narrow) => (
             <FileCard file={file} narrow={narrow} picking={{ on: selecting, picked: picked.has(`f:${file.file_id}`), onPick }}
               onRemove={(f) => ask.mutate([f])} onLink={setLinking} />
@@ -611,7 +646,7 @@ function ProjectShelf({ projects, q, sort, tools }: {
       )}
       {shown.length > 0 && (
         <Gallery items={shown} keyOf={(p) => p.project_id} label="Evidence projects" total={shown.length}
-          more={{ has: false, reading: false, read: () => undefined }}>
+          more={{ has: false, reading: false, failed: false, read: () => undefined }}>
           {(project) => <ProjectCard project={project} />}
         </Gallery>
       )}

@@ -27,7 +27,12 @@ const REMOVED_KEY = ['library-removed'] as const;
  * across disks that leaves the old folder for you to delete.
  */
 export function LibrarySettings() {
-  const status = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)), retry: retryLibrary });
+  const status = useQuery({
+    queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)), retry: retryLibrary,
+    // While the engine says the folder is being moved or checked, it is asked again each second, so a page
+    // opened in the middle of a move, or come back to, knows when it has finished.
+    refetchInterval: (query) => (query.state.data?.changing ? 1000 : false),
+  });
   const data = status.data;
   const unsupported = unsupportedWords(status.error);
   return (
@@ -49,7 +54,8 @@ export function LibrarySettings() {
   );
 }
 
-function Folder({ status }: { status: LibraryStatus }) {
+/** Where the folder is, and the two ways to change it; both wait while either runs, here or as the engine reports. */
+export function Folder({ status }: { status: LibraryStatus }) {
   const client = useQueryClient();
   const vault = status.vault!;
   const chooser = bridge()?.chooseDirectory;
@@ -86,23 +92,29 @@ function Folder({ status }: { status: LibraryStatus }) {
   });
   const reveal = () => { if (status.vault?.path) void bridge()?.revealPath?.(status.vault.path); };
   const ready = status.status === 'ready';
+  // The engine's word, not this page's: a move started before this page was opened is still a move.
+  const moving = move.isPending || status.changing === 'moving';
+  const relinking = relink.isPending || status.changing === 'relinking';
+  const working = moving || relinking;
   return (
     <div className="lib-folder" data-library="folder" data-status={status.status}>
       <h3 className="field-title">Where the folder is</h3>
       <p className="lib-folder-path"><code className="path" data-library="path">{vault.path}</code></p>
       <p className="field-lede">
-        {ready
+        {status.changing === 'moving'
+          ? <>The Library folder is being moved. This page shows where it is once the move has finished.</>
+          : ready
           ? <>{count(status.counts.items, 'file')}, {sizeWords(status.counts.retained_bytes)} recorded{status.counts.missing ? <>; {count(status.counts.missing, 'file')} not in the folder now</> : null}.</>
           : status.status === 'missing'
             ? <>Nothing is at that path now. If the folder is on a disk that is not connected, connect it. If you moved or renamed it, choose where it is now.</>
             : <>{TROUBLE[status.status] ?? `The Library reports “${status.status}”.`}</>}
       </p>
       <div className="form-actions">
-        <button type="button" className="btn" disabled={!chooser || relink.isPending} onClick={() => relink.mutate()}>
-          {relink.isPending ? 'Checking the folder' : 'Choose where it is now'}
+        <button type="button" className="btn" disabled={!chooser || working} onClick={() => relink.mutate()}>
+          {relinking ? 'Checking the folder' : 'Choose where it is now'}
         </button>
-        <button type="button" className="btn" disabled={!chooser || !ready || move.isPending} onClick={() => move.mutate()}>
-          {move.isPending ? 'Moving the files' : 'Move it to another folder'}
+        <button type="button" className="btn" disabled={!chooser || !ready || working} onClick={() => move.mutate()}>
+          {moving ? 'Moving the files' : 'Move it to another folder'}
         </button>
         {ready && <button type="button" className="btn quiet" onClick={reveal}>Show in {systemName() === 'macOS' ? 'Finder' : 'its folder'}</button>}
       </div>
