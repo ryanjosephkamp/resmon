@@ -34,9 +34,11 @@ export function RunMark({ state, orbits = [], pulse = 0, className }: {
   return (
     <svg className={`run-mark${className ? ` ${className}` : ''}`} viewBox="0 0 24 24" aria-hidden="true" focusable="false"
       data-mark-state={state}>
+      {/* One ring, outside the states, so it plays once for each run that ends and never again when
+          the mark changes state. */}
+      {pulse > 0 && <circle key={pulse} className="rm-pulse" cx="12" cy="12" r="6" />}
       {(state === 'idle' || state === 'finished') && (
         <>
-          {pulse > 0 && <circle key={pulse} className="rm-pulse" cx="12" cy="12" r="6" />}
           <circle className="rm-ring" cx="12" cy="12" r="6" />
           <circle className="rm-core" cx="12" cy="12" r="2" />
         </>
@@ -49,7 +51,6 @@ export function RunMark({ state, orbits = [], pulse = 0, className }: {
       )}
       {(state === 'running' || state === 'runfail') && (
         <>
-          {pulse > 0 && <circle key={pulse} className="rm-pulse" cx="12" cy="12" r="6" />}
           {shown.map((orbit, i) => {
             const r = RADII[i] as number;
             const around = 2 * Math.PI * r;
