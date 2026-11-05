@@ -33,8 +33,10 @@ Everything runs from `resmon_scripts/`:
 .venv/bin/python -m perf host --rounds 5 --replies ~/resmon-perf-replies --out /tmp/host.json
 # A shared-wording scan, full and of 200 new papers, at 16,061 and 100,000 papers.
 .venv/bin/python -m perf wording --out /tmp/wording.json
-# 100,000 papers: counting, ranking by meaning, exports' memory, and the long list (npm run build first).
+# 100,000 papers: counting, ranking by meaning, exports' memory, the map, and the long list (npm run build first).
 .venv/bin/python -m perf scale --out /tmp/scale
+# The engine's part again, then 30,000 of the papers moved to a second collection and both measured.
+.venv/bin/python -m perf scale --only engine,map --split 30000 --out /tmp/scale-split
 ```
 
 `run` writes `results.json` (every sample, the machine, the commit) and
@@ -147,7 +149,12 @@ timed in process), a ranking by meaning of every paper (first page, and the
 page at row 5,000), and an export of every paper as BibTeX, RIS, and CSV, read
 to the end while the engine's resident memory is sampled every 20 ms. Beside
 each export, the same file built whole in memory, as the export was built before
-it streamed, in a child interpreter whose peak resident size is the cost. Then
+it streamed, in a child interpreter whose peak resident size is the cost. The
+map: the first `GET /api/map`, which starts a fit, polled until the map is
+ready. With `--split N`, *N* papers drawn at random (with a fixed seed) move to a
+second collection, and the counts, the ranking, the exports, and each
+collection's first map are measured in the default collection and in the
+second. Then
 `frontend/perf/scroll.perf.ts`: the app opened over a copy, `--rows` rows read
 into the list (by scrolling, or by Show more where the list does not read on
 its own), and the list scrolled at 6,000 px a second for 15 seconds with every
