@@ -49,7 +49,7 @@ The **Search commands** button, or ⌘K (Ctrl+K on Windows and Linux), opens a p
 
 ### Windows
 
-**File › New Window** (⌘N, or Ctrl+N on Windows and Linux) opens another window at the start page: **Today**, unless you choose another in **Settings › Top bar**. To open a screen in a window of its own, ⌘-click (Ctrl-click) a section in the top bar or a link to it, right-click the link and choose **Open in New Window**, or press ⌘Enter on the screen in the command palette, which also offers **Open this page in a new window**. Each window keeps its own page and its own back and forward, and is named by its page. All of them use the same engine, so what one window changes, another shows the next time it reads that page. A notification about a run you started opens the run in the window you started it from; one about a watch's run opens it in the window in front.
+**File › New Window** (⌘N, or Ctrl+N on Windows and Linux) opens another window at the start page: **Today**, unless you choose another in **Settings › Top bar**. To open a screen in a window of its own, ⌘-click (Ctrl-click) a section in the top bar or a link to it, right-click the link and choose **Open in New Window**, or press ⌘Enter on the screen in the command palette, which also offers **Open this page in a new window**. Each window keeps its own page and its own back and forward, and is named by its page. All of them use the same engine, so what one window changes, another shows the next time it reads that page; a change to the theme, the accent color, or the top bar shows in every window at once. A notification about a run you started opens the run in the window you started it from; one about a watch's run opens it in the window in front.
 
 On macOS the windows can be tabs. **File › New Tab** (⌘T) opens one, and the **Window** menu holds **Merge All Windows**, **Move Tab to New Window**, **Show Tab Bar**, and **Show Next Tab** and **Show Previous Tab** (⌃⇥ and ⌃⇧⇥). While the windows are in tabs, the top bar sits below the tab bar.
 
@@ -70,7 +70,7 @@ The shortcuts use ⌘ on macOS and Ctrl elsewhere. All of them work while you ty
 | ⌘Enter | Save or send what you wrote, in a field that offers it |
 | ? | The full list, outside a text field |
 
-On a trackpad, a two-finger swipe goes back and forward.
+On a trackpad, a two-finger swipe goes back and forward. Back and forward return a page to where you left it; a page you open anew starts at its top.
 
 ## What stays on your computer
 
