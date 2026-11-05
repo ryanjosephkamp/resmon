@@ -22,15 +22,18 @@ import { drawable, LONGEST_FORMULA, RichMarkdown, TexView } from '../RichView';
 const CEILING_MS = process.env.CI ? 2_000 : 200;
 const SLACK_MS = 10;
 
+/** One read's time. */
+function once(read: () => unknown): number {
+  const started = performance.now();
+  read();
+  return performance.now() - started;
+}
+
 /** The fastest of five timings, after one to warm up, so neither a first call nor a pause for garbage collection decides a case. */
 function timed(read: () => unknown): number {
   read();
   let fastest = Infinity;
-  for (let i = 0; i < 5; i += 1) {
-    const started = performance.now();
-    read();
-    fastest = Math.min(fastest, performance.now() - started);
-  }
+  for (let i = 0; i < 5; i += 1) fastest = Math.min(fastest, once(read));
   return fastest;
 }
 
@@ -66,12 +69,24 @@ const hostileTex: Record<string, Hostile> = {
   'a brace on every byte': repeated('{', 256 * KB),
 };
 
-/** Four times the text in under eight times the time, and the whole of it under the ceiling. */
+/**
+ * Four times the text in under eight times the time, and the whole of it under
+ * the ceiling. Each size is read once to warm up, then five times each, taking
+ * turns, and the fastest of each is kept: neither a first call nor a pause for
+ * garbage collection decides a case, and a machine busy with something else is
+ * busy for both sizes alike rather than for one of them.
+ */
 function readsLinearly(read: (text: string) => unknown, build: Hostile): void {
   const quarter = build(0.25);
   const full = build(1);
-  const quarterMs = timed(() => read(quarter));
-  const fullMs = timed(() => read(full));
+  read(quarter);
+  read(full);
+  let quarterMs = Infinity;
+  let fullMs = Infinity;
+  for (let i = 0; i < 5; i += 1) {
+    quarterMs = Math.min(quarterMs, once(() => read(quarter)));
+    fullMs = Math.min(fullMs, once(() => read(full)));
+  }
   expect(fullMs).toBeLessThan(8 * quarterMs + SLACK_MS);
   expect(fullMs).toBeLessThan(CEILING_MS);
 }
