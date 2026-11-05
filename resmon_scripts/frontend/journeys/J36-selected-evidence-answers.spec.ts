@@ -58,7 +58,7 @@ journey.describe('J36 Selected-evidence answers', () => {
       { name: PAPER, content: authoredPdf(PAGES) },
       { name: CHOSEN, content: CHOSEN_TEXT },
       { name: LEFT_OUT, content: `${LEFT_OUT_SENTENCE}\n` },
-    ])).toContain('3 retained');
+    ])).toContain('3 files added.');
     await resmon.startAnEvidenceProjectFrom(CHOSEN, 'J36 project');
     await resmon.addToTheEvidenceProject([PAPER, LEFT_OUT]);
     await resmon.saveAnEvidenceNote({ file: CHOSEN, body: TICKED_NOTE });
