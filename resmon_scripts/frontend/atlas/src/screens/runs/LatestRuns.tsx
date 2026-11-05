@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { useMinute } from '../../lib/useMinute';
-import { activeSignature, useActiveRuns } from './active';
+import { useReadAgainWhenRunsChange } from './active';
 import { byDay, readHistory } from './history';
 import { RunLine } from './RunHistory';
 
@@ -22,21 +22,13 @@ interface RoutineName { id: number; name: string }
  * the Runs tab. Read again when a run starts or ends, as the Runs tab is.
  */
 export function LatestRuns() {
-  const client = useQueryClient();
   const now = useMinute();
   const latest = useQuery({
     queryKey: LATEST_KEY,
     queryFn: () => readHistory({}, 0, LATEST),
     refetchOnWindowFocus: true,
   });
-  const active = useActiveRuns();
-  const signature = activeSignature(active.data);
-  const seen = useRef<string | null>(null);
-  useEffect(() => {
-    if (!active.data) return;
-    if (seen.current !== null && seen.current !== signature) void client.invalidateQueries({ queryKey: LATEST_KEY });
-    seen.current = signature;
-  }, [signature, active.data, client]);
+  useReadAgainWhenRunsChange('latest', LATEST_KEY);
   const routines = useQuery({
     queryKey: ['routine-names'],
     queryFn: () => answer(engine().GET('/api/routines')) as Promise<RoutineName[]>,

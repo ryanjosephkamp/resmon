@@ -7,7 +7,7 @@ import { useNow } from '../../lib/useNow';
 import { WallMark } from '../health/WallMark';
 import { clock } from '../today/format';
 import {
-  ACTIVE_KEY, activeSources, activeTitle, placeWords, silentFor, STALLED_SECONDS, waitingKind,
+  ACTIVE_KEY, activeSources, activeTitle, isStalled, placeWords, silentFor, waitingKind,
   type ActiveRun, type WaitingRun,
 } from './active';
 import { elapsedWords, liveMarkState, liveStage, secondsSince, sourcesFinished } from './live';
@@ -80,7 +80,7 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
         const events = run.events as unknown as ProgressEvent[];
         const finished = sourcesFinished(sources);
         const silent = silentFor(run, now);
-        const stalled = silent !== null && silent >= STALLED_SECONDS;
+        const stalled = isStalled(run, now);
         const ran = secondsSince(run.start_time, now);
         const stopping = stop.variables === run.id && (stop.isPending || stop.isSuccess);
         const title = activeTitle(run, watchName);

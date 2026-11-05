@@ -4,10 +4,11 @@
  * while anything runs or waits and every fifteen otherwise, shared by every
  * screen that shows them, so two of them on screen cost one request.
  */
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
-import { secondsSince } from './live';
+import { liveStage, secondsSince } from './live';
 import { liveSources, runKind, type LiveSource, type ProgressEvent } from './model';
 
 export type ActiveRuns = components['schemas']['ActiveRuns'];
@@ -47,6 +48,38 @@ export function activeSignature(data: ActiveRuns | undefined): string {
   ].join('|');
 }
 
+/**
+ * The signature each list of runs last answered to, by the list's name. Kept
+ * here, outside any component, so a list that was not on screen when a run
+ * ended reads itself again when it comes back, rather than taking the
+ * signature it finds as the one it already answered to.
+ */
+const answered = new Map<string, string>();
+
+/**
+ * Reads `key` again whenever a run has started, ended, or joined or left the
+ * queue since the list named `name` last looked, whether or not it was on
+ * screen at the time: the history after a run's own page, say, where the run
+ * ended while the history was not mounted.
+ */
+export function useReadAgainWhenRunsChange(name: string, key: readonly unknown[]): void {
+  const client = useQueryClient();
+  const active = useActiveRuns();
+  const signature = active.data ? activeSignature(active.data) : null;
+  const keyText = JSON.stringify(key);
+  useEffect(() => {
+    if (signature === null) return;
+    const before = answered.get(name);
+    answered.set(name, signature);
+    if (before !== undefined && before !== signature) void client.invalidateQueries({ queryKey: JSON.parse(keyText) as unknown[] });
+  }, [name, signature, keyText, client]);
+}
+
+/** For tests: forget what every list last answered to. */
+export function forgetAnswered(): void {
+  answered.clear();
+}
+
 /** A running run's sources, folded from its events as its own page folds them. */
 export function activeSources(run: ActiveRun): LiveSource[] {
   return liveSources(run.repositories ?? [], run.events as unknown as ProgressEvent[]);
@@ -67,6 +100,21 @@ export const STALLED_SECONDS = 15;
 /** Seconds since the run last said anything, or null when it has said nothing with a time. */
 export function silentFor(run: ActiveRun, now: number): number | null {
   return secondsSince(lastWord(run), now);
+}
+
+/**
+ * Whether a run has gone quiet: no word for fifteen seconds while it asks its
+ * sources. Only then is silence a sign: the engine sends each source's
+ * heartbeat every two seconds while it is being asked, and after the sources
+ * it sends nothing while it stores the papers (a large run's store can take
+ * longer than fifteen seconds), and its counts only now and then. So a run
+ * past its sources is never drawn as stalled.
+ */
+export function isStalled(run: ActiveRun, now: number): boolean {
+  if (liveStage(run.events as unknown as ProgressEvent[]).stage !== 'querying') return false;
+  if (!activeSources(run).some((source) => source.state === 'asking')) return false;
+  const silent = silentFor(run, now);
+  return silent !== null && silent >= STALLED_SECONDS;
 }
 
 /** What a run going now, or waiting, is called: its watch for a watch's, otherwise its terms. */

@@ -14,6 +14,7 @@ const running = (id: number, beat: number, extra: Partial<ActiveRun> = {}): Acti
   id, execution_type: 'deep_sweep', routine_id: null, saved_configuration_id: null, query: 'q', keywords: ['q'],
   repositories: ['arxiv', 'crossref'], start_time: at(0), current_stage: 'querying', restarted_from: null, request_id: null,
   events: [
+    { type: 'stage', stage: 'querying', timestamp: at(0) },
     { type: 'repo_start', repository: 'arxiv', timestamp: at(0) },
     { type: 'repo_done', repository: 'arxiv', result_count: 3, timestamp: at(1) },
     { type: 'repo_start', repository: 'crossref', timestamp: at(1) },
@@ -46,6 +47,14 @@ describe('an orbit for each running run', () => {
       { share: 0.5, stalled: false },
       { share: 0.5, stalled: true },
     ]);
+  });
+
+  test('a run past its sources is never stalled: storing the papers sends no heartbeat, however long it takes', () => {
+    const storing = running(3, 4);
+    storing.events = [...storing.events,
+      { type: 'repo_done', repository: 'crossref', result_count: 5, timestamp: at(5) },
+      { type: 'stage', stage: 'dedup', message: 'Deduplicating 5000 results...', timestamp: at(5) }];
+    expect(orbitsOf([storing], Date.parse(at(59)))).toEqual([{ share: 1, stalled: false }]);
   });
 
   test('three at most', () => {

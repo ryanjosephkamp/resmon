@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, useLocation } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
-import { activeSignature, useActiveRuns } from './active';
+import { useActiveRuns, useReadAgainWhenRunsChange } from './active';
 import { RunningList, WaitingList } from './ActiveList';
 import { FILTERS, HISTORY_KEY, type RunFilter } from './history';
 import { RunHistory } from './RunHistory';
@@ -34,7 +34,6 @@ const SEARCH_PAUSE_MS = 250;
  * or leaves the queue, never on a timer of its own.
  */
 export function Runs() {
-  const client = useQueryClient();
   const notice = (useLocation().state as RunsNotice | null) ?? null;
   const active = useActiveRuns();
   const catalog = useQuery({
@@ -58,14 +57,9 @@ export function Runs() {
     return () => window.clearTimeout(timer);
   }, [typed]);
 
-  // A run started, ended, or joined or left the queue: the history is read again, once.
-  const signature = activeSignature(active.data);
-  const seen = useRef<string | null>(null);
-  useEffect(() => {
-    if (!signature && !active.data) return;
-    if (seen.current !== null && seen.current !== signature) void client.invalidateQueries({ queryKey: HISTORY_KEY });
-    seen.current = signature;
-  }, [signature, active.data, client]);
+  // A run started, ended, or joined or left the queue, here or while the tab was not shown: the
+  // history is read again, once.
+  useReadAgainWhenRunsChange('history', HISTORY_KEY);
 
   const running = active.data?.running ?? [];
   const waiting = active.data?.waiting ?? [];

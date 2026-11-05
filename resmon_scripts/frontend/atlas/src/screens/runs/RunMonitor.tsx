@@ -7,7 +7,7 @@ import { useMinute } from '../../lib/useMinute';
 import { useNow } from '../../lib/useNow';
 import { clock, dayWord, number } from '../today/format';
 import {
-  ACTIVE_KEY, activeSignature, activeSources, silentFor, STALLED_SECONDS, useActiveRuns, type ActiveRun, type ActiveRuns,
+  ACTIVE_KEY, activeSignature, activeSources, isStalled, useActiveRuns, type ActiveRun, type ActiveRuns,
 } from './active';
 import { RunningList, WaitingList } from './ActiveList';
 import { readHistory } from './history';
@@ -31,10 +31,9 @@ const MONTH_DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeri
 export function orbitsOf(running: readonly ActiveRun[], now: number): Orbit[] {
   return running.slice(0, 3).map((run) => {
     const sources = activeSources(run);
-    const silent = silentFor(run, now);
     return {
       share: sources.length ? sourcesFinished(sources) / sources.length : 0,
-      stalled: silent !== null && silent >= STALLED_SECONDS,
+      stalled: isStalled(run, now),
     };
   });
 }
@@ -168,7 +167,9 @@ export function RunMonitor() {
     setOpen(opened);
     if (opened) {
       panel.current?.focus();
-      if (unseen.length) seen.mutate();
+      // Every opening, not only when a failure is known: one can land between two reads, show in
+      // Today here, and would otherwise turn the mark red at the next read though it was seen.
+      seen.mutate();
     }
   };
 
