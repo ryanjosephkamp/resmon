@@ -117,6 +117,13 @@ export interface World {
   holdsLock(): boolean;
   sleep(ms: number): Promise<void>;
   log(line: string): void;
+  /**
+   * A wait for the service to answer begins, which can last minutes: a service
+   * that was already starting (`starting`), or one this launch just started or
+   * restarted (`started`). `main.ts` shows a small window saying so, if the
+   * wait lasts, until resmon opens.
+   */
+  waiting?(why: 'starting' | 'started'): void;
 }
 
 export type Outcome =
@@ -155,6 +162,7 @@ export async function ensureService(world: World, me: Me, startWait = START_WAIT
     if (!world.holdsLock()) return { done: 'nothing', why: 'starting' };
     world.log('The background service is starting; waiting for it to answer.');
     letGo(world);
+    world.waiting?.('starting');
     facts = await settle(world, startWait, (f) => decide(f, me).act !== 'wait');
     decision = decide(facts, me);
     if (decision.act === 'wait') return { done: 'nothing', why: 'starting' };
@@ -210,6 +218,7 @@ async function started(world: World, me: Me, startWait: number): Promise<Outcome
 
 /** Wait for this build's service to answer. */
 async function answered(world: World, me: Me, startWait: number): Promise<Outcome> {
+  world.waiting?.('started');
   const facts = await settle(world, startWait, (f) => f.running?.build === me.build);
   if (facts.running?.build === me.build) {
     world.log('The background service runs this build.');

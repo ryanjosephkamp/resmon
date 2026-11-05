@@ -188,7 +188,8 @@ if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
 
 /**
  * The app's own windows (`windows.ts`): every one shows the renderer, on the
- * same engine. Link windows are not among them.
+ * same engine. Link windows and the window that says resmon is starting are
+ * not among them.
  */
 const appWindows = new WindowSet<BrowserWindow>();
 /** Which window started each run, so the run's notification shows it there. */
@@ -1073,6 +1074,8 @@ function createWindow(ground: string, route: string | null = null, how: Opening 
     // Into its tabs before it is shown, so it never appears as a window of its own first.
     const host = how.tabOf && !how.tabOf.isDestroyed() ? how.tabOf : null;
     if (host) host.addTabbedWindow(mainWindow);
+    // The window that said resmon is starting goes once this one is ready.
+    closeStartingWindow();
     if (isHiddenWindow()) return;
     if (maximize && !host) mainWindow.maximize();
     // `showInactive()` puts the window up without making it the key window, so
@@ -1623,7 +1626,99 @@ function serviceWorld(): World {
     holdsLock: () => app.hasSingleInstanceLock(),
     sleep,
     log: (line: string) => console.log(`[service] ${line}`),
+    waiting: showStartingWindow,
   };
+}
+
+/** The small window shown while this launch waits for the background service, and the timer that holds it back. */
+let startingWindow: BrowserWindow | null = null;
+let startingTimer: NodeJS.Timeout | null = null;
+/** How long a wait for the service lasts before the window shows: a service that answers at once shows nothing. */
+const STARTING_QUIET_MS = 1_500;
+
+/**
+ * The starting window's page: what is happening and why it can take minutes.
+ * No script and no preload, and nothing loaded from anywhere: the page is the
+ * whole of it. The engine is not up, so the stored theme cannot be read; the
+ * system's stands in, in the app's own two grounds and inks.
+ */
+function startingPage(why: 'starting' | 'started', dark: boolean): string {
+  const [ground, ink, ink2, ink3, rule] = dark
+    ? ['#0a0a0b', '#f1eee6', '#bfbab0', '#8f8b82', '#232322']
+    : ['#ffffff', '#141413', '#45433e', '#69665f', '#e3e1dc'];
+  const doing = why === 'starting'
+    ? 'Waiting for its background service to finish starting.'
+    : 'Waiting for its background service to start on this version of resmon.';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>resmon</title><style>
+html, body { margin: 0; height: 100%; background: ${ground}; color: ${ink}; cursor: default; user-select: none; }
+body { box-sizing: border-box; padding: 44px 32px 24px; font: 13px/1.5 -apple-system, "Helvetica Neue", "Segoe UI", sans-serif; -webkit-app-region: drag; }
+h1 { margin: 0 0 6px; font-size: 15px; font-weight: 600; letter-spacing: -.005em; }
+p { margin: 0; color: ${ink2}; }
+.track { position: relative; height: 2px; margin: 0 0 16px; overflow: hidden; border-radius: 1px; background: ${rule}; }
+.track::after { content: ""; position: absolute; inset: 0 auto 0 0; width: 30%; background: ${ink3}; animation: go 1.6s cubic-bezier(.45, 0, .55, 1) infinite; }
+@keyframes go { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+@media (prefers-reduced-motion: reduce) { .track::after { animation: none; width: 100%; opacity: .5; } }
+.small { margin-top: 12px; font-size: 12px; color: ${ink3}; }
+</style></head><body>
+<div class="track" role="progressbar" aria-label="Waiting for the background service"></div>
+<h1>resmon is starting</h1>
+<p>${doing} After an update, the service’s first start updates the database that holds your collection, which can take a few minutes.</p>
+<p class="small">This window closes when resmon opens. Close it to stop waiting; the service goes on starting.</p>
+</body></html>`;
+}
+
+/**
+ * Say that resmon is starting, once a wait for its background service has
+ * lasted `STARTING_QUIET_MS`. Without it a launch waiting for a service that
+ * migrates its database showed nothing for minutes. Closing the window quits
+ * this launch, as closing the last window does; the service is left starting.
+ */
+function showStartingWindow(why: 'starting' | 'started'): void {
+  if (startingWindow || startingTimer) return;
+  startingTimer = setTimeout(() => {
+    startingTimer = null;
+    const dark = nativeTheme.shouldUseDarkColors;
+    const window = new BrowserWindow({
+      width: 440,
+      height: 228,
+      useContentSize: true,
+      resizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      title: 'resmon',
+      show: false,
+      backgroundColor: dark ? '#0a0a0b' : '#ffffff',
+      ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
+      webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true },
+    });
+    startingWindow = window;
+    window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    window.webContents.on('will-navigate', (event) => event.preventDefault());
+    window.once('ready-to-show', () => {
+      if (isHiddenWindow() || window.isDestroyed()) return;
+      if (isBackgroundWindow()) window.showInactive();
+      else window.show();
+    });
+    window.on('closed', () => { if (startingWindow === window) startingWindow = null; });
+    console.log(`[service] Showing that resmon is starting (${why})`);
+    void window.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(startingPage(why, dark))}`);
+  }, STARTING_QUIET_MS);
+}
+
+/** The wait is over before the window showed: it never will. One already shown stays until resmon's window is ready. */
+function holdBackStartingWindow(): void {
+  if (startingTimer) clearTimeout(startingTimer);
+  startingTimer = null;
+}
+
+/** resmon's window is ready, or this launch is done: the starting window goes. */
+function closeStartingWindow(): void {
+  holdBackStartingWindow();
+  const window = startingWindow;
+  startingWindow = null;
+  if (window && !window.isDestroyed()) window.destroy();
 }
 
 /**
@@ -1652,6 +1747,7 @@ async function checkServiceAtLaunch(): Promise<boolean> {
     outcome = { done: 'failed', why: err instanceof Error ? err.message : String(err) };
   }
   console.log(`[service] At launch: ${JSON.stringify(outcome)}`);
+  holdBackStartingWindow();
   if (outcome.done === 'started') {
     handOver();
     return true;
