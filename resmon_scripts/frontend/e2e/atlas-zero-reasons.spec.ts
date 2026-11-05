@@ -76,11 +76,16 @@ async function progress(win: Page, source: string) {
   return { state: await row.getAttribute('data-state'), label: (await row.locator('.src-label').innerText()).trim() };
 }
 
-/** The run's line in the Runs tab's history. */
+/**
+ * The run's line in the Runs tab's history, once it has been drawn. A history row is
+ * `content-visibility: auto`, so its text can read empty on the frame it first appears;
+ * the line is read again until it says something (a run's status is never empty).
+ */
 async function logLine(win: Page, id: number): Promise<string> {
   await win.evaluate(() => { window.location.hash = '#/runs'; });
   const line = win.locator(`[data-runs="history"] .run-row[data-run="${id}"] .run-status`);
   await expect(line).toBeVisible({ timeout: 30_000 });
+  await expect.poll(async () => (await line.innerText()).trim(), { timeout: 30_000 }).not.toBe('');
   return (await line.innerText()).trim();
 }
 
