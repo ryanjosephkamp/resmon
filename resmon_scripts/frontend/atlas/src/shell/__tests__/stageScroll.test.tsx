@@ -7,7 +7,7 @@
 import { useEffect, useRef } from 'react';
 import { act, render } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom';
-import { SCROLL_LIMIT, ScrollMemory, StageScroll, anchorAt, landing, placeStage, type Place } from '../stageScroll';
+import { HOLD_MS, SCROLL_LIMIT, ScrollMemory, StageScroll, anchorAt, holdsPlace, landing, placeStage, type Place } from '../stageScroll';
 
 const at = (top: number): Place => ({ top, anchor: null });
 
@@ -55,105 +55,302 @@ describe('the places kept', () => {
 });
 
 /** Give an element a box, as jsdom lays nothing out. */
-function box(node: Element, top: number, height = 70) {
-  node.getBoundingClientRect = () => ({ top, bottom: top + height, left: 0, right: 600, width: 600, height, x: 0, y: top, toJSON: () => ({}) });
+function box(node: Element, top: number, height = 70, left = 0, width = 600) {
+  node.getBoundingClientRect = () => ({ top, bottom: top + height, left, right: left + width, width, height, x: left, y: top, toJSON: () => ({}) });
 }
 
 describe('the row at the top', () => {
   afterEach(() => { delete (document as { elementFromPoint?: unknown }).elementFromPoint; });
-
-  test('is the nearest row known by what it is and found once, past a mark that shows up in every row', () => {
+  /** A stage 800 high whose top edge is 52 down the window, holding `html`. */
+  function stageOf(html: string) {
     const stage = document.createElement('main');
-    stage.innerHTML = `
-      <div class="bar">filters</div>
-      <article data-run="190"><span data-source="arxiv">arXiv</span> run 0189</article>
-      <article data-run="189"><span data-source="arxiv">arXiv</span> run 0188</article>`;
+    stage.innerHTML = html;
     document.body.append(stage);
     box(stage, 52, 800);
-    const [bar, first] = [stage.querySelector('.bar')!, stage.querySelector('[data-run="190"]')!];
-    box(first, 30);
-    // A bar held at the top covers the first height; the next one finds the run's source mark, which is in every run.
-    document.elementFromPoint = (_x: number, y: number) => (y < 100 ? bar : first.querySelector('span'));
-    expect(anchorAt(stage)).toEqual({ selector: '[data-run="190"]', offset: -22 });
+    return stage;
+  }
+
+  test('is the first row whose top is in view, known by what it is and found once, past a mark that shows up in every row', () => {
+    const stage = stageOf(`
+      <div class="bar">filters</div>
+      <article data-run="190"><span data-source="arxiv">arXiv</span> run 0190</article>
+      <article data-run="189"><span data-source="arxiv">arXiv</span> run 0189</article>`);
+    const [bar, cut, below] = [stage.querySelector('.bar')!, stage.querySelector('[data-run="190"]')!, stage.querySelector('[data-run="189"]')!];
+    // The run cut by the top edge, 22 above it, and the one below it, whose top is 48 down.
+    box(cut, 30);
+    box(below, 100);
+    document.elementFromPoint = (_x: number, y: number) => (y < 100 ? cut.querySelector('span') : below.querySelector('span'));
+    expect(anchorAt(stage)).toEqual({ selector: '[data-run="189"]', offset: 48 });
+    // A bar held at the top covers the first heights; the source mark below it is in every run, so the run is the row.
+    document.elementFromPoint = (_x: number, y: number) => (y < 140 ? bar : below.querySelector('span'));
+    box(below, 140);
+    expect(anchorAt(stage)).toEqual({ selector: '[data-run="189"]', offset: 88 });
     document.elementFromPoint = () => bar;
     expect(anchorAt(stage)).toBeNull();
+    stage.remove();
+  });
+
+  test('is found across the stage, where two fifths across falls in the gap between two covers', () => {
+    const stage = stageOf('<div class="gal-row"><article data-document="7">a cover</article><article data-document="8">another</article></div>');
+    const [gap, card] = [stage.querySelector('.gal-row')!, stage.querySelector('[data-document="7"]')!];
+    box(card, 60, 400, 0, 220);
+    document.elementFromPoint = (x: number) => (x < 200 ? card : gap);
+    expect(anchorAt(stage)).toEqual({ selector: '[data-document="7"]', offset: 8 });
+    stage.remove();
+  });
+
+  test('looks past a page known by what it is and taller than the view, for a row on it', () => {
+    const stage = stageOf('<div data-run="12"><h2>Papers</h2><ol><li data-document="40">a paper</li></ol></div>');
+    const [page, heading, paper] = [stage.querySelector('[data-run="12"]')!, stage.querySelector('h2')!, stage.querySelector('[data-document="40"]')!];
+    box(page, -600, 3000);
+    box(paper, 130);
+    document.elementFromPoint = (_x: number, y: number) => (y < 120 ? heading : paper);
+    expect(anchorAt(stage)).toEqual({ selector: '[data-document="40"]', offset: 78 });
+    stage.remove();
+  });
+
+  test('is not a row in a box that scrolls on its own, as Search › Your collection\'s results do', () => {
+    const stage = stageOf('<div class="index-scroll" style="overflow-y: auto"><ol><li data-document="40">a paper</li></ol></div>');
+    const [scroller, paper] = [stage.querySelector<HTMLElement>('.index-scroll')!, stage.querySelector('[data-document="40"]')!];
+    let tall = 5000;
+    Object.defineProperty(scroller, 'scrollHeight', { get: () => tall });
+    Object.defineProperty(scroller, 'clientHeight', { get: () => 700 });
+    box(paper, 130);
+    document.elementFromPoint = () => paper;
+    expect(anchorAt(stage)).toBeNull();
+    // The same box with nothing to scroll moves with the stage, and its row is the stage's.
+    tall = 700;
+    expect(anchorAt(stage)).toEqual({ selector: '[data-document="40"]', offset: 78 });
     stage.remove();
   });
 });
 
 describe('putting a place back on a page still drawing', () => {
-  /** A stage whose content grows, the most it can be scrolled being `max`. */
+  /**
+   * A stage 800 high whose content grows and shrinks, the most it can be
+   * scrolled being `max`; as in a browser, a page grown shorter pushes the
+   * stage back to its end.
+   */
   function growing(max: number) {
     let room = max;
     let top = 0;
     const node = document.createElement('div');
     Object.defineProperty(node, 'scrollTop', { get: () => top, set: (value: number) => { top = Math.max(0, Math.min(value, room)); } });
+    Object.defineProperty(node, 'scrollHeight', { get: () => room + 800 });
+    Object.defineProperty(node, 'clientHeight', { get: () => 800 });
     box(node, 0, 800);
-    return { node, grow: (by: number) => { room += by; } };
+    document.body.append(node);
+    return { node, grow: (by: number) => { room += by; top = Math.min(top, room); } };
+  }
+  /** A row `down` pixels down the stage's content, which can be moved. */
+  function rowIn(node: HTMLElement, id: string, down: number) {
+    const row = document.createElement('article');
+    row.dataset.run = id;
+    let at = down;
+    row.getBoundingClientRect = () => ({ top: at - node.scrollTop } as DOMRect);
+    node.append(row);
+    return { row, move: (to: number) => { at = to; } };
+  }
+  /** A `ResizeObserver` the test says when to fire. */
+  class Resizes {
+    static made: Resizes[] = [];
+    off = false;
+    constructor(private readonly callback: () => void) { Resizes.made.push(this); }
+    observe() { /* everything */ }
+    unobserve() { /* nothing */ }
+    disconnect() { this.off = true; }
+    static fire() { for (const one of Resizes.made) if (!one.off) one.callback(); }
   }
   let frames: FrameRequestCallback[] = [];
   let clock = 0;
   beforeEach(() => {
     frames = [];
     clock = 0;
+    Resizes.made = [];
+    (globalThis as { ResizeObserver?: unknown }).ResizeObserver = Resizes;
     jest.spyOn(performance, 'now').mockImplementation(() => clock);
     jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
     jest.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { frames = []; });
   });
-  afterEach(() => { jest.restoreAllMocks(); });
+  afterEach(() => {
+    jest.restoreAllMocks();
+    delete (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    document.body.innerHTML = '';
+  });
   /** One frame, `ms` after the last. */
   const tick = (ms = 16) => { clock += ms; const now = frames; frames = []; for (const callback of now) callback(clock); };
+  const held = (node: HTMLElement) => frames.length > 0 && holdsPlace(node) && node.style.overflowAnchor === 'none';
+  const run = { selector: '[data-run="190"]', offset: 319 };
 
-  test('follows the page as it grows until the place is reached, with scroll anchoring off until it settles', () => {
+  test('follows the page as it grows until the place is reached, with scroll anchoring off and the stage held meanwhile', () => {
     const { node, grow } = growing(400);
     placeStage(node, at(1000));
     expect(node.scrollTop).toBe(400);
-    expect(node.style.overflowAnchor).toBe('none');
+    expect(held(node)).toBe(true);
     grow(300);
     tick();
     expect(node.scrollTop).toBe(700);
     grow(500);
     tick();
     expect(node.scrollTop).toBe(1000);
-    // Held, then let go once the page has had its two seconds to settle.
-    tick(1_000);
-    expect(frames).toHaveLength(1);
-    tick(1_100);
-    expect(frames).toHaveLength(0);
-    expect(node.style.overflowAnchor).toBe('');
   });
 
   test('the row that was at the top comes back to the same height, though the rows above it are drawn taller now', () => {
     const { node } = growing(10_000);
-    const row = document.createElement('article');
-    row.dataset.run = '190';
-    node.append(row);
     // Drawn again, the rows above the run are taller than when it was left: it sits 4,286 pixels down the page.
-    row.getBoundingClientRect = () => ({ top: 4286 - node.scrollTop } as DOMRect);
-    placeStage(node, { top: 3558, anchor: { selector: '[data-run="190"]', offset: 319 } });
+    const { move } = rowIn(node, '190', 4286);
+    placeStage(node, { top: 3558, anchor: run });
     // 4286 − scrollTop = 319, so the stage is 3967 down: the run is where it was left.
     expect(node.scrollTop).toBe(3967);
     // A row above it drawn at its real height moves the run up 40; the place follows it.
-    row.getBoundingClientRect = () => ({ top: 4246 - node.scrollTop } as DOMRect);
+    move(4246);
     tick();
     expect(node.scrollTop).toBe(3927);
   });
 
-  test('gives up when the person scrolls, or when the page moves the stage itself', () => {
-    const scrolled = growing(400);
-    placeStage(scrolled.node, at(1000));
-    scrolled.node.dispatchEvent(new Event('wheel'));
-    scrolled.grow(1000);
+  test('waits for a row the list has not drawn yet, at the old distance down, and puts the stage by it when it comes', () => {
+    const { node } = growing(10_000);
+    placeStage(node, { top: 3558, anchor: run });
+    expect(node.scrollTop).toBe(3558);
+    tick(400);
+    tick(400);
+    expect(node.scrollTop).toBe(3558);
+    expect(held(node)).toBe(true);
+    // The list draws it, and moves the stage as it does (as a virtualizer meeting its scroller can): it is put by the row.
+    rowIn(node, '190', 4286);
+    node.scrollTop = 3600;
     tick();
-    expect(scrolled.node.scrollTop).toBe(400);
-    expect(scrolled.node.style.overflowAnchor).toBe('');
+    expect(node.scrollTop).toBe(3967);
+    expect(held(node)).toBe(true);
+  });
 
+  test('as the rows above it are measured, the row is put back in the same frame, before it is painted', () => {
+    const { node } = growing(10_000);
+    const { move } = rowIn(node, '190', 4286);
+    placeStage(node, { top: 3558, anchor: run });
+    expect(node.scrollTop).toBe(3967);
+    // Rows above it measured shorter than their estimate, one after another, with no frame between.
+    move(4200);
+    Resizes.fire();
+    expect(node.scrollTop).toBe(3881);
+    move(4151);
+    Resizes.fire();
+    expect(node.scrollTop).toBe(3832);
+    expect(held(node)).toBe(true);
+  });
+
+  test('a page grown shorter than the place pushes the stage to its end, and it is held there until the page is tall enough', () => {
+    const { node, grow } = growing(10_000);
+    const { move } = rowIn(node, '190', 4286);
+    placeStage(node, { top: 3558, anchor: run });
+    expect(node.scrollTop).toBe(3967);
+    // The rows near the view drawn shorter than their estimate: the page ends above the place for now.
+    grow(3_700 - 10_000);
+    move(4100);
+    tick();
+    expect(node.scrollTop).toBe(3700);
+    expect(held(node)).toBe(true);
+    // The list's next page is read below: the run is put where it was left.
+    grow(2_000);
+    tick();
+    expect(node.scrollTop).toBe(3781);
+    expect(held(node)).toBe(true);
+  });
+
+  test('a list that moves the stage and keeps the row where it is held is not the page moving it', () => {
+    const { node } = growing(10_000);
+    const { move } = rowIn(node, '190', 4286);
+    placeStage(node, { top: 3558, anchor: run });
+    // A row above measured 30 taller, and the stage moved down 30 with it: the run stays where it was left.
+    move(4316);
+    node.scrollTop = 3997;
+    tick();
+    expect(node.scrollTop).toBe(3997);
+    expect(held(node)).toBe(true);
+  });
+
+  test('gives up at once when the person moves the page: a wheel up or down, a touch, a key, or the pointer on the stage', () => {
+    const moves: [string, () => Event][] = [
+      ['wheel', () => new WheelEvent('wheel', { deltaY: 120 })],
+      ['touchstart', () => new Event('touchstart')],
+      ['pointerdown', () => new Event('pointerdown')],
+    ];
+    for (const [, event] of moves) {
+      const { node, grow } = growing(400);
+      placeStage(node, at(1000));
+      node.dispatchEvent(event());
+      grow(1000);
+      tick();
+      expect(node.scrollTop).toBe(400);
+      expect(holdsPlace(node)).toBe(false);
+      expect(node.style.overflowAnchor).toBe('');
+    }
+    const { node, grow } = growing(400);
+    placeStage(node, at(1000));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }));
+    grow(1000);
+    tick();
+    expect(node.scrollTop).toBe(400);
+    expect(holdsPlace(node)).toBe(false);
+  });
+
+  test('a wheel sideways, the rest of a swipe that went Back, does not let it go', () => {
+    const { node, grow } = growing(400);
+    placeStage(node, at(1000));
+    node.dispatchEvent(new WheelEvent('wheel', { deltaX: -40, deltaY: 2 }));
+    grow(1000);
+    tick();
+    expect(node.scrollTop).toBe(1000);
+    expect(held(node)).toBe(true);
+  });
+
+  test('gives up when the page moves the stage itself, with the row or without one', () => {
     const moved = growing(400);
     placeStage(moved.node, at(1000));
     moved.node.scrollTop = 120;
     moved.grow(1000);
     tick();
     expect(moved.node.scrollTop).toBe(120);
+    expect(holdsPlace(moved.node)).toBe(false);
+
+    const placed = growing(10_000);
+    rowIn(placed.node, '190', 4286);
+    placeStage(placed.node, { top: 3558, anchor: run });
+    // A screen that opens at its own place, as a file's #links does, after the row was put back.
+    placed.node.scrollTop = 6000;
+    tick();
+    expect(placed.node.scrollTop).toBe(6000);
+    expect(holdsPlace(placed.node)).toBe(false);
+  });
+
+  test('is held five seconds at most, and then the page is left to itself', () => {
+    const { node } = growing(10_000);
+    const { move } = rowIn(node, '190', 4286);
+    placeStage(node, { top: 3558, anchor: run });
+    for (let ms = 0; ms < HOLD_MS - 200; ms += 400) tick(400);
+    move(4246);
+    tick(100);
+    expect(node.scrollTop).toBe(3927);
+    expect(held(node)).toBe(true);
+    tick(400);
+    expect(holdsPlace(node)).toBe(false);
+    expect(node.style.overflowAnchor).toBe('');
+    move(4100);
+    Resizes.fire();
+    tick();
+    expect(node.scrollTop).toBe(3927);
+  });
+
+  test('a row that never comes, deleted or filtered out since, leaves the old distance down, followed as the page grows', () => {
+    const { node, grow } = growing(2_000);
+    placeStage(node, { top: 3558, anchor: run });
+    expect(node.scrollTop).toBe(2000);
+    grow(3_000);
+    tick();
+    expect(node.scrollTop).toBe(3558);
+    for (let ms = 0; ms <= HOLD_MS; ms += 500) tick(500);
+    expect(holdsPlace(node)).toBe(false);
+    expect(node.scrollTop).toBe(3558);
   });
 
   test('the top needs nothing held', () => {
@@ -162,6 +359,7 @@ describe('putting a place back on a page still drawing', () => {
     placeStage(node, at(0));
     expect(node.scrollTop).toBe(0);
     expect(frames).toHaveLength(0);
+    expect(holdsPlace(node)).toBe(false);
     expect(node.style.overflowAnchor).toBe('');
   });
 });

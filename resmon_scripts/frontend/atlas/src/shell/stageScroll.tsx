@@ -50,11 +50,12 @@ export const SCROLL_LIMIT = 200;
  * the stage's top edge.
  *
  * The row is what is put back. A long list draws only the rows near the screen
- * (`content-visibility`), and the rows it has not drawn take an estimated
- * height, so a list opened again is not the height it was when it was left:
- * on the Runs tab, measured, the run at the top of the screen came back 409
- * pixels lower at the same distance down. The distance is kept for a page with
- * no such row, and for one whose row has gone.
+ * (`content-visibility` on the Runs tab, a virtualizer in the Library), and the
+ * rows it has not drawn take an estimated height, so a list opened again is
+ * not the height it was when it was left: on the Runs tab, measured, the run
+ * at the top of the screen came back 409 pixels lower at the same distance
+ * down. The distance is kept for a page with no such row, and for one whose
+ * row has gone.
  */
 export interface Place {
   top: number;
@@ -66,27 +67,66 @@ export interface Place {
  * once in the stage, is the same row when the page is opened again.
  */
 const IDENTITIES = ['data-run', 'data-document', 'data-paper', 'data-file', 'data-routine', 'data-project', 'data-pair', 'data-source'];
+const ANY_IDENTITY = IDENTITIES.map((name) => `[${name}]`).join(', ');
 
-/** The row at the top of the stage, by what it is, and how far below the top edge it sits; null for none. */
+/**
+ * The first row whose top is in view, by what it is, and how far below the
+ * stage's top edge that is; null for none.
+ *
+ * A row cut by the top edge is passed over for the one below it, whose top was
+ * in view; a page known by what it is (a run's, a paper's), taller than the
+ * view, is looked past for the rows on it.
+ *
+ * It is looked for down from the top, past a bar held at the top of the stage
+ * as it scrolls (the run history's filters), and at a few points across: in the
+ * gallery the point two fifths across can fall in the gap between two covers,
+ * at every height. A row in a box that scrolls on its own (Search › Your
+ * collection's results) is not the stage's: the stage's place cannot put it back.
+ */
 export function anchorAt(stage: HTMLElement): Place['anchor'] {
+  // Read on every scroll: a page with nothing known by what it is costs one query.
+  if (!stage.querySelector(ANY_IDENTITY)) return null;
   const box = stage.getBoundingClientRect();
-  // A few heights down, past a bar held at the top of the stage as it scrolls (the run history's filters).
-  for (const y of [8, 56, 104, 160].map((down) => box.top + down)) {
-    let node = stage.ownerDocument.elementFromPoint(box.left + box.width * 0.4, y);
-    while (node && node !== stage && stage.contains(node)) {
-      for (const name of IDENTITIES) {
-        const value = node.getAttribute(name);
-        if (value === null) continue;
-        const selector = `[${name}="${value.replace(/["\\]/g, '\\$&')}"]`;
-        // A mark that shows up more than once (a source's mark in each run) is not a row of its own.
-        if (stage.querySelectorAll(selector).length === 1) {
-          return { selector, offset: node.getBoundingClientRect().top - box.top };
-        }
+  let y = box.top + 8;
+  for (let tries = 0; tries < 12 && y < box.bottom; tries += 1) {
+    let next = y + 48;
+    for (const x of [0.4, 0.2, 0.6, 0.8].map((across) => box.left + box.width * across)) {
+      const row = rowAt(stage, x, y);
+      if (!row) continue;
+      const edge = row.node.getBoundingClientRect();
+      if (edge.top >= box.top - 0.5) return { selector: row.selector, offset: edge.top - box.top };
+      // A row cut by the top edge: the next look is just below it. A page taller than the view is looked
+      // past, across and then further down.
+      if (edge.bottom < box.bottom) {
+        next = Math.max(next, edge.bottom + 8);
+        break;
       }
-      node = node.parentElement;
+    }
+    y = next;
+  }
+  return null;
+}
+
+/** The row under a point in the stage, by what it is: the nearest element around the point known by an identity found once. */
+function rowAt(stage: HTMLElement, x: number, y: number): { node: Element; selector: string } | null {
+  for (let node = stage.ownerDocument.elementFromPoint(x, y); node && node !== stage && stage.contains(node); node = node.parentElement) {
+    for (const name of IDENTITIES) {
+      const value = node.getAttribute(name);
+      if (value === null) continue;
+      const selector = `[${name}="${value.replace(/["\\]/g, '\\$&')}"]`;
+      // A mark that shows up more than once (a source's mark in each run) is not a row of its own.
+      if (stage.querySelectorAll(selector).length === 1 && !scrollsOnItsOwn(node, stage)) return { node, selector };
     }
   }
   return null;
+}
+
+/** Whether a box between the row and the stage scrolls the row itself. */
+function scrollsOnItsOwn(row: Element, stage: HTMLElement): boolean {
+  for (let node = row.parentElement; node && node !== stage; node = node.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(node).overflowY) && node.scrollHeight > node.clientHeight + 1) return true;
+  }
+  return false;
 }
 
 /**
@@ -105,55 +145,130 @@ export function landing(type: `${NavigationType}`, from: string, to: string, kep
 
 const TOP: Place = { top: 0, anchor: null };
 
-/** How long a place put back is held while the page settles: its lists drawing, its parts above reading. */
-const FOLLOW_MS = 2_000;
+/**
+ * The longest a place put back is held while the page settles: its lists
+ * drawing and measuring their rows, their next pages read, its parts above
+ * reading, on a slow machine as on a fast one.
+ */
+export const HOLD_MS = 5_000;
 
 /**
- * Put the stage at a place, and hold it there while the page settles, frame by
- * frame for up to two seconds: the row the place names is kept at its old
- * distance from the top as the rows around it draw, and a page still drawing
- * (a list's next page) is followed until it is tall enough. The browser's own
- * scroll anchoring is off meanwhile, since it would move the place by whatever
- * a part above it changed as it drew. Given up at once when the person scrolls
- * or presses a key, or when something on the page moves the stage itself: a
- * screen that opens at its own place (Settings' `?focus=`, a file's `#links`)
- * keeps it. The top of a page needs none of this. Returns the way to stop.
+ * Put the stage at a place, and hold it there while the page settles, for up
+ * to five seconds (`HOLD_MS`).
+ *
+ * What is held is the row the place names, at its old distance below the top
+ * edge. It is waited for: a list may not have drawn it yet (the Library's
+ * gallery draws only the rows near the view, and only once it has measured the
+ * page around it), so until it comes the stage goes to the old distance down,
+ * and when it comes the stage is put by it. It is put again in the frame any
+ * part of the page changes size (a `ResizeObserver` on the screen), so as the
+ * rows above it are drawn at their own height, rather than the height a long
+ * list estimates for a row it has not drawn, it stays where it was. A row that
+ * never comes (deleted since, or filtered out) leaves the old distance down,
+ * as for a page with no such row.
+ *
+ * While the place is held, the stage moving by itself is not the page moving
+ * it in three cases: the stage pushed back to its end by a page that for now
+ * is shorter than the place (the rows near the view drawn shorter than their
+ * estimate, the list's next page not read yet), and put again as the page
+ * grows; a list that moved the stage and kept the row where it is held; and a
+ * list that moved it as it drew the row, which is then put by the row. The
+ * browser's own scroll anchoring is off meanwhile, since it would move the
+ * place by whatever a part above it changed as it drew, and the stage says it
+ * is held (`holdsPlace`), so the gallery does not move it as it measures its
+ * rows.
+ *
+ * Given up at once when the person moves the page (a wheel up or down, a
+ * touch, a key, the pointer pressed on the stage or its scroll bar), or when
+ * something on the page moves the stage itself: a screen that opens at its own
+ * place (Settings' `?focus=`, a file's `#links`) keeps it. The top of a page
+ * needs none of this. Returns the way to stop.
  */
 export function placeStage(node: HTMLElement, place: Place): () => void {
-  const want = () => {
-    const row = place.anchor ? node.querySelector(place.anchor.selector) : null;
-    if (!row || !place.anchor) return place.top;
-    return node.scrollTop + row.getBoundingClientRect().top - node.getBoundingClientRect().top - place.anchor.offset;
-  };
-  node.scrollTop = want();
-  if (place.top === 0 && !place.anchor) return () => {};
+  const { anchor } = place;
+  const row = () => (anchor ? node.querySelector(anchor.selector) : null);
+  // By the row while it is in the page; without it, the old distance down.
+  const want = (found: Element | null) => (found && anchor
+    ? node.scrollTop + found.getBoundingClientRect().top - node.getBoundingClientRect().top - anchor.offset
+    : place.top);
+  const first = row();
+  node.scrollTop = want(first);
+  if (place.top === 0 && !anchor) return () => {};
   let set = node.scrollTop;
+  // Whether the stage was last put by the row, rather than by the distance while the row had not come.
+  let byRow = first !== null;
   let frame = 0;
+  let stopped = false;
   const started = performance.now();
   node.style.overflowAnchor = 'none';
+  node.setAttribute(HELD, '');
+
+  const put = (found: Element | null) => {
+    const to = want(found);
+    if (Math.abs(node.scrollTop - to) > 1) node.scrollTop = to;
+    set = node.scrollTop;
+    byRow = found !== null;
+  };
+  /** Puts the stage again; false, having let go, when the page has moved it. */
+  const hold = (): boolean => {
+    const found = row();
+    if (Math.abs(node.scrollTop - set) > 1) {
+      // Pushed back to its end: the page grew shorter than where the stage was.
+      const clamped = node.scrollTop < set && node.scrollTop >= node.scrollHeight - node.clientHeight - 1;
+      const settling = clamped
+        // A list kept the row where it is held, or the row has just come.
+        || (found !== null && (Math.abs(want(found) - node.scrollTop) <= 1 || !byRow));
+      if (!settling) {
+        stop();
+        return false;
+      }
+    }
+    put(found);
+    return true;
+  };
+  const follow = () => {
+    if (performance.now() - started > HOLD_MS) return stop();
+    if (hold()) frame = requestAnimationFrame(follow);
+  };
+  const resized = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { if (!stopped) hold(); }) : null;
+  for (const child of Array.from(node.children)) resized?.observe(child);
+  const wheel = (event: WheelEvent) => {
+    // A wheel sideways is the rest of a swipe that went Back or Forward; it does not move the stage.
+    if (Math.abs(event.deltaY) >= Math.abs(event.deltaX)) stop();
+  };
   const stop = () => {
+    if (stopped) return;
+    stopped = true;
     cancelAnimationFrame(frame);
+    resized?.disconnect();
     node.style.removeProperty('overflow-anchor');
+    node.removeAttribute(HELD);
+    node.removeEventListener('wheel', wheel);
     for (const type of INPUT) node.removeEventListener(type, stop);
     window.removeEventListener('keydown', stop);
   };
-  const follow = () => {
-    if (Math.abs(node.scrollTop - set) > 1 || performance.now() - started > FOLLOW_MS) return stop();
-    const to = want();
-    if (Math.abs(node.scrollTop - to) > 1) {
-      node.scrollTop = to;
-      set = node.scrollTop;
-    }
-    frame = requestAnimationFrame(follow);
-  };
+  node.addEventListener('wheel', wheel, { passive: true });
   for (const type of INPUT) node.addEventListener(type, stop, { passive: true });
   window.addEventListener('keydown', stop);
   frame = requestAnimationFrame(follow);
   return stop;
 }
 
-/** What a person does to move the page themselves. */
-const INPUT = ['wheel', 'touchstart', 'pointerdown'] as const;
+/** What else a person does to move the page themselves: a touch, and the pointer pressed on the stage or its scroll bar. */
+const INPUT = ['touchstart', 'pointerdown'] as const;
+
+/** Set on the stage while a place put back is held on it. */
+const HELD = 'data-place-held';
+
+/**
+ * Whether a place put back is being held on the stage (`placeStage`). A list
+ * on the stage leaves the stage where it is meanwhile: the hold puts the row
+ * it names where it was left as the rows above it are measured, and a list
+ * moving the stage too would move it against that.
+ */
+export function holdsPlace(stage: Element): boolean {
+  return stage.hasAttribute(HELD);
+}
 
 /**
  * The stage's place on each history entry. Drawn as the stage's first child,
