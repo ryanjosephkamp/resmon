@@ -145,18 +145,21 @@ export function RunHistory({ filter, words, watchName, notice, tools, slots }: P
   const someListed = listed.some((run) => selected.includes(run.id));
   const selectAll = () => setSelected(everyListed ? [] : listed.map((run) => run.id));
 
-  // Read on as the list nears its end, a page at a time.
+  // Read on as the list nears its end, a page at a time. Not while the list is being read again: a
+  // page asked for then would call off that reading (`fetchNextPage` cancels it), and the runs it was
+  // reading again would stay as they were. And not after a page could not be read: the end stays in
+  // view, and it would be asked for again and again; Older runs asks once more.
   const end = useRef<HTMLDivElement>(null);
-  const { hasNextPage, isFetchingNextPage, fetchNextPage } = history;
+  const { hasNextPage, isFetching, isFetchNextPageError, fetchNextPage } = history;
   useEffect(() => {
     const target = end.current;
-    if (!target || !hasNextPage) return undefined;
+    if (!target || !hasNextPage || isFetching || isFetchNextPageError) return undefined;
     const seen = new IntersectionObserver((entries) => {
-      if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) void fetchNextPage();
+      if (entries.some((entry) => entry.isIntersecting)) void fetchNextPage();
     }, { rootMargin: '600px 0px' });
     seen.observe(target);
     return () => seen.disconnect();
-  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [hasNextPage, isFetching, isFetchNextPageError, fetchNextPage]);
 
   return (
     <section className="run-history runlog" aria-label="History" aria-busy={history.isFetching} data-runs="history">
