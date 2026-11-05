@@ -4,6 +4,7 @@
     soak     the background service running routines for --hours
     host     the background service as the bare engine and as the app, alternated
     wording  a shared-wording scan, full and of new papers, timed with its peak memory
+    scale    100,000 papers: counts, ranking by meaning, exports' memory, the long list's frames
     record   record the benchmark sweep's replies from the live sources
     seed     build a seeded corpus (run builds the ones it needs itself)
     compare  a candidate's results.json against a baseline's, by the gate
@@ -24,7 +25,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import engine, host, instance, seed, size, soak, stats, wording
+from . import engine, host, instance, scale, seed, size, soak, stats, wording
 
 SCRIPTS = Path(__file__).resolve().parent.parent
 REPO = SCRIPTS.parent
@@ -221,6 +222,10 @@ def cmd_wording(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_scale(args: argparse.Namespace) -> int:
+    return scale.run(args, _say)
+
+
 def cmd_record(args: argparse.Namespace) -> int:
     replies = Path(args.replies)
     if (replies / "index.json").exists() and not args.force:
@@ -319,6 +324,18 @@ def main(argv: list[str] | None = None) -> int:
     wd.add_argument("--out", required=True)
     wd.add_argument("--cache", default=str(DEFAULT_CACHE))
     wd.set_defaults(func=cmd_wording)
+
+    sc = sub.add_parser("scale")
+    sc.add_argument("--out", required=True)
+    sc.add_argument("--cache", default=str(DEFAULT_CACHE))
+    sc.add_argument("--papers", type=int, default=scale.PAPERS)
+    sc.add_argument("--repeats", type=int, default=5, help="samples per count and ranking")
+    sc.add_argument("--rows", type=int, default=3000, help="rows read into the list before it is scrolled")
+    sc.add_argument("--ui-runs", type=int, default=3)
+    sc.add_argument("--frontend", default=str(FRONTEND))
+    sc.add_argument("--only", help="comma-separated: engine,ui")
+    sc.add_argument("--keep-work", action="store_true")
+    sc.set_defaults(func=cmd_scale)
 
     rec = sub.add_parser("record")
     rec.add_argument("--replies", default=replies_default, required=replies_default is None)
