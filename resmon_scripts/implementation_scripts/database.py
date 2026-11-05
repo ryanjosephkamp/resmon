@@ -770,11 +770,12 @@ def init_db(
     _migrate_answer_records(conn)
     _migrate_assistant_codex(conn)
     _migrate_library_v25(conn)
-    # Last of the schema steps: its tables reference ``documents``,
-    # ``executions`` and ``routines`` in their final shapes.
+    # After the steps above: its tables reference ``documents``,
+    # ``executions`` and ``routines`` as those steps leave them.
     _migrate_collections(conn)
-    # After it: the full-text tables reference ``documents`` and
-    # ``executions``, and ``executions`` is rebuilt here once more.
+    # Last of the schema steps: the full-text tables reference ``documents``
+    # and ``executions``, and ``executions`` is rebuilt here once more, so a
+    # run can be a ``find_paper``.
     _migrate_full_text(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
