@@ -29,6 +29,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Locator, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { findCard } from './fixtures/gallery';
+import { stepsWithin } from './fixtures/steps';
 import { writePdf } from './fixtures/pdf';
 import { showTheme } from './fixtures/theme';
 
@@ -92,6 +93,24 @@ def resolve(host, port, *args, **kwargs):
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('127.0.0.1', port))]
     return getaddrinfo(host, port, *args, **kwargs)
 fulltext_download._RESOLVE = resolve
+# A download quicker than the window, made certain: while the spec holds the
+# marker, Get the PDF answers as it did when asked ("waiting"), but only once
+# that download has ended, so the window's next read of the paper finds its PDF
+# already in the Library and never sees it going. A slow runner gave this order.
+import time
+from implementation_scripts import full_text
+ask = full_text.request
+def request(conn, document_id, *args, **kwargs):
+    asked = ask(conn, document_id, *args, **kwargs)
+    if (state / 'answer-after-download').exists() and asked.get('id') is not None:
+        until = time.monotonic() + 30
+        while time.monotonic() < until:
+            row = conn.execute('SELECT state FROM full_text_downloads WHERE id = ?', (asked['id'],)).fetchone()
+            if row is None or row[0] not in ('waiting', 'downloading'):
+                break
+            time.sleep(0.05)
+    return asked
+full_text.request = request
 (state / 'hook.json').write_text(json.dumps({'pid': os.getpid(), 'parent_pid': os.getppid()}))
 `;
 }
@@ -378,9 +397,33 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
     await expect(cardGet).toBeVisible({ timeout: 30_000 });
     await expect(cardGet).toHaveAttribute('title', `Get the PDF from pdf.resmon.test (CC BY)`);
     await shoot(win, 'atlas-library-card-get.png');
+    // The card's answer comes once its PDF is in the Library (the hook): the card must see the PDF arrive.
+    fs.writeFileSync(path.join(stateDir, 'answer-after-download'), '');
     await cardGet.click();
-    // Afterward it is a PDF card with its cover, drawn from the file's first page.
-    await expect(card.locator('[data-cover="pdf"]')).toBeVisible({ timeout: 60_000 });
+    // Afterward it is a PDF card with its cover, drawn from the file's first page. When it is
+    // not, the log says which: the download did not finish (its rows), or it did and the card
+    // was not read again (the engine's queue entry has the PDF and the card does not).
+    try {
+      await expect(card.locator('[data-cover="pdf"]')).toBeVisible({ timeout: 60_000 });
+    } catch (error) {
+      const now = stored();
+      const rows = now.downloads.filter((d) => d.document_id === openalexDoc.id).map((d) => ({
+        id: d.id, state: d.state, reason: d.reason, host: d.host, requested: d.requested_at_utc,
+        started: d.started_at_utc, finished: d.finished_at_utc, file: d.file_id,
+      }));
+      const queue = await call('GET', `/api/reading-queue?status=to_read&q=${encodeURIComponent(TITLE)}`) as {
+        entries?: { document_id: number; pdf?: unknown }[];
+      };
+      const entry = (queue.entries ?? []).find((i) => i.document_id === openalexDoc.id);
+      const said = stepsWithin('FULL TEXT CARD', 60_000, 0).say;
+      said(`the paper's PDF requests: ${JSON.stringify(rows)}`);
+      said(`the Library's links to it: ${JSON.stringify(now.links.filter((l) => l.document_id === openalexDoc.id))}`);
+      said(`the engine's queue entry's PDF: ${JSON.stringify(entry?.pdf ?? null)}`);
+      said(`the card's own line: ${JSON.stringify(await card.locator('.card-label').innerText().catch(() => null))}`);
+      throw error;
+    } finally {
+      fs.rmSync(path.join(stateDir, 'answer-after-download'), { force: true });
+    }
     await expect(card.locator('[data-cover="pdf"]')).toHaveAttribute('data-drawn', 'true', { timeout: 60_000 });
     await expect(card.getByRole('link', { name: 'Read' })).toHaveAttribute('href', /\/library\/files\//);
     await shoot(win, 'atlas-library-card-pdf.png');
