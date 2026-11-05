@@ -65,6 +65,8 @@ REASON_WORDS = {
     "run_cap": f"A watch run downloads at most {PER_RUN_CAP} PDFs.",
     "unknown_paper": "That paper is not in this collection's database.",
     "interrupted": "The engine stopped while this PDF was downloading.",
+    "watch_off": "The watch's PDFs switch was turned off before this PDF was fetched.",
+    "watch_gone": "The watch, or the run that asked for this PDF, was deleted before it was fetched.",
     "library_refused": "The Library did not keep the file.",
     "error": "The download failed in a way resmon did not expect.",
 }
@@ -296,6 +298,45 @@ def for_execution(conn: sqlite3.Connection, execution_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# A watch's request it no longer wants
+# ---------------------------------------------------------------------------
+
+
+def watch_withdrew(conn: sqlite3.Connection, row: dict) -> str | None:
+    """Why a watch's request is not wanted now, or None while it is (and for a person's).
+
+    ``watch_off`` when the watch's PDFs switch was turned off after its run
+    asked; ``watch_gone`` when the watch was deleted, or the run that asked,
+    so nothing says it still wants the PDF.
+    """
+    if row.get("requested_by") != "watch":
+        return None
+    execution_id = row.get("execution_id")
+    found = None if execution_id is None else conn.execute(
+        "SELECT r.download_full_text FROM executions e JOIN routines r ON r.id = e.routine_id WHERE e.id = ?",
+        (int(execution_id),)).fetchone()
+    if found is None:
+        return "watch_gone"
+    return None if found[0] else "watch_off"
+
+
+def withdraw_unwanted(conn: sqlite3.Connection) -> int:
+    """Skip every waiting watch request its watch no longer wants, with why. Returns how many."""
+    withdrawn = 0
+    for row in conn.execute(
+            "SELECT id, requested_by, execution_id FROM full_text_downloads "
+            "WHERE state = 'waiting' AND requested_by = 'watch'").fetchall():
+        reason = watch_withdrew(conn, dict(row))
+        if reason is None:
+            continue
+        withdrawn += conn.execute(
+            "UPDATE full_text_downloads SET state = 'skipped', reason = ?, finished_at_utc = ? "
+            "WHERE id = ? AND state = 'waiting'", (reason, utc_now(), row["id"])).rowcount
+    conn.commit()
+    return withdrawn
+
+
+# ---------------------------------------------------------------------------
 # Downloads an engine that stopped left behind
 # ---------------------------------------------------------------------------
 
@@ -453,7 +494,11 @@ class Worker:
             return not any(t.is_alive() for t in self._active.values())
 
     def _claim(self, conn: sqlite3.Connection) -> dict | None:
-        """The oldest waiting request whose host has nothing downloading, claimed atomically."""
+        """The oldest waiting request whose host has nothing downloading, claimed atomically.
+
+        A watch's request its watch no longer wants is skipped first, with why.
+        """
+        withdraw_unwanted(conn)
         stale = _since(STALE_SECONDS)
         for row in conn.execute(
                 "SELECT id, host FROM full_text_downloads WHERE state = 'waiting' ORDER BY id LIMIT 50").fetchall():
@@ -521,6 +566,12 @@ class Worker:
         conn.commit()
 
     def _download(self, conn: sqlite3.Connection, row: dict, staging: Path) -> None:
+        # Asked again as it starts: the switch may have been turned off, or
+        # the watch deleted, since the request was claimed.
+        withdrawn = watch_withdrew(conn, row)
+        if withdrawn is not None:
+            self._finish(conn, row["id"], "skipped", reason=withdrawn)
+            return
         url, license_slug = row["url"], row["license"]
         if license_slug is None:
             arxiv_id = open_access.bare_arxiv_id(url or "")

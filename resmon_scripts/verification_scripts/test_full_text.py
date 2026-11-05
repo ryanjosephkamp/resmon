@@ -307,11 +307,23 @@ def test_a_failed_download_is_recorded_with_its_reason(db, server, route, reason
     assert full_text.library_pdf(db, paper) is None
 
 
+def _watch_run(conn, *, pdfs: bool = True) -> tuple[int, int]:
+    """A watch with its PDFs switch as given, and a completed run of it: their ids."""
+    routine = database.insert_routine(conn, {
+        "name": f"PDF watch {time.monotonic_ns()}", "schedule_cron": "0 7 * * 1",
+        "parameters": '{"query": "x", "repositories": ["openalex"]}', "is_active": 0,
+        "download_full_text": 1 if pdfs else 0})
+    run = conn.execute("INSERT INTO executions (execution_type, routine_id, parameters, start_time, status) "
+                       "VALUES ('automated_sweep', ?, '{}', '2026-11-05T00:00:00', 'completed')",
+                       (routine,)).lastrowid
+    conn.commit()
+    return routine, run
+
+
 def test_a_watch_run_asks_for_its_new_papers_up_to_its_cap(db, server, monkeypatch):
     monkeypatch.setattr(full_text, "PER_RUN_CAP", 3)
     _serve(server, "/a.pdf")
-    run = db.execute("INSERT INTO executions (execution_type, parameters, start_time, status) "
-                     "VALUES ('automated_sweep', '{}', '2026-11-05T00:00:00', 'completed')").lastrowid
+    _routine, run = _watch_run(db)
     papers = [_paper(db, 20 + n, url=server.url(f"/a.pdf?{n}")) for n in range(5)]
     papers.append(_paper(db, 30, url=None))
     known = _paper(db, 31, url=server.url("/a.pdf?known"))
@@ -333,6 +345,48 @@ def test_a_watch_run_asks_for_its_new_papers_up_to_its_cap(db, server, monkeypat
     assert known not in by_paper
     assert result["counts"]["stored"] == 3 and result["counts"]["skipped"] == 3
     assert all(r["requested_by"] == "watch" and r["execution_id"] == run for r in result["requests"])
+
+
+@pytest.mark.parametrize("change, reason", [
+    (lambda conn, routine: database.update_routine(conn, routine, {"download_full_text": 0}), "watch_off"),
+    (lambda conn, routine: database.delete_routine(conn, routine), "watch_gone"),
+])
+def test_a_watchs_waiting_pdfs_are_not_fetched_once_it_no_longer_wants_them(db, server, change, reason):
+    """Before, a watch's queued PDFs kept downloading after its switch was turned off or it was deleted."""
+    _serve(server, "/w.pdf")
+    routine, run = _watch_run(db)
+    papers = [_paper(db, 40 + n, url=server.url(f"/w.pdf?{n}")) for n in range(3)]
+    for paper in papers:
+        db.execute("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 1)",
+                   (run, paper))
+    db.commit()
+    # Asked for, and not yet fetched.
+    asked = [full_text.request(db, p, requested_by="watch", execution_id=run, wake=False) for p in papers]
+    assert {a["state"] for a in asked} == {"waiting"}
+    # A person's request for another paper is not the watch's to withdraw.
+    mine = full_text.request(db, _paper(db, 49, url=server.url("/w.pdf?mine")), wake=False)
+    change(db, routine)
+    full_text.worker.wake()
+    _settle(db)
+    for a in asked:
+        row = _row(db, a["id"])
+        assert (row["state"], row["reason"]) == ("skipped", reason)
+        assert full_text.for_execution(db, run)["requests"][0]["words"] == full_text.REASON_WORDS[reason]
+    assert _row(db, mine["id"])["state"] == "stored"
+    assert [r["path"] for r in server.requests] == ["/w.pdf?mine"]
+
+
+def test_a_watch_request_claimed_before_its_switch_went_off_is_not_fetched(db, server, tmp_path):
+    _serve(server, "/c.pdf")
+    routine, run = _watch_run(db)
+    paper = _paper(db, 50, url=server.url("/c.pdf"))
+    asked = full_text.request(db, paper, requested_by="watch", execution_id=run, wake=False)
+    claimed = full_text.worker._claim(db)
+    assert claimed["id"] == asked["id"]
+    database.update_routine(db, routine, {"download_full_text": 0})
+    full_text.worker._download(db, claimed, tmp_path)
+    assert (_row(db, asked["id"])["state"], _row(db, asked["id"])["reason"]) == ("skipped", "watch_off")
+    assert server.requests == []
 
 
 class _OAI(http.server.BaseHTTPRequestHandler):
