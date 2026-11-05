@@ -39,7 +39,7 @@ test('the identity\'s build id wins over the health answer\'s build', async () =
 
 test('with no build named, the row says so', async () => {
   const section = await shown({ build: null });
-  expect(section.querySelector('[data-health="build"]')!.textContent).toBe('Not identified. The engine reports no build id, so none is named here.');
+  expect(section.querySelector('[data-health="build"]')!.textContent).toBe('not reported by this engine');
 });
 
 test('the closing sentence claims neither a build nor a collection the engine does not name', async () => {

@@ -67,12 +67,19 @@ export function versionWords(health: Pick<Health, 'version'> | undefined, error:
   return 'Asking the engine.';
 }
 
+type BuildFacts = { identity?: Pick<Health['identity'], 'build_id'>; build?: string | null };
+
 /**
- * The build line: the build id the engine's identity names, else the `build`
- * the health answer carries (the app's own id for the build that started the
- * engine), else a sentence saying neither is there.
+ * The build an engine names: the build id its identity carries, else the
+ * `build` its health answer carries (the app's own id for the build that
+ * started the engine), else none.
  */
-export function buildWords(health: { identity?: Pick<Health['identity'], 'build_id'>; build?: string | null } | undefined): string | null {
+export function engineBuild(health: BuildFacts): string | null {
+  return health.identity?.build_id || health.build || null;
+}
+
+/** About's build line: the build the engine names, else a sentence saying it names none. */
+export function buildWords(health: BuildFacts | undefined): string | null {
   if (!health) return null;
-  return health.identity?.build_id || health.build || 'Not identified. The engine reports no build id, so none is named here.';
+  return engineBuild(health) ?? 'Not identified. The engine reports no build id, so none is named here.';
 }

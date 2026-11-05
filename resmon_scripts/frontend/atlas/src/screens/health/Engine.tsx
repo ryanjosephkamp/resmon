@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import { bridge } from '../../bridge';
-import { buildWords } from '../settings/aboutFacts';
+import { engineBuild } from '../settings/aboutFacts';
 import { when } from '../today/format';
 import { HealthTabs } from './HealthTabs';
 import { instantOf } from './model';
@@ -44,7 +44,7 @@ export function Engine() {
               ? <code className="path">{data.identity.runtime_id}</code> : 'not reported by this engine'}</dd></div>
             <div><dt>Process</dt><dd>pid {data.pid}, started {started ? when(started.toISOString(), now) : 'at a time not recorded'}</dd></div>
             <div><dt>Version</dt><dd>{data.version}</dd></div>
-            <div><dt>Build</dt><dd data-health="build">{buildWords(data)}</dd></div>
+            <div><dt>Build</dt><dd data-health="build">{engineBuild(data) ?? 'not reported by this engine'}</dd></div>
             <div><dt>Database</dt><dd>{data.identity?.schema_version !== undefined ? `schema ${data.identity.schema_version}` : 'schema not reported'}</dd></div>
             <div><dt>Similarity index</dt><dd>{data.embeddings.extension ? `sqlite-vec ${data.embeddings.extension}` : `Not loaded${data.embeddings.reason ? `: ${data.embeddings.reason}` : ''}`}</dd></div>
           </dl>
