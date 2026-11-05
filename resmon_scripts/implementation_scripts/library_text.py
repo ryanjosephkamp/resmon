@@ -10,9 +10,18 @@ from . import library
 MAX_TEXT_BYTES = 256 * 1024
 MAX_LINES = 5000
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
+#: The most of a file's beginning one answer gives when only its first lines are asked for.
+MAX_HEAD_LINES = 40
+MAX_HEAD_CHARS = 4096
 
 
-def read_text(conn: sqlite3.Connection, vault_id: str, file_id: str, version_id: str) -> dict:
+def read_text(conn: sqlite3.Connection, vault_id: str, file_id: str, version_id: str, head: int | None = None) -> dict:
+    """A kept text file's text, verified whole. ``head`` asks for only its first lines, at most
+    ``MAX_HEAD_LINES`` of them and ``MAX_HEAD_CHARS`` characters, as a cover shows them: the
+    file is still read and checked whole, and only the answer is short.
+    """
+    if head is not None and not 1 <= head <= MAX_HEAD_LINES:
+        raise library.LibraryError('invalid_lines', f'lines is a number from 1 to {MAX_HEAD_LINES}.', 400)
     # Validate the pairing even for an unsupported format; never return content
     # for a guessed item/version. Open and text use the same retained resolver.
     with library.checked_vault(conn, vault_id):
@@ -45,6 +54,9 @@ def read_text(conn: sqlite3.Connection, vault_id: str, file_id: str, version_id:
                   'media_type': row['media_type'], 'encoding': 'utf-8',
                   'normalization': 'crlf-cr-to-lf-v1', 'byte_size': row['byte_size'],
                   'line_count': lines, 'text': text}
+        if head is not None:
+            result['text'] = '\n'.join(text.split('\n', head)[:head])[:MAX_HEAD_CHARS]
+            result['shown_lines'] = min(head, lines)
         if len(json.dumps(result, ensure_ascii=False).encode('utf-8')) > MAX_RESPONSE_BYTES:
             raise library.LibraryError('response_limit', 'The serialized text exceeds 2 MiB; nothing was truncated.', 413)
         return result

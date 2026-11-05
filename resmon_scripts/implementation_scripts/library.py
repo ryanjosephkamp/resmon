@@ -19,6 +19,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+import threading
 import unicodedata
 import uuid
 from typing import Iterator
@@ -37,6 +38,52 @@ MEDIA = {"pdf": "application/pdf", "txt": "text/plain", "md": "text/markdown", "
 #: The kinds read as UTF-8 text: everything but a PDF.
 TEXT_MEDIA = ("text/plain", "text/markdown", "text/x-tex")
 REMOVED = 'removed'
+#: What an operating system leaves in a folder without anyone putting it there:
+#: the Finder's ``.DS_Store``, the ``._`` files it writes beside a file on a disk
+#: that cannot hold its extra attributes, a custom folder icon's ``Icon\r``, and
+#: Windows' ``Thumbs.db`` and ``desktop.ini``. Opening the Library folder in the
+#: Finder writes one, so wherever the Library lists a folder it passes over them.
+OS_METADATA = frozenset({'.DS_Store', 'Icon\r'})
+OS_METADATA_FOLDED = frozenset({'thumbs.db', 'desktop.ini'})
+
+
+def os_metadata(name: str) -> bool:
+    return name in OS_METADATA or name.startswith('._') or name.lower() in OS_METADATA_FOLDED
+
+
+def listing(fd: int) -> list[str]:
+    """A folder's names, without the operating system's own metadata files."""
+    return [name for name in os.listdir(fd) if not os_metadata(name)]
+
+
+#: One change to where the Library folder is at a time, in this engine: a move
+#: or a relink. A relink in the middle of a move to another disk could record
+#: the half-made copy as the Library, and the move would then take that copy
+#: away again.
+_vault_change = threading.Lock()
+_vault_changing: str | None = None
+CHANGING_WORDS = {
+    'moving': 'The Library folder is being moved. Try again when the move has finished.',
+    'relinking': 'resmon is checking the Library folder you chose. Try again in a moment.',
+}
+
+
+@contextmanager
+def vault_change(kind: str) -> Iterator[None]:
+    global _vault_changing
+    if not _vault_change.acquire(blocking=False):
+        raise LibraryError('changing', CHANGING_WORDS.get(_vault_changing or '', CHANGING_WORDS['moving']))
+    _vault_changing = kind
+    try:
+        yield
+    finally:
+        _vault_changing = None
+        _vault_change.release()
+
+
+def vault_changing() -> str | None:
+    """``moving`` or ``relinking`` while one runs, else None."""
+    return _vault_changing
 
 
 class LibraryError(ValueError):
@@ -169,6 +216,8 @@ def status(conn: sqlite3.Connection) -> dict:
     """
     row = conn.execute("SELECT * FROM library_vault WHERE singleton=1").fetchone()
     result = {'version': 1, 'vault': None, 'status': 'unconfigured', 'counts': counts(conn), 'limits': limits()}
+    if (changing := vault_changing()) is not None:
+        result['changing'] = changing
     if row:
         result['vault'] = {'vault_id': row['vault_id'], 'label': Path(row['root_path']).name,
                            'path': row['root_path'], 'created_at_utc': row['created_at_utc']}
@@ -259,14 +308,14 @@ def _catalog_tree(conn: sqlite3.Connection, root: int, *, locked: bool = False) 
     Each file's size and hash are checked when it is read (``retained``), which
     is where a changed file can do harm.
     """
-    names = set(os.listdir(root))
+    names = set(listing(root))
     allowed = {'vault.json', 'files', REMOVED} | ({'.import.lock'} if locked else set())
     if not {'vault.json', 'files'} <= names or names - allowed:
         raise LibraryError('needs_attention', 'Unexpected vault entries; import requires an owner recovery decision.')
     recorded = {r[0] for r in conn.execute('SELECT file_id FROM library_files')}
     files = _open_dir('files', root)
     try:
-        present = set(os.listdir(files))
+        present = set(listing(files))
     finally:
         os.close(files)
     if present - recorded:
@@ -279,7 +328,7 @@ def present_files(conn: sqlite3.Connection, expected: str) -> set[str]:
     with checked_vault(conn, expected) as (_, root):
         files = _open_dir('files', root)
         try:
-            return set(os.listdir(files))
+            return set(listing(files))
         finally:
             os.close(files)
 

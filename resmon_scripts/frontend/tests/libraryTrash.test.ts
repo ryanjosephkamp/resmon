@@ -14,3 +14,16 @@ test('only a file held as removed inside a Library folder can be sent to the Tra
   expect(libraryRemovedFile(42, '/')).toBe(false);
   expect(libraryRemovedFile(`C:\\Users\\x\\resmon-library-${ID}\\removed\\${HELD}\\a.pdf`, '\\')).toBe(true);
 });
+
+test('a name holding a separator, or a Windows path Windows would rewrite, is refused', () => {
+  const win = `C:\\Users\\x\\resmon-library-${ID}\\removed\\${HELD}`;
+  expect(libraryRemovedFile(`${win}\\a.pdf`, '\\')).toBe(true);
+  // Windows reads `/` as a separator: this name climbs out of the held folder.
+  expect(libraryRemovedFile(`${win}\\a/../../../x`, '\\')).toBe(false);
+  expect(libraryRemovedFile(`${win}\\a/b.pdf`, '\\')).toBe(false);
+  // Not what normalize gives: a doubled separator, or forward slashes between the parts.
+  expect(libraryRemovedFile(`C:\\Users\\x\\\\resmon-library-${ID}\\removed\\${HELD}\\a.pdf`, '\\')).toBe(false);
+  expect(libraryRemovedFile(`C:/Users/x/resmon-library-${ID}/removed/${HELD}/a.pdf`, '\\')).toBe(false);
+  // A backslash in a name is refused on every system.
+  expect(libraryRemovedFile(`/Users/x/resmon-library-${ID}/removed/${HELD}/a\\..\\x.pdf`, '/')).toBe(false);
+});

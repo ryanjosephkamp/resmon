@@ -231,13 +231,13 @@ def held_names(conn: sqlite3.Connection, expected: str) -> set[str]:
             return set()
         held = set()
         try:
-            for name in os.listdir(removed):
+            for name in library.listing(removed):
                 try:
                     folder = library._open_dir(name, removed)
                 except OSError:
                     continue
                 try:
-                    if os.listdir(folder):
+                    if library.listing(folder):
                         held.add(name)
                 finally:
                     os.close(folder)
@@ -357,7 +357,7 @@ def release_request(conn: sqlite3.Connection, expected: str, file_id: str) -> di
 def _held_name(folder: int, row: dict) -> str:
     """The held file's name now: its version name, or its original one after a release was asked for."""
     stored = Path(row['record']['file']['relative_path']).name
-    names = os.listdir(folder)
+    names = library.listing(folder)
     if names == [stored] or names == [row['original_name']]:
         return names[0]
     raise LibraryError('needs_attention', 'The held folder does not hold exactly this file; nothing was changed.')
@@ -379,9 +379,17 @@ def forget(conn: sqlite3.Connection, expected: str, file_id: str) -> dict:
                     if _exists(file_id, removed):
                         folder = library._open_dir(file_id, removed)
                         try:
-                            if os.listdir(folder):
+                            if library.listing(folder):
                                 raise LibraryError('still_held', 'This file is still held in the Library folder. '
                                                    'Restore it, or move it to the Trash first.')
+                            # Only the operating system's metadata is left (a .DS_Store the Finder
+                            # wrote while showing the file): it goes with the empty folder.
+                            for name in os.listdir(folder):
+                                try:
+                                    os.unlink(name, dir_fd=folder)
+                                except OSError:
+                                    raise LibraryError('needs_attention', 'The held folder holds something resmon did '
+                                                       'not put there; nothing was changed.') from None
                         finally:
                             os.close(folder)
                         os.rmdir(file_id, dir_fd=removed)

@@ -322,3 +322,27 @@ def test_tex_is_kept_as_strict_text_and_sorts_list(vault):
     assert [f['original_name'] for f in page['files']] == ['proof.tex'] and page['total'] == 3 and not page['has_more']
     with pytest.raises(lib.LibraryError):
         lib.list_files(c, vid, sort='name', before_id=1)
+
+
+def test_a_cover_reads_only_the_first_lines_of_a_file_checked_whole(vault):
+    from implementation_scripts import library_text
+    c, vid, root = vault
+    body = ''.join(f'line {n}\n' for n in range(4000)).encode()
+    kept = put(c, vid, 'long.md', body)['file']
+    whole = library_text.read_text(c, vid, kept['file_id'], kept['version_id'])
+    assert 'shown_lines' not in whole and whole['line_count'] == 4001
+    head = library_text.read_text(c, vid, kept['file_id'], kept['version_id'], head=18)
+    assert head['text'] == '\n'.join(f'line {n}' for n in range(18)) and head['shown_lines'] == 18
+    assert head['line_count'] == 4001 and len(json.dumps(head)) < 2048
+    # A first line of 200 KB is still a short answer.
+    wide = put(c, vid, 'wide.txt', b'x' * 200_000)['file']
+    assert len(library_text.read_text(c, vid, wide['file_id'], wide['version_id'], head=18)['text']) == library_text.MAX_HEAD_CHARS
+    for wrong in (0, library_text.MAX_HEAD_LINES + 1):
+        with pytest.raises(lib.LibraryError) as refused:
+            library_text.read_text(c, vid, kept['file_id'], kept['version_id'], head=wrong)
+        assert refused.value.status == 400
+    # Changed bytes are refused for a few lines as for the whole.
+    (root / kept['relative_path']).chmod(0o600)
+    (root / kept['relative_path']).write_bytes(body.replace(b'line 3999', b'line 9999'))
+    with pytest.raises(lib.LibraryError):
+        library_text.read_text(c, vid, kept['file_id'], kept['version_id'], head=18)

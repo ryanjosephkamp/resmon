@@ -13,6 +13,11 @@ name is how a folder is paired with its database (``library.vault_row``):
   one checked against its recorded hash, and the new path is recorded only once
   every byte is there; the old folder is then left where it was, whole, for the
   person to delete when they are sure, because resmon does not delete their files.
+  A move to another disk is refused before anything is copied unless that disk
+  has room for every file and ``FREE_SPACE_FLOOR`` to spare.
+
+Only one of the two runs at a time (``library.vault_change``): a relink in the
+middle of a move could record the half-made copy as the Library.
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from typing import Callable
 
 from . import library
 from .library import LibraryError
@@ -57,6 +63,12 @@ def _marker_ok(root: int, vault_id: str) -> None:
 
 def relink(conn: sqlite3.Connection, expected: str, chosen: str) -> dict:
     """Record where the Library folder is now, after checking it is this Library's folder."""
+    with library.vault_change('relinking'):
+        _relink(conn, expected, chosen)
+    return library.status(conn)
+
+
+def _relink(conn: sqlite3.Connection, expected: str, chosen: str) -> None:
     vault = library.vault_row(conn, expected)
     target = _candidate(chosen, expected)
     try:
@@ -75,7 +87,6 @@ def relink(conn: sqlite3.Connection, expected: str, chosen: str) -> dict:
     except BaseException:
         conn.rollback()
         raise
-    return library.status(conn)
 
 
 def _copy(source: int, name: str, target: int, expected_size: int | None = None,
@@ -113,6 +124,14 @@ def _copy(source: int, name: str, target: int, expected_size: int | None = None,
 
 def move(conn: sqlite3.Connection, expected: str, parent: str) -> dict:
     """Move the Library folder into ``parent``, keeping its name."""
+    with library.vault_change('moving'):
+        moved = _move(conn, expected, parent)
+    result = library.status(conn)
+    result['moved'] = moved
+    return result
+
+
+def _move(conn: sqlite3.Connection, expected: str, parent: str) -> dict:
     with library.checked_vault(conn, expected) as (vault, old_root):
         old_path = Path(vault['root_path'])
         child = _child(expected)
@@ -152,16 +171,16 @@ def move(conn: sqlite3.Connection, expected: str, parent: str) -> dict:
                             raise
                         kept = None
                     else:
-                        _copy_tree(conn, expected, old_root, new_parent, child)
-                        _record(conn, expected, vault['root_path'], new_path)
+                        _room_for(conn, expected, old_root, new_parent)
+                        # Recorded inside the copy, so a copy whose new place cannot be recorded is taken away again.
+                        _copy_tree(conn, expected, old_root, new_parent, child,
+                                   then=lambda: _record(conn, expected, vault['root_path'], new_path))
                         kept = vault['root_path']
             finally:
                 # The descriptor follows the folder through a rename, so this is
                 # the lock in whichever place the folder now is.
                 os.unlink('.import.lock', dir_fd=old_root)
-    result = library.status(conn)
-    result['moved'] = {'previous': vault['root_path'], 'path': new_path, 'same_disk': kept is None, 'old_folder_kept': kept}
-    return result
+    return {'previous': vault['root_path'], 'path': new_path, 'same_disk': kept is None, 'old_folder_kept': kept}
 
 
 def _record(conn: sqlite3.Connection, expected: str, was: str, now: str) -> None:
@@ -176,11 +195,56 @@ def _record(conn: sqlite3.Connection, expected: str, was: str, now: str) -> None
         raise
 
 
-def _copy_tree(conn: sqlite3.Connection, expected: str, old_root: int, new_parent: int, child: str) -> None:
+def _size(name: str, folder: int) -> int:
+    return os.stat(name, dir_fd=folder, follow_symlinks=False).st_size
+
+
+def _room_for(conn: sqlite3.Connection, expected: str, old_root: int, new_parent: int) -> None:
+    """Refuse, before copying anything, a move to a disk without room for every file and the floor to spare."""
+    need = _size('vault.json', old_root)
+    files = library._open_dir('files', old_root)
+    try:
+        present = set(library.listing(files))
+    finally:
+        os.close(files)
+    for row in conn.execute('SELECT file_id, byte_size FROM library_files WHERE vault_id=?', (expected,)):
+        if row['file_id'] in present:
+            need += row['byte_size']
+    try:
+        removed = library._open_dir(library.REMOVED, old_root)
+    except FileNotFoundError:
+        removed = None
+    if removed is not None:
+        try:
+            for name in library.listing(removed):
+                held = library._open_dir(name, removed)
+                try:
+                    need += sum(_size(inner, held) for inner in library.listing(held))
+                finally:
+                    os.close(held)
+        finally:
+            os.close(removed)
+    disk = os.fstatvfs(new_parent)
+    free = disk.f_bavail * disk.f_frsize
+    if need + library.FREE_SPACE_FLOOR > free:
+        raise LibraryError('disk_full', f'That disk has {_words(free)} free. The Library needs {_words(need)} there, and '
+                           f'{_words(library.FREE_SPACE_FLOOR)} to spare; nothing was moved.', 507)
+
+
+def _words(size: int) -> str:
+    for unit, scale in (('GB', 1024 ** 3), ('MB', 1024 ** 2), ('KB', 1024)):
+        if size >= scale:
+            return f'{size / scale:,.1f} {unit}'.replace('.0 ', ' ')
+    return f'{size:,} bytes'
+
+
+def _copy_tree(conn: sqlite3.Connection, expected: str, old_root: int, new_parent: int, child: str,
+               then: Callable[[], None] = lambda: None) -> None:
     """Copy the folder to another disk: the marker, every kept file checked by hash, and the held ones.
 
-    On any failure, what this copy made is taken away again, file by file and
-    folder by folder, and nothing else: the copy is resmon's own, the original
+    ``then`` runs once every byte is there and synced. On any failure, its own
+    included, what this copy made is taken away again, file by file and folder
+    by folder, and nothing else: the copy is resmon's own, the original
     untouched.
     """
     made: list[tuple[int, str, bool]] = []
@@ -219,14 +283,15 @@ def _copy_tree(conn: sqlite3.Connection, expected: str, old_root: int, new_paren
         if old_removed is not None:
             opened.append(old_removed)
             removed = mkdir(library.REMOVED, root)
-            for name in os.listdir(old_removed):
+            for name in library.listing(old_removed):
                 source = library._open_dir(name, old_removed)
                 opened.append(source)
                 target = mkdir(name, removed)
-                for inner in os.listdir(source):
+                for inner in library.listing(source):
                     copy(source, inner, target)
         for parent, name, _ in made:
             os.fsync(parent)
+        then()
     except BaseException:
         for parent, name, is_dir in reversed(made):
             try:

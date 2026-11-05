@@ -3990,11 +3990,11 @@ def library_inventory(request: Request, expected_vault_id: str, format: str = "j
 
 @app.get("/api/library/files/{file_id}/text", response_model=response_models.LibraryText, response_model_exclude_unset=True)
 def library_read_text(request: Request, response: Response, file_id: str,
-                      expected_vault_id: str, expected_version_id: str):
-    _library_query(request, ("expected_vault_id", "expected_version_id"))
+                      expected_vault_id: str, expected_version_id: str, lines: int | None = None):
+    _library_query(request, ("expected_vault_id", "expected_version_id", "lines"))
     response.headers["Cache-Control"] = "no-store"
     with _library_connection() as conn:
-        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id)
+        return library_text.read_text(conn, expected_vault_id, file_id, expected_version_id, lines)
 
 
 @app.get("/api/library/files/{file_id}/pdf", response_model=None)

@@ -834,6 +834,9 @@ def _drive_library(drive: Drive, document_id: int) -> tuple[str, str, str]:
     text = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
                  f"&expected_version_id={version_id}", headers=library)
     assert text["text"] == "Perovskite notes\nkept as written\n" and text["line_count"] == 3
+    head = drive("GET", f"/api/library/files/{file_id}/text?expected_vault_id={vault}"
+                 f"&expected_version_id={version_id}&lines=1", headers=library)
+    assert (head["text"], head["shown_lines"], head["line_count"]) == ("Perovskite notes", 1, 3)
     _drive_library_lifecycle(drive, vault, parent, document_id)
     return vault, file_id, version_id
 

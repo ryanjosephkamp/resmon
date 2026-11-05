@@ -7505,6 +7505,17 @@
         "additionalProperties": true,
         "description": "``POST /api/library/vault/move``: the status after the move, and the move itself.",
         "properties": {
+          "changing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changing"
+          },
           "counts": {
             "$ref": "#/components/schemas/LibraryCounts"
           },
@@ -8036,8 +8047,19 @@
       },
       "LibraryStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.\n\n``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder\nis not where it was recorded), ``mismatch``, ``needs_attention`` or\n``unavailable``; ``reason`` is present only for those that came from a\nrefusal, and for ``missing``.",
+        "description": "``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.\n\n``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder\nis not where it was recorded), ``mismatch``, ``needs_attention`` or\n``unavailable``; ``reason`` is present only for those that came from a\nrefusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``\nwhile the folder's place is being changed, and absent otherwise.",
         "properties": {
+          "changing": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Changing"
+          },
           "counts": {
             "$ref": "#/components/schemas/LibraryCounts"
           },
@@ -8086,7 +8108,7 @@
       },
       "LibraryText": {
         "additionalProperties": true,
-        "description": "``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text.",
+        "description": "``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.\n\nWith ``lines``, ``text`` is only the file's first lines and ``shown_lines``\nsays how many; the file was still read and verified whole.",
         "properties": {
           "byte_size": {
             "title": "Byte Size",
@@ -8119,6 +8141,17 @@
           "sha256": {
             "title": "Sha256",
             "type": "string"
+          },
+          "shown_lines": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shown Lines"
           },
           "text": {
             "title": "Text",
@@ -24434,6 +24467,22 @@
             "schema": {
               "title": "Expected Version Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "lines",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lines"
             }
           }
         ],

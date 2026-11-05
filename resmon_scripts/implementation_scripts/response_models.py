@@ -3030,7 +3030,8 @@ class LibraryStatus(LosslessModel):
     ``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder
     is not where it was recorded), ``mismatch``, ``needs_attention`` or
     ``unavailable``; ``reason`` is present only for those that came from a
-    refusal, and for ``missing``.
+    refusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``
+    while the folder's place is being changed, and absent otherwise.
     """
 
     version: int
@@ -3038,6 +3039,7 @@ class LibraryStatus(LosslessModel):
     status: str
     counts: LibraryCounts
     limits: LibraryLimits
+    changing: Optional[str] = None
     reason: Optional[str] = None
 
 
@@ -3244,7 +3246,11 @@ class LibraryForgotten(LosslessModel):
 
 
 class LibraryText(LosslessModel):
-    """``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text."""
+    """``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.
+
+    With ``lines``, ``text`` is only the file's first lines and ``shown_lines``
+    says how many; the file was still read and verified whole.
+    """
 
     version: int
     kind: str
@@ -3258,6 +3264,7 @@ class LibraryText(LosslessModel):
     byte_size: int
     line_count: int
     text: str
+    shown_lines: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
