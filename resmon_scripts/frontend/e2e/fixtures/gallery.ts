@@ -44,7 +44,18 @@ export async function inView(win: Page, selector: string): Promise<Locator> {
 
 /** A card found by its title with the shelf's find field, which leaves the shelf holding the cards that match. */
 export async function findCard(win: Page, title: string): Promise<Locator> {
-  await win.locator('.lib-find input').fill(title);
+  // The words become the shelf's find once typing pauses, in the address
+  // (`FIND_PAUSE_MS`). The card may be on the shelf before that, so it is
+  // handed back only once the address holds the find, and a click on it is not
+  // made with the find still to come. A shelf drawn after the words were typed
+  // (its button pressed just before) sets the field to its own find, so they
+  // are typed again until the address holds them.
+  const field = win.locator('.lib-find input');
+  const found = () => win.evaluate(() => new URLSearchParams(window.location.hash.split('?')[1] ?? '').get('q'));
+  await expect(async () => {
+    if ((await field.inputValue()) !== title) await field.fill(title);
+    await expect.poll(found, { timeout: 2_000 }).toBe(title.trim());
+  }).toPass({ timeout: 20_000 });
   const card = win.locator('article.card', { has: win.getByRole('heading', { name: title, exact: true }) });
   await expect(card).toBeVisible({ timeout: 30_000 });
   return card;

@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, type EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { isMac } from '../../bridge';
+import { afterPause } from '../../shell/history';
 import { Icon } from '../../shell/Icon';
 import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
@@ -122,8 +123,8 @@ export function Collection() {
   // and redrew its map, a third of a second after it had settled.
   useEffect(() => {
     if (draft.trim() === query) return undefined;
-    const settle = setTimeout(() => setQuery(draft.trim()), SETTLE_MS);
-    return () => clearTimeout(settle);
+    // Not once the window has gone to another page (a paper opened): the search's address would take it back here.
+    return afterPause(SETTLE_MS, () => setQuery(draft.trim()));
   }, [draft, query]);
 
   // The vectors of the papers in this collection, counted for it (`collection_coverage`).
