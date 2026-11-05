@@ -78,7 +78,7 @@ export const claimRuns: Middleware = {
  * queue), and the run monitor's "seen", which clears its red mark. Each window
  * reads the runs going now on its own poll, 15 s apart while nothing runs, so
  * after one of these the main process tells the other windows to read them at
- * once (`electron/windows.ts`, `relayRunsChanged`).
+ * once (`electron/windows.ts`, `relayToOtherWindows`).
  */
 export const CHANGES_THE_RUNS: ReadonlySet<string> = new Set([
   ...[...STARTS_A_RUN].map((path) => `POST ${path}`),
@@ -87,9 +87,20 @@ export const CHANGES_THE_RUNS: ReadonlySet<string> = new Set([
   'POST /api/executions/seen',
 ]);
 
+/**
+ * The calls that change how the app looks: the theme, the accent, and the run
+ * monitor's switch, and the top bar's arrangement. Each window reads them once
+ * and again when it comes to the front, so after one of these the other
+ * windows are told to read them at once.
+ */
+export const CHANGES_THE_LOOK: ReadonlySet<string> = new Set(['PUT /api/appearance', 'PUT /api/top-bar']);
+
 export const tellOtherWindows: Middleware = {
   onResponse({ request, response, schemaPath }) {
-    if (response.ok && CHANGES_THE_RUNS.has(`${request.method} ${schemaPath}`)) bridge()?.runsChanged?.();
+    if (!response.ok) return undefined;
+    const call = `${request.method} ${schemaPath}`;
+    if (CHANGES_THE_RUNS.has(call)) bridge()?.runsChanged?.();
+    else if (CHANGES_THE_LOOK.has(call)) bridge()?.appearanceChanged?.();
     return undefined;
   },
 };

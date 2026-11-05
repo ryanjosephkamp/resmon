@@ -1,5 +1,5 @@
 /**
- * Another window changed the runs going now (`relayRunsChanged`): this one
+ * Another window changed the runs going now (`relayToOtherWindows`): this one
  * reads them again at once, with one listener however many screens show them,
  * and none once no screen does.
  */

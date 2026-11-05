@@ -331,7 +331,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     }
     expect((await api<{ status: string }>(second, `/api/executions/${slow.execution_id}`)).status).toBe('cancelled');
     // A failure is red in both; the panel opened in one clears it in both, since what was seen is the engine's,
-    // and the other window is told at once (`relayRunsChanged`) rather than at its next idle read, 15 s away.
+    // and the other window is told at once (`relayToOtherWindows`) rather than at its next idle read, 15 s away.
     const broken = await api<{ execution_id: number }>(second, '/api/search/dive', 'POST',
       { repository: 'arxiv', query: 'broken', keywords: ['broken'], max_results: 5 });
     for (const page of [first, second]) await expect(mark(page)).toHaveAttribute('data-monitor', 'failed', { timeout: 60_000 });

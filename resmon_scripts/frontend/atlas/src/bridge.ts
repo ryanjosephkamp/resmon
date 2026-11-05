@@ -40,6 +40,10 @@ export interface ResmonBridge {
   runsChanged?: () => void;
   /** Another window changed the runs going now; returns the way to stop listening. */
   onRunsChanged?: (callback: () => void) => () => void;
+  /** This window changed how the app looks: the theme, the accent, the run monitor's switch, or the top bar. */
+  appearanceChanged?: () => void;
+  /** Another window changed how the app looks; returns the way to stop listening. */
+  onAppearanceChanged?: (callback: () => void) => () => void;
   /** The theme the app shows, which the system's own parts of a window (its tab bar, its dialogs) then follow. */
   setThemeSource?: (theme: 'system' | 'light' | 'dark') => void;
 }

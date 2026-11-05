@@ -18,7 +18,7 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
 import { pageName } from './topBar';
-import { useTopBar, useTopBarFollowsOtherWindows } from './useTopBar';
+import { useTopBar } from './useTopBar';
 import {
   COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
   sectionShortcut, shortcut, shortcutFor, type ShortcutId,
@@ -58,7 +58,6 @@ export function Shell() {
   const { stored: appearance } = useAppearance();
   // The sections in the order the person chose, and only those they did not hide (Settings › Top bar).
   const { arranged } = useTopBar();
-  useTopBarFollowsOtherWindows();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret

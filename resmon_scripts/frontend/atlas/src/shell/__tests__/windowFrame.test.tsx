@@ -57,10 +57,41 @@ test('the theme and accent are read again when the window comes to the front', (
   );
   act(() => { window.dispatchEvent(new Event('focus')); });
   expect(invalidate).toHaveBeenCalledWith({ queryKey: ['appearance'] });
+  expect(invalidate).toHaveBeenCalledWith({ queryKey: ['top-bar'] });
   view.unmount();
   invalidate.mockClear();
   act(() => { window.dispatchEvent(new Event('focus')); });
   expect(invalidate).not.toHaveBeenCalled();
+});
+
+test('the look is read again at once when another window changes it, and not while this one\'s own change is on its way', () => {
+  const host = window as unknown as { resmonAPI?: unknown };
+  const before = host.resmonAPI;
+  const told = new Set<() => void>();
+  host.resmonAPI = {
+    getBackendPort: () => '51234',
+    getApiToken: () => 'token',
+    onAppearanceChanged: (callback: () => void) => { told.add(callback); return () => told.delete(callback); },
+  };
+  try {
+    const client = new QueryClient();
+    const invalidate = jest.spyOn(client, 'invalidateQueries').mockResolvedValue(undefined);
+    const mutating = jest.spyOn(client, 'isMutating').mockReturnValue(0);
+    const view = render(
+      <QueryClientProvider client={client}><MemoryRouter><WindowFrame /></MemoryRouter></QueryClientProvider>,
+    );
+    expect(told.size).toBe(1);
+    act(() => { for (const callback of told) callback(); });
+    expect(invalidate.mock.calls.map(([filters]) => filters)).toEqual([{ queryKey: ['appearance'] }, { queryKey: ['top-bar'] }]);
+    invalidate.mockClear();
+    mutating.mockReturnValue(1);
+    act(() => { for (const callback of told) callback(); });
+    expect(invalidate).not.toHaveBeenCalled();
+    view.unmount();
+    expect(told.size).toBe(0);
+  } finally {
+    host.resmonAPI = before;
+  }
 });
 
 describe('room for macOS\'s tab bar', () => {
