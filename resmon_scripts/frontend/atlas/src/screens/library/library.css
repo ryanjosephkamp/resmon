@@ -11,6 +11,8 @@
 .lib-tools .seg { flex: none; }
 .lib-tools .grow, .selbar .grow, .card-acts .grow { flex: 1; }
 .lib-find { flex: 1 1 220px; max-width: 340px; min-width: 160px; }
+/* The shelf's own actions keep together at the row's end, and wrap together when the row is full. */
+.lib-acts { display: flex; align-items: center; gap: 10px; margin-left: auto; }
 .lib-find.wide { max-width: none; margin-top: 4px; }
 .lib-sort {
   position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 7px 0 11px; flex: none;
@@ -103,7 +105,7 @@
 .sheet-pdf, .sheet-text, .cov { position: relative; aspect-ratio: 612 / 792; overflow: hidden; box-shadow: 0 0 0 1px var(--rule-2); transition: box-shadow var(--dur) var(--ease-out); }
 .sheet-pdf { background: #fff; }
 .sheet-pdf img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
-.card:has(.thumb:hover) :is(.sheet-pdf, .sheet-text, .cov) { box-shadow: 0 0 0 1px var(--ink-3); }
+.card:not(.picked):has(.thumb:hover) :is(.sheet-pdf, .sheet-text, .cov) { box-shadow: 0 0 0 1px var(--ink-3); }
 .card.picked :is(.sheet-pdf, .sheet-text, .cov) { box-shadow: 0 0 0 2px var(--accent-mark); }
 .sheet-failed { position: absolute; inset: auto 10px 10px; margin: 0; font: 400 11.5px/1.4 var(--sans); color: #69665f; }
 .sheet-text .sheet-failed, .cov .sheet-failed { color: var(--ink-3); }

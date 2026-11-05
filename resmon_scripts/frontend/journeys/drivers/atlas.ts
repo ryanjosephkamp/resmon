@@ -2158,7 +2158,11 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
     exportReadingQueue: async (papers, format): Promise<ExportedFile> => {
       // Picked on the shelf they are on; a selection is one shelf's.
       const shelves = new Set<string>();
-      for (const paper of papers) shelves.add(String(await (await queuedCard(paper)).getAttribute('data-status')));
+      for (const paper of papers) {
+        const card = await queuedCard(paper);
+        await expect(card).toBeVisible();
+        shelves.add(String(await card.getAttribute('data-status')));
+      }
       expect(shelves.size, 'the papers to export are on both shelves; a selection is one shelf\'s').toBe(1);
       await win().getByRole('button', { name: 'Select', exact: true }).click();
       for (const paper of papers) {

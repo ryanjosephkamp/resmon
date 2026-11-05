@@ -85,10 +85,11 @@ export function VaultTrouble({ status }: { status: LibraryStatus }) {
     return (
       <section className="lib-trouble" role="alert" data-library="missing">
         <h2>The Library folder is not where it was</h2>
+        <p>resmon keeps your files in this folder, and nothing is there now:</p>
+        <code className="path" data-library="path">{status.vault?.path}</code>
         <p>
-          resmon keeps your files in <code className="path">{status.vault?.path}</code>, and nothing is there now. If it is on a
-          disk that is not connected, connect it. If you moved or renamed it, choose where it is now: resmon checks that it is
-          this Library’s folder and changes nothing in it. If it was deleted, put it back from the Trash first.
+          If it is on a disk that is not connected, connect it. If you moved or renamed it, choose where it is now: resmon
+          checks that it is this Library’s folder and changes nothing in it. If it was deleted, put it back from the Trash first.
         </p>
         <div className="setup-row">
           <button type="button" className="btn primary" disabled={!chooser || relink.isPending} onClick={() => relink.mutate()}>

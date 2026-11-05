@@ -87,7 +87,8 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
     to_read: queueCounts.data?.counts.to_read ?? null,
     read: queueCounts.data?.counts.read ?? null,
     files: status.data?.vault ? status.data.counts.items : status.data ? 0 : null,
-    projects: projects.data ? projects.data.length : vault ? null : 0,
+    // No folder made yet: no project can exist. A folder that cannot be read now: its projects are not counted.
+    projects: projects.data ? projects.data.length : status.data && !status.data.vault ? 0 : null,
   };
 
   const say = useCallback((words: Omit<Notice, 'id'>) => {
@@ -194,9 +195,11 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
         </select>
         <Icon name="chevron" size={14} />
       </label>
-      <span className="grow" />
-      {extra}
-      {show !== 'projects' && <button type="button" className="btn sm" onClick={() => setSelecting(true)}>Select</button>}
+      <span className="lib-acts">
+        {extra}
+        {(show === 'to_read' || show === 'read' || (show === 'files' && !!vault))
+          && <button type="button" className="btn sm" onClick={() => setSelecting(true)}>Select</button>}
+      </span>
     </div>
   );
 

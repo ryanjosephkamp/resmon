@@ -334,6 +334,7 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     const linked = await api<{ queue_status: string | null }>(win, `/api/documents/${ids[8]}`);
     await win.evaluate((show) => { window.location.hash = `#/library?show=${show}`; }, linked.queue_status ?? 'to_read');
     await expect(win.locator(`article.card[data-document="${ids[8]}"] .sheet-pdf[data-drawn="true"] img`)).toBeVisible({ timeout: 30_000 });
+    await shot(win, `paper-with-pdf-${linked.queue_status ?? 'to_read'}`);
 
     // — a file in a project with a note: asked first, removed with both, and Undo puts all back ------
     const project = await api<{ project: { project_id: string; revision: number } }>(win, '/api/evidence/projects',
@@ -422,6 +423,23 @@ test('Library: one gallery, covers, the PDF and rich readers, remove and undo, t
     await resize(app, 1024, 800);
     await expect(cards.first()).toBeVisible();
     await shot(win, 'to-read-1024');
+    for (const show of ['read', 'files', 'projects']) {
+      await win.evaluate((s) => { window.location.hash = `#/library?show=${s}`; }, show);
+      await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+      await shot(win, `${show}-1024`);
+    }
+    await win.evaluate(() => { window.location.hash = '#/settings/library'; });
+    await expect(win.locator('[data-library="path"]')).toBeVisible();
+    await shot(win, 'settings-library-1024');
+    await win.evaluate((id) => { window.location.hash = `#/library/files/${id}`; }, byName[path.basename(files.notes)]!.file_id);
+    await expect(win.locator('.md-rich .katex').first()).toBeVisible({ timeout: 30_000 });
+    await shot(win, 'rich-markdown-1024');
+    // The printed atlas: Your files in the light theme, as the comps show it.
+    await win.evaluate(() => { document.documentElement.dataset.theme = 'light'; window.location.hash = '#/library?show=files'; });
+    await expect(cards.first()).toBeVisible({ timeout: 30_000 });
+    await shot(win, 'files-light-1024');
+    await win.evaluate(() => { document.documentElement.dataset.theme = 'dark'; window.location.hash = '#/library'; });
+    await expect(cards.first()).toBeVisible({ timeout: 30_000 });
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.setMinimumSize(390, 600); });
     await resize(app, 430, 860);
     await expect(win.locator('.gal.narrow')).toBeVisible({ timeout: 15_000 });

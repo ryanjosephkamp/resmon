@@ -21,7 +21,7 @@ export const PICTURE_WIDTH = 520;
 const QUALITY = 0.82;
 const IDLE_WORKER_MS = 30_000;
 
-interface Job { version: Version; rank: () => number; resolve: (url: string) => void; reject: (error: unknown) => void; dropped: boolean }
+interface Job { version: Version; rank: () => number; resolve: (url: string) => void; reject: (error: unknown) => void }
 
 const waiting: Job[] = [];
 let running = false;
@@ -127,7 +127,7 @@ export async function firstPage(version: Version, rank: () => number, signal: Ab
   if (kept) return kept;
   if (signal.aborted) throw new DOMException('The card left the page.', 'AbortError');
   return new Promise<string>((resolve, reject) => {
-    const job: Job = { version, rank, resolve, reject, dropped: false };
+    const job: Job = { version, rank, resolve, reject };
     signal.addEventListener('abort', () => {
       const at = waiting.indexOf(job);
       if (at >= 0) {
