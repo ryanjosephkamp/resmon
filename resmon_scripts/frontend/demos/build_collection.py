@@ -249,6 +249,8 @@ def seed_history(db_path: str, now: datetime) -> dict[str, int]:
                 if fresh:
                     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?",
                                  (sqlite_time(started), row["id"]))
+                    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?",
+                                 (sqlite_time(started), row["id"]))
                     new += 1
                 link_execution_document(conn, exec_id, row["id"], is_new=fresh)
             record_execution_source(conn, exec_id, "arxiv", "ok", result_count=len(batch),
