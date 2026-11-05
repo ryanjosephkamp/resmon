@@ -92,8 +92,10 @@ export function ChartTip({ anchor, content, onDismiss }: {
     node.style.left = '0px';
     node.style.top = '0px';
     const size = node.getBoundingClientRect();
+    // macOS's tab bar, over the page's top while the windows are in tabs (`shell/WindowFrame.tsx`): never under it.
+    const strip = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-strip')) || 0;
     const at = placeTip(boxOf(anchor.element), { width: size.width, height: size.height },
-      { width: window.innerWidth, height: window.innerHeight }, anchor.pointer);
+      { width: window.innerWidth, height: window.innerHeight }, anchor.pointer, strip);
     node.style.left = `${Math.round(at.left)}px`;
     node.style.top = `${Math.round(at.top)}px`;
     node.dataset.side = at.side;

@@ -53,6 +53,18 @@ describe('where the tip goes', () => {
     expect(placeTip(boxAt(900, 0, 90, 700), SIZE, VIEW).side).toBe('left');
   });
 
+  test('never under macOS\'s tab bar, which covers the window\'s top while the windows are in tabs', () => {
+    const strip = 28;
+    // Room above the mark, but only under the tab bar: the tip goes below instead.
+    const below = placeTip(boxAt(400, 120, 100, 10), SIZE, VIEW, null, strip);
+    expect(below.side).toBe('below');
+    expect(placeTip(boxAt(400, 120, 100, 10), SIZE, VIEW).side).toBe('above');
+    // Beside a tall mark, slid down clear of it.
+    const beside = placeTip(boxAt(100, 0, 40, 700), SIZE, VIEW, { x: 120, y: 5 }, strip);
+    expect(beside.side).toBe('right');
+    expect(beside.top).toBe(strip + EDGE);
+  });
+
   test('never over its mark and always inside the window, wherever the mark is', () => {
     let seed = 7;
     const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
@@ -168,6 +180,19 @@ describe('a chart\'s tip on the page', () => {
     expect(screen.getByRole('tooltip').style.left).toBe(`${190 - 110}px`);
     fireEvent.pointerLeave(mark);
     expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
+  test('in a window whose windows are in macOS tabs, the tip keeps out from under the tab bar', () => {
+    document.documentElement.style.setProperty('--tab-strip', '300px');
+    try {
+      render(<Chart />);
+      // Room above the mark (at 400) for the tip, but under the tab bar's 300 pixels: it goes below.
+      fireEvent.pointerEnter(screen.getByRole('link', { name: /^arXiv/ }), { clientX: 160, clientY: 405 });
+      expect(screen.getByRole('tooltip').dataset.side).toBe('below');
+      expect(screen.getByRole('tooltip').style.top).toBe(`${412 + GAP}px`);
+    } finally {
+      document.documentElement.style.removeProperty('--tab-strip');
+    }
   });
 
   test('a mark that opens nothing has a tip that offers nothing', () => {

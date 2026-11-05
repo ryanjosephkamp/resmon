@@ -10,6 +10,10 @@
  * Sliding along a side never brings it over the mark, because the side keeps
  * the gap between them. Only a tip larger than every side has room for is set
  * in the window's corner nearest the mark, the one case where it can cover it.
+ *
+ * `top` is room at the window's top the page does not own: macOS's tab bar,
+ * drawn over the page while the windows are in tabs (`--tab-strip`). A tip is
+ * never set under it.
  */
 
 export interface Box { left: number; top: number; right: number; bottom: number }
@@ -28,16 +32,17 @@ function clamp(value: number, low: number, high: number): number {
 }
 
 /** The tip's place for a mark, in window coordinates. */
-export function placeTip(mark: Box, tip: Size, view: Size, pointer?: Point | null): Placed {
+export function placeTip(mark: Box, tip: Size, view: Size, pointer?: Point | null, top = 0): Placed {
+  const first = top + EDGE;
   const cx = pointer ? clamp(pointer.x, mark.left, mark.right) : (mark.left + mark.right) / 2;
   const cy = pointer ? clamp(pointer.y, mark.top, mark.bottom) : (mark.top + mark.bottom) / 2;
   const across = clamp(cx - tip.width / 2, EDGE, view.width - EDGE - tip.width);
-  const down = clamp(cy - tip.height / 2, EDGE, view.height - EDGE - tip.height);
+  const down = clamp(cy - tip.height / 2, first, view.height - EDGE - tip.height);
   const fitsAcross = tip.width <= view.width - 2 * EDGE;
-  const fitsDown = tip.height <= view.height - 2 * EDGE;
+  const fitsDown = tip.height <= view.height - first - EDGE;
 
   const above = mark.top - GAP - tip.height;
-  if (fitsAcross && above >= EDGE) return { left: across, top: above, side: 'above' };
+  if (fitsAcross && above >= first) return { left: across, top: above, side: 'above' };
   const below = mark.bottom + GAP;
   if (fitsAcross && below + tip.height <= view.height - EDGE) return { left: across, top: below, side: 'below' };
   const right = mark.right + GAP;
@@ -46,7 +51,7 @@ export function placeTip(mark: Box, tip: Size, view: Size, pointer?: Point | nul
   if (fitsDown && left >= EDGE) return { left, top: down, side: 'left' };
   return {
     left: cx < view.width / 2 ? EDGE : Math.max(EDGE, view.width - EDGE - tip.width),
-    top: cy < view.height / 2 ? EDGE : Math.max(EDGE, view.height - EDGE - tip.height),
+    top: cy < view.height / 2 ? first : Math.max(first, view.height - EDGE - tip.height),
     side: 'corner',
   };
 }
