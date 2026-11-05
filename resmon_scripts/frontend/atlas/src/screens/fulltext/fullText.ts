@@ -193,5 +193,32 @@ export function orWords(names: readonly string[]): string {
   return `${names.slice(0, -1).join(', ')}, or ${names[names.length - 1]}`;
 }
 
+/**
+ * The first sentence of a find's answer. A find that finished says how many of
+ * the sources it asked hold the paper; one that failed, was stopped, or was
+ * interrupted says so instead, because its sources' answers are not all there.
+ */
+export function findLeadWords(
+  run: { status: string; error_message?: string | null },
+  result: Pick<FindResult, 'sources' | 'counts' | 'query'>,
+): string {
+  const asked = result.sources.filter((s) => s.outcome !== 'not_asked');
+  const sources = (n: number) => `${n} ${n === 1 ? 'source' : 'sources'}`;
+  if (run.status === 'failed') {
+    if (asked.length && asked.every((s) => s.outcome === 'did_not_answer')) {
+      return `The find failed: none of the ${sources(asked.length)} asked answered.`;
+    }
+    const why = (run.error_message ?? '').trim().replace(/\.$/, '');
+    return why ? `The find failed: ${why}.` : 'The find failed.';
+  }
+  if (run.status === 'cancelled') return 'The find was stopped before every source answered.';
+  if (run.status === 'interrupted') return 'The find was interrupted: the engine stopped while it went.';
+  if (!asked.length) return 'No source was asked.';
+  const found = result.counts.found ?? 0;
+  return found
+    ? `${found} of ${sources(asked.length)} asked ${found === 1 ? 'holds' : 'hold'} ${askedWords(result.query)}.`
+    : `None of the ${sources(asked.length)} asked holds ${askedWords(result.query)}.`;
+}
+
 /** The order the outcome groups are listed in. */
 export const OUTCOME_ORDER = ['found', 'not_found', 'did_not_answer', 'not_asked'] as const;

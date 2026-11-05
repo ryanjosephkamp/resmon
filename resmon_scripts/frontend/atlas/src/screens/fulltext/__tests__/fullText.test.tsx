@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import {
-  askedWords, differencesWords, differenceWords, hostWords, licenseWords, matchedWords, orWords, outcomeWords, pending,
+  askedWords, differencesWords, differenceWords, findLeadWords, hostWords, licenseWords, matchedWords, orWords, outcomeWords, pending,
   requestWords, sentenceCase, type FindSourceResult, type FullTextRequest,
 } from '../fullText';
 
@@ -83,6 +83,32 @@ describe('a find, in words', () => {
     expect(differencesWords(source({}))).toBeNull();
     expect(differencesWords(source({ reference: true }))).toBe('The copy the others are compared with');
     expect(differenceWords({ field: 'year', this: '2026', reference: null })).toBe('year 2026, where the reference copy gives none');
+  });
+});
+
+describe('a find’s first sentence', () => {
+  const query = { kind: 'doi', value: '10.5555/x', typed: '10.5555/x' };
+  const answered = (outcomes: string[]) => ({
+    query, counts: { found: outcomes.filter((o) => o === 'found').length },
+    sources: outcomes.map((outcome, i) => source({ source: `s${i}`, outcome, matched_by: outcome === 'found' ? 'doi' : null })),
+  });
+
+  test('a finished find says how many of the sources asked hold the paper', () => {
+    expect(findLeadWords({ status: 'completed' }, answered(['found', 'not_found', 'not_asked'])))
+      .toBe('1 of 2 sources asked holds the DOI 10.5555/x.');
+    expect(findLeadWords({ status: 'completed' }, answered(['not_found']))).toBe('None of the 1 source asked holds the DOI 10.5555/x.');
+    expect(findLeadWords({ status: 'completed' }, answered([]))).toBe('No source was asked.');
+  });
+
+  test('a find that failed, was stopped, or was interrupted says so, never "None of the 0 sources"', () => {
+    expect(findLeadWords({ status: 'failed' }, answered(['did_not_answer', 'did_not_answer', 'not_asked'])))
+      .toBe('The find failed: none of the 2 sources asked answered.');
+    expect(findLeadWords({ status: 'failed', error_message: 'The engine could not read the query.' }, answered([])))
+      .toBe('The find failed: The engine could not read the query.');
+    expect(findLeadWords({ status: 'failed', error_message: null }, answered([]))).toBe('The find failed.');
+    expect(findLeadWords({ status: 'cancelled' }, answered([]))).toBe('The find was stopped before every source answered.');
+    expect(findLeadWords({ status: 'interrupted' }, answered(['found'])))
+      .toBe('The find was interrupted: the engine stopped while it went.');
   });
 });
 

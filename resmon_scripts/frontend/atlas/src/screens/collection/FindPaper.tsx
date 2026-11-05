@@ -6,7 +6,7 @@ import { useCollection } from '../../collections/current';
 import { WallMark } from '../health/WallMark';
 import { PaperFullText } from '../fulltext/GetPdf';
 import {
-  KIND_WORDS, askedWords, differencesWords, errorWords, hostWords, licenseWords, outcomeWords, sentenceCase,
+  KIND_WORDS, differencesWords, errorWords, findLeadWords, hostWords, licenseWords, outcomeWords, sentenceCase,
   type FindResult, type FindSourceResult,
 } from '../fulltext/fullText';
 import { authors, publishedWords } from '../today/format';
@@ -182,8 +182,8 @@ export function FindPaper() {
         <p className="field-error" role="alert">Run {runId} is not a find. <Link to={`/runs/${runId}`}>Open the run</Link>.</p>
       )}
       {going && run.data && <Asking run={run.data} nameOf={nameOf} />}
-      {result.data && (
-        <FoundIt result={result.data} nameOf={nameOf} reference={reference.data ?? null} />
+      {result.data && run.data && !going && (
+        <FoundIt result={result.data} run={run.data} nameOf={nameOf} reference={reference.data ?? null} />
       )}
 
       {earlier.data && earlier.data.filter((r) => r.id !== runId).length > 0 && (
@@ -230,17 +230,22 @@ function Asking({ run, nameOf }: { run: RunData; nameOf: (slug: string) => strin
 
 type ReferencePaper = { id: number; title: string; authors?: string | null; publication_date?: string | null; doi?: string | null; url?: string | null; source_repository: string };
 
-/** A find's answer: the paper as its reference copy has it, Get the PDF, and each source's row. */
-function FoundIt({ result, nameOf, reference }: { result: FindResult; nameOf: (slug: string) => string; reference: ReferencePaper | null }) {
-  const asked = result.sources.filter((s) => s.outcome !== 'not_asked');
+/**
+ * A find's answer: the paper as its reference copy has it, Get the PDF, and
+ * each source's row. A find that did not finish says so first, with the rows
+ * it recorded, if any.
+ */
+function FoundIt({ result, run, nameOf, reference }: {
+  result: FindResult; run: { status: string; error_message?: string | null };
+  nameOf: (slug: string) => string; reference: ReferencePaper | null;
+}) {
   const found = result.counts.found ?? 0;
+  const finished = run.status === 'completed';
   return (
-    <section className="find-result" aria-label="What each source said" data-find="result" data-found={found}>
-      <p className="find-status">
-        {found
-          ? `${found} of ${asked.length} ${asked.length === 1 ? 'source' : 'sources'} asked ${found === 1 ? 'holds' : 'hold'} ${askedWords(result.query)}.`
-          : `None of the ${asked.length} ${asked.length === 1 ? 'source' : 'sources'} asked holds ${askedWords(result.query)}.`}
-        {' '}<Link to={`/runs/${result.execution_id}`}>Open the run</Link>
+    <section className="find-result" aria-label="What each source said" data-find="result" data-found={found}
+      data-status={run.status}>
+      <p className={`find-status${finished ? '' : ' find-unfinished'}`} role={finished ? undefined : 'alert'}>
+        {findLeadWords(run, result)}{' '}<Link to={`/runs/${result.execution_id}`}>Open the run</Link>
       </p>
       {reference && (
         <div className="find-paper" data-find="paper">
@@ -254,9 +259,11 @@ function FoundIt({ result, nameOf, reference }: { result: FindResult; nameOf: (s
           <PaperFullText id={reference.id} sourceUrl={reference.url ?? null} sourceName={nameOf(reference.source_repository)} />
         </div>
       )}
-      <ul className="find-sources">
-        {result.sources.map((s) => <SourceRow key={s.source} source={s} />)}
-      </ul>
+      {result.sources.length > 0 && (
+        <ul className="find-sources">
+          {result.sources.map((s) => <SourceRow key={s.source} source={s} />)}
+        </ul>
+      )}
     </section>
   );
 }
