@@ -87,6 +87,7 @@ reading_queue.set_status(conn, lattice[-2], "read")
 conn.commit()
 print(json.dumps({"lattice": lattice, "crystals": crystals, "spectral": spectral, "protein": protein, "sweep": sweep}))
 `;
+import { removeStateDir } from './fixtures/cleanup';
 
 interface Seeded { lattice: number[]; crystals: number[]; spectral: number[]; protein: number[]; sweep: number }
 interface Counts { to_read: number; read: number; all: number }
@@ -323,7 +324,7 @@ async function walk(size: [number, number] | null): Promise<void> {
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 }
 
