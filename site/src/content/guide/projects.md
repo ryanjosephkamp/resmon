@@ -3,20 +3,20 @@ title: "Evidence"
 summary: "Projects of exact file versions, pinned passages, and cited answers from excerpts you choose."
 order: 9
 ---
-**Library › Evidence** is where you work on the files in **Your files**. A **project** gathers exact versions of files. In a project you read pages, pin passages with notes, export what you chose, and ask a question of excerpts you pick. If no library exists yet, Evidence says so and links to **Your files**. Evidence is unavailable on Windows; see [Install and launch](/resmon/guide/install/).
+**Evidence** is where you work on the files in **Your files**; the Library's **Projects** shelf shows its projects, and **Open Evidence** there leads here. A **project** gathers exact versions of files. In a project you read pages, pin passages with notes, export what you chose, and ask a question of excerpts you pick. If no library exists yet, Evidence says so and links to **Your files**. Evidence is unavailable on Windows; see [Install and launch](/resmon/guide/install/).
 
 ## Projects
 
 Type a name and press **Start** to make a project. You can have 100 of them. Choose a project in the list on the left to open it; **Rename** changes its name.
 
-**Add files** shows the files in your library that the project does not hold yet. Tick some and press the button that names how many, such as **Add 2 files**. A project holds the **exact version** of each file you add, up to 1,000 files. **Remove from project** takes a file out and asks first; the records you made against it stay. From **Your files**, **Open in Evidence** brings one file across, and Evidence asks before adding it. No name ever stands in for a paper or a version.
+**Add files** shows the files in your library that the project does not hold yet. Tick some and press the button that names how many, such as **Add 2 files**. A project holds the **exact version** of each file you add, as many as you add. **Remove from project** takes a file out and asks first; the records you made against it stay. From a file's page in **Your files**, **Open in Evidence** brings it across, and Evidence asks before adding it. No name ever stands in for a paper or a version.
 
 ## Files and passages
 
 Choose a file in the project to read it.
 
 - **A PDF** opens on one page's text as resmon extracted it, with **Previous page**, **Next page**, and a page box. **Show the pages as drawn** draws the pages themselves, and adds zoom (**Fit width**, **Fit page**, or a percentage), find in the whole document (⌘F, or Ctrl+F), **All pages** for a gallery, and **Focus**, which gives the pages the whole window. In focus mode **Notes** brings the notes back as a side panel, and Esc leaves. Text in the drawn pages can be selected and copied or used as a passage.
-- **A TXT or MD file** is one page of literal text.
+- **A TXT, MD, or TeX file** is one page of literal text.
 
 To pin a **passage**, select text in the page's text, or find it with **Find on this page's text**, and press **Use selected passage**. Passages come from each page's text as the engine reads it, which can differ from the drawing. The engine checks the exact quote against the stored file before it saves it. Add a note on it, or leave the note empty, and press **Save passage**. A **plain note** needs no passage. A note body is at most 20,000 codepoints.
 
@@ -24,7 +24,7 @@ A passage is pinned to one page's text by the file version, the extraction metho
 
 What the reader cannot do:
 
-- A PDF is read up to 16 MiB, 200 pages, and 20 seconds a page. Encrypted, malformed, image-only, unsupported, and over-limit pages are named, not skipped silently. There is no OCR.
+- A PDF is read up to 64 MiB (the Library's one limit, for keeping a file and for reading it), 200 pages, and 20 seconds a page. Encrypted, malformed, image-only, unsupported, and over-limit pages are named, not skipped silently. There is no OCR.
 - Equations, tables, columns, and images may not survive text extraction. A drawn page is not a claim that the extracted text is complete or accurate.
 - A project holds up to 5,000 saved records.
 

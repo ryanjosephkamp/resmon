@@ -155,10 +155,11 @@ Searching what resmon holds, one paper, links between records of the same work, 
 | `POST` | `/api/links/scan` | Find records that look like the same work across the collection. Returns at once. |
 | `POST` | `/api/links/scan/cancel` | Stop the scan after the paper in flight. Links already written are kept. |
 | `GET` | `/api/links/status` | How many links exist, by method, and the scan's state. |
-| `GET` | `/api/reading-queue` | One page of saved papers, filtered by `to_read`, `read`, or all. |
+| `GET` | `/api/reading-queue` | One page of saved papers, filtered by `to_read`, `read`, or all, found by title, authors, or source, in an order (saved, published, title, source, or the map's), each with its linked PDF and the run that found it. |
 | `POST` | `/api/reading-queue` | Save a paper. Saving one already saved returns it unchanged. |
 | `PUT` | `/api/reading-queue/{document_id}` | Mark a saved paper read or unread. |
-| `DELETE` | `/api/reading-queue/{document_id}` | Take a paper out of the queue. The paper is not touched. |
+| `DELETE` | `/api/reading-queue/{document_id}` | Take a paper out of the queue, answering with the entry as it was. The paper is not touched. |
+| `POST` | `/api/reading-queue/{document_id}/restore` | Undo a removal: the entry back with the state and dates it had. |
 | `POST` | `/api/export/references` | Render a selection of papers as BibTeX, RIS, CSV, or JSON, with one entry per stored paper. |
 | `GET` | `/api/shared-wording` | The last scan, the scan in progress, and the pairs it found by group. |
 | `POST` | `/api/shared-wording/scan` | Compare every abstract with every other, in the background. Returns at once. |
@@ -227,14 +228,25 @@ Every Library route needs the header `X-Resmon-Library: 1`, and a vault id the c
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/library` | Whether a Library exists, its folder, counts, and limits. |
+| `GET` | `/api/library` | Whether a Library exists, where its folder is, whether resmon can use it now, counts, and limits. |
 | `POST` | `/api/library/vault` | Make the Library folder inside a folder you name. |
-| `GET` | `/api/library/files` | Files, filtered by name, newest first. |
+| `POST` | `/api/library/vault/relink` | Record where the Library folder is now, after checking it is this Library's own. Nothing in it changes. |
+| `POST` | `/api/library/vault/move` | Move the Library folder into another folder: one rename on a disk, a checked copy across disks that leaves the old folder. |
+| `GET` | `/api/library/files` | Files, filtered by name, in an order (added, name, or size), a page at a time. |
 | `POST` | `/api/library/files` | Import a file, as raw bytes. |
 | `GET` | `/api/library/files/{file_id}` | One file's record. |
+| `DELETE` | `/api/library/files/{file_id}` | Remove a file: its bytes are held in the Library folder, and its record kept for Undo and Restore. |
+| `GET` | `/api/library/files/{file_id}/removal` | What would go with a file if it were removed: its links, and the projects it is in or has notes in. |
 | `POST` | `/api/library/files/{file_id}/open` | Verify the stored copy and answer with the path to open. |
-| `POST` | `/api/library/files/{file_id}/paper-links` | Link a file to a paper by its number. |
-| `GET` | `/api/library/files/{file_id}/text` | A TXT or MD file as literal text, within its bounds. |
+| `POST` | `/api/library/files/{file_id}/paper-links` | Link a file to a paper in your collection. |
+| `GET` | `/api/library/files/{file_id}/text` | A TXT, MD, or TeX file as literal text, within its bounds. |
+| `GET` | `/api/library/files/{file_id}/pdf` | A kept PDF's bytes, verified, for the reader. |
+| `GET` | `/api/library/files/{file_id}/picture` | The first-page picture kept for a PDF. |
+| `PUT` | `/api/library/files/{file_id}/picture` | Keep the first-page picture the app drew of a PDF. |
+| `GET` | `/api/library/removed` | Removed files still on record, and whether their bytes are still held. |
+| `POST` | `/api/library/removed/{file_id}/restore` | Put a removed file back, with everything that went with it. |
+| `POST` | `/api/library/removed/{file_id}/release` | A held file's path, for the desktop to send to the Trash. |
+| `DELETE` | `/api/library/removed/{file_id}` | Forget a removed file once its bytes have left the Library folder. |
 | `GET` | `/api/library/files/{file_id}/shared-wording` | The last comparison of this file since the engine started, or that there is none. |
 | `POST` | `/api/library/files/{file_id}/shared-wording` | Compare this file, page by page, with the abstracts and the other Library files. |
 | `GET` | `/api/library/export` | A JSON inventory of what the database records about each file. |
