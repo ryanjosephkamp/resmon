@@ -83,7 +83,8 @@ npm run journeys                                 # one test per user journey, th
   the per-thread-connection design. If that column alone goes red, suspect a shared
   `sqlite3.Connection`. Python 3.10 is the floor, so no `match` statements and no 3.11+ syntax. Tests
   are hermetic by default: `conftest.py` blocks any non-loopback socket from a test not marked
-  `live_network`.
+  `live_network`, and sets `RESMON_AI_CLI_DISCOVERY=configured-only` for the whole run, so a test
+  finds only the fake command it names and never your own `claude` or `codex`.
 - **`npm run e2e`** starts the engine with `RESMON_PYTHON` if you set it, and otherwise with the
   clone's `.venv`. It stops at global setup with one sentence if that interpreter is missing or cannot
   import the engine's dependencies. A spec that needs a signed-in command uses a fake one, and the

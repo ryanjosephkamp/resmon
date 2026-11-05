@@ -56,6 +56,27 @@ os.environ["RESMON_REPORTS_DIR"] = str(_SUITE_STATE / "reports")
 os.environ["RESMON_PORT_FILE"] = str(_SUITE_STATE / "resmon.port")
 atexit.register(shutil.rmtree, _SUITE_STATE, True)
 
+# ---------------------------------------------------------------------------
+# AI commands: only the one a test names
+# ---------------------------------------------------------------------------
+#
+# ``ai_cli.discover_cli`` looks for ``claude`` and ``codex`` where their
+# installers put them and on PATH, and on a developer's machine that finds the
+# developer's own CLI. Whatever it finds is what the summary lanes, Ask's
+# turns, Settings' sign-in check, and Codex's model list go on to run, and the
+# suite must never run it. With this, discovery finds only the path a
+# test names (a fake CLI it wrote). It is set, not defaulted, so a value the
+# shell exported for an e2e run does not reach the suite either.
+#
+# Two kinds of test search anyway. ``test_ai_cli_discovery.py`` tests the
+# search itself: it clears the variable for its own cases, with HOME, PATH,
+# and the installers' locations pointed at folders it made.
+# ``pytest_runtest_setup`` lifts it for a test marked both ``live_network``
+# and ``needs_agent_cli``, whose purpose is to run the person's own CLI and
+# which no default run selects (nor a ``RESMON_FORCE_HERMETIC=1`` run).
+# ``test_suite_isolation.py`` fails if this pin is dropped.
+os.environ["RESMON_AI_CLI_DISCOVERY"] = "configured-only"
+
 from resmon_scripts.verification_scripts.live_evidence import (  # noqa: E402
     LiveEvidenceWriter,
     QuarantineEntry,
@@ -595,7 +616,17 @@ _FORCE_HERMETIC = os.environ.get("RESMON_FORCE_HERMETIC") == "1"
 
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Open the network only for tests that declare they need it."""
-    _allow_network["value"] = (
-        item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
-    )
+    """Open the network, and the search for an AI CLI, only for tests that need them.
+
+    Runs before any of the test's fixtures, module-scoped ones included, so a
+    fixture that discovers the CLI sees the same setting as the test. Every
+    other test starts with discovery pinned, whatever the test before it left
+    behind.
+    """
+    open_network = item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
+    _allow_network["value"] = open_network
+    agent_cli = open_network and item.get_closest_marker("needs_agent_cli") is not None
+    if agent_cli:
+        os.environ.pop("RESMON_AI_CLI_DISCOVERY", None)
+    else:
+        os.environ["RESMON_AI_CLI_DISCOVERY"] = "configured-only"

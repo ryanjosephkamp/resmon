@@ -91,6 +91,9 @@ class Backend:
             "RESMON_REPORTS_DIR": str(state / "reports"),
             "RESMON_PORT_FILE": str(state / "resmon.port"),
             "RESMON_DISABLE_SCHEDULER": "1",
+            # Built without the suite's RESMON_* variables, so it carries
+            # conftest.py's discovery pin itself.
+            "RESMON_AI_CLI_DISCOVERY": "configured-only",
             "PYTHON_KEYRING_BACKEND": "keyring.backends.null.Keyring",
             "PYTHONPATH": str(RESMON_SCRIPTS),
         })
