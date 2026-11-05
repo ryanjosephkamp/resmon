@@ -58,7 +58,7 @@ async function stored(win: Page): Promise<unknown> {
 }
 
 async function shoot(win: Page, name: string) {
-  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   await win.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
 }
@@ -183,7 +183,7 @@ test('arranged in Settings: reordered, two hidden, a start page and the name\'s 
         await expect(sheet.locator('[data-shortcut="section-6"] dt')).toHaveText('Watchesnot in the top bar');
         await expect(sheet.locator('[data-shortcut="section-6"] kbd')).toHaveText(key(6));
         await sheet.evaluate((node) => Promise.all(document.getAnimations()
-          .filter((a) => (a.effect as KeyframeEffect | null)?.target === node).map((a) => a.finished)));
+          .filter((a) => (a.effect as KeyframeEffect | null)?.target === node).map((a) => a.finished.catch(() => undefined))));
         await shoot(win, 'top-bar-shortcuts-sheet.png');
         await win.keyboard.press('Escape');
         await expect(sheet).toBeHidden();
@@ -371,7 +371,7 @@ test('with two collections, the switch stays beside the resmon name in the defau
             .slice(0, 3).map((n) => n.className)))
             .toEqual(['lockup', 'scope', 'tabs']);
           await barFits(win);
-          await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+          await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
           fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
           await win.locator('header.bar').screenshot({ path: path.join(SCREENSHOT_DIR, `top-bar-collections-${name}-${width}-${theme}.png`) });
         }

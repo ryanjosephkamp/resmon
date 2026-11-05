@@ -32,7 +32,7 @@ async function launch(stateDir: string): Promise<{ app: ElectronApplication; win
 const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name, exact: true });
 
 async function shoot(page: Page, name: string) {
-  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await page.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
 }
