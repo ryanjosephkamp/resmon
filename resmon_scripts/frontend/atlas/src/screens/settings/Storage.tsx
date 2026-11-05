@@ -68,6 +68,7 @@ export function Storage() {
       {settings.data && <Destination stored={settings.data.export_directory} />}
       {last.data && <BackUp last={last.data} folder={settings.data?.export_directory ?? ''} />}
       {last.data && <Restore last={last.data} />}
+      {last.data && <BeforeUpdate held={last.data.pre_upgrade_copy} />}
       {(last.isError || settings.isError) && (
         <p className="field-error" role="alert">The engine did not answer ({(last.error ?? settings.error)?.message}).</p>
       )}
@@ -277,6 +278,24 @@ function Restore({ last }: { last: Last }) {
       )}
       {said && <p className="settings-said" role="status">{said}</p>}
       {error && <p className="field-error" role="alert">{refusal(error)}</p>}
+    </div>
+  );
+}
+
+/**
+ * The copy of the database an update's first start keeps beside it before it
+ * changes the database: where it is and when it was written, read from the
+ * file. Read-only; Restore does not read it, and the guide says how to use it.
+ */
+function BeforeUpdate({ held }: { held: Last['pre_upgrade_copy'] }) {
+  return (
+    <div className="backup-before" data-backup="before-update">
+      <h3 className="field-title">Before an update</h3>
+      <p className="field-lede" data-backup="pre-upgrade-copy">
+        {held
+          ? <>Before the last update changed your database, resmon kept a copy of it as it was, written on {when(held.written_at_utc)}: <code>{held.path}</code>.</>
+          : 'Before an update changes your database, resmon keeps a copy of it in the same folder, if the disk has room. There is none there now.'}
+      </p>
     </div>
   );
 }
