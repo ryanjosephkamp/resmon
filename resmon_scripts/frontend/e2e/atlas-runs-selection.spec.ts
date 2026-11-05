@@ -171,9 +171,10 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     const question = bar.locator('[data-confirm="run-again"]');
     await expect(question).toBeFocused();
     await expect(question.locator('.confirm-question')).toHaveText(
-      'Run 4 runs again, each with its own terms, dates, limit, and sources, as new runs linked back to them? Each '
+      'Run 4 runs again? A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
       + 'summarizes only if its run tried to, with what Settings › AI holds now. '
-      + `Run ${watchRun} is a watch’s run: it is emailed and delivered as its watch is set when it finishes. `
+      + `A watch’s run (run ${watchRun}) runs as its watch’s Run now: with the watch’s current terms, sources, and dates, `
+      + 'emailed and delivered as the watch is set, and not while the watch is already running. '
       + 'resmon runs 1 at once, so 3 wait for a free slot, under Waiting above, and start on their own.');
     await widen(app, win, 1280);
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runs-selection-run-again-1280.png') });
@@ -194,14 +195,18 @@ config.DEFAULT_REQUEST_TIMEOUT = 240
     await expect(win.locator('[data-runs="waiting"] .active-row').first().locator('.active-meta')).toContainText('repeats run');
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-runs-selection-ran-again.png') });
 
-    // Let them go: all four run, in turn, each linked back to the run it repeats.
+    // Let them go: all four run, in turn. Each search is linked back to the run it repeats; the watch's
+    // run is its watch's Run now, a run of the watch, not a copy of the old run.
     release();
-    const repeats = async () => (await engine<RunRead[]>(win, '/api/executions')).body.filter((r) => r.restarted_from !== null);
-    await expect.poll(async () => (await repeats()).filter((r) => r.status === 'completed').length, { timeout: 120_000, intervals: [500] })
+    const newer = async () => (await engine<(RunRead & { routine_id: number | null })[]>(win, '/api/executions')).body
+      .filter((r) => r.id > watchRun);
+    await expect.poll(async () => (await newer()).filter((r) => r.status === 'completed').length, { timeout: 120_000, intervals: [500] })
       .toBe(4);
-    expect((await repeats()).map((r) => r.restarted_from).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([alpha, beta, gamma, watchRun]);
-    const again = await repeats();
-    expect(again.find((r) => r.restarted_from === watchRun)?.execution_type).toBe('automated_sweep');
+    const again = await newer();
+    expect(again.map((r) => r.restarted_from).filter((id) => id !== null).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([alpha, beta, gamma]);
+    const watchAgain = again.find((r) => r.restarted_from === null);
+    expect(watchAgain?.execution_type).toBe('automated_sweep');
+    expect(watchAgain?.routine_id).toBe(watch.body.id);
     await expect(win.locator('[data-runs="waiting"]')).toHaveCount(0, { timeout: 30_000 });
     await expect(history.locator('.run-row')).toHaveCount(8, { timeout: 30_000 });
     expect(problems).toEqual([]);

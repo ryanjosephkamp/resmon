@@ -3269,6 +3269,39 @@ def cancel_execution(exec_id: int):
     return {"status": "cancellation_requested"}
 
 
+def _refuse_if_watch_running(routine_id: int) -> None:
+    """Refuse a restart of a watch's run while that watch is running (409), naming the run."""
+    if not routine_claims.is_claimed(routine_id):
+        return
+    holder = routine_claims.holder(routine_id)
+    raise HTTPException(
+        409,
+        (f"This watch is already running as run {holder}. Wait for that run to finish, or cancel it, "
+         "before starting another." if holder is not None else
+         "This watch is already running. Wait for that run to finish, or cancel it, before starting another."),
+        headers={"X-Resmon-Conflict": "routine_already_running",
+                 "X-Resmon-Execution-Id": str(holder) if holder is not None else ""},
+    )
+
+
+def _run_watch_again(routine_id: int, watch: dict, response: Response) -> dict:
+    """Run again on a watch's run: the watch's own Run now, answered as a restart answers.
+
+    Everything ``run_routine_now`` refuses (the watch already running, a full
+    queue, a window it cannot read) is refused here in its words.
+    """
+    ran = run_routine_now(routine_id, response)
+    answer: dict = {"execution_id": ran.get("execution_id"), "restarted_from": None,
+                    "ai_enabled": bool(watch.get("ai_enabled"))}
+    if ran.get("queued"):
+        ticket = next((w["ticket"] for w in admission.waiting()
+                       if w["kind"] == "watch" and w["routine_id"] == routine_id), None)
+        answer.update({"queued": True, "queue_position": ran.get("queue_position"), "ticket": ticket})
+    answer["detail"] = ran.get("detail")
+    response.status_code = 202
+    return answer
+
+
 @app.post("/api/executions/{exec_id}/restart", status_code=202,
           response_model=response_models.RunRestarted, response_model_exclude_unset=True)
 def restart_execution(exec_id: int, response: Response, body: Optional[RestartRequest] = None):
@@ -3287,6 +3320,16 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
     restarted. At the run limit the new run waits in the queue
     (``_start_or_queue``) and its row is written only when it starts: the
     answer then carries no execution id, ``queued``, and its place.
+
+    **A watch's run is never run alongside its watch.** Run again on a watch's
+    run is that watch's Run now (``run_routine_now``): the watch's claim, its
+    queue, a paused watch run once, and delivery as it is set, with the
+    watch's current search rather than the old run's copy, and refused with
+    the run that holds the watch when it is already running. The new run is
+    the watch's, so it is not linked back (``restarted_from`` is null). A
+    plain Restart of a watch's run copies the run, and takes the watch's claim
+    the way a fire does; one asked for while the watch is running is refused
+    (409), since two runs of one watch would both deliver and email.
     """
     request_id = body.request_id if body is not None else None
     again = bool(body.again) if body is not None else False
@@ -3309,6 +3352,14 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
                 if again else
                 f"Execution {exec_id} is {state}; only an interrupted, failed "
                 "or cancelled run can be restarted."))
+        # The watch this run belongs to, if it still exists: a deleted watch's
+        # runs keep their kind and lose their ``routine_id``.
+        watch_id = row.get("routine_id") if row["execution_type"] == "automated_sweep" else None
+        watch = get_routine_by_id(conn, int(watch_id)) if watch_id is not None else None
+        if watch is not None and again:
+            return _run_watch_again(int(watch_id), watch, response)
+        if watch is not None:
+            _refuse_if_watch_running(int(watch_id))
         # The AI lane, reproduced as far as the record allows. ``parameters``
         # holds the search, never the AI settings, so what the source row can
         # answer is whether AI ran at all: ``execution_ai`` has one row per lane
@@ -3330,6 +3381,19 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
 
         def launch(reservation: Optional[int], ticket: Optional[str]) -> int:
             own = _get_db()
+            # A watch's run takes the watch's claim, as its fires do, from here
+            # until its thread ends (``_launch_execution`` releases it).
+            claimed = watch is not None and routine_claims.try_claim(int(watch_id))
+            if watch is not None and not claimed:
+                _refuse_if_watch_running(int(watch_id))
+            try:
+                return _launch_restart(own, reservation, ticket, claimed)
+            except BaseException:
+                if claimed:
+                    routine_claims.release(int(watch_id))
+                raise
+
+        def _launch_restart(own, reservation: Optional[int], ticket: Optional[str], claimed: bool) -> int:
             # ``parameters`` is copied verbatim and ``ai_enabled`` is deliberately
             # **not** written into it. That JSON is the search the user asked for
             # -- terms, databases, date window -- and the search record and the
@@ -3349,13 +3413,18 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
             if winner is not None:
                 if reservation is not None:
                     admission.note_finished(reservation)
+                if claimed:
+                    routine_claims.release(int(watch_id))
                 return int(winner["id"])
             # No ``prepare_execution``: the row exists, and ``run_prepared`` reads
             # the repositories and query parameters back out of it. Passing them a
             # second time would be a second copy to keep honest.
             engine = SweepEngine(db_conn=own, config={"ai_enabled": ai_enabled, "ai_settings": None})
+            if claimed:
+                routine_claims.bind(int(watch_id), new_id)
             progress_store.register(new_id)
-            _launch_execution(engine, new_id, own, reservation=reservation)
+            _launch_execution(engine, new_id, own, reservation=reservation,
+                              claimed_routine_id=int(watch_id) if claimed else None)
             return new_id
 
         # The same door a manual Deep Dive or Deep Sweep comes through, so a

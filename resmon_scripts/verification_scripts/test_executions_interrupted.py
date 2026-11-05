@@ -559,3 +559,90 @@ def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
 # that cannot fail is worse than none: it reads like evidence. The `finally` in
 # `_reconcile_executions_on_startup` is a shape the file keeps, not a leak it
 # fixes, and its comment says so.
+
+
+# ---------------------------------------------------------------------------
+# A watch's run is never run alongside its watch
+# ---------------------------------------------------------------------------
+
+
+def _watch(client, query: str) -> int:
+    conn = resmon_mod._get_db()
+    return db.insert_routine(conn, {
+        "name": "Overlap watch", "schedule_cron": "0 9 * * *", "is_active": 0,
+        "parameters": json.dumps({"query": query, "keywords": [query], "repositories": ["arxiv"]}),
+    })
+
+
+def test_run_again_on_a_watchs_run_is_the_watchs_run_now_and_never_overlaps_it(client, monkeypatch):
+    """Run again on last night's run while the watch runs is refused; otherwise it is the watch's Run now."""
+    claims = resmon_mod.routine_claims
+    held: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: held.append((exec_id, claims.holder(watch))))
+    watch = _watch(client, "now")
+    old = _row(client, "completed", execution_type="automated_sweep", routine_id=watch,
+               parameters=json.dumps({"query": "then", "keywords": ["then"], "repositories": ["arxiv"]}))
+    conn = resmon_mod._get_db()
+    before = conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0]
+
+    # The watch is running (its scheduled fire holds its claim): Run again is refused, in Run now's words.
+    assert claims.try_claim(watch)
+    claims.bind(watch, 4242)
+    try:
+        refused = client.post(f"/api/executions/{old}/restart", json={"again": True})
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"].startswith("This watch is already running as run 4242.")
+        assert conn.execute("SELECT COUNT(*) FROM executions").fetchone()[0] == before
+    finally:
+        claims.release(watch)
+
+    # Free: it runs as the watch, with the watch's search as it is now, holding the watch's claim.
+    resp = client.post(f"/api/executions/{old}/restart", json={"again": True})
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    new_id = body["execution_id"]
+    assert body["restarted_from"] is None
+    new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
+    assert new_row["execution_type"] == "automated_sweep" and new_row["routine_id"] == watch
+    assert new_row["restarted_from"] is None
+    assert json.loads(new_row["parameters"])["query"] == "now"
+    deadline = time.time() + 5
+    while not held and time.time() < deadline:
+        time.sleep(0.02)
+    assert held == [(new_id, new_id)], "the run again did not hold its watch's claim"
+
+
+def test_a_restart_of_a_watchs_run_takes_the_watchs_claim(client, monkeypatch):
+    """Restart copies an interrupted watch's run, and takes the watch's claim as a fire does."""
+    claims = resmon_mod.routine_claims
+    held: list = []
+    monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
+                        lambda self, exec_id: held.append((exec_id, claims.holder(watch))))
+    watch = _watch(client, "then")
+    old = _row(client, "interrupted", execution_type="automated_sweep", routine_id=watch)
+    conn = resmon_mod._get_db()
+
+    assert claims.try_claim(watch)
+    claims.bind(watch, 4343)
+    try:
+        refused = client.post(f"/api/executions/{old}/restart")
+        assert refused.status_code == 409, refused.text
+        assert refused.json()["detail"].startswith("This watch is already running as run 4343.")
+        assert refused.headers["x-resmon-conflict"] == "routine_already_running"
+        assert conn.execute("SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (old,)).fetchone()[0] == 0
+    finally:
+        claims.release(watch)
+
+    resp = client.post(f"/api/executions/{old}/restart")
+    assert resp.status_code == 202, resp.text
+    new_id = resp.json()["execution_id"]
+    assert resp.json()["restarted_from"] == old
+    deadline = time.time() + 5
+    while not held and time.time() < deadline:
+        time.sleep(0.02)
+    assert held == [(new_id, new_id)], "the restart ran without its watch's claim"
+    deadline = time.time() + 5
+    while claims.is_claimed(watch) and time.time() < deadline:
+        time.sleep(0.02)
+    assert not claims.is_claimed(watch), "the restart kept its watch's claim after it ended"

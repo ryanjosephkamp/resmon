@@ -38,14 +38,22 @@ describe('Run again', () => {
       + 'summarizes only if its run tried to, with what Settings › AI holds now.');
   });
 
-  test('says how many would wait for a free slot, that a watch’s run is sent as its watch is set, and leaves a running run alone', () => {
+  test('says how many would wait, that a watch’s run is its watch’s Run now, and leaves a running run alone', () => {
     const chosen = [run(4), run(5), run(6, { execution_type: 'automated_sweep', routine_id: 2 }), run(7, { status: 'running' })];
     expect(runAgainQuestion(chosen, { free: 1, cap: 3 })).toBe(
-      'Run 3 runs again, each with its own terms, dates, limit, and sources, as new runs linked back to them? Each '
-      + 'summarizes only if its run tried to, with what Settings › AI holds now. Run 6 is a watch’s run: it is emailed and '
-      + 'delivered as its watch is set when it finishes. resmon runs 3 at once, so 2 wait for a free slot, under Waiting '
+      'Run 3 runs again? A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
+      + 'summarizes only if its run tried to, with what Settings › AI holds now. A watch’s run (run 6) runs as its '
+      + 'watch’s Run now: with the watch’s current terms, sources, and dates, emailed and delivered as the watch is set, '
+      + 'and not while the watch is already running. resmon runs 3 at once, so 2 wait for a free slot, under Waiting '
       + 'above, and start on their own. Run 7 is still running, and is not run again.');
     expect(runAgainQuestion([run(4)], { free: 0, cap: 1 })).toContain('resmon runs 1 at once, so it waits for a free slot');
+  });
+
+  test('one watch’s run is asked about by its watch’s name, as its Run now', () => {
+    expect(runAgainQuestion([run(6, { execution_type: 'automated_sweep', routine_id: 2 })], { free: 3, cap: 3 },
+      (id) => (id === 2 ? 'Nightly agents' : null))).toBe(
+      'Run 6, “Nightly agents”, again as its watch’s Run now? It runs with the watch’s current terms, sources, and dates, '
+      + 'is emailed and delivered as the watch is set, and does not start while the watch is already running.');
   });
 
   test('asks nothing when every chosen run is still running', () => {

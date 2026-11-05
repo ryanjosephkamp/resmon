@@ -9,10 +9,13 @@
  * set to, read from the run's `ai_choice` event. A watch's run is not saved:
  * its search is its watch's, and Saved keeps a copy of every watch.
  *
- * Run again is Restart for any run that has ended: a new run with the run's
- * own query, terms, dates, limit, and sources, linked back to it
- * (`POST /api/executions/{id}/restart` with `again`). Past the run limit the
- * new runs wait their turn, and the question before says so.
+ * Run again is Restart for any run that has ended
+ * (`POST /api/executions/{id}/restart` with `again`). A search's run is a new
+ * run with its own query, terms, dates, limit, and sources, linked back to it.
+ * A watch's run is its watch's Run now: the watch's current search, sent as
+ * the watch is set, and refused while the watch is already running, since two
+ * runs of one watch would both deliver. Past the run limit the new runs wait
+ * their turn, and the question before says so.
  */
 import { answer, engine, EngineError } from '../../api/client';
 import { savedFromRun } from '../collection/savedSearches';
@@ -125,24 +128,39 @@ export async function runAgain(runs: readonly RunRow[]): Promise<RerunOutcome> {
 export function runAgainQuestion(
   runs: readonly RunRow[],
   slots: { free: number | null; cap: number | null },
+  watchName: (id: number) => string | null = () => null,
 ): string | null {
   const going = runs.filter((run) => run.status === 'running');
   const again = runs.filter((run) => run.status !== 'running');
   if (!again.length) return null;
   const one = again.length === 1;
-  const parts = [
-    one
-      ? `Run ${again[0]!.id}, “${runTitle(again[0]!)}”, again, with its own terms, dates, limit, and sources, as a new run linked back to it?`
-      : `Run ${number(again.length)} runs again, each with its own terms, dates, limit, and sources, as new runs linked back to them?`,
-    one
-      ? 'It summarizes only if its run tried to, with what Settings › AI holds now.'
-      : 'Each summarizes only if its run tried to, with what Settings › AI holds now.',
-  ];
-  const watched = again.filter((run) => run.execution_type === 'automated_sweep' && run.routine_id !== null);
-  if (watched.length) {
-    parts.push(watched.length === 1
-      ? `${capitalized(runNumbers(watched.map((run) => run.id)))} is a watch’s run: it is emailed and delivered as its watch is set when it finishes.`
-      : `${capitalized(runNumbers(watched.map((run) => run.id)))} are watches’ runs: each is emailed and delivered as its watch is set when it finishes.`);
+  const isWatch = (run: RunRow) => run.execution_type === 'automated_sweep' && run.routine_id !== null;
+  const watched = again.filter(isWatch);
+  const searches = again.filter((run) => !isWatch(run));
+  const parts: string[] = [];
+  const first = again[0]!;
+  const title = runTitle(first, first.routine_id ? watchName(first.routine_id) : null);
+  if (one && searches.length) {
+    parts.push(`Run ${first.id}, “${title}”, again, with its own terms, dates, limit, and sources, as a new run linked back to it?`,
+      'It summarizes only if its run tried to, with what Settings › AI holds now.');
+  } else if (one) {
+    parts.push(`Run ${first.id}, “${title}”, again as its watch’s Run now?`,
+      'It runs with the watch’s current terms, sources, and dates, is emailed and delivered as the watch is set, and does '
+      + 'not start while the watch is already running.');
+  } else {
+    parts.push(`Run ${number(again.length)} runs again?`);
+    if (searches.length) {
+      parts.push('A search runs with its own terms, dates, limit, and sources, as a new run linked back to it, and '
+        + 'summarizes only if its run tried to, with what Settings › AI holds now.');
+    }
+    if (watched.length) {
+      const ids = runNumbers(watched.map((run) => run.id));
+      parts.push(watched.length === 1
+        ? `A watch’s run (${ids}) runs as its watch’s Run now: with the watch’s current terms, sources, and dates, emailed `
+          + 'and delivered as the watch is set, and not while the watch is already running.'
+        : `Watches’ runs (${ids}) run as their watches’ Run now: with each watch’s current terms, sources, and dates, `
+          + 'emailed and delivered as the watch is set, and not while that watch is already running.');
+    }
   }
   if (slots.free !== null && slots.cap !== null && again.length > slots.free) {
     const waiting = again.length - Math.max(0, slots.free);

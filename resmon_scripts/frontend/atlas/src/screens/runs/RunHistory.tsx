@@ -136,7 +136,7 @@ export function RunHistory({ filter, words, watchName, notice, tools, slots }: P
     },
   });
   const free = slots && slots.cap !== null ? Math.max(0, slots.cap - slots.running) : null;
-  const againQuestion = asking === 'again' ? runAgainQuestion(chosen, { free, cap: slots?.cap ?? null }) : null;
+  const againQuestion = asking === 'again' ? runAgainQuestion(chosen, { free, cap: slots?.cap ?? null }, watchName) : null;
   const again = chosen.filter((run) => run.status !== 'running');
   const keepable = savable(chosen);
   const said = (remove.data ? deletedSentence(remove.data) : null) ?? queuedSaid ?? notice;
