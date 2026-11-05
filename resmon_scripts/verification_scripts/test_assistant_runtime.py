@@ -165,11 +165,11 @@ def test_the_pre_approved_tools_are_exactly_the_read_tools():
     assert allowed == {f"mcp__resmon__{n}" for n in mcp_server.READ_TOOLS}
     for name in mcp_server.WRITE_TOOLS:
         assert f"mcp__resmon__{name}" not in allowed, name
-    # 18 pre-approved read tools, including the three watch-profile reads
-    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`); the
-    # watch-profile write tool is *not* here — which is the whole assertion
-    # above, stated as a number so a silent drift is a failure.
-    assert len(allowed) == 18
+    # 19 pre-approved read tools, including the three watch-profile reads
+    # (`list_watch_profiles`, `get_watch_profile`, `get_profile_matches`) and
+    # `list_collections`; the watch-profile write tool is *not* here — which is
+    # the whole assertion above, stated as a number so a silent drift is a failure.
+    assert len(allowed) == 19
 
 
 def test_the_permission_tool_is_named_and_is_not_a_tool_the_model_has():

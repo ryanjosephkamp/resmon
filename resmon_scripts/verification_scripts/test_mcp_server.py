@@ -155,16 +155,16 @@ def test_tools_list_matches_the_contract():
         "run_sweep", "create_routine", "run_routine",
         "activate_routine", "deactivate_routine", "update_settings",
         "list_watch_profiles", "get_watch_profile", "get_profile_matches",
-        "create_watch_profile",
+        "create_watch_profile", "list_collections",
     }
     # Every write tool is marked ``requires_confirmation``, because a caller
     # that ignores that flag is running writes the contract says a person
-    # approves first. The four watch-profile tools are among the 25.
-    assert len(names) == 25
+    # approves first. The four watch-profile tools are among the 26.
+    assert len(names) == 26
     # The version string is the contract's: a harness tells one server from
     # another by what each accepts, so it moves with any observable change,
     # including a narrowing such as the settings allowlist.
-    assert mcp.CONTRACT_VERSION == "1.0"
+    assert mcp.CONTRACT_VERSION == "1.1"
 
 
 def test_a_read_only_server_lists_the_reads_and_nothing_else(monkeypatch):
@@ -277,6 +277,7 @@ _READ_TOOL_ARGS: dict[str, list[dict]] = {
     "get_paper_lifecycle": [{"doc_id": 1}],
     "get_analytics": [{"view": "overview"}],
     "get_watchdog_findings": [{}],
+    "list_collections": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1, 2], "format": "bibtex"}],
     # ``get_watch_profile`` deliberately issues two GETs — the profile and
@@ -1149,7 +1150,7 @@ def test_precise_runtime_409_mapping(detail, code):
 
 def test_only_two_tools_offer_runtime_expectation():
     assert {t["name"] for t in mcp.TOOLS if "expected_runtime_id" in t["schema"]["properties"]} == {"health", "get_execution"}
-    assert len(mcp.TOOLS) == 25 and len(mcp.WRITE_TOOLS) == 7
+    assert len(mcp.TOOLS) == 26 and len(mcp.WRITE_TOOLS) == 7
 
 
 @pytest.mark.parametrize("change", [{"contract_version": True}, {"schema_version": "14"}, {"corpus_id": "invented"}, {"build_id": "invented"}])
@@ -1169,3 +1170,62 @@ def test_run_sweep_passes_a_queued_sweeps_ticket_through(monkeypatch):
     assert result["isError"] is False
     payload = json.loads(result["content"][0]["text"])
     assert payload == {"execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"}
+
+
+# ---------------------------------------------------------------------------
+# Collections (contract 1.1)
+# ---------------------------------------------------------------------------
+
+
+def _sending(responses: dict):
+    """A double that records each request's method, path, query and body, and answers from *responses*."""
+    sent: list[dict] = []
+
+    def _request(method, url, **kwargs):
+        path = url[len(STUB_BASE):].partition("?")[0]
+        sent.append({"method": method, "path": path, "params": dict(kwargs.get("params") or {}),
+                     "json": kwargs.get("json")})
+        return httpx.Response(200, json=responses.get(path, {}), request=httpx.Request(method, url))
+
+    mcp.backend._base = STUB_BASE
+    return patch.object(mcp.httpx, "request", side_effect=_request), sent
+
+
+def test_list_collections_names_each_and_the_default():
+    listed = {"collections": [
+        {"id": 1, "name": "Your collection", "is_default": True, "papers": 9, "watches": 2, "created_at": None},
+        {"id": 2, "name": "Optics", "is_default": False, "papers": 4, "watches": 1, "created_at": None}],
+        "current_id": 2, "default_id": 1}
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher:
+        body = _payload(mcp.call_tool("list_collections", {}))
+    assert [(c["id"], c["name"], c["papers"], c["watches"], c["is_default"]) for c in body["collections"]] == [
+        (1, "Your collection", 9, 2, True), (2, "Optics", 4, 1, False)]
+    assert (body["count"], body["current_id"], body["default_id"]) == (2, 2, 1)
+    assert [(s["method"], s["path"]) for s in sent] == [("GET", "/api/collections")]
+    assert "list_collections" in mcp.READ_TOOLS
+
+
+@pytest.mark.parametrize("tool,args,where", [
+    ("search_corpus", {"query": "x"}, "json"),
+    ("get_analytics", {"view": "overview"}, "params"),
+    ("get_profile_matches", {"profile_id": 3}, "params"),
+    ("run_sweep", {"query": "x", "sources": ["arxiv"]}, "json"),
+    ("create_routine", {"name": "n", "keywords": ["a"], "sources": ["arxiv"], "schedule": "0 8 * * *"}, "json"),
+])
+def test_a_collection_is_sent_as_named_and_left_out_when_not(tool, args, where):
+    """The backend resolves the name; with none, the request carries none, which is the default collection."""
+    for given, expected in (({"collection": "Optics"}, "Optics"), ({"collection": 2}, 2), ({}, None)):
+        patcher, sent = _sending({})
+        with patcher:
+            mcp.call_tool(tool, {**args, **given})
+        first = sent[0][where] or {}
+        assert first.get("collection") == expected, (tool, given, first)
+    assert "collection" in next(t for t in mcp.TOOLS if t["name"] == tool)["schema"]["properties"]
+
+
+def test_a_collection_that_is_neither_a_name_nor_an_id_is_refused_before_the_backend():
+    patcher, sent = _sending({})
+    with patcher:
+        body = _payload(mcp.call_tool("search_corpus", {"query": "x", "collection": ["Optics"]}))
+    assert body["error"] == "invalid_argument" and sent == []

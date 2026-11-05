@@ -58,6 +58,7 @@ TOOL_ARGS: dict[str, list[dict]] = {
     "get_paper_lifecycle": [{"doc_id": 1}],
     "get_analytics": [{"view": v} for v in sorted(mcp._ANALYTICS_VIEWS)],
     "get_watchdog_findings": [{}],
+    "list_collections": [{}],
     "export_references": [{"exec_id": 1, "format": "bibtex"},
                           {"doc_ids": [1], "format": "bibtex"}],
     # `get_watch_profile` sends two requests, and both are listed by
@@ -157,14 +158,14 @@ def test_every_path_the_mcp_server_calls_is_a_route_the_app_has():
 def test_the_contract_states_the_right_number_of_pairs():
     """The contract quotes a count. Counts in prose drift; this one cannot.
 
-    Not decoration: the sentence "all 44 resolve" is only meaningful if 44 is
+    Not decoration: the sentence "all 45 resolve" is only meaningful if 45 is
     the number of pairs there are. When this fails, the contract's tools
     section is the thing to correct.
     """
     pairs = sorted(set(_calls()))
-    assert len(pairs) == 44, (
+    assert len(pairs) == 45, (
         f"{len(pairs)} distinct method-and-path pairs, and the contract "
-        f"says 44:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
+        f"says 45:\n" + "\n".join(f"  {m} {p}" for m, p in pairs)
     )
 
 

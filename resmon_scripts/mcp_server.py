@@ -56,7 +56,10 @@ from implementation_scripts.runtime_identity import valid_runtime_id, valid_iden
 # A narrowing (a call the server accepted that it now refuses) moves the version
 # as a minor: the contract's versioning rule asks whether callers are
 # affected, and a caller of the refused call is.
-CONTRACT_VERSION = "1.0"
+#
+# 1.1 adds collections: ``list_collections``, and an optional ``collection`` on
+# the reads of the collection and on starting a run or a routine.
+CONTRACT_VERSION = "1.1"
 PROTOCOL_VERSION = "2025-06-18"
 SERVER_NAME = "resmon"
 
@@ -729,6 +732,36 @@ def _expected_runtime(args: dict) -> Optional[str]:
     return value
 
 
+def _collection(args: dict) -> Any:
+    """The collection a call names, by id or name, or None for the default one.
+
+    Passed to the backend as given: the backend resolves a name and refuses one
+    that names no collection, so this server and the app cannot disagree about
+    which collection a name means."""
+    value = args.get("collection")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ToolError("invalid_argument", "'collection' is a collection's name or its id.")
+    return value
+
+
+def t_list_collections(args: dict) -> Any:
+    """Every collection, how many papers and watches each has, and the default one."""
+    data = backend.request("GET", "/api/collections") or {}
+    rows = data.get("collections") or []
+    return {
+        "collections": [{
+            "id": r.get("id"), "name": r.get("name"), "papers": r.get("papers"),
+            "watches": r.get("watches"), "is_default": r.get("is_default"),
+        } for r in rows],
+        "count": len(rows),
+        # The one the app shows; a call that names no collection reads the default one.
+        "current_id": data.get("current_id"),
+        "default_id": data.get("default_id"),
+    }
+
+
 def t_health(args: dict) -> Any:
     expected = _expected_runtime(args)
     if expected is None:
@@ -789,6 +822,9 @@ def t_search_corpus(args: dict) -> Any:
     for key in ("sources", "date_from", "date_to"):
         if args.get(key):
             body[key] = args[key]
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     data = backend.request("POST", "/api/explorer/search", json=body) or {}
     rows = data.get("results") if isinstance(data, dict) else None
     rows = rows if isinstance(rows, list) else []
@@ -891,6 +927,8 @@ def t_list_routines(args: dict) -> Any:
             "schedule": r.get("schedule_cron"),
             "active": bool(r.get("is_active")),
             "last_run": r.get("last_executed_at"),
+            # Where its runs' papers land (list_collections names it).
+            "collection_id": r.get("collection_id"),
             # Fires that did not run -- came due while resmon was closed, or
             # were refused because the previous run of this routine was still
             # going. A count, not a verdict: it says the schedule was not
@@ -1077,8 +1115,11 @@ def t_get_analytics(args: dict) -> Any:
             f"Unknown view '{view}'. Expected one of: "
             f"{', '.join(sorted(_ANALYTICS_VIEWS))}.",
         )
-    params = {"window": args["window"]} if args.get("window") else None
-    return backend.request("GET", path, params=params)
+    params = {"window": args["window"]} if args.get("window") else {}
+    collection = _collection(args)
+    if collection is not None:
+        params["collection"] = collection
+    return backend.request("GET", path, params=params or None)
 
 
 def t_get_watchdog_findings(args: dict) -> Any:
@@ -1120,6 +1161,9 @@ def t_run_sweep(args: dict) -> Any:
             body[key] = args[key]
     if args.get("ai_enabled") is not None:
         body["ai_enabled"] = bool(args["ai_enabled"])
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     data = backend.request("POST", "/api/search/sweep", json=body) or {}
     if data.get("queued"):
         # At resmon's run limit the sweep waits for a free slot and starts on
@@ -1172,6 +1216,9 @@ def t_create_routine(args: dict) -> Any:
     intent = str(args.get("intent") or "").strip()
     if intent:
         body["intent"] = intent
+    collection = _collection(args)
+    if collection is not None:
+        body["collection"] = collection
     created = backend.request("POST", "/api/routines", json=body) or {}
 
     # ``POST /api/routines`` answers with ``{id, name}`` -- everything the
@@ -1516,9 +1563,11 @@ def t_get_profile_matches(args: dict) -> Any:
     means to make it.
     """
     profile_id = _require_int(args, "profile_id")
-    body = backend.request(
-        "GET", f"/api/profiles/{profile_id}/matches",
-        params={"limit": _limit(args), "offset": _offset(args)}) or {}
+    params: dict[str, Any] = {"limit": _limit(args), "offset": _offset(args)}
+    collection = _collection(args)
+    if collection is not None:
+        params["collection"] = collection
+    body = backend.request("GET", f"/api/profiles/{profile_id}/matches", params=params) or {}
     rows = body.get("matches") or []
     return {
         "matches": [{
@@ -1544,6 +1593,12 @@ def t_get_profile_matches(args: dict) -> Any:
         },
     }
 
+
+#: The optional argument every read of the collection and every start of a run takes.
+_COLLECTION_ARG = {"type": ["string", "integer"], "description": (
+    "Optional. The collection, by its name or its id, as list_collections gives them. "
+    "Without one, the default collection, which holds every paper resmon had before "
+    "it had collections.")}
 
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
@@ -1574,7 +1629,16 @@ TOOLS: list[dict] = [
          "date_from": {"type": "string"}, "date_to": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
          "cursor": {"type": "string",
-                    "description": "next_cursor from the previous call"}}}},
+                    "description": "next_cursor from the previous call"},
+         "collection": _COLLECTION_ARG}}},
+
+    {"name": "list_collections", "fn": t_list_collections,
+     "description": (
+         "The user's collections: each one's id, name, and how many papers and "
+         "watches it has. A paper can be in more than one. The reads and the "
+         "starts of a run take one as 'collection'; without one they use the default."
+     ),
+     "schema": {"type": "object", "properties": {}}},
 
     {"name": "find_similar", "fn": t_find_similar,
      "description": (
@@ -1646,7 +1710,8 @@ TOOLS: list[dict] = [
      "description": "A summary view over the corpus and run history.",
      "schema": {"type": "object", "required": ["view"], "properties": {
          "view": {"type": "string", "enum": sorted(_ANALYTICS_VIEWS)},
-         "window": {"type": "string"}}}},
+         "window": {"type": "string"},
+         "collection": _COLLECTION_ARG}}},
 
     {"name": "get_watchdog_findings", "fn": t_get_watchdog_findings,
      "description": ("Silent-failure findings, each labeled broken (a recorded fact), "
@@ -1681,7 +1746,8 @@ TOOLS: list[dict] = [
      "schema": {"type": "object", "required": ["profile_id"], "properties": {
          "profile_id": {"type": "integer"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},
-         "offset": {"type": "integer", "default": 0}}}},
+         "offset": {"type": "integer", "default": 0},
+         "collection": _COLLECTION_ARG}}},
 
     {"name": "export_references", "fn": t_export_references,
      "description": "Export references as BibTeX, RIS, CSV or JSON.",
@@ -1697,7 +1763,10 @@ TOOLS: list[dict] = [
          "sources": {"type": "array", "items": {"type": "string"}},
          "date_from": {"type": "string"}, "date_to": {"type": "string"},
          "max_results": {"type": "integer"},
-         "ai_enabled": {"type": "boolean"}}}},
+         "ai_enabled": {"type": "boolean"},
+         "collection": {**_COLLECTION_ARG, "description": (
+             "Optional. The collection its papers land in, by name or id. Without "
+             "one, the default collection.")}}}},
 
     {"name": "create_routine", "fn": t_create_routine, "requires_confirmation": True,
      "description": "Create a monitoring routine. It is created INACTIVE; the user activates it in resmon.",
@@ -1707,6 +1776,9 @@ TOOLS: list[dict] = [
                     "keywords": {"type": "array", "items": {"type": "string"}},
                     "sources": {"type": "array", "items": {"type": "string"}},
                     "schedule": {"type": "string", "description": "cron expression"},
+                    "collection": {**_COLLECTION_ARG, "description": (
+                        "Optional. The collection its runs' papers land in, by "
+                        "name or id. Without one, the default collection.")},
                     "intent": {"type": "string", "description": (
                         "Optional. What this routine is really looking for, in "
                         "the user's own words. The coverage audit compares "

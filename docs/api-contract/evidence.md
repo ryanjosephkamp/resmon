@@ -83,7 +83,7 @@ explicit refresh. A ceiling is not a time-travel snapshot across removals.
 Collection file/note lists include current project revision; a mixed refresh
 is rejected by the renderer. Bundle generation uses a single SQL read snapshot.
 
-No Evidence tool is in MCP or the assistant. The manifest is 25 tools, 18 reads
+No Evidence tool is in MCP or the assistant. The manifest is 26 tools, 19 reads
 and seven confirmation writes; notes are not implicitly sent to any model. Route
 counts describe declared surfaces, not proof that every capability has been
 exercised.

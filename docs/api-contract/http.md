@@ -487,6 +487,7 @@ No route. Migrations run inside `database.init_db` at start; the journey is exer
 | `GET` | `/api/analytics/publication-volume` | token | — | `PublicationVolume` | Papers per publication month, split by source or subject category. |
 | `GET` | `/api/analytics/routine-health` | token | — | `RoutineHealth` | Per routine whose papers land in the collection: new results per run, and whether it has gone quiet. |
 | `GET` | `/api/analytics/source-contribution` | token | — | `SourceContribution` | Per source: papers delivered, and how many nothing else found. |
+| `GET` | `/api/collections` | token | — | `CollectionList` | Every collection, the one the app shows, and the default one. |
 | `GET` | `/api/credentials` | token | — | `CredentialsPresence` | Return per-credential status for every known credential name. |
 | `GET` | `/api/documents/{doc_id}/lifecycle` | token | — | — | Lifecycle events recorded against one paper. |
 | `GET` | `/api/documents/{doc_id}/why` | token | — | `PaperWhy` | What is locally verifiable about why this paper is in the corpus. |
