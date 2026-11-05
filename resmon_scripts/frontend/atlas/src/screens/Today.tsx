@@ -356,6 +356,11 @@ export function Today() {
           onPoint={setPointedId}
           onZoomTo={zoomTo}
           onToggleSave={(paper) => save.mutate({ id: paper.id, on: !(saved.get(paper.id) ?? paper.queue_status !== null) })}
+          onSavedMany={(ids) => setSaved((prev) => {
+            const next = new Map(prev);
+            for (const id of ids) next.delete(id);
+            return next;
+          })}
           onMarkRead={() => looked.mutate()}
           by={mapLook.view.list_by}
           onBy={(by) => mapLook.setView({ ...mapLook.view, list_by: by })}
