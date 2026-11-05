@@ -64,7 +64,7 @@ const pageAccent = (win: Page) => win.evaluate(() => document.documentElement.st
 async function shoot(win: Page, name: string) {
   // After every running animation (the palette's entrance, a theme's frame)
   // has finished, so the picture is of a state and not of a transition.
-  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+  await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
   fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
   await win.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
 }

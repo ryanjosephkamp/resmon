@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import { bridge } from '../../bridge';
+import { engineBuild } from '../settings/aboutFacts';
 import { when } from '../today/format';
 import { HealthTabs } from './HealthTabs';
 import { instantOf } from './model';
@@ -11,8 +12,8 @@ import { instantOf } from './model';
  * engine reports for itself. The runtime id is new each time an engine
  * starts, so two windows naming the same one are talking to the same process.
  *
- * Runtime only. The engine does not identify its corpus or its build, and
- * this screen claims neither.
+ * The engine names its build (its identity's build id, else the health
+ * answer's `build`), and names no collection, so this screen names none.
  */
 export function Engine() {
   const now = useMemo(() => new Date(), []);
@@ -43,13 +44,14 @@ export function Engine() {
               ? <code className="path">{data.identity.runtime_id}</code> : 'not reported by this engine'}</dd></div>
             <div><dt>Process</dt><dd>pid {data.pid}, started {started ? when(started.toISOString(), now) : 'at a time not recorded'}</dd></div>
             <div><dt>Version</dt><dd>{data.version}</dd></div>
+            <div><dt>Build</dt><dd data-health="build">{engineBuild(data) ?? 'not reported by this engine'}</dd></div>
             <div><dt>Database</dt><dd>{data.identity?.schema_version !== undefined ? `schema ${data.identity.schema_version}` : 'schema not reported'}</dd></div>
             <div><dt>Similarity index</dt><dd>{data.embeddings.extension ? `sqlite-vec ${data.embeddings.extension}` : `Not loaded${data.embeddings.reason ? `: ${data.embeddings.reason}` : ''}`}</dd></div>
           </dl>
         )}
         <p className="form-hint">
-          The runtime id is new each time an engine starts. The engine does not identify which collection or which build it
-          is, so this screen does not either.
+          The runtime id is new each time an engine starts. The engine does not report which collection it is working in, so
+          this screen names none.
         </p>
       </section>
     </div>

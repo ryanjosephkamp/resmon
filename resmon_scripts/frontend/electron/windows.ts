@@ -272,23 +272,34 @@ export function noticeWindow<W extends WindowLike>(
 /**
  * The message a window sends when it changed the runs going now, and the one
  * every other window is sent: it saw the failed runs (the run monitor's red
- * mark), stopped a run, started one, or took one out of the queue.
+ * mark), stopped a run, started one, or took one out of the queue. Each window
+ * reads the runs going now on its own poll, 15 s apart while nothing runs, so
+ * a red mark seen in one window cleared in another only that much later.
  */
 export const RUNS_CHANGED = 'resmon:runs-changed';
 
 /**
- * Tell every app window but `from` that the runs changed, so each reads the
- * runs going now at once rather than at its next poll, which is 15 s apart
- * while nothing runs: a red mark seen in one window then cleared in another
- * only that much later. A message from no window of the set tells none.
- * Returns the windows told.
+ * The message a window sends when it changed how the app looks: the theme,
+ * the accent, the run monitor's switch (`/api/appearance`), or the top bar's
+ * arrangement (`/api/top-bar`). Each window reads those once, and again only
+ * when it comes to the front, so a window beside it kept the old look.
  */
-export function relayRunsChanged<W extends WindowLike & { readonly webContents: { send(channel: string): void } }>(
-  set: WindowSet<W>, from: W | null,
+export const APPEARANCE_CHANGED = 'resmon:appearance-changed';
+
+/** The messages a window sends that every other window is told of. */
+export const RELAYED: readonly string[] = [RUNS_CHANGED, APPEARANCE_CHANGED];
+
+/**
+ * Tell every app window but `from` what `from` changed, so each reads it again
+ * at once. A message from no window of the set, or one that is not relayed,
+ * tells none. Returns the windows told.
+ */
+export function relayToOtherWindows<W extends WindowLike & { readonly webContents: { send(channel: string): void } }>(
+  set: WindowSet<W>, from: W | null, channel: string,
 ): W[] {
-  if (!from || !set.has(from)) return [];
+  if (!from || !set.has(from) || !RELAYED.includes(channel)) return [];
   const told = set.all().filter((window) => window !== from);
-  for (const window of told) window.webContents.send(RUNS_CHANGED);
+  for (const window of told) window.webContents.send(channel);
   return told;
 }
 

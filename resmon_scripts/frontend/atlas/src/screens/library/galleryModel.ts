@@ -274,6 +274,22 @@ export function readsMore({ has, reading, failed, last, rows, ahead }: {
   return has && !reading && !failed && rows > 0 && last >= rows - ahead;
 }
 
+/**
+ * Whether the gallery moves the stage by what a row grew when it measures it,
+ * so that what is at the top stays put: as virtual-core 3.19.5 does by default,
+ * a row measured for the first time with its top above the view, or measured
+ * again wholly above it while the view is not moving up. Never while Back's
+ * place is held on the stage (`holdsPlace`): the hold puts the row it names
+ * where it was left as the rows above it are measured, and moving the stage
+ * too, from where the gallery last read it, would move it against that.
+ */
+export function movesStageAsItMeasures({ held, first, start, end, offset, backward }: {
+  held: boolean; first: boolean; start: number; end: number; offset: number; backward: boolean;
+}): boolean {
+  if (held) return false;
+  return first ? start < offset : end <= offset && !backward;
+}
+
 /** What a confirmation before removing a file says goes with it. */
 export function goesWith(summary: {
   links: readonly unknown[];

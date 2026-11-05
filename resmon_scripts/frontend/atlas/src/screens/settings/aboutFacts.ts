@@ -67,10 +67,19 @@ export function versionWords(health: Pick<Health, 'version'> | undefined, error:
   return 'Asking the engine.';
 }
 
-/** The build line. The engine reports a build id field and, in this release, always leaves it empty. */
-export function buildWords(health: Pick<Health, 'identity'> | undefined): string | null {
+type BuildFacts = { identity?: Pick<Health['identity'], 'build_id'>; build?: string | null };
+
+/**
+ * The build an engine names: the build id its identity carries, else the
+ * `build` its health answer carries (the app's own id for the build that
+ * started the engine), else none.
+ */
+export function engineBuild(health: BuildFacts): string | null {
+  return health.identity?.build_id || health.build || null;
+}
+
+/** About's build line: the build the engine names, else a sentence saying it names none. */
+export function buildWords(health: BuildFacts | undefined): string | null {
   if (!health) return null;
-  return health.identity.build_id
-    ? health.identity.build_id
-    : 'Not identified. The engine reports no build id, so none is named here.';
+  return engineBuild(health) ?? 'Not identified. The engine reports no build id, so none is named here.';
 }

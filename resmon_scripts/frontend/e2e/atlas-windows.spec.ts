@@ -331,7 +331,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     }
     expect((await api<{ status: string }>(second, `/api/executions/${slow.execution_id}`)).status).toBe('cancelled');
     // A failure is red in both; the panel opened in one clears it in both, since what was seen is the engine's,
-    // and the other window is told at once (`relayRunsChanged`) rather than at its next idle read, 15 s away.
+    // and the other window is told at once (`relayToOtherWindows`) rather than at its next idle read, 15 s away.
     const broken = await api<{ execution_id: number }>(second, '/api/search/dive', 'POST',
       { repository: 'arxiv', query: 'broken', keywords: ['broken'], max_results: 5 });
     for (const page of [first, second]) await expect(mark(page)).toHaveAttribute('data-monitor', 'failed', { timeout: 60_000 });
@@ -432,22 +432,21 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       for (const [id, name] of [[firstId, 'first'], [secondId, 'second']] as const) {
         await capture(app, id, path.join(shots, `windows-tabs-${name}.png`));
       }
-      // The theme changed in one window reaches another when it comes to the front.
+      // The theme changed in one window reaches the other at once, told by the main process (`relayToOtherWindows`).
       const themeOf = (page: Page) => page.evaluate(() => document.documentElement.dataset.theme);
       const choose = async (page: Page, theme: string) => {
         await page.keyboard.press(`${MOD}+k`);
         await page.getByRole('combobox', { name: 'Search commands' }).fill(theme);
         await page.getByRole('option', { name: theme === 'light' ? /^Light/ : /^Dark/ }).click();
       };
-      // Chosen in the first window rather than followed from the system, so only the window's own read can change it.
+      // Chosen in a window rather than followed from the system, so only a change made in resmon moves either window.
       const was = await themeOf(first) ?? 'dark';
       const other = was === 'dark' ? 'light' : 'dark';
       await choose(first, was);
+      await expect.poll(() => themeOf(second), { timeout: 4_000 }).toBe(was);
       await choose(second, other);
       await expect.poll(() => themeOf(second)).toBe(other);
-      expect(await themeOf(first)).toBe(was);
-      await first.evaluate(() => window.dispatchEvent(new Event('focus')));
-      await expect.poll(() => themeOf(first)).toBe(other);
+      await expect.poll(() => themeOf(first), { timeout: 4_000 }).toBe(other);
       // macOS lays the tab bar out again in the new theme once its titles are set again (`resmon:theme-source`).
       await first.waitForTimeout(2_500);
       await capture(app, firstId, path.join(shots, `windows-tabs-first-${other}.png`));

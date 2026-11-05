@@ -52,6 +52,13 @@ ipcRenderer.on('resmon:window-state', (_event, value: unknown) => {
   for (const listener of windowStateListeners) listener(windowState);
 });
 
+/** A message from the main process, heard until the returned function is called. */
+function listen(channel: string, callback: () => void): () => void {
+  const listener = () => callback();
+  ipcRenderer.on(channel, listener);
+  return () => { ipcRenderer.removeListener(channel, listener); };
+}
+
 contextBridge.exposeInMainWorld('resmonAPI', {
   getBackendPort: (): string => connection.port,
   /** Show another collection in this window, by id; the main process then sends the window's state again. */
@@ -106,11 +113,10 @@ contextBridge.exposeInMainWorld('resmonAPI', {
   setThemeSource: (theme: 'system' | 'light' | 'dark'): void => ipcRenderer.send('resmon:theme-source', theme),
   runStarted: (executionId: number): void => ipcRenderer.send('resmon:run-started', executionId),
   runQueued: (what: { ticket?: string; routineId?: number }): void => ipcRenderer.send('resmon:run-queued', what),
-  // The runs going now changed here, or in another window (\`electron/windows.ts\`, \`relayRunsChanged\`).
+  // The runs going now, or how the app looks, changed here or in another window
+  // (`electron/windows.ts`, `relayToOtherWindows`).
   runsChanged: (): void => ipcRenderer.send('resmon:runs-changed'),
-  onRunsChanged: (callback: () => void): (() => void) => {
-    const listener = () => callback();
-    ipcRenderer.on('resmon:runs-changed', listener);
-    return () => { ipcRenderer.removeListener('resmon:runs-changed', listener); };
-  },
+  onRunsChanged: (callback: () => void): (() => void) => listen('resmon:runs-changed', callback),
+  appearanceChanged: (): void => ipcRenderer.send('resmon:appearance-changed'),
+  onAppearanceChanged: (callback: () => void): (() => void) => listen('resmon:appearance-changed', callback),
 });

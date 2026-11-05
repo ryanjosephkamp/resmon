@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { columnsFor, NARROW, readsMore, rowEstimate } from './galleryModel';
+import { holdsPlace } from '../../shell/stageScroll';
+import { columnsFor, movesStageAsItMeasures, NARROW, readsMore, rowEstimate } from './galleryModel';
 
 /** Rows drawn past each edge of the view, so a scroll and Tab land on covers already there. */
 const OVERSCAN = 2;
@@ -63,6 +64,11 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
   const rows = Math.ceil(items.length / columns);
   const virtual = useVirtualizer({
     count: rows,
+    // Drawn against the stage once it is known, from where the stage is: a virtualizer that meets its
+    // scroller scrolls it to its initial offset, which would put the gallery at its top just after Back
+    // has put it where it was left.
+    enabled: stage !== null,
+    initialOffset: () => stage?.scrollTop ?? 0,
     getScrollElement: () => stage,
     estimateSize: () => rowEstimate(width, columns),
     overscan: OVERSCAN,
@@ -73,6 +79,17 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
     },
   });
   useEffect(() => { virtual.measure(); }, [columns, virtual]);
+  // A row measured above the view moves the stage by what it grew, but not while Back's place is held on it.
+  useLayoutEffect(() => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => movesStageAsItMeasures({
+      held: stage !== null && holdsPlace(stage),
+      first: !instance.itemSizeCache.has(item.key),
+      start: item.start,
+      end: item.end,
+      offset: instance.scrollOffset ?? 0,
+      backward: instance.scrollDirection === 'backward',
+    });
+  }, [virtual, stage]);
   const drawn = virtual.getVirtualItems();
   const last = drawn.length ? drawn[drawn.length - 1]!.index : -1;
   const { has, reading, failed, read } = more;

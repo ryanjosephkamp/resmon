@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'react-router-dom';
 import { bridge, isMac, type WindowState } from '../bridge';
 import { APPEARANCE_KEY, useAppearance } from '../theme/appearance';
+import { TOP_BAR_KEY } from './useTopBar';
 import { windowTitle } from '../windowTitle';
 
 export { windowTitle };
@@ -27,10 +28,11 @@ export function applyWindowState(state: WindowState | undefined, root: HTMLEleme
 /**
  * The window's own frame: its title, from the screen it shows; the room for
  * macOS's tab bar; the system's own parts of the window in the app's theme;
- * and the theme and accent read again when the window comes to the front,
- * since another window may have changed them meanwhile. The appearance is
- * otherwise read once, and nothing else here is held that long: a page reads
- * its data again each time it opens.
+ * and the look (the theme, the accent, the run monitor's switch, and the top
+ * bar's arrangement) read again when another window changes it, as the main
+ * process tells this one (`relayToOtherWindows`), and when this window comes
+ * to the front. The look is otherwise read once, and nothing else here is held
+ * that long: a page reads its data again each time it opens.
  */
 export function WindowFrame() {
   const { pathname } = useLocation();
@@ -41,10 +43,16 @@ export function WindowFrame() {
   useEffect(() => {
     const refresh = () => {
       // Not while this window's own change is on its way: its answer is the one to show.
-      if (client.isMutating() === 0) void client.invalidateQueries({ queryKey: APPEARANCE_KEY });
+      if (client.isMutating() !== 0) return;
+      void client.invalidateQueries({ queryKey: APPEARANCE_KEY });
+      void client.invalidateQueries({ queryKey: TOP_BAR_KEY });
     };
     window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    const stop = bridge()?.onAppearanceChanged?.(refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      stop?.();
+    };
   }, [client]);
   useEffect(() => {
     document.title = windowTitle(pathname, isMac());

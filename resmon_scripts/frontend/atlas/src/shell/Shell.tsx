@@ -16,9 +16,10 @@ import { NewSearch } from './NewSearch';
 import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
+import { StageScroll } from './stageScroll';
 import { SwipeNavigation } from './SwipeNavigation';
 import { pageName } from './topBar';
-import { useTopBar, useTopBarFollowsOtherWindows } from './useTopBar';
+import { useTopBar } from './useTopBar';
 import {
   COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
   sectionShortcut, shortcut, shortcutFor, type ShortcutId,
@@ -43,6 +44,7 @@ export function Shell() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const palette = useRef<HTMLDialogElement>(null);
   const sheet = useRef<HTMLDialogElement>(null);
+  const stage = useRef<HTMLElement>(null);
   const mac = isMac();
   const closePalette = useCallback(() => setPaletteOpen(false), []);
   const closeSheet = useCallback(() => setSheetOpen(false), []);
@@ -58,7 +60,6 @@ export function Shell() {
   const { stored: appearance } = useAppearance();
   // The sections in the order the person chose, and only those they did not hide (Settings › Top bar).
   const { arranged } = useTopBar();
-  useTopBarFollowsOtherWindows();
 
   // The shell's own dialogs close before a command runs: closing one hands the
   // focus back to where it was, so closing it later would take back the caret
@@ -211,7 +212,9 @@ export function Shell() {
         </NavLink>
       </header>
       <EngineNotice />
-      <main className="stage">
+      <main className="stage" ref={stage}>
+        {/* First, so a screen that opens at its own place does so after this has put the stage at its top. */}
+        <StageScroll stage={stage} />
         <ShowShortcutsContext value={showSheet}>
           <Fallback resetKey={`${location.pathname}?${location.search}`} fallback={(error) => <PageFailed error={error} />}>
             <Outlet />

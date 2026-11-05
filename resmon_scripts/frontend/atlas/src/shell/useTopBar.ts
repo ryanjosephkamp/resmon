@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
 import { DEFAULT_TOP_BAR, arrange, type Arranged, type TopBar } from './topBar';
@@ -51,20 +51,4 @@ export function useTopBar(): TopBarState {
 
   const arranged = useMemo(() => arrange(stored), [stored]);
   return { stored, arranged, loadError: query.error, saveError, save };
-}
-
-/**
- * Each window has its own copy of the arrangement, and another window may
- * change it: read it again when this window comes to the front, unless a
- * change made here is still on its way.
- */
-export function useTopBarFollowsOtherWindows(): void {
-  const client = useQueryClient();
-  useEffect(() => {
-    const again = () => {
-      if (pending(client) === 0) void client.invalidateQueries({ queryKey: TOP_BAR_KEY });
-    };
-    window.addEventListener('focus', again);
-    return () => window.removeEventListener('focus', again);
-  }, [client]);
 }

@@ -25,7 +25,7 @@ import { removeStateDir } from './fixtures/cleanup';
 const ISSUES = 'https://github.com/ryanjosephkamp/resmon/issues';
 const GITHUB = 'https://github.com/ryanjosephkamp/';
 
-async function health(win: Page): Promise<{ version: string; identity: { build_id: string | null; schema_version: number | null } }> {
+async function health(win: Page): Promise<{ version: string; build?: string | null; identity: { build_id: string | null; schema_version: number | null } }> {
   return win.evaluate(async () => {
     const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
     return (await e2eFetch(`http://127.0.0.1:${port}/api/health`)).json();
@@ -80,6 +80,7 @@ test('About resmon: the engine\'s version, the license as written, the keychain 
       const said = await health(win);
       await expect(about.locator('[data-about="version-words"]')).toHaveText(`resmon ${said.version}`);
       await expect(about.locator('[data-about="build"]')).toHaveText(said.identity.build_id
+        ?? said.build
         ?? 'Not identified. The engine reports no build id, so none is named here.');
 
       // — the license, word for word ------------------------------------------------------

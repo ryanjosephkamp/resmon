@@ -5,7 +5,8 @@
  * window here is a plain object; nothing is opened.
  */
 import {
-  RUNS_CHANGED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayRunsChanged, routeOf, tabStripHeight,
+  APPEARANCE_CHANGED, RUNS_CHANGED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayToOtherWindows, routeOf,
+  tabStripHeight,
   type WindowLike,
 } from '../electron/windows';
 
@@ -168,7 +169,7 @@ describe('the window something without a window goes to', () => {
   });
 });
 
-describe('a change to the runs in one window reaches the others at once', () => {
+describe('a change in one window reaches the others at once', () => {
   /** A window that records what it is sent. */
   function sending() {
     const window = { ...fakeWindow(), sent: [] as string[] };
@@ -176,25 +177,27 @@ describe('a change to the runs in one window reaches the others at once', () => 
     return Object.assign(window, { webContents: contents, isDestroyed: () => window.closed });
   }
 
-  test('every other open window is told, and the one that changed them is not', () => {
+  test('every other open window is told, and the one that made the change is not', () => {
     const set = new WindowSet<ReturnType<typeof sending>>();
     const [first, second, third] = [sending(), sending(), sending()];
     for (const window of [first, second, third]) set.add(window);
-    expect(relayRunsChanged(set, first)).toEqual([second, third]);
+    expect(relayToOtherWindows(set, first, RUNS_CHANGED)).toEqual([second, third]);
     expect([first.sent, second.sent, third.sent]).toEqual([[], [RUNS_CHANGED], [RUNS_CHANGED]]);
     // A closed window is told nothing.
     third.closed = true;
-    relayRunsChanged(set, second);
-    expect([first.sent, second.sent, third.sent]).toEqual([[RUNS_CHANGED], [RUNS_CHANGED], [RUNS_CHANGED]]);
+    relayToOtherWindows(set, second, APPEARANCE_CHANGED);
+    expect([first.sent, second.sent, third.sent]).toEqual([[APPEARANCE_CHANGED], [RUNS_CHANGED], [RUNS_CHANGED]]);
   });
 
-  test('a message from no window of the set, or from none, tells nobody', () => {
+  test('a message from no window of the set, from none, or on a channel that is not relayed, tells nobody', () => {
     const set = new WindowSet<ReturnType<typeof sending>>();
-    const [first, outside] = [sending(), sending()];
+    const [first, second, outside] = [sending(), sending(), sending()];
     set.add(first);
-    expect(relayRunsChanged(set, null)).toEqual([]);
-    expect(relayRunsChanged(set, outside)).toEqual([]);
-    expect(first.sent).toEqual([]);
+    set.add(second);
+    expect(relayToOtherWindows(set, null, RUNS_CHANGED)).toEqual([]);
+    expect(relayToOtherWindows(set, outside, APPEARANCE_CHANGED)).toEqual([]);
+    expect(relayToOtherWindows(set, first, 'resmon:open-window')).toEqual([]);
+    expect([first.sent, second.sent]).toEqual([[], []]);
   });
 });
 

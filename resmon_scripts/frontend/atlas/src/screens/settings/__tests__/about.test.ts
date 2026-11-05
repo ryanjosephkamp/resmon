@@ -47,6 +47,12 @@ describe('the version and the build, as the engine reports them', () => {
     expect(buildWords(undefined)).toBeNull();
     expect(buildWords({ identity })).toBe('Not identified. The engine reports no build id, so none is named here.');
     expect(buildWords({ identity: { ...identity, build_id: 'abc123' } })).toBe('abc123');
+    expect(buildWords({ identity, build: null })).toBe('Not identified. The engine reports no build id, so none is named here.');
+  });
+
+  test('the health answer\'s build is named when the identity has none, and the identity\'s id wins when both are there', () => {
+    expect(buildWords({ identity, build: '1.0.0+checkout' })).toBe('1.0.0+checkout');
+    expect(buildWords({ identity: { ...identity, build_id: 'abc123' }, build: '1.0.0+checkout' })).toBe('abc123');
   });
 });
 

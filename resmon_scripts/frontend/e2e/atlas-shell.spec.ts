@@ -231,7 +231,7 @@ test('the keyboard: every section, Settings, back and forward, New conversation,
     // the screen behind it.
     await sheet.evaluate((node) => Promise.all(document.getAnimations()
       .filter((a) => (a.effect as KeyframeEffect | null)?.target === node)
-      .map((a) => a.finished)));
+      .map((a) => a.finished.catch(() => undefined))));
     fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
     await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-shell-shortcuts.png') });
     // A shortcut pressed in the sheet closes it and does what it says.

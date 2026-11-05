@@ -1,15 +1,15 @@
 /**
  * The arrangement as the shell holds it: two changes made close together end
- * on the second, whatever order the answers come back in; a refusal reads the
- * engine's own value back; and a window coming to the front reads it again,
- * since another window may have changed it.
+ * on the second, whatever order the answers come back in, and a refusal reads
+ * the engine's own value back. Another window's change, and this window coming
+ * to the front, are `WindowFrame`'s (`windowFrame.test.tsx`).
  */
 import { useEffect } from 'react';
 import { act, render, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { engine } from '../../api/client';
 import { DEFAULT_TOP_BAR, type TopBar } from '../topBar';
-import { TOP_BAR_KEY, useTopBar, useTopBarFollowsOtherWindows, type TopBarState } from '../useTopBar';
+import { TOP_BAR_KEY, useTopBar, type TopBarState } from '../useTopBar';
 
 jest.mock('../../api/client', () => ({ ...jest.requireActual('../../api/client'), engine: jest.fn() }));
 
@@ -20,7 +20,6 @@ const refusal = () => ({ data: undefined, error: { detail: 'no' }, response: { u
 const seen: { current: TopBarState | null } = { current: null };
 function Probe() {
   const now = useTopBar();
-  useTopBarFollowsOtherWindows();
   useEffect(() => { seen.current = now; });
   return null;
 }
@@ -60,13 +59,4 @@ test('a refusal puts back what the engine holds', async () => {
   expect(client.getQueryData(TOP_BAR_KEY)).toEqual(hiding('today'));
   await waitFor(() => expect(client.getQueryData(TOP_BAR_KEY)).toEqual(hiding('runs')));
   expect(state().saveError?.message).toMatch(/HTTP 422/);
-});
-
-test('a window coming to the front reads the arrangement again', async () => {
-  const GET = jest.fn(() => Promise.resolve(reply(hiding('watches'))));
-  const client = mount(GET, jest.fn());
-  expect(GET).not.toHaveBeenCalled();
-  act(() => { window.dispatchEvent(new Event('focus')); });
-  await waitFor(() => expect(client.getQueryData(TOP_BAR_KEY)).toEqual(hiding('watches')));
-  expect(GET).toHaveBeenCalledTimes(1);
 });

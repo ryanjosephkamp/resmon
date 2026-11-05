@@ -54,7 +54,7 @@ async function shoot(app: ElectronApplication, win: Page, name: string, subject?
     await app.evaluate(({ BrowserWindow }, [w, h]) => BrowserWindow.getAllWindows()[0]?.setContentSize(w, h), [size.width, size.height]);
     await win.evaluate((theme) => { document.documentElement.dataset.theme = theme; }, size.theme);
     await expect.poll(() => win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(size.width);
-    await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished)));
+    await win.evaluate(() => Promise.all(document.getAnimations().map((a) => a.finished.catch(() => undefined))));
     if (subject) await subject.evaluate((el) => el.scrollIntoView({ block: 'center' }));
     const overflow = await win.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow, `${name} scrolls sideways at ${size.width}`).toBeLessThanOrEqual(1);

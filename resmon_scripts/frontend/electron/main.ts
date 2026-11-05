@@ -13,7 +13,7 @@ import {
   type Facts, type Running, type Unit, type World,
 } from './service';
 import {
-  RUNS_CHANGED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayRunsChanged, routeOf, tabStripHeight,
+  RELAYED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayToOtherWindows, routeOf, tabStripHeight,
   type CollectionId,
 } from './windows';
 import { autoUpdater } from 'electron-updater';
@@ -1998,11 +1998,11 @@ app.whenReady().then(async () => {
       const window = senderWindow(event);
       if (window && what && typeof what === 'object') runOwners.claimQueued(what as { ticket?: unknown; routineId?: unknown }, window.id);
     });
-    // One window saw, stopped, started, or took a run out of the queue: the
-    // others read the runs going now at once (`relayRunsChanged`).
-    ipcMain.on(RUNS_CHANGED, (event) => {
-      relayRunsChanged(appWindows, senderWindow(event));
-    });
+    // One window changed the runs going now, or how the app looks: the others
+    // read it again at once (`relayToOtherWindows`).
+    for (const channel of RELAYED) {
+      ipcMain.on(channel, (event) => { relayToOtherWindows(appWindows, senderWindow(event), channel); });
+    }
     // The theme the app shows (`/api/appearance`), so the parts of a window the
     // system draws follow it: macOS's tab bar drew its titles for the system's
     // dark theme over a light page, where they could not be read.
