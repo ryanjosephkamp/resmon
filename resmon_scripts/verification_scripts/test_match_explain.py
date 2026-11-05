@@ -224,7 +224,7 @@ def test_the_full_text_limit_is_stated_even_when_keywords_matched(conn):
     result = match_explain.explain_document(conn, doc_id, execution_id=exec_id)
 
     assert result["verdict"] == "local_evidence"
-    assert any("not its full text" in limit
+    assert any("never its full text, even when it keeps the PDF" in limit
                for limit in result["what_resmon_cannot_see"])
 
 

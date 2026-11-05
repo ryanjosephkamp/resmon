@@ -18,9 +18,10 @@ The honesty problem, and why it is the feature
 resmon cannot know why an upstream source returned a paper. Most of the fifteen
 sources are relevance-ranked -- their backends score documents against the query
 and return the best matches, so a paper can legitimately come back without
-containing any of the terms literally. resmon also stores only title, abstract,
-authors and categories: the match may be in the full text, in publisher
-keywords, or in a MeSH term, none of which it holds.
+containing any of the terms literally. resmon also checks keywords only against
+title, abstract, authors, and categories: the match may be in the full text (even
+of a PDF it keeps), in publisher keywords, or in a MeSH term, none of which it
+reads for a match.
 
 So this module never claims to explain the upstream's decision. It reports what
 is **locally verifiable** and states plainly where its knowledge stops, using
@@ -194,10 +195,10 @@ def _limits(source: dict | None, slug: str) -> list[str]:
     reasoning, and the difference matters to anyone defending a search strategy.
     """
     limits = [
-        "resmon stores each paper's title, abstract, authors and categories — "
-        "not its full text. A keyword could appear in the body of the paper, in "
-        "publisher-supplied keywords, or in an indexing term such as MeSH, and "
-        "resmon would have no way to see it.",
+        "resmon checks keywords against each paper's title, abstract, authors, and "
+        "categories, never its full text, even when it keeps the PDF. A keyword could "
+        "appear in the body of the paper, in publisher-supplied keywords, or in an "
+        "indexing term such as MeSH, and resmon would not see it there.",
     ]
     combination = (source or {}).get("keyword_combination") or ""
     notes = (source or {}).get("keyword_combination_notes") or ""
