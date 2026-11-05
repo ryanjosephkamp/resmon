@@ -103,6 +103,9 @@ export function Shell() {
       case 'new-sweep':
         newSearch('sweep');
         break;
+      case 'new-window':
+        bridge()?.openWindow?.(null);
+        break;
       case 'settings':
         go(SETTINGS.path);
         break;

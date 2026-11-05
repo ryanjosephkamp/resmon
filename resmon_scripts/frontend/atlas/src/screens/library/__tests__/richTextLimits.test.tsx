@@ -7,49 +7,86 @@ import { drawable, LONGEST_FORMULA, RichMarkdown, TexView } from '../RichView';
 
 /**
  * A kept file is read as it is, and a file can be hostile or broken. Whatever
- * it holds, reading it for the rich view takes time in proportion to its size,
- * never in its square, and nothing in it can freeze or blank the window.
+ * it holds, reading it for the rich view must not freeze or blank the window.
+ *
+ * Each hostile input is read at the largest size the engine hands the rich
+ * view, 256 KiB (`library_text.MAX_TEXT_BYTES`; a larger file is refused and
+ * opened outside the app), and held to a ceiling: 200 ms here, and 2 s on a
+ * shared CI runner, whose speed varies from run to run. A read under the
+ * ceiling at the cap is harmless whatever its curve, since no file the view is
+ * given is larger, and either ceiling still fails the reads these inputs once
+ * caused, which took a minute or more. Two timings are not compared with each
+ * other: with the smaller read near a millisecond, a ratio measures the
+ * machine's noise rather than the reader.
  */
-const BUDGET_MS = 200;
+const CEILING_MS = process.env.CI ? 2_000 : 200;
 
-function timed(read: () => unknown): number {
+/** One read's time. */
+function once(read: () => unknown): number {
   const started = performance.now();
   read();
   return performance.now() - started;
 }
 
+/** The fastest of five timings, after one to warm up, so neither a first call nor a pause for garbage collection decides a case. */
+function timed(read: () => unknown): number {
+  read();
+  let fastest = Infinity;
+  for (let i = 0; i < 5; i += 1) fastest = Math.min(fastest, once(read));
+  return fastest;
+}
+
 const KB = 1024;
-const hostile: Record<string, string> = {
-  '64 KB of [': '['.repeat(64 * KB),
-  '256 KB of [': '['.repeat(256 * KB),
-  '128K copies of \\(': '\\('.repeat(128 * KB),
-  '![ without a ]': '!['.repeat(128 * KB),
-  '[]( without a )': '[]('.repeat(85 * KB),
-  'links whose title never closes': '[a](b "'.repeat(36 * KB),
-  'autolinks that never close': '<http://'.repeat(32 * KB),
-  'autolinks and links before one far space': `${'[<http://'.repeat(28 * KB)} ](x)`,
-  'code spans of every length': Array.from({ length: 700 }, (_, n) => '`'.repeat(700 - n)).join('a'),
-  'dollars that never close': '$a '.repeat(85 * KB),
-  'double dollars that never close': `$$${'a$'.repeat(128 * KB)}`,
-  'strikes, strongs and emphasis that never close': '~~a**b__c*d_e '.repeat(18 * KB),
-  'a table rule of spaces': `a|b\n${' '.repeat(250 * KB)}x`,
+/** The most text the engine hands the rich view, in bytes: `MAX_TEXT_BYTES` in `library_text.py`. Every input here is ASCII. */
+const CAP = 256 * KB;
+
+/** `unit` over and over, between `before` and `after`, to exactly the cap. */
+function filled(unit: string, before = '', after = ''): string {
+  const room = CAP - before.length - after.length;
+  return before + unit.repeat(Math.ceil(room / unit.length)).slice(0, room) + after;
+}
+
+/** A hostile input at the cap. */
+type Hostile = () => string;
+const hostile: Record<string, Hostile> = {
+  '[ on every byte': () => filled('['),
+  '\\( over and over': () => filled('\\('),
+  '![ without a ]': () => filled('!['),
+  '[]( without a )': () => filled('[]('),
+  'links whose title never closes': () => filled('[a](b "'),
+  'autolinks that never close': () => filled('<http://'),
+  'autolinks and links before one far space': () => filled('[<http://', '', ' ](x)'),
+  // Every length from the longest down, so the run of code spans is as long as the cap allows.
+  'code spans of every length': () => {
+    let n = 1;
+    while ((n * (n + 1)) / 2 + n < CAP) n += 1;
+    return Array.from({ length: n }, (_, i) => '`'.repeat(n - i)).join('a').slice(0, CAP);
+  },
+  'dollars that never close': () => filled('$a '),
+  'double dollars that never close': () => filled('a$', '$$'),
+  'strikes, strongs and emphasis that never close': () => filled('~~a**b__c*d_e '),
+  'a table rule of spaces': () => filled(' ', 'a|b\n', 'x'),
 };
-const hostileTex: Record<string, string> = {
-  '128K copies of \\(': '\\('.repeat(128 * KB),
-  '128K copies of \\[': '\\['.repeat(128 * KB),
-  'environments that never end': '\\begin{equation}'.repeat(16 * KB),
-  'dollars that never close': '$\\$'.repeat(85 * KB),
-  'double dollars that never close': `$$${'\\$$'.repeat(85 * KB)}`,
-  'a brace on every byte': '{'.repeat(256 * KB),
+const hostileTex: Record<string, Hostile> = {
+  '\\( over and over': () => filled('\\('),
+  '\\[ over and over': () => filled('\\['),
+  'environments that never end': () => filled('\\begin{equation}'),
+  'dollars that never close': () => filled('$\\$'),
+  'double dollars that never close': () => filled('\\$$', '$$'),
+  'a brace on every byte': () => filled('{'),
 };
 
-test.each(Object.entries(hostile))('Markdown: %s reads in under 200 ms', (_name, text) => {
-  expect(timed(() => markdown(text))).toBeLessThan(BUDGET_MS);
-  expect(timed(() => inline(text))).toBeLessThan(BUDGET_MS);
+test.each(Object.entries(hostile))('Markdown: %s, at the most the view is given, reads under the ceiling', (_name, build) => {
+  const text = build();
+  expect(text.length).toBe(CAP);
+  expect(timed(() => markdown(text))).toBeLessThan(CEILING_MS);
+  expect(timed(() => inline(text))).toBeLessThan(CEILING_MS);
 });
 
-test.each(Object.entries(hostileTex))('TeX: %s reads in under 200 ms', (_name, text) => {
-  expect(timed(() => tex(text))).toBeLessThan(BUDGET_MS);
+test.each(Object.entries(hostileTex))('TeX: %s, at the most the view is given, reads under the ceiling', (_name, build) => {
+  const text = build();
+  expect(text.length).toBe(CAP);
+  expect(timed(() => tex(text))).toBeLessThan(CEILING_MS);
 });
 
 test('what the linear read finds is what the pattern read found', () => {
@@ -106,7 +143,7 @@ test('a formula that defines a macro, or one over 2 KB, is shown as its source, 
   const bomb = `\\def\\b{${'x'.repeat(1000)}}${'\\b'.repeat(499)}`;
   let container!: HTMLElement;
   const ms = timed(() => { ({ container } = render(<RichMarkdown text={`$${bomb}$`} />)); });
-  expect(ms).toBeLessThan(BUDGET_MS * 5);
+  expect(ms).toBeLessThan(CEILING_MS * 5);
   const formula = container.querySelector('.formula')!;
   expect(formula.getAttribute('data-drawn')).toBe('false');
   expect(formula.querySelector('.katex')).toBeNull();

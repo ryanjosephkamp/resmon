@@ -1,7 +1,7 @@
 import { useEffect, type RefObject } from 'react';
 import { SECTIONS, SETTINGS } from '../routes';
 import { Icon } from './Icon';
-import { COMMAND_ENTER_CHORD, FIND_CHORD, keysText, sectionPath, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
+import { COMMAND_ENTER_CHORD, FIND_CHORD, NEW_TAB_CHORD, keysText, sectionPath, SHORTCUTS, type Shortcut, type ShortcutId } from './shortcuts';
 
 /** What each shortcut does, in the words the sheet uses. Sections are named from the route table. */
 const SAYS: Partial<Record<ShortcutId, string>> = {
@@ -10,6 +10,7 @@ const SAYS: Partial<Record<ShortcutId, string>> = {
   'new-conversation': 'New conversation, in Ask',
   'new-dive': 'New Deep Dive',
   'new-sweep': 'New Deep Sweep',
+  'new-window': 'New window',
   ask: 'Message the assistant',
   settings: SETTINGS.label,
   back: 'Back',
@@ -21,6 +22,7 @@ const COLUMNS: readonly (readonly { title: string; ids: readonly ShortcutId[] }[
   [
     { title: 'Start', ids: ['new-dive', 'new-sweep', 'new-conversation', 'ask'] },
     { title: 'Back and forward', ids: ['back', 'forward'] },
+    { title: 'Windows', ids: ['new-window'] },
     { title: 'Reading a file', ids: [] },
   ],
   [
@@ -107,6 +109,18 @@ export function ShortcutsSheet({ open, onClose, dialog, mac }: {
                       <dt>Find in the file</dt>
                       <dd><kbd>{keysText(FIND_CHORD, mac)}</kbd></dd>
                     </div>
+                  )}
+                  {group.title === 'Windows' && mac && (
+                    <>
+                      <div data-shortcut="new-tab">
+                        <dt>New tab</dt>
+                        <dd><kbd>{keysText(NEW_TAB_CHORD, mac)}</kbd></dd>
+                      </div>
+                      <div data-shortcut="next-tab">
+                        <dt>Next tab, previous tab</dt>
+                        <dd><kbd>⌃⇥</kbd><span className="keys-or">and</span><kbd>⌃⇧⇥</kbd></dd>
+                      </div>
+                    </>
                   )}
                   {group.title === 'Back and forward' && (
                     <div data-shortcut="swipe">

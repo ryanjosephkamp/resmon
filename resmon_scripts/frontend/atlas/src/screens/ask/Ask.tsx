@@ -107,9 +107,13 @@ function Pane() {
     queryKey: chatKey(selected ?? 0),
     queryFn: ({ signal }) => ask.detail(selected as number, signal),
     enabled: selected !== null,
+    // A turn held somewhere else (another window): read again until it ends, so its answer shows here.
+    refetchInterval: (query) => (query.state.data?.activity_observation.turn_claimed && live?.session !== selected ? 2_000 : false),
   });
   const mine = live && live.session === selected ? live : null;
   const shown = selected === null ? null : detail.data ?? null;
+  // The engine runs one turn per conversation; one held elsewhere is shown here, never sent to again.
+  const heldElsewhere = !mine && !!shown?.activity_observation.turn_claimed;
   // A failure the engine kept with its turn is drawn there, under the message
   // it failed to answer, and is not said a second time above the composer.
   const kept = !!failure?.turn && !!shown?.turn_choices.some((t) => t.user_message_id === failure.turn && t.failure);
@@ -150,8 +154,14 @@ function Pane() {
         {mine && <LiveTurn messages={mine.messages} turns={mine.turns} cards={mine.cards} />}
         {mine && <p className="conv-working" role="status">Working…</p>}
       </div>
-      <Composer key={`compose-${selected ?? 'new'}`} detail={shown} statusError={status.isError ? status.error.message : null}>
+      <Composer key={`compose-${selected ?? 'new'}`} detail={shown} statusError={status.isError ? status.error.message : null}
+        heldElsewhere={heldElsewhere}>
         {fault && <p className="conv-error" role="alert">{fault}</p>}
+        {heldElsewhere && (
+          <p className="conv-note" data-ask="held-elsewhere">
+            This conversation is answering somewhere else, such as another resmon window. Its answer shows here when it ends.
+          </p>
+        )}
         {busyElsewhere && <p className="conv-note">Another conversation is answering. Finish or stop it before sending here.</p>}
       </Composer>
     </section>
@@ -410,7 +420,9 @@ function ApprovalCard({ card }: { card: Card }) {
 }
 
 /** The composer, and above it the choices a new conversation will be fixed to. */
-function Composer({ detail, statusError, children }: { detail: Detail | null; statusError: string | null; children?: ReactNode }) {
+function Composer({ detail, statusError, heldElsewhere = false, children }: {
+  detail: Detail | null; statusError: string | null; heldElsewhere?: boolean; children?: ReactNode;
+}) {
   const { selected, status, draft, setDraft, send, stop, answering, stopping, live, focusTick } = useAsk();
   const [text, setText] = useState('');
   const [adopting, setAdopting] = useState(false);
@@ -430,7 +442,7 @@ function Composer({ detail, statusError, children }: { detail: Detail | null; st
       : unreadable ? 'This conversation’s saved choices are not in a form this version reads, so it cannot be continued. It can be read and exported.'
         : fresh || legacy ? choiceProblem(choices, draft)
           : connection && !connection.available ? connection.reason : null;
-  const disabled = !!problem || !status.data || (answering && !mine);
+  const disabled = !!problem || !status.data || (answering && !mine) || heldElsewhere;
 
   // Each ⌘/ puts the caret here once: when it arrives, or as soon as the
   // composer can take it.

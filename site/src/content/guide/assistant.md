@@ -7,9 +7,9 @@ order: 10
 
 ## Conversations
 
-The rail on the left of **Ask** lists your conversations, newest first, with **Older conversations** below. **Filter by title** narrows the list. **New conversation** (⌘N) starts a fresh one. Every conversation is kept, so closing resmon and coming back opens it where you left off.
+The rail on the left of **Ask** lists your conversations, newest first, with **Older conversations** below. **Filter by title** narrows the list. **New conversation** (⇧⌘N) starts a fresh one. Every conversation is kept, so closing resmon and coming back opens it where you left off.
 
-The message box at the bottom takes your question. Enter sends it, Shift+Enter adds a line, and ⌘/ (Ctrl+/) puts the cursor in the box from any screen. **Stop** ends an answer in progress. One answer runs at a time, and leaving Ask does not stop it.
+The message box at the bottom takes your question. Enter sends it, Shift+Enter adds a line, and ⌘/ (Ctrl+/) puts the cursor in the box from any screen. **Stop** ends an answer in progress. One answer runs at a time in a window, and leaving Ask does not stop it. A conversation answers one message at a time wherever it is open: open in another window while it answers, it says so, holds **Send**, and shows the answer when it ends.
 
 ### Choosing a connection
 
