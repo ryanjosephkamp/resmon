@@ -7,20 +7,19 @@ import { drawable, LONGEST_FORMULA, RichMarkdown, TexView } from '../RichView';
 
 /**
  * A kept file is read as it is, and a file can be hostile or broken. Whatever
- * it holds, reading it for the rich view takes time in proportion to its size,
- * never in its square, and nothing in it can freeze or blank the window.
+ * it holds, reading it for the rich view must not freeze or blank the window.
  *
- * Each hostile input is read at a quarter of its size and at its full size. A
- * linear read takes about four times as long for four times the text, a
- * quadratic one about sixteen times, so the full read is held to under eight
- * times the quarter, with a few milliseconds for the timer: far enough apart
- * that a shared runner's noise does not decide it, as it did with twice the
- * text against three times the time. A ceiling holds too: 200 ms here, and 2 s
- * on a shared CI runner, whose speed varies from run to run; either still fails
- * the reads these inputs once caused, which took a minute or more.
+ * Each hostile input is read at the largest size the engine hands the rich
+ * view, 256 KiB (`library_text.MAX_TEXT_BYTES`; a larger file is refused and
+ * opened outside the app), and held to a ceiling: 200 ms here, and 2 s on a
+ * shared CI runner, whose speed varies from run to run. A read under the
+ * ceiling at the cap is harmless whatever its curve, since no file the view is
+ * given is larger, and either ceiling still fails the reads these inputs once
+ * caused, which took a minute or more. Two timings are not compared with each
+ * other: with the smaller read near a millisecond, a ratio measures the
+ * machine's noise rather than the reader.
  */
 const CEILING_MS = process.env.CI ? 2_000 : 200;
-const SLACK_MS = 10;
 
 /** One read's time. */
 function once(read: () => unknown): number {
@@ -38,66 +37,56 @@ function timed(read: () => unknown): number {
 }
 
 const KB = 1024;
-/** An input at a scale: 1 is the size that once took seconds or minutes to read, 0.25 is a quarter of the text. */
-type Hostile = (scale: number) => string;
-const repeated = (unit: string, count: number): Hostile => (scale) => unit.repeat(Math.round(count * scale));
-const hostile: Record<string, Hostile> = {
-  '64 KB of [': repeated('[', 64 * KB),
-  '256 KB of [': repeated('[', 256 * KB),
-  '128K copies of \\(': repeated('\\(', 128 * KB),
-  '![ without a ]': repeated('![', 128 * KB),
-  '[]( without a )': repeated('[](', 85 * KB),
-  'links whose title never closes': repeated('[a](b "', 36 * KB),
-  'autolinks that never close': repeated('<http://', 32 * KB),
-  'autolinks and links before one far space': (scale) => `${repeated('[<http://', 28 * KB)(scale)} ](x)`,
-  // Its length grows with the square of the count, so the count grows with the root of the scale.
-  'code spans of every length': (scale) => {
-    const n = Math.round(700 * Math.sqrt(scale));
-    return Array.from({ length: n }, (_, i) => '`'.repeat(n - i)).join('a');
-  },
-  'dollars that never close': repeated('$a ', 85 * KB),
-  'double dollars that never close': (scale) => `$$${repeated('a$', 128 * KB)(scale)}`,
-  'strikes, strongs and emphasis that never close': repeated('~~a**b__c*d_e ', 18 * KB),
-  'a table rule of spaces': (scale) => `a|b\n${repeated(' ', 250 * KB)(scale)}x`,
-};
-const hostileTex: Record<string, Hostile> = {
-  '128K copies of \\(': repeated('\\(', 128 * KB),
-  '128K copies of \\[': repeated('\\[', 128 * KB),
-  'environments that never end': repeated('\\begin{equation}', 16 * KB),
-  'dollars that never close': repeated('$\\$', 85 * KB),
-  'double dollars that never close': (scale) => `$$${repeated('\\$$', 85 * KB)(scale)}`,
-  'a brace on every byte': repeated('{', 256 * KB),
-};
+/** The most text the engine hands the rich view, in bytes: `MAX_TEXT_BYTES` in `library_text.py`. Every input here is ASCII. */
+const CAP = 256 * KB;
 
-/**
- * Four times the text in under eight times the time, and the whole of it under
- * the ceiling. Each size is read once to warm up, then five times each, taking
- * turns, and the fastest of each is kept: neither a first call nor a pause for
- * garbage collection decides a case, and a machine busy with something else is
- * busy for both sizes alike rather than for one of them.
- */
-function readsLinearly(read: (text: string) => unknown, build: Hostile): void {
-  const quarter = build(0.25);
-  const full = build(1);
-  read(quarter);
-  read(full);
-  let quarterMs = Infinity;
-  let fullMs = Infinity;
-  for (let i = 0; i < 5; i += 1) {
-    quarterMs = Math.min(quarterMs, once(() => read(quarter)));
-    fullMs = Math.min(fullMs, once(() => read(full)));
-  }
-  expect(fullMs).toBeLessThan(8 * quarterMs + SLACK_MS);
-  expect(fullMs).toBeLessThan(CEILING_MS);
+/** `unit` over and over, between `before` and `after`, to exactly the cap. */
+function filled(unit: string, before = '', after = ''): string {
+  const room = CAP - before.length - after.length;
+  return before + unit.repeat(Math.ceil(room / unit.length)).slice(0, room) + after;
 }
 
-test.each(Object.entries(hostile))('Markdown: %s reads in time proportional to its size', (_name, build) => {
-  readsLinearly(markdown, build);
-  readsLinearly(inline, build);
+/** A hostile input at the cap. */
+type Hostile = () => string;
+const hostile: Record<string, Hostile> = {
+  '[ on every byte': () => filled('['),
+  '\\( over and over': () => filled('\\('),
+  '![ without a ]': () => filled('!['),
+  '[]( without a )': () => filled('[]('),
+  'links whose title never closes': () => filled('[a](b "'),
+  'autolinks that never close': () => filled('<http://'),
+  'autolinks and links before one far space': () => filled('[<http://', '', ' ](x)'),
+  // Every length from the longest down, so the run of code spans is as long as the cap allows.
+  'code spans of every length': () => {
+    let n = 1;
+    while ((n * (n + 1)) / 2 + n < CAP) n += 1;
+    return Array.from({ length: n }, (_, i) => '`'.repeat(n - i)).join('a').slice(0, CAP);
+  },
+  'dollars that never close': () => filled('$a '),
+  'double dollars that never close': () => filled('a$', '$$'),
+  'strikes, strongs and emphasis that never close': () => filled('~~a**b__c*d_e '),
+  'a table rule of spaces': () => filled(' ', 'a|b\n', 'x'),
+};
+const hostileTex: Record<string, Hostile> = {
+  '\\( over and over': () => filled('\\('),
+  '\\[ over and over': () => filled('\\['),
+  'environments that never end': () => filled('\\begin{equation}'),
+  'dollars that never close': () => filled('$\\$'),
+  'double dollars that never close': () => filled('\\$$', '$$'),
+  'a brace on every byte': () => filled('{'),
+};
+
+test.each(Object.entries(hostile))('Markdown: %s, at the most the view is given, reads under the ceiling', (_name, build) => {
+  const text = build();
+  expect(text.length).toBe(CAP);
+  expect(timed(() => markdown(text))).toBeLessThan(CEILING_MS);
+  expect(timed(() => inline(text))).toBeLessThan(CEILING_MS);
 });
 
-test.each(Object.entries(hostileTex))('TeX: %s reads in time proportional to its size', (_name, build) => {
-  readsLinearly(tex, build);
+test.each(Object.entries(hostileTex))('TeX: %s, at the most the view is given, reads under the ceiling', (_name, build) => {
+  const text = build();
+  expect(text.length).toBe(CAP);
+  expect(timed(() => tex(text))).toBeLessThan(CEILING_MS);
 });
 
 test('what the linear read finds is what the pattern read found', () => {
