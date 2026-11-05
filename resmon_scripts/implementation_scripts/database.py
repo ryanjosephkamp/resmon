@@ -2383,8 +2383,10 @@ def _migrate_library_v25(conn: sqlite3.Connection) -> None:
 # Every paper is in at least one collection, and the database keeps that:
 # ``documents_file_in_default`` files a paper stored with no collection in the
 # default one, in the statement that stores it. A run that stores a paper for
-# another collection moves it there in the same transaction
-# (``insert_document``), so no reader ever sees it in the default one.
+# another collection files it there in the same transaction, and only then
+# takes it out of the default one (``insert_document``); a collection deleted
+# while the run went leaves it in the default one. Each launch also keeps in
+# the default collection any paper found in none.
 #
 # ``revision`` counts every change of a collection's papers, kept by two
 # triggers, so a count or a ranking made of a collection is known to be stale
@@ -2491,6 +2493,13 @@ def _migrate_collections(conn: sqlite3.Connection) -> None:
             "WHERE CAST(app_settings.value AS INTEGER)<26",
             (_SCHEMA_VERSION_KEY, "26"),
         )
+        # On every launch: a paper in no collection, which no path leaves but
+        # a write interrupted outside resmon could, is kept in the default one.
+        conn.execute(
+            "INSERT INTO collection_documents (collection_id, document_id, added_at, added_by) "
+            "SELECT ?, d.id, d.first_seen_at, 'kept' FROM documents d WHERE NOT EXISTS "
+            "(SELECT 1 FROM collection_documents cm WHERE cm.document_id = d.id)",
+            (DEFAULT_COLLECTION_ID,))
         conn.execute("RELEASE collections_v26")
     except BaseException:
         conn.execute("ROLLBACK TO collections_v26")
@@ -2774,23 +2783,32 @@ def _file_stored_paper(conn: sqlite3.Connection, doc_id: int, collection_id: int
     """Put a paper just stored where it belongs, before the transaction that stored it ends.
 
     ``documents_file_in_default`` has filed it in the default collection as a
-    run's. Filed for the default collection as a run's, only the run is noted;
-    filed elsewhere or otherwise, the default's row gives way to the right one.
+    run's. For another collection, the paper is filed there first, in a
+    statement that finds the collection or files nothing, and only once it is
+    there does the default's row go: a collection deleted while a run went
+    leaves the paper in the default one, never in none. In the default
+    collection the trigger's row stays, noted with the run and how it arrived.
     """
     target = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
-    if target == DEFAULT_COLLECTION_ID and how == "run":
-        if execution_id is not None:
-            conn.execute(
-                "UPDATE collection_documents SET execution_id = ? WHERE collection_id = ? AND document_id = ?",
-                (execution_id, DEFAULT_COLLECTION_ID, doc_id))
-        return
-    conn.execute("DELETE FROM collection_documents WHERE collection_id = ? AND document_id = ?",
-                 (DEFAULT_COLLECTION_ID, doc_id))
-    conn.execute(
-        "INSERT OR IGNORE INTO collection_documents "
-        "(collection_id, document_id, added_at, added_by, execution_id) "
-        "SELECT ?, id, first_seen_at, ?, ? FROM documents WHERE id = ?",
-        (target, how, execution_id, doc_id))
+    if target != DEFAULT_COLLECTION_ID:
+        conn.execute(
+            "INSERT OR IGNORE INTO collection_documents "
+            "(collection_id, document_id, added_at, added_by, execution_id) "
+            "SELECT c.id, d.id, d.first_seen_at, ?, ? FROM documents d JOIN collections c ON c.id = ? "
+            "WHERE d.id = ?",
+            (how, execution_id, target, doc_id))
+        placed = conn.execute("SELECT 1 FROM collection_documents WHERE collection_id = ? AND document_id = ?",
+                              (target, doc_id)).fetchone()
+        if placed:
+            conn.execute("DELETE FROM collection_documents WHERE collection_id = ? AND document_id = ?",
+                         (DEFAULT_COLLECTION_ID, doc_id))
+            return
+        how = "run"
+    if how != "run" or execution_id is not None:
+        conn.execute(
+            "UPDATE collection_documents SET added_by = ?, execution_id = COALESCE(?, execution_id) "
+            "WHERE collection_id = ? AND document_id = ?",
+            (how, execution_id, DEFAULT_COLLECTION_ID, doc_id))
 
 
 def get_document_by_source(conn: sqlite3.Connection, source: str, external_id: str) -> dict | None:

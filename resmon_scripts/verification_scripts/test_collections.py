@@ -536,6 +536,51 @@ def test_a_run_whose_collection_was_deleted_lands_in_the_default(conn, monkeypat
     assert _homes(conn, doc) == {1: "run"}
 
 
+def test_a_collection_deleted_mid_dedup_leaves_the_runs_papers_in_the_default_never_in_none(
+        conn, monkeypatch, tmp_path):
+    """The run picks its collection before it stores anything; one deleted between the pick and
+    the writes, mid-dedup, leaves every paper in the default collection, and the run completes."""
+    _sweep(conn, monkeypatch, tmp_path, ["held"])
+    physics = pc.create(conn, "Physics")["id"]
+    real = se.deduplicate_batch
+
+    def deleted_first(db, results, **kwargs):
+        assert kwargs["collection_id"] == physics
+        pc.delete(db, physics)
+        return real(db, results, **kwargs)
+
+    monkeypatch.setattr(se, "deduplicate_batch", deleted_first)
+    run = _sweep(conn, monkeypatch, tmp_path, ["held", "fresh"], collection_id=physics)
+    assert conn.execute("SELECT status FROM executions WHERE id = ?", (run,)).fetchone()[0] == "completed"
+    ids = {r["external_id"]: int(r["id"]) for r in conn.execute("SELECT id, external_id FROM documents")}
+    assert _homes(conn, ids["fresh"]) == {1: "run"} and _homes(conn, ids["held"]) == {1: "run"}
+    assert conn.execute("SELECT COUNT(*) FROM documents d WHERE NOT EXISTS "
+                        "(SELECT 1 FROM collection_documents cm WHERE cm.document_id = d.id)").fetchone()[0] == 0
+
+
+def test_a_paper_stored_for_a_collection_that_is_gone_stays_in_the_default(conn):
+    doc = insert_document(conn, {"source_repository": "arxiv", "external_id": "gone", "title": "Gone",
+                                 "metadata_hash": "gone"}, collection_id=4242, execution_id=None)
+    assert _homes(conn, doc) == {1: "run"}
+
+
+def test_each_launch_keeps_a_paper_found_in_no_collection_in_the_default(tmp_path):
+    db = tmp_path / "launch.db"
+    init_db(db)
+    first = sqlite3.connect(db)
+    first.execute("INSERT INTO documents (source_repository, external_id, title, metadata_hash) "
+                  "VALUES ('arxiv', 'lost', 'Lost', 'lost')")
+    first.execute("DELETE FROM collection_documents")
+    first.commit()
+    first.close()
+    init_db(db)
+    again = sqlite3.connect(db)
+    try:
+        assert again.execute("SELECT collection_id, added_by FROM collection_documents").fetchall() == [(1, "kept")]
+    finally:
+        again.close()
+
+
 # ---------------------------------------------------------------------------
 # Through the routes
 # ---------------------------------------------------------------------------

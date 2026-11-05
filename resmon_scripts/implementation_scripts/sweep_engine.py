@@ -545,9 +545,9 @@ class SweepEngine:
 
             # Every paper the run found is in its collection, including one
             # resmon already held elsewhere; a paper already there is left as
-            # it arrived.
-            paper_collections.file_papers(self.db, target, linked_ids, how="run",
-                                          execution_id=exec_id)
+            # it arrived. A collection deleted while the run went is the
+            # default one's, decided as each paper is written.
+            paper_collections.file_run_papers(self.db, target, linked_ids, execution_id=exec_id)
 
             # 5b. Embed what this run touched.
             #

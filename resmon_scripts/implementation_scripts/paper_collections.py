@@ -395,6 +395,22 @@ def file_papers(conn: sqlite3.Connection, collection_id: int, ids: Iterable[int]
     return arrived
 
 
+def file_run_papers(conn: sqlite3.Connection, collection_id: int, ids: Iterable[int], *,
+                    execution_id: Optional[int] = None) -> int:
+    """A run's papers into its collection, or the default one where that
+    collection was deleted while the run went: each statement finds the
+    collection as it writes, so a paper is never filed in one that is gone.
+    Returns how many arrived."""
+    rows = [(int(collection_id), DEFAULT_COLLECTION_ID, int(i), execution_id) for i in ids]
+    if not rows:
+        return 0
+    arrived = conn.executemany(
+        "INSERT OR IGNORE INTO collection_documents (collection_id, document_id, added_by, execution_id) "
+        "SELECT COALESCE((SELECT id FROM collections WHERE id = ?), ?), ?, 'run', ?", rows).rowcount
+    conn.commit()
+    return arrived
+
+
 def _target(conn: sqlite3.Connection, collection_id: int) -> int:
     if not exists(conn, collection_id):
         raise CollectionError("not_found", f"There is no collection {collection_id}.", 404)
