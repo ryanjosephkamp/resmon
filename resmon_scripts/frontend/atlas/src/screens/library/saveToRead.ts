@@ -31,7 +31,7 @@ export type SaveTarget =
   | { kind: 'listed'; ids: readonly number[] }
   | { kind: 'search'; search: Filters; except: readonly number[]; atMost: number }
   | { kind: 'run'; executionId: number; onlyNew: boolean; except: readonly number[]; atMost: number }
-  | { kind: 'today'; except: readonly number[]; atMost: number };
+  | { kind: 'today'; collection: number | null; except: readonly number[]; atMost: number };
 
 export async function saveToRead(target: SaveTarget): Promise<Saved> {
   if (target.kind === 'listed') {
@@ -40,7 +40,7 @@ export async function saveToRead(target: SaveTarget): Promise<Saved> {
   const common = { except_ids: [...target.except], at_most: target.atMost };
   const body = target.kind === 'search' ? { scope: 'search' as const, search: target.search, only_new: false, ...common }
     : target.kind === 'run' ? { scope: 'run' as const, execution_id: target.executionId, only_new: target.onlyNew, ...common }
-      : { scope: 'today' as const, only_new: false, ...common };
+      : { scope: 'today' as const, only_new: false, ...(target.collection !== null ? { collection: String(target.collection) } : {}), ...common };
   return answer(engine().POST('/api/reading-queue/batch/all', { body }));
 }
 

@@ -1,7 +1,8 @@
 """Schema 24 -> 25: ``library_files`` rebuilt to keep TeX, and ``library_removed`` added.
 
 The schema-24 database is made by resmon's own code: the committed schema-21
-corpus walked by ``init_db`` with schema 25's one step held back, then Library
+corpus walked by ``init_db`` with schema 25's one step (and schema 26's after
+it) held back, then Library
 files, paper links, an Evidence project, its members and notes written through
 the Library's and Evidence's own functions. The launch after that is the step
 under test. A rebuild is the migration shape that can lose a column's values,
@@ -24,6 +25,7 @@ LIBRARY_TABLES = ('library_vault', 'library_files', 'library_file_documents', 'e
 def schema_24(path: Path, monkeypatch, tmp_path: Path) -> sqlite3.Connection:
     with monkeypatch.context() as held:
         held.setattr(db, '_migrate_library_v25', lambda conn: None)
+        held.setattr(db, '_migrate_collections', lambda conn: None)
         c = db.get_connection(path)
         c.executescript(CORPUS_21.read_text(encoding='utf-8'))
         c.commit()
@@ -82,7 +84,7 @@ def test_the_rebuild_keeps_every_row_reference_and_the_sequence(tmp_path, monkey
 
     c = db.get_connection(path)
     try:
-        assert db.get_schema_version(c) == 25
+        assert db.get_schema_version(c) == db.SCHEMA_VERSION
         ddl = c.execute("SELECT sql FROM sqlite_master WHERE name='library_files'").fetchone()[0]
         assert ' '.join(ddl.split()) == ' '.join(db._LIBRARY_FILES_V25_DDL.split())
         assert [r[1] for r in c.execute('PRAGMA table_info(library_files)')] == columns
@@ -108,7 +110,7 @@ def test_the_rebuild_keeps_every_row_reference_and_the_sequence(tmp_path, monkey
     db.init_db(str(path)); db.init_db(str(path))      # later launches change nothing
     c = db.get_connection(path)
     try:
-        assert snapshot(c) == after and db.get_schema_version(c) == 25
+        assert snapshot(c) == after and db.get_schema_version(c) == db.SCHEMA_VERSION
     finally:
         c.close()
 
@@ -166,6 +168,6 @@ def test_a_link_that_already_dangled_is_carried_not_judged(tmp_path, monkeypatch
     db.init_db(str(path))
     c = db.get_connection(path)
     try:
-        assert db.get_schema_version(c) == 25 and snapshot(c) == before
+        assert db.get_schema_version(c) == db.SCHEMA_VERSION and snapshot(c) == before
     finally:
         c.close()

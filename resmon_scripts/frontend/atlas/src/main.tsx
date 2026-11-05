@@ -10,6 +10,7 @@ import './theme/tokens.css';
 import './atlas.css';
 import './shell/windowFrame.css';
 import { App } from './App';
+import { COLLECTIONS_KEY, CollectionProvider, readCollections } from './collections/current';
 import { keepBetweenVisits } from './screens/today/freshness';
 import {
   APPEARANCE_KEY, AppearanceProvider, FALLBACK_APPEARANCE, applyAppearance, readAppearance,
@@ -28,18 +29,24 @@ async function start(root: HTMLElement): Promise<void> {
   // If the engine does not answer, the system's theme and the default accent
   // stand in, and the appearance query reports the failure when it retries.
   let appearance = FALLBACK_APPEARANCE;
+  // The collection the window shows is read beside the appearance, so the
+  // first screen reads its own collection rather than the default one first.
+  const collections = queryClient.prefetchQuery({ queryKey: COLLECTIONS_KEY, queryFn: readCollections });
   try {
     appearance = await readAppearance();
     queryClient.setQueryData(APPEARANCE_KEY, appearance);
   } catch {
     // Left to the query, which will ask again and show what it was told.
   }
+  await collections;
   applyAppearance(appearance);
   createRoot(root).render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
         <AppearanceProvider>
-          <App />
+          <CollectionProvider>
+            <App />
+          </CollectionProvider>
         </AppearanceProvider>
       </QueryClientProvider>
     </StrictMode>,

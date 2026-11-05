@@ -52,7 +52,7 @@ EXPECTED_READS = {'health', 'search_corpus', 'find_similar', 'list_sources',
                   'get_execution_results', 'get_search_record', 'explain_match',
                   'get_paper_lifecycle', 'get_analytics', 'get_watchdog_findings',
                   'export_references', 'list_watch_profiles', 'get_watch_profile',
-                  'get_profile_matches'}
+                  'get_profile_matches', 'list_collections'}
 
 
 def _source_root() -> Path:
@@ -563,10 +563,10 @@ def test_actual_stdio_inventory_and_two_old_expected_instance_reads(selected):
     replies = _stdio(source, env, requests)
     assert [r['id'] for r in replies] == [1, 2, 3, 4]
     tools = replies[0]['result']['tools']
-    assert len(tools) == 25
+    assert len(tools) == 26
     assert {t['name'] for t in tools if t['requires_confirmation']} == EXPECTED_WRITES
     assert {t['name'] for t in tools if not t['requires_confirmation']} == EXPECTED_READS
-    assert len(EXPECTED_READS) == 18 and len(EXPECTED_WRITES) == 7
+    assert len(EXPECTED_READS) == 19 and len(EXPECTED_WRITES) == 7
     for index in (1, 2):
         assert replies[index]['result']['isError'] is False
         value = json.loads(replies[index]['result']['content'][0]['text'])

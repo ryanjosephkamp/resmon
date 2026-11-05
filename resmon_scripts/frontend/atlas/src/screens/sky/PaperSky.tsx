@@ -5,7 +5,8 @@ import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
 import { Tip, paperTip } from '../Today';
 import { tipWords } from '../../charts/ChartTip';
-import { MAP_KEY } from '../today/freshness';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection, useCollectionWords } from '../../collections/current';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
 import { collectionSky } from './collectionSky';
@@ -123,9 +124,11 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
   } = props;
   const navigate = useNavigate();
   const { shown, theme } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted is asked for again until it is drawn, as on Today:
     // otherwise a page opened during the fit says it is drawing until left.
     refetchInterval: (query) => {
@@ -230,8 +233,8 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
         ) : (
           <div className="sky-empty">
             {map.isPending || (map.data?.state === 'ready' && !current) ? 'Reading the map.'
-              : map.data?.state === 'fitting' ? 'Drawing the map of your collection.'
-                : 'The collection map has no papers placed yet.'}
+              : map.data?.state === 'fitting' ? `Drawing the map of ${place.name}.`
+                : place.named ? `The map of ${place.name} has no papers placed yet.` : 'The collection map has no papers placed yet.'}
           </div>
         )}
       </div>

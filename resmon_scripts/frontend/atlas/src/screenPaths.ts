@@ -42,6 +42,7 @@ export const SCREEN_PATHS: readonly ScreenPath[] = [
   { path: '/settings/notifications', name: 'Settings › Notifications' },
   { path: '/settings/ai', name: 'Settings › AI' },
   { path: '/settings/sources', name: 'Settings › Sources' },
+  { path: '/settings/collections', name: 'Settings › Collections' },
   { path: '/settings/storage', name: 'Settings › Backup' },
   { path: '/settings/library', name: 'Settings › Library' },
   { path: '/settings/tutorials', name: 'Settings › Tutorials' },

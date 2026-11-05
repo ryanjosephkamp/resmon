@@ -39,6 +39,7 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 | **Notifications** | When resmon posts a desktop notification |
 | **AI** | Summaries, Ask, and embeddings |
 | **Sources** | Every source's limits, the keys some of them want, and the credits their licenses require |
+| **Collections** | Making, renaming, showing, and deleting collections; see [Search](/resmon/guide/search/) |
 | **Backup** | Where backups go, backing up, and restoring |
 | **Tutorials** | Short recordings of Atlas in use |
 | **About resmon** | Who made it, which copy this is, the license, what it keeps and sends, and where to report a problem |
@@ -70,11 +71,11 @@ Each erasure opens a warning that says what it removes and what it does not. The
 | **Erase all source API keys** | Every source key saved in this computer's keychain |
 | **Erase all saved searches** | Every saved search, and every watch whose copy is in Search › Saved |
 | **Erase run history** | Every run, and the run counter. The papers they found are kept |
-| **Erase the paper corpus** | Every paper resmon has collected, with its retraction and version records. Runs, watches, settings, and keys are kept |
+| **Erase the paper corpus** | Every paper resmon has collected, in every collection, with its retraction and version records. Runs, watches, collections, settings, and keys are kept |
 | **Erase all run data** | **Erase all saved searches** and **Erase run history** together. Papers, settings, and keys are kept |
 | **Erase all app data** | Every key, saved search, run, and paper. Settings other than AI are kept |
 | **Reset all settings** | Every setting back to its default, and every key and the email password erased. Runs and saved searches are kept |
-| **Factory reset** | Every key, saved search, run, paper, and setting on this computer. The Library is kept |
+| **Factory reset** | Every key, saved search, run, paper, collection, and setting on this computer. The default collection stays, empty, under its first name, and the Library is kept |
 
 **Erase the paper corpus**, **Erase all app data**, and **Factory reset** also delete the copy of the database resmon kept before its last update, because it holds the papers. The other erasures leave it.
 

@@ -25,6 +25,7 @@ import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from '.
 import {
   CALENDAR_KEY, WATCHES_KEY, instant, missedFireWords, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
 } from './model';
+import { useCollection, useCollectionWords } from '../../collections/current';
 
 const TABS = ['What it finds', 'Where reports go', 'Schedule'] as const;
 type Tab = typeof TABS[number];
@@ -54,6 +55,8 @@ export function Watch() {
 function WatchPage({ raw }: { raw: string }) {
   const id = Number(raw);
   const client = useQueryClient();
+  const collections = useCollection();
+  const shown = useCollectionWords();
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
   /**
@@ -166,6 +169,7 @@ function WatchPage({ raw }: { raw: string }) {
   const firing: Firing = data.is_active ? firingOf(status.data, id) : undefined;
   const due = data.is_active ? nextWords(firing, fires[0] ? when(fires[0].start, now) : null) : null;
   const notice = data.is_active && status.data ? firingNotice(status.data, id) : null;
+  const lands = collections.several ? collections.list.find((c) => c.id === data.collection_id)?.name ?? null : null;
 
   return (
     <div className="run watch-page" data-routine={data.id} data-active={data.is_active ? 'true' : 'false'}
@@ -196,6 +200,7 @@ function WatchPage({ raw }: { raw: string }) {
               ? `${sourceNames.slice(0, 3).join(', ')}, and ${sourceNames.length - 3} more`
               : sourceNames.join(', ') || 'no sources'}
           </span>
+          {lands && (<><span className="sep" /><span data-watch="lands">its papers land in <b>{lands}</b></span></>)}
           {running && (
             <><span className="sep" /><Link to={`/runs/${running.id}`} className="run-status" data-status="running">
               <i className="live-dot" aria-hidden="true" />running now, run {running.id}
@@ -254,9 +259,11 @@ function WatchPage({ raw }: { raw: string }) {
           caption={({ placed, ready, basis }) => {
             if (!papers.data) return 'Reading this watch\'s papers.';
             const { total, document_ids: ids } = papers.data;
-            if (!total) return 'This watch has not collected any papers yet.';
-            if (!ready) return `The collection map is not ready yet; this watch's ${count(total, 'paper')} are marked once it is.`;
-            const of = ids.length < total ? `the latest ${number(ids.length)} of ${count(total, 'paper')}` : count(total, 'paper');
+            // Its papers in the collection shown, which this map is; named where there are several.
+            const there = shown.named ? ` in ${shown.name}` : '';
+            if (!total) return shown.named ? `This watch has no papers in ${shown.name}.` : 'This watch has not collected any papers yet.';
+            if (!ready) return `The ${shown.named ? `map of ${shown.name}` : 'collection map'} is not ready yet; this watch's ${count(total, 'paper')}${there} are marked once it is.`;
+            const of = ids.length < total ? `the latest ${number(ids.length)} of ${count(total, 'paper')}${there}` : `${count(total, 'paper')}${there}`;
             const night = latest && ringed.length ? ` Ringed: the ${count(ringed.length, 'paper')} from its latest run.` : '';
             const share = placed === ids.length ? `${of}, ${basisWords(basis)}` : `${number(placed ?? 0)} of ${of} on the map (the rest are not placed yet)`;
             return `Its papers: ${share}.${night}`;

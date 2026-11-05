@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
+import { useCollection, useCollectionWords } from '../../collections/current';
 import { authors, count, duration, number, troubleParts, when } from './format';
 import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
 import { PickBox, SelectBar, useRowKeys } from '../selection/SelectBar';
@@ -100,6 +101,9 @@ export function TodayIndex(props: Props) {
     papers, total, fromSearches, collectionSize, watches, regions, sourceName, heading, opening, selected, now, saved, lifecycle,
     marking, busy, earlier, onSelect, onPoint, onZoomTo, onToggleSave, onMarkRead, footer, by, onBy: setBy, onSavedMany,
   } = props;
+  const place = useCollectionWords();
+  // Today's new papers are the shown collection's: a save of every one names it.
+  const { id: collection } = useCollection();
   const scroller = useRef<HTMLDivElement>(null);
   // How far each group's list has been opened with Show more, by group.
   const [reach, setReach] = useState<ReadonlyMap<string, number>>(new Map());
@@ -179,7 +183,7 @@ export function TodayIndex(props: Props) {
     if (!picked) return;
     if (picks.picks.all) {
       saving.save({
-        target: { kind: 'today', except: [...picks.picks.except], atMost: picked }, n: picked, all: allPicked,
+        target: { kind: 'today', collection, except: [...picks.picks.except], atMost: picked }, n: picked, all: allPicked,
         what: allPicked ? `all ${count(picked, 'new paper')}` : `these ${count(picked, 'paper')}`,
       });
     } else {
@@ -304,8 +308,11 @@ export function TodayIndex(props: Props) {
         {total === 0 && (
           <p className="index-empty">
             {collectionSize === 0
-              ? 'Nothing collected yet. Papers your watches and searches find will be listed here.'
-              : 'Nothing new since then. The plate still shows everything you have.'}
+              ? (place.named
+                ? `${place.Name} holds no papers yet. Papers its watches and searches find will be listed here.`
+                : 'Nothing collected yet. Papers your watches and searches find will be listed here.')
+              : place.named ? `Nothing new in ${place.name} since then. The plate still shows everything it holds.`
+                : 'Nothing new since then. The plate still shows everything you have.'}
           </p>
         )}
         {quiet.length > 0 && (

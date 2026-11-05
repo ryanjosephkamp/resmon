@@ -11,6 +11,7 @@ import {
 import { count, number, when } from '../today/format';
 import { PlaceHelp } from '../watches/people/People';
 import { instantOf } from './model';
+import { useCollection } from '../../collections/current';
 
 function said(error: Error | null): string | null {
   if (!error) return null;
@@ -28,6 +29,8 @@ function said(error: Error | null): string | null {
  * many papers it left unchecked, and the reason, before anything else.
  */
 export function LifecycleCheck() {
+  // The check covers every paper resmon holds; with several collections, its sentences say so.
+  const { several } = useCollection();
   const client = useQueryClient();
   const report = useQuery({
     queryKey: LIFECYCLE_KEY,
@@ -61,7 +64,7 @@ export function LifecycleCheck() {
   });
 
   const refused = said(start.error) ?? said(stop.error);
-  const last = data && !running && data.run.last ? lastRunLines(data.run.last, data.coverage, now) : null;
+  const last = data && !running && data.run.last ? lastRunLines(data.run.last, data.coverage, now, several) : null;
   const started = instantOf(data?.run.started_at);
 
   return (
@@ -146,7 +149,7 @@ export function LifecycleCheck() {
           )}
 
           <ul className="life-coverage" data-lifecycle="coverage">
-            {coverageSentences(data.coverage, now).map((line) => <li key={line}>{line}</li>)}
+            {coverageSentences(data.coverage, now, several).map((line) => <li key={line}>{line}</li>)}
           </ul>
 
           {data.findings.length === 0 ? (

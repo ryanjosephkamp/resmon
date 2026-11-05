@@ -34,6 +34,8 @@ def _paper(conn, n: int, title: str, source: str = "arxiv", seen: str | None = N
     })
     if seen:
         conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (seen, doc))
+        # Today reads a paper's arrival in its collection, which is the same moment.
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (seen, doc))
     return doc
 
 

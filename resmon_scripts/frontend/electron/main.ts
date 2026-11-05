@@ -1971,6 +1971,16 @@ app.whenReady().then(async () => {
         event.returnValue = answer;
       }
     });
+    // `resmon:window-collection` is the switch in a window's top bar: that
+    // window shows another collection, by id, and no other window changes.
+    ipcMain.on('resmon:window-collection', (event, collection: unknown) => {
+      const window = senderWindow(event);
+      if (!window) return;
+      const id = typeof collection === 'string' && /^\d{1,12}$/.test(collection) ? collection : null;
+      if (appWindows.setCollection(window, id) && !window.webContents.isDestroyed()) {
+        window.webContents.send('resmon:window-state', windowState(window));
+      }
+    });
     ipcMain.on('resmon:open-window', (event, route: unknown, tab: unknown) => {
       const window = senderWindow(event);
       if (!window) return;

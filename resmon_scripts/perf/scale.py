@@ -23,6 +23,14 @@ engine over a copy of it:
   app opened isolated over a copy, ``--rows`` rows read into Search › Your
   collection's list, then the list scrolled at a steady speed with each frame
   timed. Needs ``npm run build`` first.
+- **The map.** The first ``GET /api/map``, which starts a fit in a child
+  process, polled until the map is ready: the fit's time over every paper.
+- **Two collections** (``--split N``). After the measurements above, *N*
+  papers, drawn at random with a fixed seed, move to a second collection through
+  ``POST /api/collections/{id}/papers``, and the counts, the ranking, the
+  exports, and the map are measured again in each collection: the default one
+  holding the rest, and the second holding *N*. The map is then fitted only per
+  collection, after the move.
 
 Results go to ``--out`` as ``results.json`` and ``summary.md``. Numbers are
 specific to the machine; the seeded text means nothing, so they are cost, not
@@ -33,6 +41,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import shutil
 import sqlite3
 import statistics
@@ -104,7 +113,13 @@ class _Sampler:
         self._thread.join()
 
 
-def counts(backend: instance.Backend, db: Path, repeats: int, say: Progress) -> list[dict]:
+def _in(collection: Optional[int]) -> dict:
+    """The ``collection`` field of a search body, or nothing for the default collection."""
+    return {} if collection is None else {"collection": collection}
+
+
+def counts(backend: instance.Backend, db: Path, repeats: int, say: Progress,
+           collection: Optional[int] = None) -> list[dict]:
     from implementation_scripts import explorer  # noqa: PLC0415 - perf imports resmon lazily
 
     rows = []
@@ -112,7 +127,8 @@ def counts(backend: instance.Backend, db: Path, repeats: int, say: Progress) -> 
     conn.row_factory = sqlite3.Row
     try:
         with backend.client() as client:
-            for label, filters in COUNT_QUERIES.items():
+            for label, asked in COUNT_QUERIES.items():
+                filters = {**asked, **_in(collection)}
                 first_ms, next_ms, total, exact = [], [], None, None
                 for _ in range(repeats):
                     started = time.perf_counter()
@@ -129,13 +145,14 @@ def counts(backend: instance.Backend, db: Path, repeats: int, say: Progress) -> 
                 where, params, _ = explorer._build_where(
                     conn, query=filters.get("query"), sources=filters.get("sources"),
                     authors=filters.get("authors"), categories=filters.get("categories"),
-                    date_from=filters.get("date_from"), date_to=filters.get("date_to"))
+                    date_from=filters.get("date_from"), date_to=filters.get("date_to"),
+                    **({"collection_id": collection} if collection is not None else {}))
                 count_ms = []
                 for _ in range(repeats):
                     started = time.perf_counter()
                     counted = explorer.count_where(conn, where, params, budget_s=explorer.COUNT_BUDGET_S)
                     count_ms.append((time.perf_counter() - started) * 1000)
-                rows.append({"query": label, "filters": filters, "total": total, "exact": exact,
+                rows.append({"query": label, "filters": asked, "total": total, "exact": exact,
                              "count_exact_in_process": counted.exact,
                              "count_ms": _median(count_ms), "count_ms_max": max(count_ms),
                              "first_page_ms": _median(first_ms), "first_page_ms_max": max(first_ms),
@@ -148,7 +165,7 @@ def counts(backend: instance.Backend, db: Path, repeats: int, say: Progress) -> 
     return rows
 
 
-def ranking(backend: instance.Backend, repeats: int, say: Progress) -> dict:
+def ranking(backend: instance.Backend, repeats: int, say: Progress, collection: Optional[int] = None) -> dict:
     with FakeEmbedder(DIMS) as model:
         backend.put("/api/settings/embeddings", {"settings": {
             "embedding_enabled": "true", "embedding_provider": "local",
@@ -160,9 +177,11 @@ def ranking(backend: instance.Backend, repeats: int, say: Progress) -> dict:
         first_ms, later_ms, body = [], [], {}
         with backend.client() as client:
             for n in range(repeats):
-                phrase = f"graph neural networks on molecules {n}"  # a new phrase is a new ranking
+                # A new phrase is a new ranking, in each collection.
+                phrase = f"graph neural networks on molecules {n}" + (f" in {collection}" if collection else "")
                 started = time.perf_counter()
-                response = client.post("/api/explorer/search", json={"query": phrase, "sort": "similarity", "limit": 50})
+                response = client.post("/api/explorer/search", json={"query": phrase, "sort": "similarity", "limit": 50,
+                                                                     **_in(collection)})
                 response.raise_for_status()
                 first_ms.append((time.perf_counter() - started) * 1000)
                 body = response.json()
@@ -170,7 +189,7 @@ def ranking(backend: instance.Backend, repeats: int, say: Progress) -> dict:
                     raise RuntimeError(body["similarity_unavailable"])
                 started = time.perf_counter()
                 client.post("/api/explorer/search", json={"query": phrase, "sort": "similarity", "limit": 50,
-                                                          "cursor": "5000"}).raise_for_status()
+                                                          "cursor": "5000", **_in(collection)}).raise_for_status()
                 later_ms.append((time.perf_counter() - started) * 1000)
     out = {"total": body.get("total"), "ranked": body.get("ranked_count"), "unranked": body.get("unranked_count"),
            "first_page_ms": _median(first_ms), "first_page_ms_max": max(first_ms),
@@ -180,7 +199,7 @@ def ranking(backend: instance.Backend, repeats: int, say: Progress) -> dict:
     return out
 
 
-def exports(backend: instance.Backend, say: Progress) -> list[dict]:
+def exports(backend: instance.Backend, say: Progress, collection: Optional[int] = None) -> list[dict]:
     rows = []
     pid = backend.proc.pid
     with backend.client(timeout=600.0) as client:
@@ -192,7 +211,7 @@ def exports(backend: instance.Backend, say: Progress) -> list[dict]:
             size = 0
             started = time.perf_counter()
             with _Sampler(pid) as sampler:
-                with client.stream("POST", "/api/explorer/export", json={"format": fmt}) as response:
+                with client.stream("POST", "/api/explorer/export", json={"format": fmt, **_in(collection)}) as response:
                     response.raise_for_status()
                     said = int(response.headers["X-Resmon-Document-Count"])
                     for piece in response.iter_bytes():
@@ -205,6 +224,59 @@ def exports(backend: instance.Backend, say: Progress) -> list[dict]:
             say(f"export {fmt}: {said:,} papers, {size / 2**20:.0f} MB in {seconds:.1f} s; "
                 f"engine {before:.0f} MB before, peak {peak:.0f} MB (+{peak - before:.0f})")
     return rows
+
+
+def map_fit(backend: instance.Backend, say: Progress, collection: Optional[int] = None,
+            timeout: float = 1800.0) -> dict:
+    """The first map of a collection: from the call that starts its fit to the map being ready."""
+    params = {} if collection is None else {"collection": collection}
+    started = time.perf_counter()
+    with backend.client() as client:
+        while True:
+            response = client.get("/api/map", params=params)
+            response.raise_for_status()
+            body = response.json()
+            if body["state"] != "fitting":
+                break
+            if time.perf_counter() - started > timeout:
+                raise RuntimeError(f"the map was still fitting after {timeout:.0f} s")
+            time.sleep(0.25)
+    seconds = time.perf_counter() - started
+    if body["state"] != "ready":
+        raise RuntimeError(f"the map did not fit: {body['state']} ({body.get('error')})")
+    out = {"papers": body["fitted_count"], "basis": body["basis"], "regions": len(body["regions"]),
+           "seconds": seconds}
+    say(f"map: {out['papers']:,} papers on {out['basis']}, {out['regions']} regions, ready in {seconds:.1f} s")
+    return out
+
+
+SECOND = "Second collection"
+
+
+def split(backend: instance.Backend, moved: int, say: Progress) -> dict:
+    """Move ``moved`` papers, drawn at random with a fixed seed, to a second collection."""
+    made = backend.post("/api/collections", {"name": SECOND})
+    ids = _every_id(backend)
+    chosen = sorted(random.Random(seed.SEED).sample(ids, moved))
+    started = time.perf_counter()
+    answer = backend.post(f"/api/collections/{made['id']}/papers",
+                          {"mode": "move", "from_collection": 1, "document_ids": chosen})
+    seconds = time.perf_counter() - started
+    listed = {c["id"]: c["papers"] for c in backend.get("/api/collections")["collections"]}
+    out = {"second": made["id"], "moved": len(answer["added"]), "move_seconds": seconds,
+           "default_papers": listed[1], "second_papers": listed[made["id"]]}
+    say(f"moved {out['moved']:,} papers to {SECOND} in {seconds:.1f} s: "
+        f"{out['default_papers']:,} stay in the default collection")
+    return out
+
+
+def _every_id(backend: instance.Backend) -> list[int]:
+    """Every paper's id, from the corpus copy the backend serves."""
+    conn = sqlite3.connect(f"file:{backend.state / 'resmon.db'}?mode=ro", uri=True)
+    try:
+        return [int(r[0]) for r in conn.execute("SELECT id FROM documents ORDER BY id")]
+    finally:
+        conn.close()
 
 
 _IN_MEMORY = r"""
@@ -260,17 +332,35 @@ def run(args, say: Progress) -> int:
     out.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="resmon-perf-scale-"))
     corpus = seed.cached(Path(args.cache), papers=args.papers, embed_dims=DIMS)
-    only = set(args.only.split(",")) if args.only else {"engine", "ui"}
+    only = set(args.only.split(",")) if args.only else {"engine", "map", "ui"}
     results: dict = {"environment": stats.environment(seed_root()), "corpus": json.loads(
         corpus.with_suffix(".manifest.json").read_text())}
     try:
         if "engine" in only:
             state = instance.fresh_state(work, "scale", seed_db=corpus)
+            started = time.perf_counter()
             backend = instance.start_backend(state)
+            results["engine_ready_seconds"] = time.perf_counter() - started
             try:
                 results["counts"] = counts(backend, state / "resmon.db", args.repeats, say)
                 results["ranking"] = ranking(backend, args.repeats, say)
                 results["exports"] = exports(backend, say)
+                # With --split the default collection's first map is fitted
+                # after the move, over the papers it keeps.
+                if "map" in only and not args.split:
+                    results["map"] = map_fit(backend, say)
+                if args.split:
+                    results["split"] = split(backend, args.split, say)
+                    second = results["split"]["second"]
+                    for label, cid in (("default", 1), ("second", second)):
+                        say(f"in the {label} collection")
+                        part: dict = {"collection": cid}
+                        part["counts"] = counts(backend, state / "resmon.db", args.repeats, say, collection=cid)
+                        part["ranking"] = ranking(backend, args.repeats, say, collection=cid)
+                        part["exports"] = exports(backend, say, collection=cid)
+                        if "map" in only:
+                            part["map"] = map_fit(backend, say, collection=cid)
+                        results.setdefault("collections", {})[label] = part
             finally:
                 backend.stop()
             results["exports_built_in_memory"] = in_memory(state / "resmon.db", say)
@@ -289,32 +379,56 @@ def seed_root() -> Path:
     return Path(__file__).resolve().parent.parent.parent
 
 
-def summary(results: dict) -> str:
-    lines = ["# resmon at scale", ""]
-    corpus = results.get("corpus", {})
-    lines.append(f"{corpus.get('counts', {}).get('documents', 0):,} papers, "
-                 f"{corpus.get('counts', {}).get('document_embeddings', 0):,} with a {corpus.get('embed_dims')}-dimension vector.")
+def _engine_lines(results: dict, heading: str = "##") -> list[str]:
+    """Counting, ranking, exporting, and the map, as a summary's sections."""
+    lines: list[str] = []
     if results.get("counts"):
-        lines += ["", "## Counting", "", "| Query | Matches | Exact | Count | First page | Next page |",
+        lines += ["", f"{heading} Counting", "", "| Query | Matches | Exact | Count | First page | Next page |",
                   "|---|---:|---|---:|---:|---:|"]
         for r in results["counts"]:
             lines.append(f"| {r['query']} | {r['total']:,} | {'yes' if r['exact'] else 'no'} | {r['count_ms']:.0f} ms | "
                          f"{r['first_page_ms']:.0f} ms | {(r['next_page_ms'] or 0):.0f} ms |")
     if results.get("ranking"):
         r = results["ranking"]
-        lines += ["", "## Ranking by meaning", "",
+        lines += ["", f"{heading} Ranking by meaning", "",
                   f"{r['ranked']:,} of {r['total']:,} ranked. First page {r['first_page_ms']:.0f} ms "
                   f"(max {r['first_page_ms_max']:.0f}); the page at row 5,000 {r['later_page_ms']:.0f} ms."]
     if results.get("exports"):
-        lines += ["", "## Exporting every paper", "",
-                  "| Format | Papers | File | Time | Engine before | Engine peak | Built whole in memory, peak rise |",
-                  "|---|---:|---:|---:|---:|---:|---:|"]
         whole = {r["format"]: r for r in results.get("exports_built_in_memory", [])}
+        lines += ["", f"{heading} Exporting every paper", "",
+                  "| Format | Papers | File | Time | Engine before | Engine peak |"
+                  + (" Built whole in memory, peak rise |" if whole else ""),
+                  "|---|---:|---:|---:|---:|---:|" + ("---:|" if whole else "")]
         for r in results["exports"]:
-            w = whole.get(r["format"], {})
+            w = whole.get(r["format"])
             lines.append(f"| {r['format']} | {r['papers']:,} | {r['bytes'] / 2**20:.0f} MB | {r['seconds']:.1f} s | "
-                         f"{r['engine_before_mb']:.0f} MB | {r['engine_peak_mb']:.0f} MB (+{r['rise_mb']:.0f}) | "
-                         f"+{w.get('rise_mb', float('nan')):.0f} MB |")
+                         f"{r['engine_before_mb']:.0f} MB | {r['engine_peak_mb']:.0f} MB (+{r['rise_mb']:.0f}) |"
+                         + (f" +{w['rise_mb']:.0f} MB |" if w else ""))
+    if results.get("map"):
+        m = results["map"]
+        lines += ["", f"{heading} The map", "",
+                  f"{m['papers']:,} papers fitted on {m['basis']} into {m['regions']} regions in {m['seconds']:.1f} s, "
+                  "from the first call to the map being ready."]
+    return lines
+
+
+def summary(results: dict) -> str:
+    lines = ["# resmon at scale", ""]
+    corpus = results.get("corpus", {})
+    lines.append(f"{corpus.get('counts', {}).get('documents', 0):,} papers, "
+                 f"{corpus.get('counts', {}).get('document_embeddings', 0):,} with a {corpus.get('embed_dims')}-dimension vector.")
+    if results.get("engine_ready_seconds") is not None:
+        lines.append(f"The engine answered {results['engine_ready_seconds']:.1f} s after it started over the copy.")
+    lines += _engine_lines(results)
+    if results.get("split"):
+        sp = results["split"]
+        lines += ["", "## Two collections", "",
+                  f"{sp['moved']:,} papers moved to a second collection in {sp['move_seconds']:.1f} s; "
+                  f"{sp['default_papers']:,} stay in the default collection."]
+        for label, part in results.get("collections", {}).items():
+            papers = sp["default_papers"] if label == "default" else sp["second_papers"]
+            lines += ["", f"### The {label} collection ({papers:,} papers)"]
+            lines += _engine_lines(part, "####")
     if results.get("scroll"):
         lines += ["", "## The long list", "",
                   "| Rows read | Read in | Long tasks reading (longest) | Frames | p50 | p95 | p99 | Max | Late | "

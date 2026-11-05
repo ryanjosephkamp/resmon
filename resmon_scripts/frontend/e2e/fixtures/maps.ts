@@ -43,6 +43,7 @@ for topic, (source, words) in TOPICS.items():
         })
         seen = now - (timedelta(hours=2 + n) if fresh else timedelta(days=10 + 3 * n))
         conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(seen), doc))
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(seen), doc))
         ids[topic]["new" if fresh else "old"].append(doc)
 # Three papers with too little text to place: no abstract, and titles of only common words.
 bare = []
@@ -50,6 +51,7 @@ for n, title in enumerate(["On the", "Of it", "A study"]):
     bare.append(insert_document(conn, {"source_repository": "dblp", "external_id": f"bare-{n}", "title": title,
         "authors": "Grace Hopper", "metadata_hash": f"bare-{n}"}))
     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(now - timedelta(days=5)), bare[-1]))
+    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(now - timedelta(days=5)), bare[-1]))
 conn.commit()
 
 def run(routine_id, docs, started, kind="automated_sweep"):

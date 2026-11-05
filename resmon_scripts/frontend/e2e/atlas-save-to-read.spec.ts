@@ -52,6 +52,7 @@ def paper(topic, n, words, source, seen, title=None):
         "url": f"https://example.org/{topic}/{n}", "metadata_hash": f"{topic}-{n}",
     })
     conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(seen), doc))
+    conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(seen), doc))
     return doc
 old = now - timedelta(days=20)
 lattice = [paper("lattice", n, "lattice gauge quark gluon confinement chiral fermion hadron", "arxiv", old) for n in range(260)]

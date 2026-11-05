@@ -4,6 +4,10 @@ import { answer, engine, EngineError } from '../../api/client';
 import { count, number } from '../today/format';
 import { libraryMatchWords, libraryProgressWords, type SharedWordingLibrary } from '../collection/wordingModel';
 import { LIBRARY, type LibraryFile } from './libraryApi';
+import { useCollection } from '../../collections/current';
+
+/** Where the comparison reads: every abstract resmon holds, which is "your collection" while there is one. */
+const against = (several: boolean) => (several ? 'every collection' : 'your collection');
 
 function errorWords(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -51,23 +55,25 @@ export function useFileWording(vaultId: string, file: LibraryFile) {
 
 /** The button, for the file's row of actions. */
 export function CompareButton({ vaultId, file }: { vaultId: string; file: LibraryFile }) {
+  const { several } = useCollection();
   const { state, start } = useFileWording(vaultId, file);
   const running = state.data?.state === 'running' || start.isPending;
   return (
     <button type="button" className="btn sm" data-library="compare" disabled={running} onClick={() => start.mutate()}>
-      {running ? 'Comparing' : 'Compare with your collection'}
+      {running ? 'Comparing' : `Compare with ${against(several)}`}
     </button>
   );
 }
 
 /** What the last comparison of this file found, since the engine started. */
 export function FileWording({ vaultId, file }: { vaultId: string; file: LibraryFile }) {
+  const { several } = useCollection();
   const { state } = useFileWording(vaultId, file);
   const data: SharedWordingLibrary | undefined = state.data;
   if (!data || data.state === 'never') return null;
   return (
-    <section className="lib-wording" aria-label="Shared wording with your collection" data-library="wording" data-state={data.state}>
-      <h3 className="record-sub">Shared wording with your collection</h3>
+    <section className="lib-wording" aria-label={`Shared wording with ${against(several)}`} data-library="wording" data-state={data.state}>
+      <h3 className="record-sub">Shared wording with {against(several)}</h3>
       {data.state === 'running' && <p className="record-cap" role="status">{libraryProgressWords(data)}</p>}
       {data.state === 'failed' && (
         <p className="field-error" role="alert">
@@ -81,13 +87,14 @@ export function FileWording({ vaultId, file }: { vaultId: string; file: LibraryF
 }
 
 function Found({ result }: { result: NonNullable<SharedWordingLibrary['result']> }) {
+  const { several } = useCollection();
   const s = result.settings;
   const pages = result.page_count ?? result.pages_read;
   return (
     <>
       <p className="settings-said" data-library="wording-read">
         Read {number(result.pages_read)} of {count(pages, 'page')} and compared {result.pages_read === 1 ? 'it' : 'each'} with{' '}
-        {count(result.abstracts_compared, 'abstract')} in your collection and {count(result.files_compared, 'other file')} in this Library.
+        {count(result.abstracts_compared, 'abstract')} in {against(several)} and {count(result.files_compared, 'other file')} in this Library.
       </p>
       {result.pages_unread.length > 0 && (
         <p className="record-cap" data-library="wording-unread">

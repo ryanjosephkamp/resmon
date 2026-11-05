@@ -37,7 +37,7 @@ from .database import (
     get_execution_sources,
     record_execution_source,
 )
-from . import source_contact, source_coverage
+from . import paper_collections, source_contact, source_coverage
 from .logger import TaskLogger
 from .embedding_job import embed_documents, pending_ids
 from .near_duplicates import links_map
@@ -474,7 +474,14 @@ class SweepEngine:
             })
             update_current_stage(self.db, exec_id, "dedup")
 
-            dedup_stats = deduplicate_batch(self.db, all_results)
+            # Where this run's papers land: the collection it was started in,
+            # or the one its watch names, carried in its parameters. One deleted
+            # while the run went is the default collection's.
+            target = query_params.get("collection_id")
+            if not isinstance(target, int) or not paper_collections.exists(self.db, target):
+                target = paper_collections.DEFAULT_COLLECTION_ID
+            dedup_stats = deduplicate_batch(self.db, all_results, collection_id=target,
+                                            execution_id=exec_id)
 
             # The match rows, written **after** the documents exist
             # because a match points at a document id. Written for every
@@ -547,6 +554,12 @@ class SweepEngine:
                         "new_count": new_count,
                         "timestamp": now_iso(),
                     })
+
+            # Every paper the run found is in its collection, including one
+            # resmon already held elsewhere; a paper already there is left as
+            # it arrived. A collection deleted while the run went is the
+            # default one's, decided as each paper is written.
+            paper_collections.file_run_papers(self.db, target, linked_ids, execution_id=exec_id)
 
             # 5b. Embed what this run touched.
             #

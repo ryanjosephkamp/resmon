@@ -24,6 +24,8 @@ import { jumpWords, monthEnd, readJump, withJump } from './jump';
 import { ResultList, type Marks, type Picking } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
+import { MoveCopy, useChangeNotice } from '../../collections/MoveCopy';
 import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
 import { SelectBar } from '../selection/SelectBar';
 import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../selection/picks';
@@ -80,6 +82,11 @@ const SETTLE_MS = 350;
  */
 export function Collection() {
   const [params, setParams] = useSearchParams();
+  // The collection this window shows: every read below names it.
+  const { id: collection, name: collectionName } = useCollection();
+  // How a sentence names it: "your collection" while it is the only one, its name where there are several.
+  const words = useCollectionWords();
+  const within = useMemo(() => (collection === null ? {} : { collection }), [collection]);
   const filters = useMemo(() => readFilters(params), [params]);
   const filtered = filterCount(filters) > 0;
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -119,9 +126,13 @@ export function Collection() {
     return () => clearTimeout(settle);
   }, [draft, query]);
 
-  const status = useQuery({ queryKey: EMBEDDING_STATUS_KEY, queryFn: () => answer(engine().GET('/api/embeddings/status')) });
+  // The vectors of the papers in this collection, counted for it (`collection_coverage`).
+  const status = useQuery({
+    queryKey: [...EMBEDDING_STATUS_KEY, collection],
+    queryFn: () => answer(engine().GET('/api/embeddings/status', { params: { query: collectionParam(collection) } })),
+  });
   const canRank = status.data?.capability.available === true;
-  const rank = status.data ? rankingWords(status.data) : null;
+  const rank = status.data ? rankingWords(status.data, words) : null;
   const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
   // A month jumped to, in the newest order only: a ranking by meaning is not in date order.
   const at = readJump(params);
@@ -134,11 +145,11 @@ export function Collection() {
   const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   const pages = useInfiniteQuery({
-    queryKey: ['explorer', query, ranking, filters, jump],
+    queryKey: ['explorer', collection, query, ranking, filters, jump],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
       body: {
-        ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS],
+        ...engineFilters(filters, query), ...within, sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS],
         // The jump says where the first page starts; every page after it follows its cursor.
         ...(pageParam === null && jump ? { start_date: jump } : {}),
       },
@@ -159,7 +170,11 @@ export function Collection() {
   // filters by the words instead, so this follows what it served, and what
   // was asked for until it answers.
   const served = first ? (first.sort === 'similarity' ? 'similarity' : 'newest') : ranking;
-  const scope: EngineFilters = useMemo(() => engineFilters(filters, narrowingWords(query, served)), [filters, query, served]);
+  const scope: EngineFilters = useMemo(
+    () => ({ ...engineFilters(filters, narrowingWords(query, served)), ...within }), [filters, query, served, within]);
+  // The notice a move or a copy of the selected papers leaves is held here, so
+  // Done or Esc right after it keeps its Undo.
+  const changed = useChangeNotice();
   const facets = useQuery({
     queryKey: ['explorer-facets', scope],
     enabled: menu !== null && menu !== 'published',
@@ -200,7 +215,7 @@ export function Collection() {
 
   const total = first?.total ?? 0;
   const busy = pages.isFetching || (fold && folded.isFetching);
-  const said = first ? countSentence(first, filtered, query) : '';
+  const said = first ? countSentence(first, filtered, query, words) : '';
   const stopped = first ? stoppedWords(first) : null;
   const offer = first ? exportWords(first, served) : null;
 
@@ -248,7 +263,7 @@ export function Collection() {
         label="Where the matches sit in the collection"
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
-          if (!query && !filtered) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
+          if (!query && !filtered) return `Every paper in ${words.name}, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
           const listed = ids.length < total || first?.total_is_exact === false
             ? `the first ${number(ids.length)} of ${first?.total_is_exact === false ? 'at least ' : ''}${number(total)} matches`
@@ -274,7 +289,7 @@ export function Collection() {
         <div className="results-head">
           <SearchTabs />
           <div className="collection-head">
-            <h1 className="page-title">Your collection</h1>
+            <h1 className="page-title">{collectionName ?? 'Your collection'}</h1>
             <AskForMore />
           </div>
           <label className="terms compact" htmlFor="collection-query">
@@ -285,7 +300,7 @@ export function Collection() {
               onChange={(event) => setDraft(event.target.value)}
               onKeyDown={(event) => { if (event.key === 'Enter') setQuery(draft.trim()); }}
               placeholder="Words in a title, an abstract, or an author's name"
-              aria-label="Search your collection"
+              aria-label={`Search ${words.name}`}
               autoComplete="off"
               spellCheck={false}
             />
@@ -362,6 +377,11 @@ export function Collection() {
               onAll={selectAll} onDone={endSelecting}
               below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
               <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
+              {/* Every match but the unticked, read by the engine and refused if the search now holds more; or the rows picked. */}
+              <MoveCopy which={picks.picks.all
+                ? { matching: scope, except: [...picks.picks.except], atMost: picked ?? 0 }
+                : { ids: pickedIn(picks.picks, visibleIds) }}
+                from={collection} count={picked ?? 0} onDone={() => picks.release('all')} onNotice={changed.show} />
             </SelectBar>
           )}
           {offer && !(selecting && rows.length > 0) && (
@@ -418,8 +438,9 @@ export function Collection() {
           {first && !rows.length && (
             <p className="index-empty">
               {jumped ? 'Nothing that matches was published on or before then.'
-                : query ? `Nothing in your collection matches "${query}"${filtered ? ' within these filters' : ''}.`
-                : filtered ? 'Nothing in your collection matches these filters.' : 'Your collection is empty.'}
+                : query ? `Nothing in ${words.name} matches "${query}"${filtered ? ' within these filters' : ''}.`
+                : filtered ? `Nothing in ${words.name} matches these filters.`
+                : words.named ? `${words.Name} holds no papers yet.` : 'Your collection is empty.'}
             </p>
           )}
         </div>
@@ -439,6 +460,7 @@ export function Collection() {
         </div>
       </section>
       {saving.notice}
+      {changed.notice}
     </div>
   );
 }

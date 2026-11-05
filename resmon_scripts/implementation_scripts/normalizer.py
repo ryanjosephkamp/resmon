@@ -183,10 +183,16 @@ def normalize_result(result: NormalizedResult) -> NormalizedResult:
 def deduplicate_batch(
     conn: sqlite3.Connection,
     results: list[NormalizedResult],
+    *,
+    collection_id: int | None = None,
+    execution_id: int | None = None,
 ) -> dict:
     """Normalize, validate, and insert results into the database.
 
     Returns a dict with counts: {"total", "new", "duplicates", "invalid", "cross_source"}.
+
+    A paper stored here is filed in *collection_id* (the default collection
+    when None) as found by the run *execution_id*.
 
     - Same-source duplicates are silently ignored (UNIQUE constraint).
     - Cross-source duplicates are detected by metadata_hash and flagged but still stored.
@@ -236,7 +242,7 @@ def deduplicate_batch(
             "structured_authors": normalized.authors,
         }
 
-        row_id = insert_document(conn, doc)
+        row_id = insert_document(conn, doc, collection_id=collection_id, execution_id=execution_id)
         if row_id is not None:
             stats["new"] += 1
         else:

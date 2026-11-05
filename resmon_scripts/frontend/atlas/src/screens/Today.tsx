@@ -18,7 +18,9 @@ import { MapPaper } from './sky/MapPaper';
 import { SaveLit } from './sky/SaveLit';
 import { filterCount } from './sky/look';
 import { useMapLook } from './sky/useMapLook';
-import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
+import { invalidateFor, mapKey, readMap, todayKey, useRunsEnded } from './today/freshness';
+import { collectionParam, useCollection, useCollectionWords } from '../collections/current';
+import type { CollectionWords } from '../collections/words';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
@@ -51,9 +53,11 @@ interface Earlier {
 export function Today() {
   const client = useQueryClient();
   const { theme, shown } = useAppearance();
+  const { id: collection } = useCollection();
+  const place = useCollectionWords();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted, or refitted, is asked for again until it is done;
     // otherwise once a minute and on returning to the window, like Today.
     refetchInterval: (query) => {
@@ -66,8 +70,8 @@ export function Today() {
   // read again once a minute and on returning to the window. Read once, it
   // went on saying "nothing collected" over a collection that had grown.
   const today = useQuery({
-    queryKey: TODAY_KEY,
-    queryFn: () => answer(engine().GET('/api/today')),
+    queryKey: todayKey(collection),
+    queryFn: () => answer(engine().GET('/api/today', { params: { query: collectionParam(collection) } })),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -133,7 +137,7 @@ export function Today() {
   const nextCursor = read ? read.cursor : today.data?.next_cursor ?? null;
   const readEarlier = useMutation({
     mutationFn: async ({ after, cursor }: { after: string; cursor: string }) => ({
-      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor } } })),
+      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor, ...collectionParam(collection) } } })),
     }),
     onSuccess: ({ after, page }) => setEarlier((was) => ({
       after,
@@ -181,7 +185,7 @@ export function Today() {
   const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
 
   const looked = useMutation({
-    mutationFn: () => answer(engine().POST('/api/today/looked')),
+    mutationFn: () => answer(engine().POST('/api/today/looked', { params: { query: collectionParam(collection) } })),
     onSuccess: () => invalidateFor(client, 'looked'),
   });
   const save = useMutation({
@@ -297,7 +301,7 @@ export function Today() {
             onHover={setHover}
             onKeyed={setHover}
             paletteKey={`${theme}:${shown.accent ?? ''}`}
-            label={`Map of your ${number(sky.count)} papers in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
+            label={`Map of ${place.papers(sky.count)}${place.named ? ',' : ''} in ${count(ready.regions.length, 'region')}${papers.length ? `; ${count(papers.length, 'new paper')} ringed and numbered` : ''}. Choose any paper to open it beside the map.`}
             onAway={setAway}
             toolsAt={corner === 'bl' ? 'right' : 'left'}
             look={mapLook.plateLook}
@@ -316,7 +320,7 @@ export function Today() {
           </Plate>
         ) : (
           <div className="plate plate-waiting">
-            <p role="status">{waitingSentence(map.data, map.isPending)}</p>
+            <p role="status">{waitingSentence(map.data, map.isPending, place)}</p>
             <FirstRun />
           </div>
         )}
@@ -412,11 +416,15 @@ function basisSentence(ready: CollectionMap | null, map: CollectionMap | undefin
   return `placed by how much wording they share, worked out on this computer.${pending}`;
 }
 
-function waitingSentence(map: CollectionMap | undefined, pending: boolean): string {
-  if (pending || !map) return 'Reading the map of your collection…';
-  if (map.state === 'empty') return 'Your collection is empty. Papers your watches and searches find will appear here, placed by how similar their text is.';
+function waitingSentence(map: CollectionMap | undefined, pending: boolean, place: CollectionWords): string {
+  if (pending || !map) return `Reading the map of ${place.name}…`;
+  if (map.state === 'empty') {
+    return place.named
+      ? `${place.Name} holds no papers yet. Papers its watches and searches find, and papers you move or copy there, will appear here, placed by how similar their text is.`
+      : 'Your collection is empty. Papers your watches and searches find will appear here, placed by how similar their text is.';
+  }
   if (map.state === 'failed') return `The map could not be drawn: ${map.error ?? 'the engine gave no reason'}.`;
-  return 'Drawing the map of your collection. The first map of a large collection takes up to half a minute; later ones are kept.';
+  return `Drawing the map of ${place.name}. The first map of a large collection takes up to half a minute; later ones are kept.`;
 }
 
 function Cartouche({ data, now, away, corner, basis, skyCount, unplaced, sinceWord }: {

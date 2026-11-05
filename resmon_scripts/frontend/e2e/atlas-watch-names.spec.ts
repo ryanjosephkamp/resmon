@@ -41,6 +41,7 @@ for n, (name, source) in enumerate(json.loads(sys.argv[2])):
             "title": f"Agents paper {k} for {name}", "authors": "Ada Fixture", "publication_date": "2026-10-01",
             "abstract": "agents planning tools language models evaluation " * 6, "metadata_hash": f"{name}-{k}"})
         conn.execute("UPDATE documents SET first_seen_at = ? WHERE id = ?", (fmt(started), doc))
+        conn.execute("UPDATE collection_documents SET added_at = ? WHERE document_id = ?", (fmt(started), doc))
         link_execution_document(conn, run, doc)
     record_execution_source(conn, run, source, "ok", result_count=2, zero_reason=None)
     update_execution_status(conn, run, "completed", end_time=fmt(started + timedelta(seconds=30)),

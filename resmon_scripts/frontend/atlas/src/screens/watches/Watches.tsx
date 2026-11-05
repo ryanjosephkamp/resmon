@@ -13,17 +13,19 @@ import {
 } from './firing';
 import { useCalendar } from './MonthAhead';
 import { WatchTabs } from './WatchTabs';
+import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
 import {
   WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type RoutineRow, type WatchWarning,
 } from './model';
 
-/** The papers a watch's runs collected, for its constellation. */
+/** The papers a watch's runs collected that the collection shown holds, for its constellation on that map. */
 export function useWatchPapers(id: number | null) {
+  const { id: collection } = useCollection();
   return useQuery({
-    queryKey: ['routine-documents', id],
+    queryKey: ['routine-documents', id, collection],
     enabled: id !== null,
     queryFn: () => answer(engine().GET('/api/routines/{routine_id}/documents', {
-      params: { path: { routine_id: id ?? 0 } },
+      params: { path: { routine_id: id ?? 0 }, query: collectionParam(collection) },
     })),
   });
 }
@@ -52,6 +54,7 @@ export function useSchedulerStatus() {
  * answer, and the list says "next" only where it is yes (`firing.ts`).
  */
 export function Watches() {
+  const place = useCollectionWords();
   const [now] = useState(() => new Date());
   const said = (useLocation().state as { said?: string } | null)?.said ?? null;
   const routines = useQuery({ queryKey: WATCHES_KEY, queryFn: () => answer(engine().GET('/api/routines')) });
@@ -91,11 +94,12 @@ export function Watches() {
         label={litName ? `Where ${litName}'s papers sit in the collection` : 'The collection'}
         caption={({ placed, ready, basis }) => {
           if (!ready) return 'The collection map is not ready yet; a watch\'s papers are marked once it is.';
-          if (!litName) return `Every paper in your collection, ${basisWords(basis)}.`;
+          if (!litName) return `Every paper in ${place.name}, ${basisWords(basis)}.`;
           if (!papers.data) return `Reading ${litName}'s papers.`;
           const { total, document_ids: ids } = papers.data;
-          if (!total) return `${litName} has not collected any papers yet.`;
-          const of = ids.length < total ? `the latest ${number(ids.length)} of its ${count(total, 'paper')}` : count(total, 'paper');
+          if (!total) return place.named ? `${litName} has no papers in ${place.name}.` : `${litName} has not collected any papers yet.`;
+          const there = place.named ? ` in ${place.name}` : '';
+          const of = ids.length < total ? `the latest ${number(ids.length)} of its ${count(total, 'paper')}${there}` : `${count(total, 'paper')}${there}`;
           if (placed === ids.length) return `${litName}: ${of}, ${basisWords(basis)}, with the dashed line Today draws around them.`;
           return `${litName}: ${number(placed ?? 0)} of ${of} are on the map; the rest are not placed yet.`;
         }}

@@ -11,6 +11,7 @@ import { PersonEditor } from './PersonEditor';
 import { PersonLifecycle } from './PersonLifecycle';
 import { BASIS_MEANING, PEOPLE_KEY, basisWords, evidenceToShow, profileChip } from './model';
 import { exportFilename } from './tools';
+import { collectionParam, useCollection } from '../../../collections/current';
 
 /**
  * A person as the engine exports them, saved where the person chooses: the
@@ -52,11 +53,12 @@ function PersonPage({ id }: { id: number }) {
     enabled: Number.isInteger(id) && id > 0,
     queryFn: () => answer(engine().GET('/api/profiles/{profile_id}', { params: { path: { profile_id: id } } })),
   });
+  const { id: collection } = useCollection();
   const matches = useQuery({
-    queryKey: ['profile-matches', id],
+    queryKey: ['profile-matches', id, collection],
     enabled: profile.isSuccess,
     queryFn: () => answer(engine().GET('/api/profiles/{profile_id}/matches', {
-      params: { path: { profile_id: id }, query: { limit: PAGE, offset: 0 } },
+      params: { path: { profile_id: id }, query: { limit: PAGE, offset: 0, ...collectionParam(collection) } },
     })),
   });
   const catalog = useQuery({

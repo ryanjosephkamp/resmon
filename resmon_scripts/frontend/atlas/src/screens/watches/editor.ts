@@ -145,6 +145,8 @@ export interface WatchForm {
   attach: boolean;
   /** A new watch only: whether it starts watching when saved, or is saved paused. */
   start: boolean;
+  /** The collection its runs' papers land in; null, for a new watch, the one the window shows. */
+  collection: number | null;
 }
 
 export function parametersOf(raw: unknown): Record<string, unknown> {
@@ -162,7 +164,7 @@ export function blankForm(): WatchForm {
     name: '', follows: 'words', profileId: null, keywords: [], sources: [],
     schedule: { ...DEFAULT_SCHEDULE }, window: 'previous_run', lastDays: DEFAULT_LAST_DAYS, dateFrom: '', dateTo: '',
     cap: 100, intent: '',
-    notify: false, email: false, attach: false, start: true,
+    notify: false, email: false, attach: false, start: true, collection: null,
   };
 }
 
@@ -232,6 +234,7 @@ export function formFrom(routine: Routine): WatchForm {
     email: !!routine.email_enabled,
     attach: !!routine.email_ai_summary_enabled,
     start: !!routine.is_active,
+    collection: routine.collection_id ?? null,
   };
 }
 
@@ -244,6 +247,8 @@ export interface WatchBody {
   email_enabled: boolean;
   email_ai_summary_enabled: boolean;
   is_active?: boolean;
+  /** Where its runs' papers land; absent, the engine's default for a new watch and no change for one saved. */
+  collection?: number;
 }
 
 /**
@@ -296,6 +301,7 @@ export function watchBody(form: WatchForm, existing: Routine | null): WatchBody 
     email_ai_summary_enabled: form.email && form.attach,
   };
   if (!existing) body.is_active = form.start;
+  if (form.collection !== null) body.collection = form.collection;
   return body;
 }
 

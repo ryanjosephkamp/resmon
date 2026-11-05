@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { collectionParam } from '../../collections/current';
 import { LIFECYCLE_FOR } from '../lifecycle/model';
 
 /** Today's answer, from `/api/today`. */
@@ -120,4 +121,19 @@ export function useRunsEnded(): void {
 /** For tests: forget the last reading. */
 export function forgetRunsEnded(): void {
   lastEnded = null;
+}
+
+/**
+ * Each collection's Today, map, and map facets are kept apart, under the key
+ * above and the collection's id, so a switch reads the collection now shown
+ * and a switch back finds the other as it was left. A change above reads every
+ * collection's again: the keys above are their prefix.
+ */
+export const todayKey = (collection: number | null) => [...TODAY_KEY, collection] as const;
+export const mapKey = (collection: number | null) => [...MAP_KEY, collection] as const;
+export const facetsKey = (collection: number | null) => [...FACETS_KEY, collection] as const;
+
+/** A collection's map, from `/api/map`. */
+export function readMap(collection: number | null) {
+  return answer(engine().GET('/api/map', { params: { query: collectionParam(collection) } }));
 }
