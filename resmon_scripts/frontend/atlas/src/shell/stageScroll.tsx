@@ -82,9 +82,13 @@ const ANY_IDENTITY = IDENTITIES.map((name) => `[${name}]`).join(', ');
  * gallery the point two fifths across can fall in the gap between two covers,
  * at every height. A row in a box that scrolls on its own (Search › Your
  * collection's results) is not the stage's: the stage's place cannot put it back.
+ *
+ * It costs hit tests and queries over the whole stage, a few milliseconds on a
+ * slow machine with a thousand runs listed, so it is read once a scroll has
+ * come to rest (`StageScroll`), not on every scroll.
  */
 export function anchorAt(stage: HTMLElement): Place['anchor'] {
-  // Read on every scroll: a page with nothing known by what it is costs one query.
+  // A page with nothing known by what it is costs one query.
   if (!stage.querySelector(ANY_IDENTITY)) return null;
   const box = stage.getBoundingClientRect();
   let y = box.top + 8;
@@ -271,10 +275,30 @@ export function holdsPlace(stage: Element): boolean {
 }
 
 /**
+ * How long the stage is still before the row at its top is read: longer than
+ * the gap between two scroll events, a frame, on a slow machine as on a fast one.
+ */
+export const SETTLE_MS = 150;
+
+/**
+ * What a person does just before the page may change under them: the pointer
+ * pressed (a link, a tab, a row) and a key (a shortcut, Back). Heard on the
+ * window as they go down, before the page acts on them.
+ */
+const ABOUT_TO_ACT = ['pointerdown', 'keydown'] as const;
+
+/**
  * The stage's place on each history entry. Drawn as the stage's first child,
  * so its layout effect runs before those of the screen after it: a screen that
  * puts the stage somewhere when it opens, or a field that takes the focus and
  * scrolls itself into view, does so after this and is not undone.
+ *
+ * Each scroll keeps how far down the stage is, which costs nothing. The row at
+ * the top (`anchorAt`) is read once the scroll has come to rest (`SETTLE_MS`),
+ * or at once if the person presses the pointer or a key first, or the window
+ * is about to go to another page (the Navigation API's `navigate`, which comes
+ * before the router draws the new one): a click that leaves the page keeps the
+ * row it left. Until it is read, the place is the distance down alone.
  */
 export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | null>; memory?: ScrollMemory }) {
   const [places] = useState(() => memory ?? new ScrollMemory());
@@ -288,10 +312,29 @@ export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | 
   useEffect(() => {
     const node = stage.current;
     if (!node) return undefined;
-    // A scroll event comes once a frame at most, with the page laid out: the row at the top is read then.
-    const keep = () => places.write(here.current.key, here.current.path, { top: node.scrollTop, anchor: anchorAt(node) });
+    // The scroll whose row has not been read yet, as its timer; 0 for none.
+    let unread = 0;
+    const read = () => {
+      if (!unread) return;
+      window.clearTimeout(unread);
+      unread = 0;
+      places.write(here.current.key, here.current.path, { top: node.scrollTop, anchor: anchorAt(node) });
+    };
+    const keep = () => {
+      places.write(here.current.key, here.current.path, { top: node.scrollTop, anchor: null });
+      window.clearTimeout(unread);
+      unread = window.setTimeout(read, SETTLE_MS);
+    };
+    const navigation = (window as { navigation?: Navigation }).navigation;
     node.addEventListener('scroll', keep, { passive: true });
-    return () => node.removeEventListener('scroll', keep);
+    for (const event of ABOUT_TO_ACT) window.addEventListener(event, read, { capture: true, passive: true });
+    navigation?.addEventListener('navigate', read);
+    return () => {
+      window.clearTimeout(unread);
+      node.removeEventListener('scroll', keep);
+      for (const event of ABOUT_TO_ACT) window.removeEventListener(event, read, { capture: true });
+      navigation?.removeEventListener('navigate', read);
+    };
   }, [stage, places]);
 
   useLayoutEffect(() => {

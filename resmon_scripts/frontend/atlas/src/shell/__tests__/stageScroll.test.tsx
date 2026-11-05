@@ -7,7 +7,7 @@
 import { useEffect, useRef } from 'react';
 import { act, render } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom';
-import { HOLD_MS, SCROLL_LIMIT, ScrollMemory, StageScroll, anchorAt, holdsPlace, landing, placeStage, type Place } from '../stageScroll';
+import { HOLD_MS, SCROLL_LIMIT, SETTLE_MS, ScrollMemory, StageScroll, anchorAt, holdsPlace, landing, placeStage, type Place } from '../stageScroll';
 
 const at = (top: number): Place => ({ top, anchor: null });
 
@@ -414,5 +414,131 @@ describe('in the frame', () => {
     act(() => { void go!('/placed'); });
     expect(stage.scrollTop).toBe(777);
     view.unmount();
+  });
+});
+
+describe('the row at the top, read when the place is wanted', () => {
+  let go: NavigateFunction | null = null;
+  function Navigator() {
+    go = useNavigate();
+    return null;
+  }
+  function Frame() {
+    const stage = useRef<HTMLElement>(null);
+    return (
+      <main ref={stage} data-testid="stage">
+        <StageScroll stage={stage} />
+        <Navigator />
+        <Routes>
+          <Route path="/runs" element={<article data-run="7">run 0007</article>} />
+          <Route path="*" element={<p>a screen</p>} />
+        </Routes>
+      </main>
+    );
+  }
+  /** How far down the stage's content the run is drawn; a list drawing its rows again at other heights moves it. */
+  let down = 1000;
+  /** Each time the row at the top is looked for. */
+  let looks: jest.Mock;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    down = 1000;
+    looks = jest.fn(() => document.querySelector('[data-run="7"]'));
+    document.elementFromPoint = looks;
+    // The run sits `down` pixels down the stage's content; the stage is 800 high, its top edge at the window's.
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: Element) {
+      const top = this.matches('[data-run]') ? down - (this.closest('main')?.scrollTop ?? 0) : 0;
+      const height = this.matches('main') ? 800 : 70;
+      return { top, bottom: top + height, left: 0, right: 600, width: 600, height, x: 0, y: top, toJSON: () => ({}) };
+    });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+    delete (window as { navigation?: unknown }).navigation;
+  });
+  const scrollTo = (stage: HTMLElement, top: number) => {
+    stage.scrollTop = top;
+    stage.dispatchEvent(new Event('scroll'));
+  };
+  /** Away by a tab, the run drawn 400 pixels further down when the history is drawn again, and Back. */
+  const awayAndBack = () => {
+    act(() => { void go!('/health'); });
+    down = 1400;
+    act(() => { void go!(-1); });
+  };
+
+  test('once the stage has been still a moment, not on every scroll; Back then puts the run where it was', () => {
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    const stage = view.getByTestId('stage');
+    for (let top = 40; top <= 960; top += 40) scrollTo(stage, top);
+    act(() => { jest.advanceTimersByTime(SETTLE_MS - 1); });
+    expect(looks).not.toHaveBeenCalled();
+    act(() => { jest.advanceTimersByTime(1); });
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    // By the run, 40 below the top edge as it was left, rather than 960 down.
+    expect(stage.scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('at once when the pointer goes down after a scroll, so a click that leaves the page keeps the row it left', () => {
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    const stage = view.getByTestId('stage');
+    scrollTo(stage, 960);
+    stage.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(looks).toHaveBeenCalledTimes(1);
+    // Read once: the pause after it has nothing left to read.
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    expect(stage.scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('at once when a key goes down after a scroll, and not for a key with no scroll before it', () => {
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    const stage = view.getByTestId('stage');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab' }));
+    expect(looks).not.toHaveBeenCalled();
+    scrollTo(stage, 960);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', metaKey: true }));
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    expect(stage.scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('at once when the window is about to go to another page, as the Navigation API says before the router draws it', () => {
+    const navigation = new EventTarget();
+    (window as { navigation?: unknown }).navigation = navigation;
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    const stage = view.getByTestId('stage');
+    scrollTo(stage, 960);
+    navigation.dispatchEvent(new Event('navigate'));
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    expect(stage.scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('a page left before its row is read is put back by the distance down', () => {
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    const stage = view.getByTestId('stage');
+    scrollTo(stage, 960);
+    awayAndBack();
+    expect(stage.scrollTop).toBe(960);
+    view.unmount();
+  });
+
+  test('nothing is read after the frame has gone', () => {
+    const view = render(<MemoryRouter initialEntries={['/runs']}><Frame /></MemoryRouter>);
+    scrollTo(view.getByTestId('stage'), 960);
+    view.unmount();
+    act(() => { jest.advanceTimersByTime(SETTLE_MS * 2); });
+    window.dispatchEvent(new Event('pointerdown'));
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[' }));
+    expect(looks).not.toHaveBeenCalled();
   });
 });
