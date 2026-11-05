@@ -6,8 +6,8 @@ import { tipWords, useChartTip, type MarkTip, type TipContent } from '../../char
 import { joined, useRoving } from '../../charts/roving';
 import { count, number } from '../today/format';
 import {
-  ANALYTICS_KEY, collectionFor, daysWords, groupName, groupTotals, keywordTip, lagTip, monthShort, percent, searchable,
-  sourceTip, volumeTip, watchRunTip, watchStatusWords, widthOf,
+  ANALYTICS_KEY, collectionFor, daysWords, groupName, groupTotals, keywordTip, lagTip, monthShort, notADayWords, percent,
+  searchable, sourceTip, volumeTip, watchRunTip, watchStatusWords, widthOf,
   type KeywordContribution, type Overview, type WatchRow,
 } from './analyticsModel';
 import { HealthTabs } from './HealthTabs';
@@ -239,7 +239,10 @@ function Lag({ view, nameOf }: { view: Overview['discovery_lag']; nameOf: (slug:
   return (
     <section className="chart-card" data-analytics="lag">
       <h2 className="group-title">How quickly each source surfaces a paper</h2>
-      <p className="chart-note">Days from a paper’s stated publication date to resmon first seeing it: the median, between the fastest and the slowest.</p>
+      <p className="chart-note">
+        Days from a paper’s stated publication date to resmon first seeing it: the median, between the fastest and the
+        slowest.{view.not_a_day > 0 && <> {notADayWords(view.not_a_day)}</>}
+      </p>
       <NotEnough reason={view.insufficient_reason} />
       <ol className="bar-rows lag-rows">
         {view.sources.map((row) => (
@@ -250,7 +253,7 @@ function Lag({ view, nameOf }: { view: Overview['discovery_lag']; nameOf: (slug:
                 <span className="range-span" style={{ left: at(row.fastest_days ?? 0), width: `calc(${at(row.slowest_days ?? 0)} - ${at(row.fastest_days ?? 0)})` }} />
                 <span className="range-median" style={{ left: at(row.median_days) }} />
               </span>
-            ) : <span className="range-none" aria-hidden="true">{count(row.sample_size, 'dated paper')}; needs {view.minimum_sample}</span>}
+            ) : <span className="range-none" aria-hidden="true">{count(row.sample_size, 'paper')} dated to the day; needs {view.minimum_sample}</span>}
             <span className="bar-figure num" aria-hidden="true">{row.sufficient ? `median ${daysWords(row.median_days)}` : '—'}</span>
           </BarRow>
         ))}
@@ -331,7 +334,10 @@ function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
           <button type="button" aria-pressed={by === 'category'} onClick={() => setBy('category')}>Category</button>
         </div>
       </div>
-      <p className="chart-note">By the date each source gives a paper, for the latest twelve months that have any.</p>
+      <p className="chart-note" data-analytics="volume-note">
+        By the date each source gives a paper, for the latest twelve months that have any. A column holds exactly the
+        papers it opens.{data && data.not_a_day > 0 && <> {notADayWords(data.not_a_day)}</>}
+      </p>
       {data && <NotEnough reason={data.insufficient_reason} />}
       {data && data.series.length > 0 && (
         <>

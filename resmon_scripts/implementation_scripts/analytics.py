@@ -26,6 +26,8 @@ small corpus.
 
 from __future__ import annotations
 
+import calendar
+import re
 import sqlite3
 from collections import defaultdict
 from statistics import median
@@ -160,9 +162,14 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
     so it knows how long each source took to surface a paper *to this user*. A
     source with a two-week median does not justify an hourly routine.
     """
+    # Only a date that is a whole calendar day can be measured from. SQLite's
+    # julianday reads a year alone ("2023") as a Julian day number, which made
+    # a lag of millions of days, and a month alone ("2025-01") as nothing; a
+    # paper dated that coarsely is left out, and counted as left out.
     rows = conn.execute(
         """
         SELECT source_repository AS source,
+               publication_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]*' AS whole_day,
                julianday(first_seen_at) - julianday(publication_date) AS lag_days
         FROM documents
         WHERE publication_date IS NOT NULL
@@ -172,9 +179,11 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
     ).fetchall()
 
     by_source: dict[str, list[float]] = defaultdict(list)
+    not_a_day: dict[str, int] = defaultdict(int)
     for r in rows:
         lag = r["lag_days"]
-        if lag is None:
+        if not r["whole_day"] or lag is None:
+            not_a_day[r["source"]] += 1
             continue
         # Negative lags are real: preprint servers publish dates that postdate
         # the posting, and some sources report a future issue date. Keep them --
@@ -183,7 +192,8 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
         by_source[r["source"]].append(float(lag))
 
     sources = []
-    for source, lags in sorted(by_source.items()):
+    for source in sorted(set(by_source) | set(not_a_day)):
+        lags = by_source.get(source, [])
         n = len(lags)
         enough = n >= MIN_SAMPLE_FOR_LAG
         sources.append({
@@ -193,13 +203,16 @@ def discovery_lag(conn: sqlite3.Connection) -> dict:
             "median_days": round(median(lags), 1) if enough else None,
             "fastest_days": round(min(lags), 1) if enough else None,
             "slowest_days": round(max(lags), 1) if enough else None,
+            # Papers whose stated date is not a whole day, left out of the lag.
+            "not_a_day": not_a_day.get(source, 0),
         })
 
     sources.sort(key=lambda s: (s["median_days"] is None, s["median_days"] or 0))
     reported = [s for s in sources if s["sufficient"]]
     return {
         "sources": sources,
-        "sample_size": len(rows),
+        "sample_size": sum(len(lags) for lags in by_source.values()),
+        "not_a_day": sum(not_a_day.values()),
         "sufficient": bool(reported),
         "minimum_sample": MIN_SAMPLE_FOR_LAG,
         "insufficient_reason": (
@@ -318,6 +331,29 @@ def routine_health(conn: sqlite3.Connection) -> dict:
     }
 
 
+_DAY = re.compile(r"^(\d{4})-(\d{2})-\d{2}")
+
+
+def month_of(date: str | None) -> str | None:
+    """The month (``YYYY-MM``) a stored publication date is counted in, or None.
+
+    The month is the one whose first and last day, as the collection's date
+    filter compares them (whole text, ``from <= date <= to``), take the date in:
+    so "2025-01-15" is January 2025, and "2025-01" and "2023", which sort before
+    the first of their month, are in none. A time on the month's last day
+    ("2025-01-31T09:00") sorts after it, and is in none either.
+    """
+    match = _DAY.match(date or "")
+    if not match:
+        return None
+    year, month = int(match.group(1)), int(match.group(2))
+    if not 1 <= month <= 12:
+        return None
+    first = f"{match.group(1)}-{match.group(2)}-01"
+    last = f"{match.group(1)}-{match.group(2)}-{calendar.monthrange(year, month)[1]:02d}"
+    return f"{match.group(1)}-{match.group(2)}" if first <= date <= last else None
+
+
 def publication_volume(
     conn: sqlite3.Connection,
     group_by: str = "source",
@@ -328,25 +364,33 @@ def publication_volume(
     ``months`` bounds the window to the most recent N months *that contain data*
     rather than the last N calendar months, so a corpus of older papers still
     renders instead of showing an empty axis.
+
+    A paper is counted in a month only where Search › Your collection's date
+    filter, set to that month's first and last day, finds it (``month_of``),
+    so a month's column and the papers its click opens are the same papers. A
+    date that is not a whole day ("2023", "2025-01") is in no month's range,
+    and ``not_a_day`` says how many were left out.
     """
     if group_by not in ("source", "category"):
         raise ValueError("group_by must be 'source' or 'category'")
 
     rows = conn.execute(
         """
-        SELECT substr(publication_date, 1, 7) AS month,
-               source_repository              AS source,
-               categories                     AS categories
+        SELECT publication_date  AS date,
+               source_repository AS source,
+               categories        AS categories
         FROM documents
-        WHERE publication_date IS NOT NULL AND length(publication_date) >= 7
+        WHERE publication_date IS NOT NULL AND TRIM(publication_date) <> ''
         """
     ).fetchall()
 
     counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    counted = 0
     for r in rows:
-        month = r["month"]
-        if not month:
+        month = month_of(r["date"])
+        if month is None:
             continue
+        counted += 1
         if group_by == "source":
             counts[month][r["source"]] += 1
         else:
@@ -382,7 +426,8 @@ def publication_volume(
         "group_by": group_by,
         "groups": top + (["other"] if any("other" in b["groups"] for b in series) else []),
         "series": series,
-        "sample_size": len(rows),
+        "sample_size": counted,
+        "not_a_day": len(rows) - counted,
         "sufficient": len(series) > 0,
         "insufficient_reason": (
             None if series

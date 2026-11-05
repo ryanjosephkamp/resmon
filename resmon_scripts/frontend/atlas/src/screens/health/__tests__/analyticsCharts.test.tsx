@@ -38,10 +38,10 @@ const OVERVIEW: Overview = {
     ],
   },
   discovery_lag: {
-    sufficient: true, insufficient_reason: null, sample_size: 12000, minimum_sample: 5,
+    sufficient: true, insufficient_reason: null, sample_size: 12000, minimum_sample: 5, not_a_day: 14,
     sources: [
-      { source: 'arxiv', sample_size: 8900, sufficient: true, median_days: 0.4, fastest_days: -2.3, slowest_days: 41.5 },
-      { source: 'crossref', sample_size: 3, sufficient: false, median_days: null, fastest_days: null, slowest_days: null },
+      { source: 'arxiv', sample_size: 8900, sufficient: true, median_days: 0.4, fastest_days: -2.3, slowest_days: 41.5, not_a_day: 2 },
+      { source: 'crossref', sample_size: 3, sufficient: false, median_days: null, fastest_days: null, slowest_days: null, not_a_day: 12 },
     ],
   },
   routine_health: {
@@ -59,7 +59,7 @@ const OVERVIEW: Overview = {
     }],
   },
   publication_volume: {
-    group_by: 'source', groups: ['arxiv', 'crossref'], sufficient: true, insufficient_reason: null, sample_size: 30,
+    group_by: 'source', groups: ['arxiv', 'crossref'], sufficient: true, insufficient_reason: null, sample_size: 30, not_a_day: 2,
     series: [
       { month: '2026-02', total: 10, groups: { arxiv: 7, crossref: 3 } },
       { month: '2026-10', total: 20, groups: { crossref: 12, arxiv: 8 } },
@@ -107,7 +107,11 @@ describe('what each mark says', () => {
       value: '0.4 days, the median',
       lines: [{ value: '2.3 days before its stated date', label: 'the fastest' }, { value: '41.5 days', label: 'the slowest' }],
     });
-    expect(lagTip(crossref!, 'Crossref', 5)).toMatchObject({ value: '3 dated papers', notes: ['A median needs 5 dated papers.'] });
+    expect(lagTip(crossref!, 'Crossref', 5)).toMatchObject({
+      value: '3 papers dated to the day',
+      notes: ['A median needs 5 dated papers.', '12 papers whose stated date is not a whole day are left out.'],
+    });
+    expect(lagTip(arxiv!, 'arXiv', 5).notes?.[1]).toBe('2 papers whose stated date is not a whole day are left out.');
   });
 
   test('a watch\'s tick names its run, and opens it; a count the run did not record is said so, never as none', () => {
@@ -185,7 +189,8 @@ describe('a click goes to what the mark counts', () => {
   test('a source\'s range opens it too, with too few dated papers or not', async () => {
     page();
     const card = (await screen.findByRole('heading', { name: 'How quickly each source surfaces a paper' })).closest('section')!;
-    expect(within(card).getByRole('link', { name: /^Crossref: 3 dated papers/ })).toHaveAttribute('href', '/search?source=crossref');
+    expect(within(card).getByRole('link', { name: /^Crossref: 3 papers dated to the day/ })).toHaveAttribute('href', '/search?source=crossref');
+    expect(card).toHaveTextContent('14 papers whose stated date is not a whole day are left out.');
     fireEvent.click(card.querySelector('.bar-row[data-source="arxiv"] .range')!);
     expect(screen.getByTestId('where')).toHaveTextContent('/search?source=arxiv');
   });
@@ -217,6 +222,8 @@ describe('a click goes to what the mark counts', () => {
     expect(months.map((m) => m.getAttribute('href'))).toEqual([
       '/search?from=2026-02-01&to=2026-02-28', '/search?from=2026-10-01&to=2026-10-31',
     ]);
+    expect(document.querySelector('[data-analytics="volume-note"]')).toHaveTextContent(
+      'A column holds exactly the papers it opens. 2 papers whose stated date is not a whole day are left out.');
     fireEvent.pointerEnter(months[1]!, { clientX: 500, clientY: 300 });
     expect(screen.getByRole('tooltip')).toHaveTextContent('October 2026');
     expect(screen.getByRole('tooltip')).toHaveTextContent('12 Crossref');

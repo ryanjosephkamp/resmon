@@ -175,11 +175,12 @@ export function keywordTip(row: KeywordRow, minimum: number): TipContent {
 /** A source's range of days, from the fastest paper to the slowest, with its median. */
 export function lagTip(row: LagRow, name: string, minimum: number): TipContent {
   const median = row.sufficient ? exactDays(row.median_days) : null;
+  const leftOut = notADayWords(row.not_a_day);
   if (!median) {
     return {
       name,
-      value: count(row.sample_size, 'dated paper'),
-      notes: [`A median needs ${count(minimum, 'dated paper')}.`],
+      value: count(row.sample_size, 'paper') + ' dated to the day',
+      notes: [`A median needs ${count(minimum, 'dated paper')}.`, ...(leftOut ? [leftOut] : [])],
       opens: opensFor(`narrowed to ${name}`),
     };
   }
@@ -190,9 +191,21 @@ export function lagTip(row: LagRow, name: string, minimum: number): TipContent {
       { value: exactDays(row.fastest_days) ?? '—', label: 'the fastest' },
       { value: exactDays(row.slowest_days) ?? '—', label: 'the slowest' },
     ],
-    notes: [`From each paper’s stated publication date to resmon first seeing it, over ${count(row.sample_size, 'dated paper')}.`],
+    notes: [
+      `From each paper’s stated publication date to resmon first seeing it, over ${count(row.sample_size, 'paper')} dated to the day.`,
+      ...(leftOut ? [leftOut] : []),
+    ],
     opens: opensFor(`narrowed to ${name}`),
   };
+}
+
+/**
+ * The papers a view left out because their stated date is a year or a month
+ * alone, or is not a day at all, as a sentence; nothing when there are none.
+ */
+export function notADayWords(n: number): string | null {
+  if (n <= 0) return null;
+  return `${count(n, 'paper')} whose stated date is not a whole day ${n === 1 ? 'is' : 'are'} left out.`;
 }
 
 const STARTED = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });

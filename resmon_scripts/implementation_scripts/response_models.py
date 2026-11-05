@@ -2928,13 +2928,15 @@ class DiscoveryLagRow(LosslessModel):
     median_days: Optional[float]
     fastest_days: Optional[float]
     slowest_days: Optional[float]
+    not_a_day: int
 
 
 class DiscoveryLag(LosslessModel):
-    """``GET /api/analytics/discovery-lag``."""
+    """``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day."""
 
     sources: list[DiscoveryLagRow]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     minimum_sample: int
     insufficient_reason: Optional[str]
@@ -2990,12 +2992,13 @@ class PublicationVolumeMonth(LosslessModel):
 
 
 class PublicationVolume(LosslessModel):
-    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in."""
 
     group_by: str
     groups: list[str]
     series: list[PublicationVolumeMonth]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     insufficient_reason: Optional[str]
 
