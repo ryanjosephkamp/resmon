@@ -7443,8 +7443,6 @@ export interface components {
          * @description One size for keeping a file and reading it, and the free space an import leaves.
          */
         LibraryLimits: {
-            /** Batch Files */
-            batch_files: number;
             /** File Bytes */
             file_bytes: number;
             /** Free Space Floor */

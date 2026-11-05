@@ -3012,7 +3012,6 @@ class LibraryLimits(LosslessModel):
 
     file_bytes: int
     read_bytes: int
-    batch_files: int
     free_space_floor: int
 
 

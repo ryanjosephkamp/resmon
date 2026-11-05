@@ -28,7 +28,6 @@ MAX_FILE_BYTES = 64 * 1024 * 1024
 #: thumbnail drawn from its first page, and Evidence's page text. A file the
 #: Library accepts is a file every part of the Library can open.
 MAX_READ_BYTES = MAX_FILE_BYTES
-MAX_BATCH_FILES = 20
 #: An import that would leave less than this free on the Library folder's disk is
 #: refused. The Library has no count or size cap of its own: the folder is the
 #: person's, on their disk, and the disk is the limit that matters.
@@ -155,8 +154,7 @@ def counts(conn: sqlite3.Connection) -> dict:
 
 
 def limits() -> dict:
-    return {'file_bytes': MAX_FILE_BYTES, 'read_bytes': MAX_READ_BYTES, 'batch_files': MAX_BATCH_FILES,
-            'free_space_floor': FREE_SPACE_FLOOR}
+    return {'file_bytes': MAX_FILE_BYTES, 'read_bytes': MAX_READ_BYTES, 'free_space_floor': FREE_SPACE_FLOOR}
 
 
 def status(conn: sqlite3.Connection) -> dict:

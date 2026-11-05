@@ -7360,10 +7360,6 @@
         "additionalProperties": true,
         "description": "One size for keeping a file and reading it, and the free space an import leaves.",
         "properties": {
-          "batch_files": {
-            "title": "Batch Files",
-            "type": "integer"
-          },
           "file_bytes": {
             "title": "File Bytes",
             "type": "integer"
@@ -7380,7 +7376,6 @@
         "required": [
           "file_bytes",
           "read_bytes",
-          "batch_files",
           "free_space_floor"
         ],
         "title": "LibraryLimits",
