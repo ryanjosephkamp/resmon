@@ -2968,22 +2968,28 @@ class DiscoveryLagRow(LosslessModel):
     median_days: Optional[float]
     fastest_days: Optional[float]
     slowest_days: Optional[float]
+    not_a_day: int
 
 
 class DiscoveryLag(LosslessModel):
-    """``GET /api/analytics/discovery-lag``."""
+    """``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day."""
 
     sources: list[DiscoveryLagRow]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     minimum_sample: int
     insufficient_reason: Optional[str]
 
 
 class RoutineHealthRun(LosslessModel):
+    """One completed run of a watch, oldest first."""
+
+    execution_id: int
     start_time: Optional[str]
-    new_results: int
-    total_results: int
+    # None where the run did not record the count, never 0.
+    new_results: Optional[int]
+    total_results: Optional[int]
 
 
 class RoutineHealthRow(LosslessModel):
@@ -3000,6 +3006,7 @@ class RoutineHealthRow(LosslessModel):
     runs_since_new: int
     last_new_result_at: Optional[str]
     total_new: int
+    unrecorded_runs: int
     status: str
     sample_size: int
     sufficient: bool
@@ -3025,12 +3032,13 @@ class PublicationVolumeMonth(LosslessModel):
 
 
 class PublicationVolume(LosslessModel):
-    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``."""
+    """``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in."""
 
     group_by: str
     groups: list[str]
     series: list[PublicationVolumeMonth]
     sample_size: int
+    not_a_day: int
     sufficient: bool
     insufficient_reason: Optional[str]
 

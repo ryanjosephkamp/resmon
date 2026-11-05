@@ -6331,13 +6331,15 @@ export interface components {
         };
         /**
          * DiscoveryLag
-         * @description ``GET /api/analytics/discovery-lag``.
+         * @description ``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.
          */
         DiscoveryLag: {
             /** Insufficient Reason */
             insufficient_reason: string | null;
             /** Minimum Sample */
             minimum_sample: number;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Sources */
@@ -6356,6 +6358,8 @@ export interface components {
             fastest_days: number | null;
             /** Median Days */
             median_days: number | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Slowest Days */
@@ -8870,7 +8874,7 @@ export interface components {
         };
         /**
          * PublicationVolume
-         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``.
+         * @description ``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.
          */
         PublicationVolume: {
             /** Group By */
@@ -8879,6 +8883,8 @@ export interface components {
             groups: string[];
             /** Insufficient Reason */
             insufficient_reason: string | null;
+            /** Not A Day */
+            not_a_day: number;
             /** Sample Size */
             sample_size: number;
             /** Series */
@@ -9877,17 +9883,24 @@ export interface components {
             sufficient: boolean;
             /** Total New */
             total_new: number;
+            /** Unrecorded Runs */
+            unrecorded_runs: number;
         } & {
             [key: string]: unknown;
         };
-        /** RoutineHealthRun */
+        /**
+         * RoutineHealthRun
+         * @description One completed run of a watch, oldest first.
+         */
         RoutineHealthRun: {
+            /** Execution Id */
+            execution_id: number;
             /** New Results */
-            new_results: number;
+            new_results: number | null;
             /** Start Time */
             start_time: string | null;
             /** Total Results */
-            total_results: number;
+            total_results: number | null;
         } & {
             [key: string]: unknown;
         };

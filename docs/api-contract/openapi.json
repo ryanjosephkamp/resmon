@@ -4584,7 +4584,7 @@
       },
       "DiscoveryLag": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/discovery-lag``.",
+        "description": "``GET /api/analytics/discovery-lag``. ``not_a_day`` counts papers left out because their date is not a whole day.",
         "properties": {
           "insufficient_reason": {
             "anyOf": [
@@ -4599,6 +4599,10 @@
           },
           "minimum_sample": {
             "title": "Minimum Sample",
+            "type": "integer"
+          },
+          "not_a_day": {
+            "title": "Not A Day",
             "type": "integer"
           },
           "sample_size": {
@@ -4620,6 +4624,7 @@
         "required": [
           "sources",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "minimum_sample",
           "insufficient_reason"
@@ -4653,6 +4658,10 @@
             ],
             "title": "Median Days"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -4683,7 +4692,8 @@
           "sufficient",
           "median_days",
           "fastest_days",
-          "slowest_days"
+          "slowest_days",
+          "not_a_day"
         ],
         "title": "DiscoveryLagRow",
         "type": "object"
@@ -10426,7 +10436,7 @@
       },
       "PublicationVolume": {
         "additionalProperties": true,
-        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``.",
+        "description": "``GET /api/analytics/publication-volume``, by ``source`` or ``category``; ``not_a_day`` counts papers whose date no month's range takes in.",
         "properties": {
           "group_by": {
             "title": "Group By",
@@ -10450,6 +10460,10 @@
             ],
             "title": "Insufficient Reason"
           },
+          "not_a_day": {
+            "title": "Not A Day",
+            "type": "integer"
+          },
           "sample_size": {
             "title": "Sample Size",
             "type": "integer"
@@ -10471,6 +10485,7 @@
           "groups",
           "series",
           "sample_size",
+          "not_a_day",
           "sufficient",
           "insufficient_reason"
         ],
@@ -12489,6 +12504,10 @@
           "total_new": {
             "title": "Total New",
             "type": "integer"
+          },
+          "unrecorded_runs": {
+            "title": "Unrecorded Runs",
+            "type": "integer"
           }
         },
         "required": [
@@ -12503,6 +12522,7 @@
           "runs_since_new",
           "last_new_result_at",
           "total_new",
+          "unrecorded_runs",
           "status",
           "sample_size",
           "sufficient"
@@ -12512,10 +12532,22 @@
       },
       "RoutineHealthRun": {
         "additionalProperties": true,
+        "description": "One completed run of a watch, oldest first.",
         "properties": {
-          "new_results": {
-            "title": "New Results",
+          "execution_id": {
+            "title": "Execution Id",
             "type": "integer"
+          },
+          "new_results": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Results"
           },
           "start_time": {
             "anyOf": [
@@ -12529,11 +12561,19 @@
             "title": "Start Time"
           },
           "total_results": {
-            "title": "Total Results",
-            "type": "integer"
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Results"
           }
         },
         "required": [
+          "execution_id",
           "start_time",
           "new_results",
           "total_results"
