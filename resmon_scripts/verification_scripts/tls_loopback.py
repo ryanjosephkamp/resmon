@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as _dt
 import http.server
 import json
+import socketserver
 import ssl
 import sys
 import threading
@@ -130,7 +131,7 @@ class LoopbackHTTPS:
                 finally:
                     entry["done"] = time.monotonic()
 
-        self._server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self._server = _LoopbackServer(("127.0.0.1", 0), Handler)
         self._server.daemon_threads = True
         self._server.socket = context.wrap_socket(self._server.socket, server_side=True)
         self.port = self._server.server_address[1]
@@ -146,6 +147,21 @@ class LoopbackHTTPS:
         self._server.shutdown()
         self._server.server_close()
         self._thread.join(timeout=5)
+
+
+class _LoopbackServer(http.server.ThreadingHTTPServer):
+    """``ThreadingHTTPServer`` without its reverse lookup of the address it binds.
+
+    ``HTTPServer.server_bind`` names itself with ``socket.getfqdn``, a reverse
+    DNS lookup of 127.0.0.1, which can wait on a resolver for tens of seconds on
+    some machines; the server is only ever reached by its port.
+    """
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
 
 
 def pdf_body(size: int = 2048) -> bytes:

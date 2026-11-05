@@ -195,6 +195,11 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
   // The PDFs' https server, with its own test authority.
   const pdfServer: ChildProcessWithoutNullStreams = spawn(python, [
     path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'tls_loopback.py'), tls], { env });
+  // What the server wrote to stderr goes into any failure, so a start that fails says why.
+  let pdfServerSaid = '';
+  pdfServer.stderr.on('data', (chunk: Buffer) => { pdfServerSaid += chunk.toString(); });
+  const said = () => (pdfServerSaid.trim() ? `; it wrote: ${pdfServerSaid.trim().slice(-2000)}` : '; it wrote nothing to stderr');
+  const startedAt = Date.now();
   const ready = await new Promise<{ port: number; ca: string }>((resolve, reject) => {
     let out = '';
     pdfServer.stdout.on('data', (chunk: Buffer) => {
@@ -202,9 +207,11 @@ test('Find a paper across the sources, Get the PDF three ways, and a watch that 
       const line = out.split('\n').find((l) => l.trim().startsWith('{'));
       if (line) resolve(JSON.parse(line));
     });
-    pdfServer.on('exit', (code) => reject(new Error(`the PDF server exited with ${code}`)));
-    setTimeout(() => reject(new Error('the PDF server did not start')), 30_000);
+    pdfServer.on('error', (error) => reject(new Error(`the PDF server could not be started with ${python}: ${error.message}`)));
+    pdfServer.on('exit', (code) => reject(new Error(`the PDF server exited with ${code}${said()}`)));
+    setTimeout(() => reject(new Error(`the PDF server did not start in 30 s, run with ${python}${said()}`)), 30_000);
   });
+  console.log(`FULL TEXT PDF SERVER started in ${Date.now() - startedAt} ms on port ${ready.port}`);
   const pdfAt = (name: string) => `https://pdf.resmon.test:${ready.port}/${name}`;
 
   // The sources' stand-in. OpenAlex and Crossref hold the paper; OpenAlex's
