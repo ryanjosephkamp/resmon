@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useMemo, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../api/client';
 import type { components } from '../api/schema';
@@ -16,17 +16,23 @@ export function readCollections(): Promise<CollectionList> {
 }
 
 /**
- * The collection this window was opened on, where the main process gave it
- * one (`windowState().collection`: an id or a name; null when the window
- * shows the remembered one). The one place a window's own collection is read.
+ * This window's own collection, as the main process keeps it
+ * (`windowState().collection`, an id; null until the window has one). The one
+ * place a window's own collection is read.
  */
 export function windowCollection(): string | null {
-  const state = (bridge() as { windowState?: () => { collection?: string | null } } | null)?.windowState?.();
-  const named = state?.collection;
-  return typeof named === 'string' && named.trim() ? named.trim() : null;
+  return cleanCollection(bridge()?.windowState?.().collection);
 }
 
-/** The collection a window shows: its own, where it has one that exists, else the one the engine remembers. */
+function cleanCollection(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * The collection a window shows: its own, where it has one that exists, else
+ * the one the engine remembers, which is the one last chosen in any window
+ * and so what a new window opens on.
+ */
 export function shownCollection(list: CollectionList, own: string | null): CollectionSummary | null {
   const named = own === null ? undefined : list.collections.find(
     (c) => String(c.id) === own || c.name.toLowerCase() === own.toLowerCase());
@@ -46,7 +52,11 @@ export interface CurrentCollection {
   /** Whether there is more than one collection to choose from. */
   several: boolean;
   error: Error | null;
-  /** Show another collection, and remember it as the one the app shows. */
+  /**
+   * Show another collection in this window, and no other: through the main
+   * process where there is one, and remembered by the engine as what a new
+   * window opens on.
+   */
   switchTo: (id: number) => Promise<void>;
   switching: boolean;
 }
@@ -64,12 +74,24 @@ export function invalidateCollections(client: QueryClient): Promise<void> {
  * papers, a person's matches, the reading queue) names it, and its query key
  * holds its id, so a switch reads each screen's data again for the collection
  * now shown and keeps the other's for a switch back.
+ *
+ * In the app each window shows its own collection. A window with none yet
+ * (the first at launch, or one opened with ⌘N) shows the one the engine
+ * remembers and takes it as its own, so a switch in another window, which
+ * changes what the engine remembers, does not move it.
  */
 export function CollectionProvider({ children }: { children: ReactNode }) {
   const client = useQueryClient();
   const listed = useQuery({ queryKey: COLLECTIONS_KEY, queryFn: readCollections });
-  const own = windowCollection();
+  const [own, setOwn] = useState(windowCollection);
+  useEffect(() => bridge()?.onWindowState?.((state) => setOwn(cleanCollection(state.collection))), []);
   const shown = listed.data ? shownCollection(listed.data, own) : null;
+  const shownId = shown?.id ?? null;
+  // A window without a collection of its own, or with one since deleted, takes the one it shows.
+  useEffect(() => {
+    const set = bridge()?.setWindowCollection;
+    if (set && shownId !== null && own !== String(shownId)) set(String(shownId));
+  }, [own, shownId]);
   const choose = useMutation({
     mutationFn: (id: number) => answer(engine().PUT('/api/collections/current', { body: { collection: id } })),
     onSuccess: (done) => {
@@ -78,7 +100,14 @@ export function CollectionProvider({ children }: { children: ReactNode }) {
     },
   });
   const { mutateAsync } = choose;
-  const switchTo = useCallback(async (id: number) => { await mutateAsync(id); }, [mutateAsync]);
+  const switchTo = useCallback(async (id: number) => {
+    const set = bridge()?.setWindowCollection;
+    if (set) {
+      set(String(id));
+      setOwn(String(id));
+    }
+    await mutateAsync(id);
+  }, [mutateAsync]);
   const value = useMemo<CurrentCollection>(() => ({
     id: shown?.id ?? null,
     name: shown?.name ?? null,

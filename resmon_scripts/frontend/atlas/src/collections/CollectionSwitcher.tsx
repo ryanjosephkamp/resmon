@@ -12,8 +12,9 @@ export const COLLECTIONS_PATH = '/settings/collections';
 /**
  * The collection the window shows, beside the lockup: its name, and a menu of
  * every collection with how many papers each holds, the one shown ticked.
- * Choosing one shows it here and is remembered by the engine. The menu ends
- * with New collection and Manage collections, both in Settings › Collections.
+ * Choosing one shows it in this window and no other, and the engine remembers
+ * it as what a new window opens on. The menu ends with New collection and
+ * Manage collections, both in Settings › Collections.
  *
  * A native popover, as New search is: Escape and a click outside close it,
  * and the arrow keys, Home, and End move between its items.

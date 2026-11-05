@@ -31,7 +31,7 @@ const connection = askBackendConnection();
 
 /**
  * This window, as the main process describes it: the collection it shows
- * (null, the only one, until there are several), and how many pixels to leave
+ * (by id; null until it has one), and how many pixels to leave
  * above the top bar for macOS's tab bar. Asked before the first render, and
  * kept current when the windows go into tabs or out of them.
  */
@@ -54,6 +54,10 @@ ipcRenderer.on('resmon:window-state', (_event, value: unknown) => {
 
 contextBridge.exposeInMainWorld('resmonAPI', {
   getBackendPort: (): string => connection.port,
+  /** Show another collection in this window, by id; the main process then sends the window's state again. */
+  setWindowCollection: (collection: string | null): void => {
+    ipcRenderer.send('resmon:window-collection', collection);
+  },
   getApiToken: (): string | null => connection.token,
   getDownloads: (): Promise<DownloadRecord[]> => ipcRenderer.invoke('resmon:downloads'),
   revealDownload: (id: string): Promise<boolean> => ipcRenderer.invoke('resmon:reveal-download', id),

@@ -1,11 +1,11 @@
 import { act, fireEvent, render, renderHook, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { engine } from '../../api/client';
 import { CollectionProvider, shownCollection, useCollection, type CollectionList } from '../current';
 import { CollectionSwitcher } from '../CollectionSwitcher';
-import { MoveCopy } from '../MoveCopy';
+import { MoveCopy, useChangeNotice } from '../MoveCopy';
 import { CollectionsSettings } from '../CollectionsSettings';
 import { changedWords, type PapersChanged } from '../papers';
 import { pickedWords, usePicking } from '../PickBar';
@@ -54,8 +54,9 @@ const element = HTMLElement.prototype as unknown as { hidePopover?: () => void; 
 element.hidePopover ??= () => undefined;
 element.showPopover ??= () => undefined;
 
-function Wrapped({ children, path = '/search' }: { children: ReactNode; path?: string }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function Wrapped({ children, path = '/search', client = new QueryClient({ defaultOptions: { queries: { retry: false } } }) }: {
+  children: ReactNode; path?: string; client?: QueryClient;
+}) {
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={[path]}><CollectionProvider>{children}</CollectionProvider></MemoryRouter>
@@ -188,7 +189,9 @@ test('deleting a collection asks first, and says what happens to its papers and 
       id: 2, name: 'Fluid dynamics', papers: 340, kept_in_default: 300, still_elsewhere: 40, watches_moved: 1, default_id: 1,
     }),
   });
-  render(<Wrapped path="/settings/collections"><CollectionsSettings /></Wrapped>);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const invalidated = jest.spyOn(client, 'invalidateQueries');
+  render(<Wrapped path="/settings/collections" client={client}><CollectionsSettings /></Wrapped>);
   const ask = await screen.findByRole('button', { name: 'Delete Fluid dynamics' });
   expect(screen.queryByRole('button', { name: 'Delete Your collection' })).toBeNull();
   fireEvent.click(ask);
@@ -201,6 +204,92 @@ test('deleting a collection asks first, and says what happens to its papers and 
   await screen.findByText(/Deleted Fluid dynamics\./);
   expect(screen.getByText(/Deleted Fluid dynamics\./)).toHaveTextContent(
     'Deleted Fluid dynamics. 300 papers only it held are kept in Your collection. 40 papers stay in the other collections they are in. 1 watch now puts papers in Your collection.');
+  // The default collection gained its papers: its Search, Today, and map are read again.
+  const keys = invalidated.mock.calls.map(([filters]) => JSON.stringify(filters?.queryKey));
+  expect(keys).toEqual(expect.arrayContaining([JSON.stringify(['explorer']), JSON.stringify(['paper'])]));
+});
+
+test('the notice a move leaves outlives the pick bar: Done right after the move keeps its Undo', async () => {
+  const calls = engineAnswering({
+    'GET /api/collections': () => LIST,
+    'POST /api/collections/{collection_id}/papers': () => MOVED,
+    'POST /api/collections/{collection_id}/papers/undo': () => ({ collection_id: 3, from_collection_id: 2, taken_out: 2, put_back: 3, left_in_place: 0 }),
+  });
+  function Search() {
+    const changed = useChangeNotice();
+    const [picking, setPicking] = useState(true);
+    return (
+      <>
+        {picking && (
+          <div>
+            <MoveCopy which={{ ids: [11, 12, 13] }} from={2} count={3} onNotice={changed.show} />
+            <button type="button" onClick={() => setPicking(false)}>Done</button>
+          </div>
+        )}
+        {changed.notice}
+      </>
+    );
+  }
+  render(<Wrapped><Search /></Wrapped>);
+  await waitFor(() => expect(screen.getAllByRole('menuitem', { hidden: true }).length).toBeGreaterThan(2));
+  fireEvent.click(within(screen.getByRole('menu', { name: 'Move to', hidden: true })).getByText('Optics'));
+  await screen.findByRole('status');
+  fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+  expect(screen.queryByRole('button', { name: 'Move to' })).toBeNull();
+  const notice = screen.getByRole('status');
+  expect(notice).toHaveTextContent('Moved 2 papers to Optics.');
+  fireEvent.click(within(notice).getByRole('button', { name: 'Undo' }));
+  await waitFor(() => expect(calls.some((c) => c.path === '/api/collections/{collection_id}/papers/undo')).toBe(true));
+});
+
+describe('a window and its own collection', () => {
+  type Listener = (state: { collection: string | null; tabStrip: number }) => void;
+  let listeners: Listener[] = [];
+  let state: { collection: string | null; tabStrip: number };
+  const set = jest.fn((collection: string | null) => {
+    state = { ...state, collection };
+    for (const listener of listeners) listener(state);
+  });
+  beforeEach(() => {
+    listeners = [];
+    state = { collection: null, tabStrip: 0 };
+    set.mockClear();
+    (window as unknown as { resmonAPI?: unknown }).resmonAPI = {
+      getBackendPort: () => '9001', getApiToken: () => null,
+      windowState: () => state,
+      onWindowState: (listener: Listener) => { listeners.push(listener); return () => { listeners = listeners.filter((l) => l !== listener); }; },
+      setWindowCollection: set,
+    };
+  });
+  afterEach(() => { delete (window as unknown as { resmonAPI?: unknown }).resmonAPI; });
+
+  function Shown() {
+    const current = useCollection();
+    return (
+      <>
+        <p data-testid="shown">{current.name}</p>
+        <button type="button" onClick={() => void current.switchTo(3)}>Optics here</button>
+      </>
+    );
+  }
+
+  test('a window with none takes the one the engine remembers; a switch changes this window and is remembered for the next', async () => {
+    const calls = engineAnswering({
+      'GET /api/collections': () => LIST,
+      'PUT /api/collections/current': () => ({ current_id: 3 }),
+    });
+    render(<Wrapped><Shown /></Wrapped>);
+    await waitFor(() => expect(screen.getByTestId('shown')).toHaveTextContent('Fluid dynamics'));
+    // Taken as its own, so a switch in another window, which changes what the engine remembers, does not move it.
+    expect(set).toHaveBeenCalledWith('2');
+    fireEvent.click(screen.getByRole('button', { name: 'Optics here' }));
+    await waitFor(() => expect(screen.getByTestId('shown')).toHaveTextContent('Optics'));
+    expect(set).toHaveBeenLastCalledWith('3');
+    await waitFor(() => expect(calls.some((c) => c.method === 'PUT' && c.path === '/api/collections/current')).toBe(true));
+    // The main process says this window shows another (as a window opened from another starts on its collection).
+    act(() => { for (const listener of listeners) listener({ collection: '1', tabStrip: 0 }); });
+    await waitFor(() => expect(screen.getByTestId('shown')).toHaveTextContent('Your collection'));
+  });
 });
 
 describe('the words that name the collection shown, and count its papers', () => {

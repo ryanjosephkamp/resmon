@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ToggleEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type ToggleEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { engineSentence } from '../api/client';
@@ -16,6 +16,27 @@ function words(error: unknown): string {
 }
 
 /**
+ * The notice a move or a copy leaves, with its Undo, held by whatever outlives
+ * the controls that made it: Search holds it, so Done or Escape on the pick
+ * bar right after a move keeps the move's ten seconds of Undo.
+ */
+export function useChangeNotice(): { show: (done: PapersChanged, said: string) => void; notice: ReactNode } {
+  const client = useQueryClient();
+  const [held, setHeld] = useState<{ done: PapersChanged; said: string; key: number } | null>(null);
+  const keys = useRef(0);
+  const show = useCallback((done: PapersChanged, said: string) => {
+    keys.current += 1;
+    setHeld({ done, said, key: keys.current });
+  }, []);
+  const notice = held && (
+    <ChangeNotice key={held.key} done={held.done} said={held.said}
+      onGone={() => setHeld((n) => (n?.key === held.key ? null : n))}
+      onUndone={() => void afterPapersChanged(client)} />
+  );
+  return { show, notice };
+}
+
+/**
  * Move to and Copy to, for the papers `which` names in the collection `from`:
  * each opens a menu of the other collections. A copy adds the papers there and
  * every collection they were in keeps them; a move adds them there and takes
@@ -25,22 +46,24 @@ function words(error: unknown): string {
  * `canMove` is false where the papers are not in `from` (a paper opened from
  * another collection): only Copy is offered then.
  */
-export function MoveCopy({ which, from, count, canMove = true, skip = [], onDone, size = 'sm' }: {
+export function MoveCopy({ which, from, count, canMove = true, skip = [], onDone, onNotice, size = 'sm' }: {
   which: Which; from: number | null; count: number; canMove?: boolean;
   /** Collections not offered as a copy's target, because they hold the papers already. */
   skip?: readonly number[];
-  onDone?: (done: PapersChanged) => void; size?: 'sm' | 'md';
+  onDone?: (done: PapersChanged) => void;
+  /** Where the notice goes, when something that outlives these controls holds it (`useChangeNotice`). */
+  onNotice?: (done: PapersChanged, said: string) => void;
+  size?: 'sm' | 'md';
 }) {
   const current = useCollection();
   const client = useQueryClient();
-  const [notice, setNotice] = useState<{ done: PapersChanged; said: string; key: number } | null>(null);
-  const noticeKey = useRef(0);
+  const own = useChangeNotice();
+  const show = onNotice ?? own.show;
   const change = useMutation({
     mutationFn: ({ mode, target }: { mode: Mode; target: number }) => changePapers(mode, target, which, from),
     onSuccess: (done) => {
       const target = current.list.find((c) => c.id === done.collection_id)?.name ?? 'the collection';
-      noticeKey.current += 1;
-      setNotice({ done, said: changedWords(done, target), key: noticeKey.current });
+      show(done, changedWords(done, target));
       void afterPapersChanged(client);
       onDone?.(done);
     },
@@ -59,11 +82,7 @@ export function MoveCopy({ which, from, count, canMove = true, skip = [], onDone
           onChoose={(target) => change.mutate({ mode: 'copy', target })} />
       </span>
       {change.error && <p className="field-error" role="alert" data-collection="move-refused">{words(change.error)}</p>}
-      {notice && (
-        <ChangeNotice key={notice.key} done={notice.done} said={notice.said}
-          onGone={() => setNotice((n) => (n?.key === notice.key ? null : n))}
-          onUndone={() => void afterPapersChanged(client)} />
-      )}
+      {!onNotice && own.notice}
     </>
   );
 }

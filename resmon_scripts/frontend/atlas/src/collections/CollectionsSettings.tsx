@@ -5,7 +5,7 @@ import { answer, engine, engineSentence } from '../api/client';
 import { number } from '../screens/today/format';
 import { invalidateFor } from '../screens/today/freshness';
 import { invalidateCollections, useCollection, type CollectionSummary } from './current';
-import { papersWords } from './papers';
+import { afterPapersChanged, papersWords } from './papers';
 import './collections.css';
 
 function words(error: unknown): string {
@@ -111,7 +111,8 @@ function CollectionRow({ collection, shown, defaultName, onSay }: {
       if (gone.still_elsewhere) parts.push(`${papersWords(gone.still_elsewhere)} ${gone.still_elsewhere === 1 ? 'stays in the other collection it is' : 'stay in the other collections they are'} in.`);
       if (gone.watches_moved) parts.push(`${watchesWords(gone.watches_moved)} now put${gone.watches_moved === 1 ? 's' : ''} papers in ${defaultName}.`);
       onSay(parts.join(' '));
-      void invalidateCollections(client);
+      // Its papers kept in the default collection change that one's count, Search, Today, and map.
+      void afterPapersChanged(client);
       void invalidateFor(client, 'watch-changed');
     },
   });

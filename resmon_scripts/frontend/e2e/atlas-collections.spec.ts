@@ -252,10 +252,13 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect.poll(() => listed(win)).toEqual([...corpus].filter((id) => id !== first).sort((a, b) => a - b));
     const afterMove = await engine<{ collections: { id: number }[] }>(win, `/api/documents/${first}`);
     expect(afterMove.collections.map((c) => c.id)).toEqual([photonics]);
+    // Escape closes the pick bar right after the move, and the move's notice stays with its Undo.
+    await win.keyboard.press('Escape');
+    await expect(picking).toBeHidden();
+    await expect(moved).toBeVisible();
     await moved.getByRole('button', { name: 'Undo' }).click();
     await expect(moved).toBeHidden();
     await expect.poll(() => listed(win)).toEqual([...corpus].sort((a, b) => a - b));
-    await picking.getByRole('button', { name: 'Done' }).click();
 
     // — Copy one from its page ---------------------------------------------------
     const second = corpus[1]!;
@@ -305,8 +308,8 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await win.keyboard.press('Escape');
 
     // A long name gives way with the bar's other controls at every width the window takes.
-    await engine(win, '/api/collections/current', 'PUT', { collection: 'Fluid dynamics and turbulence' });
-    await win.reload();
+    await scope.click();
+    await win.getByRole('menu', { name: 'Collections' }).getByRole('menuitemradio', { name: /Fluid dynamics/ }).click();
     await expect(scope).toContainText('Fluid dynamics');
     for (const width of [960, 1000, 1100, 1199, 1200, 1240, 1279, 1360, 1361, 1439, 1440, 1600]) {
       await widen(app, win, width);

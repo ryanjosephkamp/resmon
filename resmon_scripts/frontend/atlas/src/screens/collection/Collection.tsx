@@ -25,7 +25,7 @@ import { ResultList, type Marks } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
 import { collectionParam, useCollection, useCollectionWords } from '../../collections/current';
-import { MoveCopy } from '../../collections/MoveCopy';
+import { MoveCopy, useChangeNotice } from '../../collections/MoveCopy';
 import { PickBar, usePicking } from '../../collections/PickBar';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
@@ -163,8 +163,10 @@ export function Collection() {
   const served = first ? (first.sort === 'similarity' ? 'similarity' : 'newest') : ranking;
   const scope: EngineFilters = useMemo(
     () => ({ ...engineFilters(filters, narrowingWords(query, served)), ...within }), [filters, query, served, within]);
-  // Papers picked to move or copy: by row, or every match of this search.
+  // Papers picked to move or copy: by row, or every match of this search. The
+  // notice a move leaves is held here, so closing the pick bar keeps its Undo.
   const pick = usePicking(JSON.stringify(scope));
+  const changed = useChangeNotice();
   const facets = useQuery({
     queryKey: ['explorer-facets', scope],
     enabled: menu !== null && menu !== 'published',
@@ -366,7 +368,8 @@ export function Collection() {
             <div className="collection-picking">
               <PickBar picking={pick.picking} total={first?.total_is_exact ? total : null} onAll={pick.pickAll} onDone={pick.done}>
                 <MoveCopy which={pick.picking.all ? { matching: scope } : { ids: [...pick.picking.picked] }}
-                  from={collection} count={pick.picking.all ? total : pick.picking.picked.size} onDone={pick.clear} />
+                  from={collection} count={pick.picking.all ? total : pick.picking.picked.size} onDone={pick.clear}
+                  onNotice={changed.show} />
               </PickBar>
             </div>
           )}
@@ -412,6 +415,7 @@ export function Collection() {
           />
         </div>
       </section>
+      {changed.notice}
     </div>
   );
 }
