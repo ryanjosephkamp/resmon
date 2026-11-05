@@ -613,14 +613,15 @@ def test_run_again_on_a_watchs_run_is_the_watchs_run_now_and_never_overlaps_it(c
     assert held == [(new_id, new_id)], "the run again did not hold its watch's claim"
 
 
-def test_a_restart_of_a_watchs_run_takes_the_watchs_claim(client, monkeypatch):
-    """Restart copies an interrupted watch's run, and takes the watch's claim as a fire does."""
+def test_a_restart_of_a_watchs_run_is_the_watchs_run_now(client, monkeypatch):
+    """Restart on an interrupted watch's run agrees with Run again: the watch's Run now, never beside it."""
     claims = resmon_mod.routine_claims
     held: list = []
     monkeypatch.setattr(resmon_mod.SweepEngine, "run_prepared",
                         lambda self, exec_id: held.append((exec_id, claims.holder(watch))))
-    watch = _watch(client, "then")
-    old = _row(client, "interrupted", execution_type="automated_sweep", routine_id=watch)
+    watch = _watch(client, "now")
+    old = _row(client, "interrupted", execution_type="automated_sweep", routine_id=watch,
+               parameters=json.dumps({"query": "then", "keywords": ["then"], "repositories": ["arxiv"]}))
     conn = resmon_mod._get_db()
 
     assert claims.try_claim(watch)
@@ -630,14 +631,16 @@ def test_a_restart_of_a_watchs_run_takes_the_watchs_claim(client, monkeypatch):
         assert refused.status_code == 409, refused.text
         assert refused.json()["detail"].startswith("This watch is already running as run 4343.")
         assert refused.headers["x-resmon-conflict"] == "routine_already_running"
-        assert conn.execute("SELECT COUNT(*) FROM executions WHERE restarted_from = ?", (old,)).fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM executions WHERE id > ?", (old,)).fetchone()[0] == 0
     finally:
         claims.release(watch)
 
     resp = client.post(f"/api/executions/{old}/restart")
     assert resp.status_code == 202, resp.text
     new_id = resp.json()["execution_id"]
-    assert resp.json()["restarted_from"] == old
+    assert resp.json()["restarted_from"] is None
+    new_row = dict(conn.execute("SELECT * FROM executions WHERE id = ?", (new_id,)).fetchone())
+    assert new_row["routine_id"] == watch and json.loads(new_row["parameters"])["query"] == "now"
     deadline = time.time() + 5
     while not held and time.time() < deadline:
         time.sleep(0.02)

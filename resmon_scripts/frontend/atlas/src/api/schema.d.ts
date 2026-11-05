@@ -1982,15 +1982,14 @@ export interface paths {
          *     (``_start_or_queue``) and its row is written only when it starts: the
          *     answer then carries no execution id, ``queued``, and its place.
          *
-         *     **A watch's run is never run alongside its watch.** Run again on a watch's
-         *     run is that watch's Run now (``run_routine_now``): the watch's claim, its
-         *     queue, a paused watch run once, and delivery as it is set, with the
-         *     watch's current search rather than the old run's copy, and refused with
-         *     the run that holds the watch when it is already running. The new run is
-         *     the watch's, so it is not linked back (``restarted_from`` is null). A
-         *     plain Restart of a watch's run copies the run, and takes the watch's claim
-         *     the way a fire does; one asked for while the watch is running is refused
-         *     (409), since two runs of one watch would both deliver and email.
+         *     **A watch's run is never run alongside its watch.** Restart or Run again
+         *     on a watch's run is that watch's Run now (``run_routine_now``): the
+         *     watch's claim, its queue, a paused watch run once, and delivery as it is
+         *     set, with the watch's current settings rather than the old run's copy,
+         *     and refused with the run that holds the watch when it is already running,
+         *     since two runs of one watch would both deliver and email. The new run is
+         *     the watch's, so it is not linked back (``restarted_from`` is null). A Deep
+         *     Dive's or Deep Sweep's run is copied, as below.
          */
         post: operations["restart_execution_api_executions__exec_id__restart_post"];
         delete?: never;
