@@ -24,8 +24,9 @@ import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { ATLAS_LANDMARK, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { ATLAS_LANDMARK, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { windowTitle } from '../atlas/src/windowTitle';
+import { cascade, type Rect } from '../electron/windows';
 
 const TITLE = 'Authored windows fixture on tidal dissipation';
 const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
@@ -47,6 +48,14 @@ function windowsOf(app: ElectronApplication) {
     // A window part way through closing is not counted.
     .filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed() && w.webContents.getURL().startsWith('http://127.0.0.1:'))
     .map((w) => ({ id: w.id, url: w.webContents.getURL(), title: w.getTitle(), bounds: w.getBounds() })));
+}
+
+/** Where a window is, the frame it would return to, and the work area of the screen it is on, as the main process has them. */
+function placeOf(app: ElectronApplication, id: number): Promise<{ at: Rect; normal: Rect; area: Rect }> {
+  return app.evaluate(({ BrowserWindow, screen }, which) => {
+    const window = BrowserWindow.fromId(which)!;
+    return { at: window.getBounds(), normal: window.getNormalBounds(), area: screen.getDisplayMatching(window.getBounds()).workArea };
+  }, id);
 }
 
 /** The BrowserWindow id behind a page. */
@@ -127,7 +136,7 @@ sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
 `);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  const env: Record<string, string> = atlasEnv(launchEnv(stateDir, true));
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
@@ -168,6 +177,30 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     expect(await engineAt(second)).toEqual(await engineAt(first));
     expect((await engineAt(first)).port).not.toBe('8742');
     expect((await windowsOf(app)).map((w) => w.id).sort()).toEqual([firstId, secondId].sort());
+    // Where it opened, by the app's rule (`cascade`): a step down and right of the first, or back at the corner of
+    // the work area when that step would leave it, as on a runner whose small screen the first window already fills.
+    const firstPlace = await placeOf(app, firstId);
+    const stepped = cascade(firstPlace.normal, firstPlace.area);
+    const secondPlace = await placeOf(app, secondId);
+    expect({ x: secondPlace.at.x, y: secondPlace.at.y }).toEqual({ x: stepped.x, y: stepped.y });
+    const roomToStep = stepped.x !== firstPlace.normal.x || stepped.y !== firstPlace.normal.y;
+    console.log('WINDOWS PLACED', JSON.stringify({ first: firstPlace, second: secondPlace.at, roomToStep }));
+    // And from a window that fills its screen, wherever this run's screen is: no room, so the corner.
+    await app.evaluate(({ BrowserWindow }, [id, area]) => {
+      BrowserWindow.fromId(id as number)!.setBounds({ ...(area as Rect), height: (area as Rect).height - 10 });
+    }, [secondId, secondPlace.area] as const);
+    const filling = await placeOf(app, secondId);
+    const cornered = cascade(filling.normal, filling.area);
+    expect({ x: cornered.x, y: cornered.y }).toEqual({ x: filling.area.x, y: filling.area.y });
+    const fromFull = app.waitForEvent('window');
+    await clickMenu(app, 'file-new-window', secondId);
+    const third = await fromFull;
+    await third.locator(ATLAS_LANDMARK).waitFor({ timeout: 60_000 });
+    const thirdPlace = await placeOf(app, await idOf(app, third));
+    expect({ x: thirdPlace.at.x, y: thirdPlace.at.y }).toEqual({ x: cornered.x, y: cornered.y });
+    await third.close();
+    await app.evaluate(({ BrowserWindow }, [id, at]) => BrowserWindow.fromId(id as number)!.setBounds(at as Rect), [secondId, secondPlace.at] as const);
+    await expect.poll(async () => (await windowsOf(app)).length).toBe(2);
     // Each window is named by its page, which is what tabs and the Window menu show.
     await expect.poll(() => second.evaluate(() => document.title)).toBe(titled('/today'));
     // The file menu says the same keys.
@@ -362,9 +395,9 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       expect(await strip(first)).toBeNull();
       expect(await menuLabel(app, 'window-tab-bar')).toBe('Show Tab Bar');
       await first.evaluate(() => { window.location.hash = '#/today'; });
-      // Two windows of their own: the second opened a step down and right of the first.
+      // Two windows of their own, apart where the screen had room for the step (the same frame where it had none).
       const apart = await windowsOf(app);
-      expect(apart[0]!.bounds).not.toEqual(apart[1]!.bounds);
+      if (roomToStep) expect(apart[0]!.bounds).not.toEqual(apart[1]!.bounds);
       await clickMenu(app, 'window-merge', firstId);
       // In one window's tabs, macOS gives every tab the group's frame.
       await expect.poll(async () => new Set((await windowsOf(app)).map((w) => JSON.stringify(w.bounds))).size).toBe(1);
