@@ -32,7 +32,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
-from . import fulltext_download, library, open_access
+from . import fulltext_download, library, open_access, runtime_identity
 from .api_base import RateLimiter, reset_search_outcome, safe_request
 
 logger = logging.getLogger(__name__)
@@ -43,7 +43,9 @@ HOST_INTERVAL_SECONDS = 3.0
 #: How many downloads run at once, each from a different host.
 MAX_PARALLEL = 3
 #: A row left ``downloading`` this long belongs to an engine that stopped; it
-#: no longer holds its host, and the paper can be asked for again.
+#: no longer holds its host, and the paper can be asked for again. An engine
+#: that starts reads a row whose engine is gone as interrupted at once
+#: (``adopt_interrupted``); this is for one it cannot tell is gone.
 STALE_SECONDS = 600
 #: Tries at the Library's import while another import holds its lock.
 _IMPORT_TRIES = 20
@@ -294,6 +296,60 @@ def for_execution(conn: sqlite3.Connection, execution_id: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Downloads an engine that stopped left behind
+# ---------------------------------------------------------------------------
+
+
+def claimant() -> str:
+    """Who claims a download: this process's pid and the engine's runtime id, as ``<pid>:<runtime id>``."""
+    return f"{os.getpid()}:{runtime_identity.current_runtime_id()}"
+
+
+def _claimant_is_gone(claimed_by: object) -> bool:
+    """Whether the engine that claimed a download can be established to be gone.
+
+    The rule startup reconciliation keeps for runs (``resmon._running_row_is_orphaned``):
+    this engine's own claim is not gone, and a pid that answers is taken as alive,
+    because another engine on the same database may be downloading it; a
+    reused pid then leaves the row to ``STALE_SECONDS``. No claim recorded at
+    all is gone: a row is claimed as it starts downloading.
+    """
+    text = str(claimed_by or "")
+    if not text:
+        return True
+    pid_text, _, runtime = text.partition(":")
+    if runtime and runtime == runtime_identity.current_runtime_id():
+        return False
+    try:
+        pid = int(pid_text)
+    except ValueError:
+        return True
+    return not runtime_identity.process_is_alive(pid)
+
+
+def adopt_interrupted(conn: sqlite3.Connection) -> int:
+    """At an engine's start: every download whose engine is gone is failed as ``interrupted``.
+
+    So a PDF that stopped when resmon quit says so on its paper and its run's
+    page from the start, rather than "Getting the PDF" until ``STALE_SECONDS``
+    pass, and the paper can be asked for again. Returns how many were.
+    """
+    adopted = 0
+    for row in conn.execute(
+            "SELECT id, claimed_by FROM full_text_downloads WHERE state = 'downloading'").fetchall():
+        if not _claimant_is_gone(row["claimed_by"]):
+            continue
+        cursor = conn.execute(
+            "UPDATE full_text_downloads SET state = 'failed', reason = 'interrupted', finished_at_utc = ? "
+            "WHERE id = ? AND state = 'downloading'", (utc_now(), row["id"]))
+        adopted += cursor.rowcount
+    conn.commit()
+    if adopted:
+        logger.info("%d PDF download(s) a stopped engine left were recorded as interrupted", adopted)
+    return adopted
+
+
+# ---------------------------------------------------------------------------
 # arXiv's license, read when its PDF is asked for
 # ---------------------------------------------------------------------------
 
@@ -358,7 +414,6 @@ class Worker:
         self._active: dict[int, threading.Thread] = {}
         self._limiters: dict[str, RateLimiter] = {}
         self._connect: Callable[[], sqlite3.Connection] | None = None
-        self._me = f"{os.getpid()}"
 
     def configure(self, connect: Callable[[], sqlite3.Connection]) -> None:
         """Where the worker gets a database connection from: one per thread it runs."""
@@ -406,7 +461,7 @@ class Worker:
                 "UPDATE full_text_downloads SET state = 'downloading', started_at_utc = ?, claimed_by = ? "
                 "WHERE id = ? AND state = 'waiting' AND NOT EXISTS (SELECT 1 FROM full_text_downloads o "
                 "WHERE o.host = ? AND o.state = 'downloading' AND o.started_at_utc >= ?)",
-                (utc_now(), self._me, row["id"], row["host"], stale))
+                (utc_now(), claimant(), row["id"], row["host"], stale))
             conn.commit()
             if cursor.rowcount == 1:
                 return dict(conn.execute("SELECT * FROM full_text_downloads WHERE id = ?", (row["id"],)).fetchone())

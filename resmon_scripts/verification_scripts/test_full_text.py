@@ -6,9 +6,13 @@ as ``test_fulltext_download.py`` is. Every paper and every copy is authored.
 from __future__ import annotations
 
 import http.server
+import os
 import socket
+import subprocess
+import sys
 import threading
 import time
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -223,6 +227,69 @@ def test_a_stale_download_is_read_as_interrupted_and_can_be_asked_again(db, serv
     assert asked["state"] == "waiting"
     _settle(db)
     assert _row(db, asked["id"])["state"] == "stored"
+
+
+def _ended_pid() -> int:
+    """The pid of a process that has run and exited."""
+    proc = subprocess.Popen([sys.executable, "-c", "pass"])
+    proc.wait()
+    return proc.pid
+
+
+def _downloading(conn, paper: int, url: str, claimed_by: str) -> int:
+    now = datetime.now(timezone.utc).isoformat()
+    cursor = conn.execute(
+        "INSERT INTO full_text_downloads (document_id, requested_by, state, url, host, license, "
+        "requested_at_utc, started_at_utc, claimed_by) VALUES (?, 'person', 'downloading', ?, 'pdf.resmon.test', "
+        "'cc-by', ?, ?, ?)", (paper, url, now, now, claimed_by))
+    conn.commit()
+    return int(cursor.lastrowid)
+
+
+def test_a_download_a_stopped_engine_left_is_interrupted_when_the_next_one_starts(db, server, monkeypatch):
+    """A row a quit engine left ``downloading`` read "Getting the PDF" for ten minutes after a restart."""
+    import resmon as resmon_mod
+
+    _serve(server, "/b.pdf")
+    left = _paper(db, 21, url=server.url("/left.pdf"))
+    elsewhere = _paper(db, 22, url=server.url("/elsewhere.pdf"))
+    # On another host: the live claim holds pdf.resmon.test, one download at a time.
+    waiting = _paper(db, 23, url=server.url("/b.pdf", "mirror.resmon.test"))
+    stopped = _downloading(db, left, server.url("/left.pdf"), f"{_ended_pid()}:{uuid.uuid4()}")
+    # Claimed by a live process: another engine on this database may be downloading it.
+    other = _downloading(db, elsewhere, server.url("/elsewhere.pdf"), f"{os.getppid()}:{uuid.uuid4()}")
+    asked = full_text.request(db, waiting, wake=False)
+    assert full_text.status_for(db, [left])[0]["download"]["state"] == "downloading"
+
+    path = db.execute("PRAGMA database_list").fetchone()[2]
+    monkeypatch.setattr(resmon_mod, "_get_db", lambda: db)
+    monkeypatch.setattr(resmon_mod, "_open_connection", lambda: database.get_connection(path))
+    resmon_mod._init_full_text_on_startup()
+
+    row = _row(db, stopped)
+    assert (row["state"], row["reason"]) == ("failed", "interrupted") and row["finished_at_utc"]
+    said = full_text.status_for(db, [left])[0]["download"]
+    assert said["words"] == "The engine stopped while this PDF was downloading."
+    assert _row(db, other)["state"] == "downloading"
+    # The worker was woken for what was waiting from before.
+    end = time.monotonic() + 20
+    while _row(db, asked["id"])["state"] in ("waiting", "downloading") and time.monotonic() < end:
+        time.sleep(0.05)
+    assert _row(db, asked["id"])["state"] == "stored"
+    # Asked again, the interrupted paper waits its turn rather than reading as still downloading.
+    again = full_text.request(db, left, wake=False)
+    assert again["state"] == "waiting" and again["id"] != stopped
+    db.execute("DELETE FROM full_text_downloads WHERE id IN (?, ?)", (other, again["id"]))
+    db.commit()
+
+
+def test_this_engines_own_download_is_left_downloading(db, server):
+    paper = _paper(db, 24, url=server.url("/mine.pdf"))
+    mine = _downloading(db, paper, server.url("/mine.pdf"), full_text.claimant())
+    assert full_text.adopt_interrupted(db) == 0
+    assert _row(db, mine)["state"] == "downloading"
+    db.execute("DELETE FROM full_text_downloads WHERE id = ?", (mine,))
+    db.commit()
 
 
 @pytest.mark.parametrize("route, reason", [

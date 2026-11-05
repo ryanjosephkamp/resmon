@@ -158,10 +158,12 @@ def _ensure_clients_loaded_on_startup() -> None:
 
 
 def _init_full_text_on_startup() -> None:
-    """Give the PDF worker its connections, and start it if requests are waiting from before."""
+    """Give the PDF worker its connections, record downloads a stopped engine left as interrupted,
+    and start the worker if requests are waiting from before."""
     try:
         full_text.worker.configure(_open_connection)
         conn = _get_db()
+        full_text.adopt_interrupted(conn)
         if conn.execute("SELECT 1 FROM full_text_downloads WHERE state = 'waiting' LIMIT 1").fetchone():
             full_text.worker.wake()
     except Exception:
