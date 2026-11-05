@@ -5,7 +5,8 @@
  * window here is a plain object; nothing is opened.
  */
 import {
-  RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, routeOf, tabStripHeight, type WindowLike,
+  RUNS_CHANGED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayRunsChanged, routeOf, tabStripHeight,
+  type WindowLike,
 } from '../electron/windows';
 
 /** A window as the set sees one: an id, its web contents and their top frame, and whether it is closed. */
@@ -153,6 +154,36 @@ describe('the window something without a window goes to', () => {
     expect(owners.ownerOf(1)).toBeNull();
     expect(owners.ownerOf(4)).toBe(14);
     expect(owners.ownerOf(null)).toBeNull();
+  });
+});
+
+describe('a change to the runs in one window reaches the others at once', () => {
+  /** A window that records what it is sent. */
+  function sending() {
+    const window = { ...fakeWindow(), sent: [] as string[] };
+    const contents = { mainFrame: {}, send: (channel: string) => { window.sent.push(channel); } };
+    return Object.assign(window, { webContents: contents, isDestroyed: () => window.closed });
+  }
+
+  test('every other open window is told, and the one that changed them is not', () => {
+    const set = new WindowSet<ReturnType<typeof sending>>();
+    const [first, second, third] = [sending(), sending(), sending()];
+    for (const window of [first, second, third]) set.add(window);
+    expect(relayRunsChanged(set, first)).toEqual([second, third]);
+    expect([first.sent, second.sent, third.sent]).toEqual([[], [RUNS_CHANGED], [RUNS_CHANGED]]);
+    // A closed window is told nothing.
+    third.closed = true;
+    relayRunsChanged(set, second);
+    expect([first.sent, second.sent, third.sent]).toEqual([[RUNS_CHANGED], [RUNS_CHANGED], [RUNS_CHANGED]]);
+  });
+
+  test('a message from no window of the set, or from none, tells nobody', () => {
+    const set = new WindowSet<ReturnType<typeof sending>>();
+    const [first, outside] = [sending(), sending()];
+    set.add(first);
+    expect(relayRunsChanged(set, null)).toEqual([]);
+    expect(relayRunsChanged(set, outside)).toEqual([]);
+    expect(first.sent).toEqual([]);
   });
 });
 

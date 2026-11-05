@@ -34,6 +34,10 @@ export interface ResmonBridge {
   runStarted?: (executionId: number) => void;
   /** A run this window asked for that waits in the queue: by its ticket, or by its watch for a watch's Run now. */
   runQueued?: (what: { ticket?: string; routineId?: number }) => void;
+  /** This window changed the runs going now: it saw the failed ones, or stopped, started, or dequeued one. */
+  runsChanged?: () => void;
+  /** Another window changed the runs going now; returns the way to stop listening. */
+  onRunsChanged?: (callback: () => void) => () => void;
   /** The theme the app shows, which the system's own parts of a window (its tab bar, its dialogs) then follow. */
   setThemeSource?: (theme: 'system' | 'light' | 'dark') => void;
 }

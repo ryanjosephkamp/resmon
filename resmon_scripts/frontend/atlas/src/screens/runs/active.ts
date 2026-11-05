@@ -5,8 +5,9 @@
  * screen that shows them, so two of them on screen cost one request.
  */
 import { useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
+import { bridge } from '../../bridge';
 import type { components } from '../../api/schema';
 import { liveStage, secondsSince } from './live';
 import { liveSources, runKind, type LiveSource, type ProgressEvent } from './model';
@@ -22,7 +23,37 @@ export const ACTIVE_KEY = ['runs', 'active'] as const;
 export const ACTIVE_BUSY_MS = 2_000;
 export const ACTIVE_IDLE_MS = 15_000;
 
+/**
+ * Another window saw the failed runs, or stopped, started, or dequeued one
+ * (`client.ts`, `CHANGES_THE_RUNS`): read the runs going now at once, so the
+ * run monitor's mark and the lists change in every window together. One
+ * listener for the window, however many screens show the runs, and none while
+ * no screen does: the next one to show them reads them anyway.
+ */
+let following: { client: QueryClient; readers: number; stop: () => void } | null = null;
+
+function useFollowOtherWindows(): void {
+  const client = useQueryClient();
+  useEffect(() => {
+    if (following?.client !== client) {
+      following?.stop();
+      const stop = bridge()?.onRunsChanged?.(() => { void client.invalidateQueries({ queryKey: ACTIVE_KEY }); }) ?? (() => {});
+      following = { client, readers: 0, stop };
+    }
+    const mine = following;
+    mine.readers += 1;
+    return () => {
+      mine.readers -= 1;
+      if (mine.readers === 0 && following === mine) {
+        mine.stop();
+        following = null;
+      }
+    };
+  }, [client]);
+}
+
 export function useActiveRuns() {
+  useFollowOtherWindows();
   return useQuery({
     queryKey: ACTIVE_KEY,
     queryFn: () => answer(engine().GET('/api/executions/active')),
