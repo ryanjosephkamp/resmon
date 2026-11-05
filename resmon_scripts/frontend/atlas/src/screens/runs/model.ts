@@ -46,6 +46,20 @@ export interface ProgressEvent {
   elapsed?: number;
   new_count?: number;
   timestamp?: string;
+  /** `query_progress`: `search_start`, `searching` (the heartbeat), or `search_done`. */
+  phase?: string;
+  /** The heartbeat's account of the search so far (`SearchOutcome.live`). */
+  requests?: number;
+  retries?: number;
+  waiting?: { kind?: string; seconds?: number } | null;
+  /** `link_progress` and the embedding's `ai_progress`. */
+  processed?: number;
+  /** `ai_progress` while summarizing. */
+  completed?: number;
+  total?: number;
+  model?: string;
+  /** When this page received the event (`Date.now()`), set by the page and never by the engine. */
+  received?: number;
 }
 
 /** The events after which the engine emits nothing more for a run. */
@@ -74,6 +88,41 @@ export interface LiveSource {
   readInPart?: boolean;
   /** The engine's own sentence for a zero, or the error; empty when there is none. */
   note: string;
+  /** While it is being asked, what the engine's latest word about the search said. */
+  activity?: SourceActivity;
+}
+
+/**
+ * A source being asked, as the engine's latest event about it says: its
+ * heartbeat (`query_progress`, phase `searching`) every two seconds, or the
+ * start of its search before the first one.
+ */
+export interface SourceActivity {
+  /** Seconds since the source was first asked, as the heartbeat measured them; null before the first. */
+  elapsed: number | null;
+  /** Requests sent so far, and how many were asked again after a failure. */
+  requests: number | null;
+  retries: number | null;
+  /** What the search is waiting for, and the seconds left when the heartbeat was sent. */
+  waiting: { kind: string; seconds: number } | null;
+  /** When the engine last said anything about this source. */
+  at: string | null;
+  /** When this page received that word, if it noted it. */
+  received: number | null;
+}
+
+function activityOf(event: ProgressEvent): SourceActivity {
+  const whole = (n: unknown) => (typeof n === 'number' && Number.isFinite(n) && n >= 0 ? n : null);
+  const wait = event.waiting && typeof event.waiting.kind === 'string' && whole(event.waiting.seconds) !== null
+    ? { kind: event.waiting.kind, seconds: event.waiting.seconds as number } : null;
+  return {
+    elapsed: whole(event.elapsed),
+    requests: whole(event.requests),
+    retries: whole(event.retries),
+    waiting: wait,
+    at: event.timestamp ?? null,
+    received: typeof event.received === 'number' ? event.received : null,
+  };
 }
 
 /**
@@ -156,6 +205,15 @@ export function liveSources(selected: readonly string[], events: readonly Progre
     switch (event.type) {
       case 'repo_start':
         source.state = 'asking';
+        source.activity = activityOf({ ...event, elapsed: undefined });
+        break;
+      case 'query_progress':
+        // The heartbeat, and the start of the search, say what an asked source is doing; once it has
+        // answered they say nothing more about it.
+        if (source.state === 'asking' && (event.phase === 'searching' || event.phase === 'search_start')) {
+          source.activity = event.phase === 'searching'
+            ? activityOf(event) : { ...(source.activity ?? activityOf(event)), at: event.timestamp ?? null, received: event.received ?? null };
+        }
         break;
       case 'repo_done': {
         const outcome = outcomeOf(event.result_count, event.zero_reason);
@@ -202,6 +260,9 @@ export function liveSources(selected: readonly string[], events: readonly Progre
           : 'The run kept no events for this source, so what it did is not recorded here.';
       }
     }
+  }
+  for (const source of bySlug.values()) {
+    if (source.state !== 'asking') delete source.activity;
   }
   return order.map((slug) => bySlug.get(slug) as LiveSource);
 }

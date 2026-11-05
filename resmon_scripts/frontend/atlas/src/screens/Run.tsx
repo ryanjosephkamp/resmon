@@ -25,6 +25,9 @@ import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
 import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
 import { commandEnter } from '../shell/shortcuts';
+import { useMinute } from '../lib/useMinute';
+import { useNow } from '../lib/useNow';
+import { elapsedWords, liveStage, secondsSince, sourcesFinished } from './runs/live';
 
 /** How many of a run's papers are read for the sky; a sweep can store thousands. */
 const SKY_LIMIT = 2_000;
@@ -50,7 +53,9 @@ function OutcomeMark({ category, inPart }: { category: string; inPart: boolean }
  * log, metadata, progress).
  *
  * While the run is running the sources are the live panel, read from the
- * run's progress events every second. Once it has settled they are the
+ * run's progress events every second (only the events not yet read), under
+ * the stage the run is at and a bar of the sources that have finished, with
+ * the run's clock ticking in its heading. Once it has settled they are the
  * recorded coverage the engine builds from the saved per-source rows, led by
  * its one-sentence summary; the live panel stays in the Progress tab, so the
  * two accounts can be compared rather than one drawn from the other.
@@ -81,12 +86,48 @@ function RunSummaryNote({ run, events }: { run: RunData; events: ProgressEvent[]
   );
 }
 
+/** How long a running run has run, by the page's clock from its recorded start, ticking each second. */
+function RunClock({ start }: { start: string | null | undefined }) {
+  const now = useNow(1_000, true);
+  const seconds = secondsSince(start, now);
+  if (seconds === null) return null;
+  return <span className="run-clock num" data-run="clock">for {elapsedWords(seconds)}</span>;
+}
+
+/**
+ * Where a running run is: its stage in words, with what the stage counts, and
+ * a bar of how many of its sources have finished being asked, whatever each
+ * answered. A run that asks no source (a person watch checking retractions)
+ * has no bar.
+ */
+function RunProgress({ stage, count, finished, total }: { stage: string; count: string | null; finished: number; total: number }) {
+  return (
+    <div className="run-progress" data-run="progress">
+      <p className="coverage-sentence run-stage">
+        <span data-run="stage">{stage}</span>
+        {count && <span className="run-stage-count num"> · {count}</span>}
+      </p>
+      {total > 0 && (
+        <p className="run-finished num" data-run="finished">
+          {finished} of {total} {total === 1 ? 'source' : 'sources'} finished
+        </p>
+      )}
+      {total > 0 && (
+        <div className="run-meter" role="progressbar" aria-label="Sources finished" aria-valuemin={0} aria-valuemax={total}
+          aria-valuenow={finished} aria-valuetext={`${finished} of ${total} finished`}>
+          <span style={{ width: `${(finished / total) * 100}%` }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function Run() {
   const { id: raw } = useParams();
   const id = Number(raw);
   const navigate = useNavigate();
   const client = useQueryClient();
-  const [now] = useState(() => new Date());
+  const now = useMinute();
   const [tab, setTab] = useState<Tab>('Papers');
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
   const openMap = () => {
@@ -110,9 +151,18 @@ export function Run() {
   const events = useQuery({
     queryKey: ['run-events', id, settledAt],
     enabled: run.isSuccess,
-    queryFn: async () => (await answer(engine().GET('/api/executions/{exec_id}/progress/events', {
-      params: { path: { exec_id: id } },
-    }))) as unknown as ProgressEvent[],
+    // While the run runs its events only grow, so each read asks for the ones after those already
+    // held; a sweep's heartbeat adds one every two seconds for each source still being asked. Once it
+    // has settled the key changes, and the whole list is read once more.
+    queryFn: async ({ queryKey }) => {
+      const held = running ? client.getQueryData<ProgressEvent[]>(queryKey) ?? [] : [];
+      const fresh = (await answer(engine().GET('/api/executions/{exec_id}/progress/events', {
+        params: { path: { exec_id: id }, query: { since: held.length } },
+      }))) as unknown as ProgressEvent[];
+      // When each arrived, so a source's time moves on from it until the next heartbeat (`runs/live.ts`).
+      const received = Date.now();
+      return fresh.length ? [...held, ...fresh.map((event) => ({ ...event, received }))] : held;
+    },
     refetchInterval: (query) => {
       const list = query.state.data;
       return running && !(list ?? []).some((event) => FINAL_EVENTS.has(event.type)) ? 1_000 : false;
@@ -208,6 +258,7 @@ export function Run() {
   const [opened, setOpened] = useState<{ runId: number; choice: SkyChoice } | null>(null);
   const onMap = opened?.runId === id ? opened.choice : null;
   const sky = useRef<PaperSkyHandle>(null);
+  const stage = useMemo(() => liveStage(events.data ?? []), [events.data]);
 
   if (run.isPending) return <div className="page"><p className="page-lede">Reading run {raw}.</p></div>;
   if (run.isError || !run.data) {
@@ -300,6 +351,7 @@ export function Run() {
           <span className="run-status" data-status={data.status}>
             {running && <i className="live-dot" aria-hidden="true" />}
             {data.status}
+            {running && <RunClock start={data.start_time} />}
           </span>
           {data.restarted_from && (
             <><span className="sep" /><Link to={`/runs/${data.restarted_from}`}>restarted from run {data.restarted_from}</Link></>
@@ -389,9 +441,7 @@ export function Run() {
         <section className="run-sources" aria-label="Sources" hidden={onMap !== null}>
           {running ? (
             <>
-              <p className="coverage-sentence">
-                Asking {live.length} {live.length === 1 ? 'source' : 'sources'}; each line changes as its answer arrives.
-              </p>
+              <RunProgress stage={stage.words} count={stage.count} finished={sourcesFinished(live)} total={live.length} />
               <LivePanel sources={live} names={names} />
             </>
           ) : (
