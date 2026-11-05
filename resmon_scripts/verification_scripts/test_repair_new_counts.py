@@ -7,11 +7,12 @@ Before November 5, 2026, a run linked the papers it stored on the day it started
 engine compares them as times now; the first start of a build with the recount
 works out once which papers were new to each earlier run. These hold it to that:
 
-* a database written the old way gets the flags and counts the rule gives, and
-  so does one the old engine itself wrote;
+* a database written the old way gets the flags the rule gives, and so does one
+  the old engine itself wrote, and no run's ``new_result_count`` changes;
 * of two overlapping runs that linked a paper, the earlier-starting one gets it;
 * the marker stops a second pass, and a settings reset keeps the marker;
-* a run's ``dedup_new`` that disagrees with the recount is kept, and logged;
+* a run whose recounted flags disagree with its ``new_result_count`` is logged,
+  one line per run up to a cap and then a count, and its count is left alone;
 * a run with no end takes its last heartbeat as its end, and one with neither is
   left as it was and counted;
 * a fresh install records the marker and recounts nothing;
@@ -109,7 +110,7 @@ def _count(conn: sqlite3.Connection, run: int) -> int | None:
 
 def _recount_lines(caplog) -> list[str]:
     return [r.getMessage() for r in caplog.records
-            if r.name == LOGGER and r.getMessage().startswith("Recounted the new papers")]
+            if r.name == LOGGER and r.getMessage().startswith("Recounted which papers were new")]
 
 
 # ---------------------------------------------------------------------------
@@ -117,21 +118,21 @@ def _recount_lines(caplog) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_a_database_written_the_old_way_gets_the_flags_and_counts_the_rule_gives(db, caplog):
+def test_a_database_written_the_old_way_gets_the_flags_the_rule_gives(db, caplog):
     path, conn = db
     # A run that stored two papers the day it started: both linked as not new.
-    a = _run(conn, "2026-11-01T10:00:00Z", "2026-11-01T10:05:00Z")
+    a = _run(conn, "2026-11-01T10:00:00Z", "2026-11-01T10:05:00Z", new_result_count=2, dedup_new=2)
     p1 = _paper(conn, 1, "2026-11-01 10:01:00")
     p2 = _paper(conn, 2, "2026-11-01 10:05:00")      # the run's last second: the window holds it
     _link(conn, a, p1)
     _link(conn, a, p2)
     # A later run that found one of them again and stored one more.
-    b = _run(conn, "2026-11-02T09:00:00Z", "2026-11-02T09:03:00Z", dedup_new=1)
+    b = _run(conn, "2026-11-02T09:00:00Z", "2026-11-02T09:03:00Z", new_result_count=1, dedup_new=1)
     p3 = _paper(conn, 3, "2026-11-02 09:01:30")
     _link(conn, b, p1)
     _link(conn, b, p3)
     # A run across midnight UTC: the paper stored after midnight was already marked new.
-    c = _run(conn, "2026-11-03T23:59:00Z", "2026-11-04T00:01:00Z", dedup_new=2)
+    c = _run(conn, "2026-11-03T23:59:00Z", "2026-11-04T00:01:00Z", new_result_count=2, dedup_new=2)
     p4 = _paper(conn, 4, "2026-11-03 23:59:30")
     p5 = _paper(conn, 5, "2026-11-04 00:00:30")
     _link(conn, c, p4)
@@ -143,14 +144,14 @@ def test_a_database_written_the_old_way_gets_the_flags_and_counts_the_rule_gives
     assert _flags(conn, a) == {p1: 1, p2: 1}
     assert _flags(conn, b) == {p1: 0, p3: 1}
     assert _flags(conn, c) == {p4: 1, p5: 1}
-    # No dedup_new on the first run: its count is the recount. The others keep their dedup_new.
+    # The counts were taken as the papers were stored, and are left as they were.
     assert (_count(conn, a), _count(conn, b), _count(conn, c)) == (2, 1, 2)
     assert conn.execute(
         "SELECT value FROM app_settings WHERE key = ?", (RUN_NEW_PAPERS_RECOUNTED_KEY,)).fetchone()[0] == "1"
     [line] = _recount_lines(caplog)
-    assert ("3 run(s) corrected; 4 paper(s) newly marked new to a run, and 0 no longer new to one; "
-            "0 run(s) whose dedup_new differs from the recount kept their dedup_new; "
-            "0 run(s) with no end time left as they were.") in line
+    assert ("3 run(s) with links corrected; 4 link(s) newly marked new, and 0 no longer new; "
+            "0 run(s) with no end time left as they were; 0 run(s) whose new papers by the recount "
+            "differ from their new-paper count, which was left as it was.") in line
 
 
 def test_the_papers_the_old_engine_stored_are_new_to_the_run_that_stored_them(db, monkeypatch, tmp_path):
@@ -176,6 +177,7 @@ def test_the_papers_the_old_engine_stored_are_new_to_the_run_that_stored_them(db
     progress_store.register(run)
     engine.run_prepared(run)
     assert set(_flags(conn, run).values()) == {0}, "the old comparison is not what this run recorded"
+    assert _count(conn, run) == 2, "the old engine's count was already right"
 
     _start(path, conn)
     assert set(_flags(conn, run).values()) == {1}
@@ -202,7 +204,7 @@ def test_of_two_overlapping_runs_that_linked_a_paper_the_earlier_starting_one_ge
 
     assert _flags(conn, early) == {both: 1, after_early: 0}
     assert _flags(conn, late) == {both: 0, after_early: 1}
-    assert (_count(conn, early), _count(conn, late)) == (1, 1)
+    assert (_count(conn, early), _count(conn, late)) == (None, None), "a count is never written"
     assert (_flags(conn, first), _flags(conn, second)) == ({tied: 1}, {tied: 0})
     assert [tuple(r) for r in conn.execute(
         "SELECT document_id, SUM(is_new) FROM execution_documents GROUP BY document_id ORDER BY 1")] == [
@@ -215,13 +217,12 @@ def test_the_marker_stops_a_second_pass(db, caplog):
     paper = _paper(conn, 1, "2026-11-01 10:01:00")
     _link(conn, run, paper)
     _start(path, conn)
-    assert _flags(conn, run) == {paper: 1} and _count(conn, run) == 1
+    assert _flags(conn, run) == {paper: 1}
 
     conn.execute("UPDATE execution_documents SET is_new = 0")
-    conn.execute("UPDATE executions SET new_result_count = 7")
     with caplog.at_level(logging.INFO, logger=LOGGER):
         _start(path, conn)
-    assert _flags(conn, run) == {paper: 0} and _count(conn, run) == 7
+    assert _flags(conn, run) == {paper: 0}
     assert not _recount_lines(caplog)
 
 
@@ -238,23 +239,55 @@ def test_a_settings_reset_keeps_the_marker(db):
         database.KEPT_THROUGH_SETTINGS_RESET)
 
 
-def test_a_dedup_new_that_disagrees_with_the_recount_is_kept_and_logged(db, caplog):
+def _disagreement_lines(caplog) -> list[str]:
+    return [r.getMessage() for r in caplog.records
+            if r.name == LOGGER and (r.getMessage().startswith("Run ") or " more run(s) " in r.getMessage())]
+
+
+def test_a_count_the_recounted_flags_disagree_with_is_logged_and_left_alone(db, caplog):
     path, conn = db
     # Three papers counted as new when the run stored them, and two of its links
     # that the recount finds new.
-    run = _run(conn, "2026-11-01T10:00:00Z", "2026-11-01T10:05:00Z", new_result_count=0, dedup_new=3)
+    run = _run(conn, "2026-11-01T10:00:00Z", "2026-11-01T10:05:00Z", new_result_count=3, dedup_new=3)
     for n in (1, 2):
         _link(conn, run, _paper(conn, n, "2026-11-01 10:02:00"))
+    # A run whose count agrees with its flags, and one with no count at all, say nothing.
+    agrees = _run(conn, "2026-11-02T10:00:00Z", "2026-11-02T10:05:00Z", new_result_count=1)
+    _link(conn, agrees, _paper(conn, 3, "2026-11-02 10:01:00"))
+    uncounted = _run(conn, "2026-11-03T10:00:00Z", "2026-11-03T10:05:00Z", new_result_count=None)
+    _link(conn, uncounted, _paper(conn, 4, "2026-11-03 10:01:00"))
     with caplog.at_level(logging.INFO, logger=LOGGER):
         _start(path, conn)
 
-    assert _count(conn, run) == 3
     assert set(_flags(conn, run).values()) == {1}
-    kept = [r.getMessage() for r in caplog.records if r.name == LOGGER and r.getMessage().startswith("Run ")]
-    assert kept == [f"Run {run} keeps 3 new paper(s), its dedup_new, counted as it stored them; "
-                    "the recount from when each paper was first stored gives 2."]
+    assert (_count(conn, run), _count(conn, agrees), _count(conn, uncounted)) == (3, 1, None)
+    assert _disagreement_lines(caplog) == [
+        f"Run {run}: 2 of its papers are new to it by the recount, and its new-paper count, "
+        "left as it was, is 3."]
     [line] = _recount_lines(caplog)
-    assert "1 run(s) whose dedup_new differs from the recount kept their dedup_new" in line
+    assert ("1 run(s) whose new papers by the recount differ from their new-paper count, "
+            "which was left as it was.") in line
+
+
+def test_the_disagreements_are_named_up_to_a_cap_and_the_rest_counted(db, caplog):
+    path, conn = db
+    cap = database._DISAGREEMENTS_LOGGED
+    runs = []
+    for n in range(cap + 5):
+        run = _run(conn, f"2026-11-01T10:{n:02d}:00Z", f"2026-11-01T10:{n:02d}:30Z", new_result_count=0)
+        _link(conn, run, _paper(conn, n, f"2026-11-01 10:{n:02d}:10"))
+        runs.append(run)
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        _start(path, conn)
+
+    lines = _disagreement_lines(caplog)
+    assert lines[:cap] == [
+        f"Run {run}: 1 of its papers are new to it by the recount, and its new-paper count, "
+        "left as it was, is 0." for run in runs[:cap]]
+    assert lines[cap:] == ["5 more run(s) whose new papers by the recount differ from their new-paper count."]
+    assert {_count(conn, run) for run in runs} == {0}
+    [line] = _recount_lines(caplog)
+    assert f"{cap + 5} run(s) whose new papers by the recount differ" in line
 
 
 def test_a_run_with_no_end_takes_its_last_heartbeat_or_is_left_as_it_was(db, caplog):
@@ -272,8 +305,9 @@ def test_a_run_with_no_end_takes_its_last_heartbeat_or_is_left_as_it_was(db, cap
     with caplog.at_level(logging.INFO, logger=LOGGER):
         _start(path, conn)
 
-    assert _flags(conn, heard) == {in_time: 1} and _count(conn, heard) == 1
-    assert _flags(conn, silent) == {left: 0} and _count(conn, silent) is None
+    assert _flags(conn, heard) == {in_time: 1}
+    assert _flags(conn, silent) == {left: 0}
+    assert {_count(conn, r) for r in (heard, silent, later)} == {None}
     assert _flags(conn, later) == {left: 1}
     [line] = _recount_lines(caplog)
     assert "1 run(s) with no end time left as they were" in line
@@ -323,6 +357,7 @@ def test_the_recount_agrees_with_the_rule_restated_on_random_runs(db, seed):
         for paper in rng.sample(papers, rng.randrange(0, 12)):
             _link(conn, run, paper, is_new=rng.randrange(0, 2))
     conn.commit()
+    counts_before = [tuple(r) for r in conn.execute("SELECT id, new_result_count FROM executions ORDER BY id")]
     expected = _as_recounted(conn)
     try:
         want = (expected.execute("SELECT * FROM execution_documents ORDER BY 1, 2").fetchall(),
@@ -330,6 +365,7 @@ def test_the_recount_agrees_with_the_rule_restated_on_random_runs(db, seed):
         want = [[tuple(r) for r in rows] for rows in want]
     finally:
         expected.close()
+    assert want[1] == counts_before
 
     _start(path, conn)
     got = [[tuple(r) for r in conn.execute("SELECT * FROM execution_documents ORDER BY 1, 2")],

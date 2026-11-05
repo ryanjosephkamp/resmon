@@ -2533,6 +2533,11 @@ def _copy_kept_this_start(
         return None
 
 
+#: How many runs whose recounted links disagree with their ``new_result_count``
+#: the recount names one per line; the rest are counted in one more line.
+_DISAGREEMENTS_LOGGED = 20
+
+
 def _recount_run_new_papers(
     conn: sqlite3.Connection, *, stored: int | None, kept_copy: Path | None = None,
 ) -> dict | None:
@@ -2544,9 +2549,11 @@ def _recount_run_new_papers(
     before the ``T``, so a paper a run stored on the day it started (in UTC) read
     as older than the run, and ``execution_documents.is_new`` was 0 for it. Only a
     paper first stored on a later day (in UTC) than the run started was marked
-    new. The engine compares the two as times now (``sweep_engine._utc_clock``);
-    this corrects the links recorded before that, from the times stored with each
-    paper and run.
+    new. ``execution_documents.is_new`` is read by the ``only_new`` filter of a
+    run's papers and references (``resmon export --run N --new-only``). The engine
+    compares the two times as times now (``sweep_engine._utc_clock``); this
+    corrects the links recorded before that, from the times stored with each paper
+    and run.
 
     Both times are read as ``_UTC_CLOCK_SQL`` reads them, at one-second
     resolution, and a run's window includes both ends.
@@ -2558,13 +2565,15 @@ def _recount_run_new_papers(
       one run at most. Every other link of a run with a window is not new.
     * A run with no ``end_time`` (one interrupted, or still open at the upgrade)
       takes its ``last_seen_at_utc`` as its end. A run with neither is left as it
-      was, links and count, and takes no part in deciding which run a paper was
-      new to.
-    * ``new_result_count`` becomes the run's ``dedup_new``, the number of papers
-      it stored, counted as it stored them, which the comparison never touched.
-      Where that differs from the recount, ``dedup_new`` is kept and the run is
-      logged with both numbers; where a run has no ``dedup_new``, the recount is
-      its count. A run with no linked papers (such as a watch that checks a
+      was and takes no part in deciding which run a paper was new to.
+    * ``new_result_count`` is not changed. It is ``dedup_stats["new"]``, counted as
+      the run stored its papers, which the comparison never touched. A run whose
+      recounted new links number differently from a ``new_result_count`` it
+      recorded (a run that stopped before writing its count, say, or two runs that
+      overlapped) is logged with both numbers, one line per run up to
+      ``_DISAGREEMENTS_LOGGED`` and then a count of the rest, so the difference is
+      visible without the count changing; a run with no count recorded is not
+      compared. A run with no linked papers (such as a watch that checks a
       person's papers for retractions) is not touched.
 
     Once per database: ``RUN_NEW_PAPERS_RECOUNTED_KEY`` records that it ran, and a
@@ -2592,7 +2601,7 @@ def _recount_run_new_papers(
     conn.commit()
     conn.execute("BEGIN")
     try:
-        counts, mismatches = _recount_run_new_papers_in_transaction(conn)
+        counts, disagreements = _recount_run_new_papers_in_transaction(conn)
         conn.execute(
             "INSERT OR REPLACE INTO app_settings (key, value) VALUES (?, '1')",
             (RUN_NEW_PAPERS_RECOUNTED_KEY,),
@@ -2605,11 +2614,14 @@ def _recount_run_new_papers(
             "and the next start tries again.")
         return None
 
-    for run_id, dedup_new, recount in mismatches:
+    for run_id, recorded, recount in disagreements[:_DISAGREEMENTS_LOGGED]:
         logger.info(
-            "Run %d keeps %d new paper(s), its dedup_new, counted as it stored them; "
-            "the recount from when each paper was first stored gives %d.",
-            run_id, dedup_new, recount)
+            "Run %d: %d of its papers are new to it by the recount, and its new-paper count, "
+            "left as it was, is %d.", run_id, recount, recorded)
+    if len(disagreements) > _DISAGREEMENTS_LOGGED:
+        logger.info(
+            "%d more run(s) whose new papers by the recount differ from their new-paper count.",
+            len(disagreements) - _DISAGREEMENTS_LOGGED)
     if kept_copy is not None:
         copy_words = f"The copy of the database kept before this start's upgrade is {kept_copy}."
     elif stored >= SCHEMA_VERSION:
@@ -2618,12 +2630,12 @@ def _recount_run_new_papers(
     else:
         copy_words = "No copy of the database was kept before this start's upgrade."
     logger.info(
-        "Recounted the new papers of earlier runs, once, from when each paper was first stored: "
-        "%d run(s) corrected; %d paper(s) newly marked new to a run, and %d no longer new to one; "
-        "%d run(s) whose dedup_new differs from the recount kept their dedup_new; "
-        "%d run(s) with no end time left as they were. %s",
+        "Recounted which papers were new to earlier runs, once, from when each paper was first "
+        "stored: %d run(s) with links corrected; %d link(s) newly marked new, and %d no longer new; "
+        "%d run(s) with no end time left as they were; %d run(s) whose new papers by the recount "
+        "differ from their new-paper count, which was left as it was. %s",
         counts["runs_corrected"], counts["marked_new"], counts["marked_not_new"],
-        counts["dedup_new_kept"], counts["runs_without_end"], copy_words)
+        counts["runs_without_end"], counts["count_disagrees"], copy_words)
     return counts
 
 
@@ -2632,8 +2644,9 @@ def _recount_run_new_papers_in_transaction(
 ) -> tuple[dict, list[tuple[int, int, int]]]:
     """The writes ``_recount_run_new_papers`` makes, inside the transaction it holds.
 
-    Returns the counts, and each run whose ``dedup_new`` differs from the
-    recount as ``(run id, dedup_new, recount)``.
+    Returns the counts, and each run whose recounted new links number differently
+    from the ``new_result_count`` it recorded, as ``(run id, new_result_count,
+    recount)``.
     """
     columns = {row[1] for row in conn.execute("PRAGMA table_info(executions)")}
     ends = "NULLIF(end_time, '')"
@@ -2688,18 +2701,15 @@ def _recount_run_new_papers_in_transaction(
     marked_new = sum(1 for now, _, _ in changed if now == 1)
 
     runs_corrected = 0
-    mismatches: list[tuple[int, int, int]] = []
-    for run_id, dedup_new, recorded, recount, links_changed in conn.execute(
-        "SELECT e.id, e.dedup_new, e.new_result_count, SUM(r.now), SUM(r.was IS NOT r.now) "
+    disagreements: list[tuple[int, int, int]] = []
+    for run_id, recorded, recount, links_changed in conn.execute(
+        "SELECT e.id, e.new_result_count, SUM(r.now), SUM(r.was IS NOT r.now) "
         "FROM recount_run_link r JOIN executions e ON e.id = r.execution_id "
         "GROUP BY e.id ORDER BY e.id"
     ).fetchall():
-        count = recount if dedup_new is None else dedup_new
-        if dedup_new is not None and dedup_new != recount:
-            mismatches.append((run_id, dedup_new, recount))
-        if recorded != count:
-            conn.execute("UPDATE executions SET new_result_count = ? WHERE id = ?", (count, run_id))
-        if links_changed or recorded != count:
+        if recorded is not None and recorded != recount:
+            disagreements.append((run_id, recorded, recount))
+        if links_changed:
             runs_corrected += 1
 
     conn.execute("DROP TABLE temp.recount_run_link")
@@ -2708,9 +2718,9 @@ def _recount_run_new_papers_in_transaction(
         "runs_corrected": runs_corrected,
         "marked_new": marked_new,
         "marked_not_new": len(changed) - marked_new,
-        "dedup_new_kept": len(mismatches),
         "runs_without_end": runs_without_end,
-    }, mismatches
+        "count_disagrees": len(disagreements),
+    }, disagreements
 
 
 def mark_missed_fires_ran_late(conn: sqlite3.Connection, routine_id: int) -> int:

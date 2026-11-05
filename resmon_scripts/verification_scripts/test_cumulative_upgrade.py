@@ -385,10 +385,10 @@ def test_every_row_in_the_schema_13_database_survives_the_walk_unaltered(walked)
     Two values are rewritten on purpose; both are in `_INTENDED` by name, and
     both must actually be observed or this test fails -- a documented rewrite
     that silently stopped happening is as much a regression as one that
-    silently started. The one-time recount of runs' new papers rewrites two
-    columns more (`_RECOUNTED`); the rows are compared with the fixture as
+    silently started. The one-time recount of runs' new papers rewrites one
+    column more (`_RECOUNTED`); the rows are compared with the fixture as
     `_as_recounted` says the recount leaves it, and the recount must change
-    both columns on this fixture, so a recount that stopped running fails here.
+    that column on this fixture, so a recount that stopped running fails here.
     """
     before, raw_after = walked["before"], _snapshot(walked["conn"])
     assert _settings_added(before, raw_after) == _MARKERS_A_LAUNCH_MAY_ADD, (
@@ -399,8 +399,8 @@ def test_every_row_in_the_schema_13_database_survives_the_walk_unaltered(walked)
     assert {(table, column) for table, column in _RECOUNTED
             for old, new in zip(before["rows"][table], recounted["rows"][table])
             if old[column] != new[column]} == set(_RECOUNTED), (
-        "the recount's rule changes nothing in one of its columns on this fixture, "
-        "so this walk cannot show that the recount ran")
+        "the recount's rule changes nothing on this fixture, so this walk cannot "
+        "show that the recount ran")
     before = recounted
     observed: set = set()
     tables = before["tables"]
@@ -755,7 +755,7 @@ def test_every_enumerated_check_value_accepts_and_rejects_on_the_upgraded_databa
 _MARKERS_A_LAUNCH_MAY_ADD = {"document_facets_backfilled", database.RUN_NEW_PAPERS_RECOUNTED_KEY}
 
 #: The columns the one-time recount of runs' new papers rewrites, as (table, column).
-_RECOUNTED = (("execution_documents", "is_new"), ("executions", "new_result_count"))
+_RECOUNTED = (("execution_documents", "is_new"),)
 
 
 def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
@@ -763,7 +763,7 @@ def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
 
     A database without ``run_new_papers_recounted`` -- every committed fixture --
     has its runs' new papers recounted on its next launch
-    (``database._recount_run_new_papers``), which rewrites the two columns in
+    (``database._recount_run_new_papers``), which rewrites the column in
     `_RECOUNTED`. The rule is restated here in Python, apart from that SQL, so a
     comparison against this copy checks the values the recount wrote rather than
     merely letting the columns change. Times are read to the second as
@@ -773,8 +773,7 @@ def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
       ``[start_time, end_time or last_seen_at_utc]`` and no run that started
       earlier (or in the same second and was recorded first) linked the paper
       with a window that holds that time; every other link of such a run is not;
-    * such a run's ``new_result_count`` becomes its ``dedup_new``, or, with none,
-      the recount;
+    * ``new_result_count`` is never changed;
     * a run with no end and no heartbeat, and a link to a paper that is gone,
       are left as they were.
 
@@ -809,11 +808,6 @@ def _as_recounted(conn: sqlite3.Connection) -> sqlite3.Connection:
     copy.executemany(
         "UPDATE execution_documents SET is_new = ? WHERE execution_id = ? AND document_id = ?",
         [(value, run_id, doc_id) for (run_id, doc_id), value in is_new.items()])
-    for run_id in sorted({r for r, _ in links}):
-        dedup_new = runs[run_id].get("dedup_new")
-        recount = sum(value for (r, _), value in is_new.items() if r == run_id)
-        copy.execute("UPDATE executions SET new_result_count = ? WHERE id = ?",
-                     (recount if dedup_new is None else dedup_new, run_id))
     copy.commit()
     return copy
 
