@@ -96,7 +96,7 @@ describe('how many runs at once, and how many watch runs wait', () => {
     for (const raw of ['', '0', '9', '2.5', '-1', 'three', '1e1']) {
       expect(limitProblem(raw, RUN_LIMITS.runs)).toBe('Runs at once must be a whole number from 1 to 8.');
     }
-    expect(limitProblem('65', RUN_LIMITS.queue)).toBe('Watch runs that can wait must be a whole number from 1 to 64.');
+    expect(limitProblem('65', RUN_LIMITS.queue)).toBe('Runs that can wait must be a whole number from 1 to 64.');
   });
 
   test('which engine a change reaches says the service is a separate engine whenever this window is not using it', () => {

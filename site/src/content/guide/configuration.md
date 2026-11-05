@@ -52,7 +52,7 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 
 The switch **Run resmon in the background** installs or removes the background service. Below it, **Service**, **Running now**, and **This window** state three separate facts: whether the unit is installed, whether the service is running, and which engine this window uses. An installed unit is not a running service, and a running service is not necessarily the one a window uses.
 
-**How many runs at once** has two numbers. At most **1 to 8** runs go at once (3 unless you change it). While that many are running, a search you start, or a Restart, is refused with a sentence saying so, and a watch's run waits for a turn. At most **1 to 64** watch runs wait (16 unless you change it), a waiting run starts when one finishes, and a run that comes due while that many already wait is skipped and runs at its next scheduled time. The queue is held in the engine's memory, so what is waiting when that engine stops does not run.
+**How many runs at once** has two numbers. At most **1 to 8** runs go at once (3 unless you change it). While that many are running, a search you start, a Restart, a Run again, and a watch's run each wait for a turn, under **Waiting** on the **Runs** tab. At most **1 to 64** runs wait (16 unless you change it), and a waiting run starts when one finishes. A search asked while that many already wait is refused with a sentence saying so, and a watch's run that comes due then is skipped and runs at its next scheduled time. The queue is held in the engine's memory, so what is waiting when that engine stops does not run.
 
 ### Sources
 
