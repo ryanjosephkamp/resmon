@@ -23,6 +23,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { removeStateDir } from './fixtures/cleanup';
+import { showTheme } from './fixtures/theme';
 
 const feed = (term: string) => `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
   <id>https://arxiv.org/abs/2611.9${term.length}${term.charCodeAt(0)}v1</id><title>Authored monitor fixture on ${term}</title>
@@ -43,17 +44,16 @@ async function engine<T>(win: Page, route: string, method = 'GET', body?: unknow
 }
 
 async function widen(app: ElectronApplication, win: Page, width: number, theme: 'light' | 'dark'): Promise<void> {
-  await app.evaluate(({ BrowserWindow, nativeTheme, screen }, x) => {
-    nativeTheme.themeSource = x.theme;
+  await app.evaluate(({ BrowserWindow, screen }, x) => {
     const area = screen.getPrimaryDisplay().workAreaSize;
     const w = BrowserWindow.getAllWindows()[0]!;
     const fits = x.width <= area.width;
     const zoom = fits ? 1 : area.width / x.width;
     w.setSize(fits ? x.width : area.width, Math.min(area.height, Math.round(900 * zoom)));
     w.webContents.setZoomFactor(zoom);
-  }, { width, theme });
+  }, { width });
   await expect.poll(() => win.evaluate(() => window.innerWidth), { timeout: 10_000 }).toBeGreaterThanOrEqual(width - 2);
-  await expect(win.locator('html')).toHaveAttribute('data-theme', theme, { timeout: 10_000 });
+  await showTheme(app, win, theme);
 }
 
 const isOpen = (win: Page) => win.evaluate(() => document.getElementById('run-monitor-panel')?.matches(':popover-open') ?? false);
