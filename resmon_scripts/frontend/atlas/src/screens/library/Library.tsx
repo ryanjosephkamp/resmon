@@ -361,16 +361,11 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
 
   const removeEntries = useCallback(async (gone: QueueEntry[]) => {
     const titleOf = (e: QueueEntry) => e.document?.title ?? `Paper ${e.document_id}`;
-    let removed: QueueEntry[] = [];
-    let stayed: { name: string; why: string }[] = [];
-    try {
-      ({ went: removed, stayed } = await removeEach(gone, async (entry) => (await answer(engine().DELETE('/api/reading-queue/{document_id}', {
-        params: { path: { document_id: entry.document_id } },
-      }))).entry, titleOf, errorWords));
-    } finally {
+    const { went: removed, stayed } = await removeEach(gone, async (entry) => (await answer(engine().DELETE('/api/reading-queue/{document_id}', {
+      params: { path: { document_id: entry.document_id } },
+    }))).entry, titleOf, errorWords)
       // Whatever went, the shelf is read again: a card that went never stays on it without its Undo.
-      onChanged();
-    }
+      .finally(onChanged);
     if (!removed.length) throw new Error(`Nothing was removed. ${notRemovedWords(stayed)}`);
     const titles = removed.map((e) => titleOf(gone.find((g) => g.document_id === e.document_id) ?? e));
     say({

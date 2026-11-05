@@ -162,3 +162,111 @@ test('the Library gallery with a few hundred papers and files', async () => {
     if (outFile) fs.writeFileSync(outFile, JSON.stringify({ papers, files, speedPxS: SPEED_PX_S, scrollMs: SCROLL_MS, samples }, null, 2));
   }
 });
+
+const SEED_FILES = String.raw`
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+from implementation_scripts.database import init_db, get_connection
+from implementation_scripts import library
+path, pdf, folder, texts, pdfs = os.environ["RESMON_DB_PATH"], sys.argv[2], sys.argv[3], int(sys.argv[4]), int(sys.argv[5])
+init_db(path)
+conn = get_connection(path)
+vault = library.create_vault(conn, folder)["vault"]["vault_id"]
+raw = open(pdf, "rb").read()
+for n in range(max(texts, pdfs)):
+    if n < texts:
+        body = "".join(f"Line {k} of notes file {n}, written to fill a cover and then some.\n" for k in range(3200))
+        with library.Import(conn, vault, f"notes-{n:04d}.md") as upload:
+            upload.write(body.encode())
+            upload.finish()
+    if n < pdfs:
+        with library.Import(conn, vault, f"paper-{n:04d}.pdf") as upload:
+            upload.write(raw + f"\n% perf copy {n}\n".encode())
+            upload.finish()
+print(json.dumps({"vault": vault}))
+`;
+
+/**
+ * What the window holds for a shelf of a few hundred covers: text files of
+ * about 200 KB and small PDFs, half and half. The heap is read (after a
+ * collection) once the shelf has been scrolled through and its pictures
+ * drawn, and again a minute and five seconds after scrolling back to the top,
+ * when covers that left the page have been let go. Skipped unless
+ * `RESMON_PERF_LIBRARY_MEMORY` is set; `RESMON_PERF_FRONTEND` measures another
+ * build the same way.
+ */
+test('the Library gallery holds what is on the page, not every cover it has shown', async () => {
+  test.skip(!process.env.RESMON_PERF_LIBRARY_MEMORY, 'RESMON_PERF_LIBRARY_MEMORY is not set');
+  test.setTimeout(60 * 60 * 1000);
+  const texts = Number(process.env.RESMON_PERF_LIBRARY_TEXTS || '150');
+  const pdfs = Number(process.env.RESMON_PERF_LIBRARY_FILES || '150');
+  const runs = Number(process.env.RESMON_PERF_RUNS || '2');
+  const outFile = process.env.RESMON_PERF_LIBRARY_OUT;
+  const python = process.env.RESMON_PYTHON || 'python3';
+  const backend = path.resolve(process.env.RESMON_PERF_FRONTEND || path.resolve(__dirname, '..'), '..');
+  const mb = (bytes: number) => Math.round(bytes / 1e5) / 10;
+  const samples: Record<string, unknown>[] = [];
+  for (let run = 0; run < runs; run += 1) {
+    const work = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'resmon-perf-library-'));
+    const state = path.join(work, 'state');
+    const folder = path.join(work, 'folder');
+    fs.mkdirSync(state); fs.mkdirSync(folder);
+    const pdf = path.join(work, 'template.pdf');
+    fs.writeFileSync(pdf, writePdf([{ lines: Array.from({ length: 40 }, (_, i) => ({ x: 72, y: 720 - i * 16, size: i ? 9 : 16, text: i ? `A line of the paper's text, number ${i}.` : 'A paper for the performance run' })) }]));
+    const seeded = spawnSync(python, ['-c', SEED_FILES, backend, pdf, folder, String(texts), String(pdfs)], {
+      env: { ...process.env, RESMON_DB_PATH: path.join(state, 'resmon.db') }, encoding: 'utf8',
+    });
+    if (seeded.status !== 0) {
+      fs.rmSync(work, { recursive: true, force: true });
+      throw new Error(seeded.stderr);
+    }
+    const { app, win } = await launchApp(state);
+    try {
+      const cdp = await win.context().newCDPSession(win);
+      const heap = async () => {
+        await cdp.send('HeapProfiler.collectGarbage');
+        return (await cdp.send('Runtime.getHeapUsage')).usedSize;
+      };
+      const kept = () => (fs.existsSync(path.join(state, 'resmon.db-library-pictures'))
+        ? fs.readdirSync(path.join(state, 'resmon.db-library-pictures')).length : 0);
+      await win.evaluate(() => { window.location.hash = '#/library?show=files'; });
+      await win.locator('article.card').first().waitFor({ timeout: 120_000 });
+      const opened = await heap();
+      // Down the whole shelf at an unhurried 1,500 px/s, pages read as it goes, until the end stays the end.
+      await win.evaluate(async () => {
+        const el = document.querySelector('main.stage') as HTMLElement;
+        let still = 0;
+        let last = performance.now();
+        await new Promise<void>((resolve) => {
+          const step = (now: number) => {
+            el.scrollTop += ((now - last) / 1000) * 1500;
+            last = now;
+            const end = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+            still = end ? still + 1 : 0;
+            if (still > 180) resolve(); else requestAnimationFrame(step);
+          };
+          requestAnimationFrame(step);
+        });
+      });
+      // Each picture is drawn once and kept; wait until the drawing has stopped.
+      let count = kept();
+      for (let quiet = 0; quiet < 5;) {
+        await win.waitForTimeout(1000);
+        const now = kept();
+        quiet = now === count ? quiet + 1 : 0;
+        count = now;
+      }
+      const scrolled = await heap();
+      await win.evaluate(() => { (document.querySelector('main.stage') as HTMLElement).scrollTop = 0; });
+      await win.waitForTimeout(65_000);
+      const later = await heap();
+      const sample = { run, opened: mb(opened), scrolledThrough: mb(scrolled), aMinuteLater: mb(later), picturesKept: count, unit: 'MB of JS heap' };
+      samples.push(sample);
+      console.log('[library memory]', JSON.stringify(sample));
+    } finally {
+      await app.close();
+      fs.rmSync(work, { recursive: true, force: true });
+    }
+    if (outFile) fs.writeFileSync(outFile, JSON.stringify({ texts, pdfs, samples }, null, 2));
+  }
+});
