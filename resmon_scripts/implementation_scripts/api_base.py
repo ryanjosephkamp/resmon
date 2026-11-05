@@ -681,6 +681,12 @@ class SearchOutcome:
     # heartbeat reads it from another thread.
     retries: int = 0
     waiting: tuple[str, float] | None = None
+    # Whether nobody is waiting on this search: it belongs to a watch's
+    # scheduled run, not to one a person started. Set by the engine before the
+    # search, from the run's own config, and read by a client whose patience
+    # with a busy source depends on it (arXiv's 429 and 503 ladder). Not part
+    # of the record.
+    unattended: bool = False
 
     def reset(self) -> None:
         self.attempts = 0
@@ -702,6 +708,7 @@ class SearchOutcome:
         self.default_start = None
         self.retries = 0
         self.waiting = None
+        self.unattended = False
 
     def live(self) -> dict:
         """What the search has done so far, as the run's heartbeat says it.

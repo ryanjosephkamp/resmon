@@ -70,6 +70,8 @@ describe('a source being asked, from its heartbeat', () => {
     [{ kind: 'pace', seconds: 0.2 }, 'waiting 1 s for bioRxiv’s pace'],
     [{ kind: 'cooldown', seconds: 29.5 }, 'waiting 30 s, as bioRxiv asked'],
     [{ kind: 'retry', seconds: 4 }, 'waiting 4 s before asking again'],
+    [{ kind: 'retry', seconds: 299.6 }, 'waiting 5 min 00 s before asking again'],
+    [{ kind: 'cooldown', seconds: 90 }, 'waiting 1 min 30 s, as bioRxiv asked'],
     [{ kind: 'something new', seconds: 4 }, 'waiting 4 s'],
   ])('a wait of %p reads as %s', (waiting, words) => {
     expect(waitWords(waiting, 'bioRxiv')).toBe(words);

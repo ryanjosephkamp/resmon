@@ -20,6 +20,7 @@ from .api_base import (
     waiting,
     retry_after_seconds,
     safe_request,
+    search_outcome,
     sent_params,
 )
 
@@ -75,29 +76,52 @@ _RATE_LIMITER = RateLimiter(requests_per_second=0.33)
 # `rate_limited`, HTTP 429, 4 attempts, an 11-second run). So those two
 # statuses are left out of ``safe_request``'s own retries and waited out here:
 # 5 seconds doubling, or longer when arXiv's Retry-After asks for longer, until
-# one search has waited `_PATIENCE_SECONDS` in all. 5 + 10 + 20 + 40 + 80 is
-# 155 seconds over six attempts; the next wait would pass three minutes, so
-# the sixth answer stands and the run records it with the time waited. Every
-# other status, a timeout and a dropped connection keep ``safe_request``'s
-# ladder, and each attempt keeps its own request timeout.
+# one search has waited its budget in all. Every other status, a timeout and a
+# dropped connection keep ``safe_request``'s ladder, and each attempt keeps its
+# own request timeout.
+#
+# The budget depends on who is waiting for the search. A search a person
+# started (a Deep Dive, a Deep Sweep, a watch's Run now) waits three minutes:
+# 5 + 10 + 20 + 40 + 80 is 155 seconds over six attempts; the next wait would
+# pass three minutes, so the sixth answer stands and the run records it with
+# the time waited. A watch's scheduled run, which nobody is waiting on, waits
+# fifteen minutes, and no single wait is longer than five: 5 + 10 + 20 + 40 +
+# 80 + 160 + 300 is 615 seconds over eight attempts, and the next 300 would
+# pass fifteen minutes. Three minutes was not enough at midnight: on November
+# 4, 2026 a watch's run got 429 after 6 attempts and 155 seconds of waiting,
+# the third midnight 429 known after October 27 and 29, while a single request
+# at 8:55 PM that evening was answered in 0.15 seconds. The engine says
+# which kind of run a search belongs to on its outcome channel
+# (``SearchOutcome.unattended``), read when the search starts.
 _PATIENT_STATUSES = frozenset({429, 503})
 # The rest of ``safe_request``'s transient set, which it still retries itself.
 _QUICK_RETRY_STATUSES = frozenset({500, 502, 504})
 _FIRST_WAIT_SECONDS = 5.0
 _PATIENCE_SECONDS = 180.0
+_UNATTENDED_PATIENCE_SECONDS = 900.0
+_UNATTENDED_LONGEST_WAIT_SECONDS = 300.0
 
 
-def _patience_seconds() -> float:
-    """The budget: three minutes, unless ``RESMON_ARXIV_PATIENCE_SECONDS`` says less.
-
-    A test that stands in for arXiv and answers 503 every time sets it short,
-    so a run that would wait three minutes for a real arXiv ends in seconds.
-    """
-    raw = os.environ.get("RESMON_ARXIV_PATIENCE_SECONDS", "").strip()
+def _budget(variable: str, ceiling: float) -> float:
+    raw = os.environ.get(variable, "").strip()
     try:
-        return min(_PATIENCE_SECONDS, max(0.0, float(raw))) if raw else _PATIENCE_SECONDS
+        return min(ceiling, max(0.0, float(raw))) if raw else ceiling
     except ValueError:
-        return _PATIENCE_SECONDS
+        return ceiling
+
+
+def _patience_seconds(unattended: bool = False) -> float:
+    """The budget: three minutes, or fifteen for a watch's scheduled run.
+
+    ``RESMON_ARXIV_PATIENCE_SECONDS`` and
+    ``RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS`` can make each shorter, never
+    longer: a test that stands in for arXiv and answers 503 every time sets
+    them short, so a run that would wait minutes for a real arXiv ends in
+    seconds.
+    """
+    if unattended:
+        return _budget("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", _UNATTENDED_PATIENCE_SECONDS)
+    return _budget("RESMON_ARXIV_PATIENCE_SECONDS", _PATIENCE_SECONDS)
 
 
 def _wait(seconds: float) -> None:
@@ -106,14 +130,29 @@ def _wait(seconds: float) -> None:
 
 
 class _Patience:
-    """One search's waiting, shared by all of its pages."""
+    """One search's waiting, shared by all of its pages.
 
-    def __init__(self) -> None:
+    Whether nobody is waiting on the search is read from its outcome channel
+    when it starts, unless ``unattended`` says.
+    """
+
+    def __init__(self, unattended: bool | None = None) -> None:
+        self.unattended = search_outcome().unattended if unattended is None else bool(unattended)
+        self.budget = _patience_seconds(self.unattended)
+        self.longest = _UNATTENDED_LONGEST_WAIT_SECONDS if self.unattended else None
         self.waited = 0.0
         self.next_wait = _FIRST_WAIT_SECONDS
 
     def allows(self, seconds: float) -> bool:
-        return self.waited + seconds <= _patience_seconds()
+        if self.longest is not None and seconds > self.longest:
+            return False
+        return self.waited + seconds <= self.budget
+
+    def lengthen(self) -> None:
+        """The next wait of the ladder: twice this one, and no longer than the longest wait."""
+        self.next_wait *= 2
+        if self.longest is not None:
+            self.next_wait = min(self.next_wait, self.longest)
 
     def spend(self, seconds: float, why: str, kind: str = "retry") -> None:
         logger.warning("arXiv %s; waiting %.0f s before asking again", why, seconds)
@@ -153,13 +192,14 @@ def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
         # Retry-After is the earliest arXiv will take another request, so it
         # is honored as a floor under the doubling wait rather than in place
         # of it: a header saying 0 or 1 would otherwise turn three minutes
-        # into sixty requests three seconds apart.
+        # into sixty requests three seconds apart. A Retry-After longer than
+        # the longest wait a watch's scheduled run takes is not waited for.
         retry_after = retry_after_seconds(response)
         seconds = max(retry_after or 0.0, patience.next_wait)
         if not patience.allows(seconds):
             return response
         patience.spend(seconds, f"answered {response.status_code}")
-        patience.next_wait *= 2
+        patience.lengthen()
 
 
 def _search_query(

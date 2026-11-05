@@ -45,9 +45,13 @@ export interface AskingWords {
 
 const plural = (n: number, one: string, many: string) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
-/** A wait the heartbeat reported, in words: whole seconds, at least one. */
+/**
+ * A wait the heartbeat reported, in words: whole seconds, at least one, and
+ * minutes past a minute (a watch's scheduled run may wait five at once).
+ */
 export function waitWords(waiting: { kind: string; seconds: number }, name: string): string {
-  const seconds = `${Math.max(1, Math.ceil(waiting.seconds))} s`;
+  const whole = Math.max(1, Math.ceil(waiting.seconds));
+  const seconds = whole < 60 ? `${whole} s` : elapsedWords(whole);
   switch (waiting.kind) {
     case 'pace': return `waiting ${seconds} for ${name}’s pace`;
     case 'cooldown': return `waiting ${seconds}, as ${name} asked`;

@@ -2115,6 +2115,9 @@ class SweepEngine:
         # What each request carried is recorded as it goes out, in this
         # client's own words for its requests.
         search_outcome().describe_request = getattr(client, "describe_request", None)
+        # A watch's scheduled run, which nobody is waiting on: a source that
+        # answers "busy" may be waited out longer (see ``api_arxiv._Patience``).
+        search_outcome().unattended = bool((self.config or {}).get("unattended"))
         try:
             # A watch routine asks the source about a *person*, and a
             # source that cannot be asked is not called at all. The zero

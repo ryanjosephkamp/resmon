@@ -7020,6 +7020,8 @@ def _dispatch_routine_fire(
                 config={
                     "ai_enabled": bool(row.get("ai_enabled")),
                     "ai_settings": ai_settings,
+                    # A scheduled fire has nobody waiting on it; a Run now does.
+                    "unattended": not run_now,
                 },
             )
             exec_id = engine.prepare_execution(

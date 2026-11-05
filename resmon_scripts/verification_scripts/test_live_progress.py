@@ -83,11 +83,11 @@ class _Stand:
         return self.script(self.slug)
 
 
-def _run(monkeypatch, sources, script) -> list[dict]:
+def _run(monkeypatch, sources, script, config: dict | None = None) -> list[dict]:
     monkeypatch.setattr(se, "get_client", lambda name, **kwargs: _Stand(name, script))
     conn = sqlite3.connect(":memory:")
     init_db(conn=conn)
-    engine = SweepEngine(db_conn=conn, config={})
+    engine = SweepEngine(db_conn=conn, config=config or {})
     exec_id = engine.prepare_execution("deep_sweep", list(sources), {"query": "graphs", "max_results": 10})
     progress_store.register(exec_id)
     engine.run_prepared(exec_id)
@@ -137,6 +137,27 @@ def test_the_heartbeat_says_requests_retries_and_the_wait(monkeypatch):
     assert list(beats[-1]) == ["type", "repository", "phase", "message", "elapsed", "requests", "retries", "timestamp"]
     assert list(waits[0]) == ["type", "repository", "phase", "message", "elapsed", "requests", "retries", "waiting",
                               "timestamp"]
+
+
+def test_a_watchs_scheduled_run_says_its_five_minute_wait_for_arxiv(monkeypatch):
+    """A scheduled run's arXiv search may wait five minutes at once; the heartbeat says so, counting down."""
+    monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
+    monkeypatch.setattr(api_arxiv, "_wait", lambda seconds: time.sleep(0.4))
+    monkeypatch.delenv("RESMON_ARXIV_UNATTENDED_PATIENCE_SECONDS", raising=False)
+    seen: dict = {}
+
+    def script(slug: str) -> list:
+        patience = api_arxiv._Patience()       # as ArxivClient.search makes it
+        seen["patience"] = (patience.unattended, patience.allows(300.0), patience.allows(301.0))
+        patience.spend(300.0, "answered 429")
+        return [_paper(slug)]
+
+    beats = _beats(_run(monkeypatch, ["arxiv"], script, config={"unattended": True}), "arxiv")
+    assert seen["patience"] == (True, True, False)
+    waits = [b["waiting"] for b in beats if "waiting" in b]
+    assert waits, "no heartbeat said the search was waiting"
+    assert all(w["kind"] == "retry" and 299 <= w["seconds"] <= 300 for w in waits), waits
+    assert {b["retries"] for b in beats if "waiting" in b} == {1}
 
 
 def test_the_run_record_is_what_it_was(monkeypatch):
