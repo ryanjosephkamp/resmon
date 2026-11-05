@@ -92,6 +92,21 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
     cwd: FRONTEND_ROOT, env, colorScheme: null, timeout: 180_000,
   });
   registerStateDir(stateDir);
+  // The window's first status read is answered by the engine at once, but the
+  // answer reaches the window only once Ask is open: the order a busy machine
+  // gives now and then. It predates the path set below, so Ask must read again
+  // on arrival rather than take it.
+  let firstRead: 'waiting' | 'held' | 'released' = 'waiting';
+  let askIsOpen: () => void = () => {};
+  const askOpened = new Promise<void>((resolve) => { askIsOpen = resolve; });
+  await app.context().route('**/api/assistant/status', async (route) => {
+    if (firstRead !== 'waiting') return route.continue();
+    firstRead = 'held';
+    const response = await route.fetch();
+    await askOpened;
+    await route.fulfill({ response }).catch(() => {});
+    firstRead = 'released';
+  });
   try {
     const win = await app.firstWindow({ timeout: 180_000 });
     const problems: string[] = [];
@@ -105,9 +120,12 @@ test('Ask on Codex: the second connection, read-only tools, a resumed thread, th
     const composer = pane.getByLabel('Message the assistant');
     const connection = pane.getByLabel('Connection', { exact: true });
     await expect(pane.getByRole('heading', { name: 'New conversation' })).toBeVisible({ timeout: 30_000 });
+    expect(firstRead, 'the window’s first status read was not held until Ask opened').toBe('held');
+    askIsOpen();
+    await expect.poll(() => firstRead, { timeout: 30_000 }).toBe('released');
 
     // — Codex is the second connection, and choosing it says what it is given --------------
-    // The status read on arrival may predate the path set above; the composer reads it again.
+    // Ask read the status again on arrival, after the path was set, and kept that answer.
     await expect(connection.locator('option').nth(2)).toHaveText('Codex', { timeout: 30_000 });
     await expect(connection.locator('option').nth(1)).toHaveText(/^Claude Code/);
     await connection.selectOption('codex_cli:codex');
