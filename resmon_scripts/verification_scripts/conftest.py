@@ -614,18 +614,110 @@ socket.socket.connect_ex = _guarded_connect_ex
 _FORCE_HERMETIC = os.environ.get("RESMON_FORCE_HERMETIC") == "1"
 
 
+# ---------------------------------------------------------------------------
+# No real AI command
+# ---------------------------------------------------------------------------
+#
+# The discovery pin above stops the search, and only the search. Code can
+# still run a command by name: ``ClaudeCliRuntime`` falls back to a bare
+# ``claude`` when it has no path, and a bare name is looked up on PATH, which
+# on a developer's machine leads to their own CLI. A test of a missing command
+# that leaves PATH alone starts it.
+#
+# So, as with sockets, the property is checked. Starting a ``claude`` or
+# ``codex`` that is not a fake under the temporary folder or this directory
+# fails before anything runs, as a missing command would, and the test fails
+# at teardown even if the code under test caught the error. A test marked
+# ``live_network`` and ``needs_agent_cli`` is let through
+# (``pytest_runtest_setup``).
+
+import errno  # noqa: E402
+import inspect  # noqa: E402
+import subprocess  # noqa: E402
+
+_AI_COMMAND_NAMES = {"claude", "codex", "claude.exe", "codex.exe"}
+_FAKE_COMMAND_ROOTS = (Path(tempfile.gettempdir()).resolve(), Path(__file__).resolve().parent)
+_allow_agent_cli = {"value": False}
+_ai_commands_refused: list[str] = []
+_REAL_EXECUTE_CHILD = subprocess.Popen._execute_child
+_EXECUTE_CHILD_SIGNATURE = inspect.signature(_REAL_EXECUTE_CHILD)
+
+
+def _real_ai_command(args, executable, shell, env):
+    """The path of a real ``claude`` or ``codex`` *args* would start, else None."""
+    if isinstance(args, (str, bytes, os.PathLike)):
+        argv = [os.fsdecode(args)]
+    else:
+        argv = [os.fsdecode(arg) for arg in args]
+    if shell:
+        argv = " ".join(argv).split()
+    elif executable is not None:
+        argv = [os.fsdecode(executable)]
+    program = argv[0] if argv else ""
+    if os.path.basename(program) not in _AI_COMMAND_NAMES:
+        return None
+    if os.sep in program:
+        found = program if os.path.exists(program) else None
+    else:
+        found = shutil.which(program, path=(os.environ if env is None else env).get("PATH", os.defpath))
+    if found is None:
+        return None                          # nothing to start; Popen says so itself
+    resolved = Path(found).resolve()
+    if any(resolved.is_relative_to(root) for root in _FAKE_COMMAND_ROOTS):
+        return None
+    return found
+
+
+def _guarded_execute_child(self, *args, **kwargs):
+    if not _allow_agent_cli["value"]:
+        try:
+            call = _EXECUTE_CHILD_SIGNATURE.bind(self, *args, **kwargs).arguments
+            found = _real_ai_command(call["args"], call.get("executable"), call.get("shell"),
+                                     call.get("env"))
+        except (TypeError, ValueError, KeyError, OSError, RuntimeError):
+            found = None                     # arguments Popen itself will reject
+        if found is not None:
+            _ai_commands_refused.append(found)
+            raise PermissionError(
+                errno.EPERM,
+                "The suite never runs a real AI command. Give the code under test "
+                "a fake one under tmp_path, or mark the test live_network and "
+                "needs_agent_cli",
+                found,
+            )
+    return _REAL_EXECUTE_CHILD(self, *args, **kwargs)
+
+
+subprocess.Popen._execute_child = _guarded_execute_child
+
+
+@pytest.fixture(autouse=True)
+def _no_real_ai_command():
+    """Fail a test that tried to start a real AI command, caught or not."""
+    before = len(_ai_commands_refused)
+    yield
+    refused = sorted(set(_ai_commands_refused[before:]))
+    if refused:
+        pytest.fail(
+            f"This test tried to start {', '.join(refused)}, a real AI command, and was "
+            "refused. Give the code under test a fake command under tmp_path.",
+            pytrace=False,
+        )
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_runtest_setup(item):
-    """Open the network, and the search for an AI CLI, only for tests that need them.
+    """Open the network, and the person's own AI CLI, only for tests that need them.
 
     Runs before any of the test's fixtures, module-scoped ones included, so a
     fixture that discovers the CLI sees the same setting as the test. Every
     other test starts with discovery pinned, whatever the test before it left
-    behind.
+    behind, and cannot start a real ``claude`` or ``codex``.
     """
     open_network = item.get_closest_marker("live_network") is not None and not _FORCE_HERMETIC
     _allow_network["value"] = open_network
     agent_cli = open_network and item.get_closest_marker("needs_agent_cli") is not None
+    _allow_agent_cli["value"] = agent_cli
     if agent_cli:
         os.environ.pop("RESMON_AI_CLI_DISCOVERY", None)
     else:
