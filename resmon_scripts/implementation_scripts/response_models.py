@@ -1076,8 +1076,10 @@ class Today(LosslessModel):
 
     ``window`` is ``since_last_look`` when a look is recorded and
     ``first_look`` when none is, in which case ``since`` is seven days before
-    ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
-    first; ``total`` counts them all.
+    ``now`` and the interface says so. ``papers`` is the first page of them, up
+    to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
+    (``None`` when the page holds every one) reads the next page from
+    ``GET /api/today/papers``.
     """
 
     now: str
@@ -2025,12 +2027,18 @@ class ExplorerPaper(PaperColumns):
 class ExplorerPage(LosslessModel):
     """``POST /api/explorer/search``.
 
-    ``total`` is the count of every match, capped at ``count_cap`` when
-    ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
-    filtered set rather than filtering it, and ``ranked_count``,
-    ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
-    why a requested ranking was refused and the page fell back to newest.
-    Each of those four is absent when it does not apply.
+    ``total`` is the count of every match when ``total_is_exact``; when it is
+    false, counting ran out of its time budget (``count_budget_ms``) and
+    ``total`` is how many it had counted, which the matches are at least. Under
+    ``sort == "similarity"`` the phrase ranks the filtered set rather than
+    filtering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;
+    ``similarity_unavailable`` says why a requested ranking was refused and the
+    page fell back to newest. Each of those four is absent when it does not
+    apply.
+
+    ``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present
+    when the request jumped to a date: the page starts at the newest match
+    published on or before it, and ``newer_count`` matches were published after.
 
     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
     ``include`` named them: what ``/api/links/for-documents``,
@@ -2042,11 +2050,14 @@ class ExplorerPage(LosslessModel):
     next_cursor: Optional[Any]
     has_more: bool
     total: int
-    total_is_capped: bool
-    count_cap: int
+    total_is_exact: bool
+    count_budget_ms: int
     used_full_text_index: bool
     page_size: int
     sort: str
+    start_date: Optional[str] = None
+    newer_count: Optional[int] = None
+    newer_count_is_exact: Optional[bool] = None
     ranked_count: Optional[int] = None
     unranked_count: Optional[int] = None
     model: Optional[str] = None

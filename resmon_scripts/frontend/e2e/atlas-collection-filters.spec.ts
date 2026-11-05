@@ -11,8 +11,8 @@
  * the save dialog (the destination is the one thing scripted) and the file is
  * read back. Then Analytics: a chart's source row opens the collection with
  * that filter set, shown in the menu as ticked, and taken off like any other.
- * A second case seeds more papers than an export holds and reads the cap said
- * before saving, then the file.
+ * A second case seeds more papers than an export once held (10,000) and reads
+ * the whole count said before saving, then the file, which holds every one.
  *
  * No network is involved: nothing here asks a source.
  */
@@ -52,7 +52,7 @@ conn.commit()
 interface Filters { query?: string | null; sources?: string[]; categories?: string[]; authors?: string[]; date_from?: string | null; date_to?: string | null }
 interface FacetValue { value: string; count: number }
 interface Facets { sources: FacetValue[]; categories: FacetValue[]; authors: FacetValue[]; max_values: number }
-interface Page50 { total: number; total_is_capped: boolean; results: { id: number; doi: string | null }[] }
+interface Page50 { total: number; total_is_exact: boolean; results: { id: number; doi: string | null }[] }
 
 /** The engine, asked by the suite with the token, as a person's screen would never be. */
 async function engine<T>(win: Page, route: string, body: Filters & Record<string, unknown>): Promise<T> {
@@ -249,7 +249,7 @@ test('the collection narrowed through its filters, counted, exported, and opened
   }
 });
 
-/** More papers than one export holds, the five oldest dated before the rest. */
+/** More papers than one export used to hold, the five oldest dated before the rest. */
 const MANY = String.raw`
 import os, sys
 sys.path.insert(0, sys.argv[1])
@@ -266,7 +266,7 @@ conn.executemany(
 conn.commit()
 `;
 
-test('an export the engine caps says so before it is saved, and the file holds what it said', async () => {
+test('an export past ten thousand papers holds every one, and says how many before it is saved', async () => {
   test.setTimeout(240_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-export-cap-'));
   const env: Record<string, string> = { ...launchEnv(stateDir, true) };
@@ -284,23 +284,21 @@ test('an export the engine caps says so before it is saved, and the file holds w
     win.on('pageerror', (e) => problems.push(e.message));
     await win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Search' }).click();
     await expect(win.getByRole('heading', { name: 'Your collection', level: 1 })).toBeVisible({ timeout: 60_000 });
-    await expect(win.locator('.count-sentence')).toContainText('10,000+ papers in your collection', { timeout: 60_000 });
+    await expect(win.locator('.count-sentence')).toHaveText('10,005 papers in your collection', { timeout: 60_000 });
 
-    // Said before anything is saved: the file's size, and that the rest is left out.
+    // Said before anything is saved: every paper, and nothing left out to warn about.
     const exports = win.locator('[data-collection="export"]');
-    await expect(exports).toContainText('Export the newest 10,000 as');
-    await expect(win.locator('[data-collection="export-note"]')).toHaveText(
-      'An export holds at most 10,000 papers, so this file will hold the newest 10,000 of the 10,000+ that match; '
-      + 'narrow the filters to reach the rest.');
-    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-collection-export-cap.png') });
+    await expect(exports).toContainText('Export these 10,005 papers as');
+    await expect(win.locator('[data-collection="export-note"]')).toHaveCount(0);
+    await win.screenshot({ path: path.join(SCREENSHOT_DIR, 'atlas-collection-export-whole.png') });
 
     const csv = path.join(stateDir, 'collection.csv');
     await downloadTo(app, csv);
     await exports.getByRole('button', { name: 'CSV', exact: true }).click();
     await expect(win.locator('[data-collection="exported"]'))
-      .toHaveText('10,000 papers into resmon-collection.csv; the save dialog asks where it goes.', { timeout: 60_000 });
-    await expect.poll(() => contents(csv).trimEnd().split('\n').length, { timeout: 60_000 }).toBe(10_001);
-    expect(contents(csv), 'the newest were kept and the oldest left out').not.toContain('Oldest perovskite film');
+      .toHaveText('10,005 papers into resmon-collection.csv; the save dialog asks where it goes.', { timeout: 60_000 });
+    await expect.poll(() => contents(csv).trimEnd().split('\n').length, { timeout: 60_000 }).toBe(10_006);
+    expect(contents(csv), 'the oldest are in the file too').toContain('Oldest perovskite film 0');
     expect(problems).toEqual([]);
   } finally {
     await app.close();

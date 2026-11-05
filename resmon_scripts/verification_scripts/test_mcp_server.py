@@ -791,14 +791,14 @@ def test_search_passes_the_cursor_through_and_returns_the_next_one():
     with _stub({"/api/explorer/search": {
         "results": [{"id": 1, "title": "A", "source_repository": "arxiv"}],
         "next_cursor": "2026-01-01|1", "has_more": True,
-        "total": 900, "total_is_capped": True,
+        "total": 900, "total_is_exact": False,
     }}):
         body = _payload(mcp.call_tool(
             "search_corpus", {"query": "q", "cursor": "2026-02-02|9"}))
     assert body["next_cursor"] == "2026-01-01|1"
     assert body["has_more"] is True
-    # The cap travels with the number, so "900" cannot be read as exact.
-    assert body["total_is_capped"] is True
+    # A count that ran out of time says so with the number, so "900" cannot be read as exact.
+    assert body["total_is_exact"] is False
 
 
 # ---------------------------------------------------------------------------

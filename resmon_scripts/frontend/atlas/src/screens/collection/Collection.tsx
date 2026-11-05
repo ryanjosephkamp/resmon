@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useInfiniteQuery, useMutation, useQuery } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { answer, engine, type EngineError } from '../../api/client';
@@ -10,27 +10,22 @@ import { ASK_PATH, KINDS, type AskState } from '../searchStart';
 import { useFocusOnArrival } from '../arrival';
 import { MapPaper } from '../sky/MapPaper';
 import { basisWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
-import { authors, count, number, publishedWords } from '../today/format';
+import { count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
-import { capWords } from './countCap';
+import { stoppedWords } from './countCap';
 import { exportCollection } from './collectionExport';
 import { FacetMenus, type Menu } from './FacetMenus';
 import {
   chips, countSentence, engineFilters, exportedWords, exportWords, filterCount, narrowingWords, readFilters,
   toggled, withDate, withoutFilters, type EngineFilters, type Facets,
 } from './filters';
-import { foldedAway, standingInFor } from './fold';
+import { foldedAway } from './fold';
+import { jumpWords, monthEnd, readJump, withJump } from './jump';
+import { ResultList, type Marks } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
-import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
-import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
-type Marks = {
-  links: NonNullable<components['schemas']['PaperLinks']['links']>;
-  matches: NonNullable<components['schemas']['WatchProfileMatchesByDocument']['matches']>;
-  events: NonNullable<components['schemas']['LifecycleForDocuments']['events']>;
-};
 /** No paper marked on the map: the same list each time, so the map is not drawn again for a new empty one. */
 const NONE_MARKED: readonly number[] = [];
 /** What each search page carries for its papers (`include`). */
@@ -50,12 +45,18 @@ const SETTLE_MS = 350;
  * are listed last, never dropped). Where it cannot rank, the control is not
  * offered and a sentence stands in its place saying why (no model, papers
  * without vectors, counted, or the extension missing) with a link to
- * Settings → AI → Embeddings, where that is put right. A count the engine
- * stopped at its cap says so beside the number.
+ * Settings → AI → Embeddings, where that is put right. Every match is
+ * counted; a count that ran out of time says so beside the number it reached.
  *
  * Two records of the same work are labeled with the reason the engine linked
  * them; folding them hides rows in this view only, and the count does not
  * change.
+ *
+ * The list is drawn as a window over every row read (`ResultList`), reading
+ * the next page as the view nears the end, so a long one scrolls as a short
+ * one does. In the newest order, Jump to starts it at a month: the matches
+ * published after it are said and still counted, and Back to the newest
+ * returns. The month is kept in the address (`at`) with the words and filters.
  *
  * Filters narrow it by source, category, author, and publication date, each
  * value with the engine's count of the papers it would hold (`filters.ts` says
@@ -63,9 +64,9 @@ const SETTLE_MS = 350;
  * opens exactly the papers it drew with `?source=` or `?category=`, and that
  * filter is named on the screen and taken off like any other.
  *
- * Export writes every paper the count above the list counts, not the rows
- * drawn so far: the engine renders the file and the system's save dialog asks
- * where it goes. Where the engine caps an export, that is said before saving.
+ * Export writes every paper the search matches, not the rows drawn so far,
+ * however many: the engine renders the file as it reads the papers and the
+ * system's save dialog asks where it goes.
  */
 export function Collection() {
   const [params, setParams] = useSearchParams();
@@ -93,6 +94,7 @@ export function Collection() {
     }, { replace: true });
   }, [asked, query, setParams]);
   const [sort, setSort] = useState<Sort>('newest');
+  const scroller = useRef<HTMLDivElement>(null);
   const [fold, setFold] = useState(false);
   // A paper chosen on the map opens in the results' place; the results, and the search box, wait behind it.
   const [opened, setOpened] = useState<SkyChoice | null>(null);
@@ -111,6 +113,9 @@ export function Collection() {
   const canRank = status.data?.capability.available === true;
   const rank = status.data ? rankingWords(status.data) : null;
   const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
+  // A month jumped to, in the newest order only: a ranking by meaning is not in date order.
+  const at = readJump(params);
+  const jump = ranking === 'newest' && at ? monthEnd(at) : null;
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -119,13 +124,21 @@ export function Collection() {
   const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   const pages = useInfiniteQuery({
-    queryKey: ['explorer', query, ranking, filters],
+    queryKey: ['explorer', query, ranking, filters, jump],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
-      body: { ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS] },
+      body: {
+        ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS],
+        // The jump says where the first page starts; every page after it follows its cursor.
+        ...(pageParam === null && jump ? { start_date: jump } : {}),
+      },
     })),
     getNextPageParam: (last) => (last.has_more && last.next_cursor ? String(last.next_cursor) : undefined),
   });
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = pages;
+  const readMore = useCallback(() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
+  // A new search, a new order, or a jump starts at the top of the list.
+  useEffect(() => { scroller.current?.scrollTo({ top: 0 }); }, [query, ranking, filters, jump]);
   const first = pages.data?.pages[0];
   const rows: ExplorerPaper[] = useMemo(() => pages.data?.pages.flatMap((p) => p.results) ?? [], [pages.data]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
@@ -178,9 +191,9 @@ export function Collection() {
   const total = first?.total ?? 0;
   const busy = pages.isFetching || (fold && folded.isFetching);
   const said = first ? countSentence(first, filtered, query) : '';
-  // The whole collection's own count is the status's, read from every record; it answers only the unfiltered view.
-  const cap = first ? capWords(first, !query && !filtered ? status.data?.coverage.total ?? null : null) : null;
+  const stopped = first ? stoppedWords(first) : null;
   const offer = first ? exportWords(first, served) : null;
+  const jumped = first?.start_date ? jumpWords(first, at ?? first.start_date) : null;
 
   return (
     <div className="collection">
@@ -197,8 +210,8 @@ export function Collection() {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
           if (!query && !filtered) return `Every paper in your collection, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
-          const listed = ids.length < total
-            ? `the first ${number(ids.length)} of ${number(total)} matches`
+          const listed = ids.length < total || first?.total_is_exact === false
+            ? `the first ${number(ids.length)} of ${first?.total_is_exact === false ? 'at least ' : ''}${number(total)} matches`
             : count(ids.length, 'match', 'matches');
           if (placed === ids.length) return `Marked: ${listed}, ${basisWords(basis)}.`;
           return `Marked: ${number(placed ?? 0)} of ${listed}; the map has not placed the rest yet.`;
@@ -242,7 +255,7 @@ export function Collection() {
               filters={filters}
               facets={{ data: facets.data, error: facets.error, busy: facets.isFetching, stale: facets.isPlaceholderData }}
               words={!!scope.query}
-              matches={first ? first.total : null}
+              matches={first?.total_is_exact ? first.total : null}
               nameOf={nameOf}
               onMenu={(which, open) => setMenu((now) => (open ? which : now === which ? null : now))}
               onToggle={(key, value) => setParams(toggled(params, key, value))}
@@ -256,6 +269,13 @@ export function Collection() {
                   Closest in meaning
                 </button>
               </div>
+            )}
+            {ranking === 'newest' && (
+              <label className="date jump-to" data-collection="jump">
+                Jump to
+                <input type="month" value={at ?? ''} max="9999-12" aria-label="Jump to a month of publication"
+                  onChange={(event) => setParams(withJump(params, event.target.value), { replace: true })} />
+              </label>
             )}
             {rank && !canRank && (
               <p className="rank-off" data-collection="ranking">
@@ -293,7 +313,7 @@ export function Collection() {
           )}
           <p className="count-sentence">
             {said}
-            {cap && <span className="count-cap" data-collection="count-cap"> · {cap}</span>}
+            {stopped && <span className="count-cap" data-collection="count-stopped"> · {stopped}</span>}
           </p>
           {offer && (
             <div className="collection-export" data-collection="export" role="group" aria-label="Export the papers counted above">
@@ -331,60 +351,37 @@ export function Collection() {
             </p>
           )}
         </div>
-        <div className="index-scroll">
+        <div className="results-status">
           {pages.isPending && <p className="index-cap">Searching.</p>}
           {pages.isError && <p className="index-cap">The collection could not be searched ({pages.error.message}).</p>}
+          {jumped && (
+            <p className="jump-note" role="status" data-collection="jumped">
+              {jumped}{' '}
+              <button type="button" className="btn quiet sm" onClick={() => setParams(withJump(params, ''), { replace: true })}>
+                Back to the newest
+              </button>
+            </p>
+          )}
           {first && !rows.length && (
             <p className="index-empty">
-              {query ? `Nothing in your collection matches "${query}"${filtered ? ' within these filters' : ''}.`
+              {jumped ? 'Nothing that matches was published on or before then.'
+                : query ? `Nothing in your collection matches "${query}"${filtered ? ' within these filters' : ''}.`
                 : filtered ? 'Nothing in your collection matches these filters.' : 'Your collection is empty.'}
             </p>
           )}
-          <ol className="result-list">
-            {visible.map((paper) => {
-              const also = marks.links[String(paper.id)] ?? [];
-              const standing = folded.data ? standingInFor(folded.data.folded, paper.id) : 0;
-              return (
-                <li key={paper.id} className="result" data-document={paper.id}>
-                  <Link to={`/papers/${paper.id}`} className="result-title">{paper.title}</Link>
-                  <LifecycleMarks events={marks.events[String(paper.id)]} />
-                  <div className="meta">
-                    <span className="who">{authors(paper.authors)}</span>
-                    <span className="sep" />
-                    <span>{names.get(paper.source_repository) ?? paper.source_repository}</span>
-                    {paper.publication_date && (<><span className="sep" /><span>{publishedWords(paper.publication_date)}</span></>)}
-                    {ranking === 'similarity' && (
-                      <span className="result-distance num" title="Distance from the phrase; smaller is closer">
-                        {paper.distance === null || paper.distance === undefined ? 'not ranked' : paper.distance.toFixed(3)}
-                      </span>
-                    )}
-                  </div>
-                  {also.length > 0 && (
-                    <ul className="result-links">{also.map((link) => <li key={link.id}>{link.label}</li>)}</ul>
-                  )}
-                  {(marks.matches[String(paper.id)] ?? []).length > 0 && (
-                    <ul className="result-people">
-                      {(marks.matches[String(paper.id)] ?? []).map((match) => (
-                        <li key={`${match.profile_id}:${match.basis}`} data-basis={match.basis}>
-                          <span className="basis-chip" title={BASIS_MEANING[match.basis]}>{matchBasis(match.basis)}</span>
-                          <Link to={`/watches/people/${match.profile_id}`}>{match.display_name}</Link>
-                          <span className="match-author">as {match.matched_author}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {fold && standing > 0 && (
-                    <p className="result-folded">Standing in for {count(standing, 'other record')} of the same work.</p>
-                  )}
-                </li>
-              );
-            })}
-          </ol>
-          {pages.hasNextPage && (
-            <button type="button" className="btn more" disabled={pages.isFetchingNextPage} onClick={() => void pages.fetchNextPage()}>
-              {pages.isFetchingNextPage ? 'Reading more' : 'Show more'}
-            </button>
-          )}
+        </div>
+        <div className="index-scroll" ref={scroller}>
+          <ResultList
+            rows={visible}
+            total={first?.total_is_exact ? total : null}
+            marks={marks}
+            folded={folded.data?.folded ?? null}
+            showFolded={fold}
+            ranking={ranking}
+            sourceName={nameOf}
+            scroller={scroller}
+            more={{ has: !!hasNextPage, reading: isFetchingNextPage, read: readMore }}
+          />
         </div>
       </section>
     </div>

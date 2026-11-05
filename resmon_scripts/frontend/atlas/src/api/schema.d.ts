@@ -1943,8 +1943,13 @@ export interface paths {
          * Explorer Export
          * @description Export everything matching the current filters, not just the page shown.
          *
-         *     Reuses the same renderers as the per-execution export; only the way the
-         *     documents are selected differs.
+         *     Every match, however many: the papers are read from the database a batch at
+         *     a time and the file is sent as it is written, so the engine never holds the
+         *     whole of it (measured: `python -m perf scale`). The count in
+         *     ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+         *     connection of the export's own, so the header is exactly what the file holds
+         *     even while a run is storing papers. Reuses the same renderers as the
+         *     per-execution export; only the way the documents are selected differs.
          */
         post: operations["explorer_export_api_explorer_export_post"];
         delete?: never;
@@ -6739,12 +6744,18 @@ export interface components {
          * ExplorerPage
          * @description ``POST /api/explorer/search``.
          *
-         *     ``total`` is the count of every match, capped at ``count_cap`` when
-         *     ``total_is_capped``. Under ``sort == "similarity"`` the phrase ranks the
-         *     filtered set rather than filtering it, and ``ranked_count``,
-         *     ``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says
-         *     why a requested ranking was refused and the page fell back to newest.
-         *     Each of those four is absent when it does not apply.
+         *     ``total`` is the count of every match when ``total_is_exact``; when it is
+         *     false, counting ran out of its time budget (``count_budget_ms``) and
+         *     ``total`` is how many it had counted, which the matches are at least. Under
+         *     ``sort == "similarity"`` the phrase ranks the filtered set rather than
+         *     filtering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;
+         *     ``similarity_unavailable`` says why a requested ranking was refused and the
+         *     page fell back to newest. Each of those four is absent when it does not
+         *     apply.
+         *
+         *     ``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present
+         *     when the request jumped to a date: the page starts at the newest match
+         *     published on or before it, and ``newer_count`` matches were published after.
          *
          *     ``links``, ``matches`` and ``lifecycle`` are present only when the request's
          *     ``include`` named them: what ``/api/links/for-documents``,
@@ -6752,8 +6763,8 @@ export interface components {
          *     answer for this page's papers, so a page and its marks arrive together.
          */
         ExplorerPage: {
-            /** Count Cap */
-            count_cap: number;
+            /** Count Budget Ms */
+            count_budget_ms: number;
             /** Has More */
             has_more: boolean;
             lifecycle?: components["schemas"]["LifecycleForDocuments"] | null;
@@ -6761,6 +6772,10 @@ export interface components {
             matches?: components["schemas"]["WatchProfileMatchesByDocument"] | null;
             /** Model */
             model?: string | null;
+            /** Newer Count */
+            newer_count?: number | null;
+            /** Newer Count Is Exact */
+            newer_count_is_exact?: boolean | null;
             /** Next Cursor */
             next_cursor: unknown | null;
             /** Page Size */
@@ -6773,10 +6788,12 @@ export interface components {
             similarity_unavailable?: string | null;
             /** Sort */
             sort: string;
+            /** Start Date */
+            start_date?: string | null;
             /** Total */
             total: number;
-            /** Total Is Capped */
-            total_is_capped: boolean;
+            /** Total Is Exact */
+            total_is_exact: boolean;
             /** Unranked Count */
             unranked_count?: number | null;
             /** Used Full Text Index */
@@ -6859,6 +6876,8 @@ export interface components {
              * @default []
              */
             sources: string[];
+            /** Start Date */
+            start_date?: string | null;
         };
         /**
          * FactoryReset
@@ -11239,8 +11258,10 @@ export interface components {
          *
          *     ``window`` is ``since_last_look`` when a look is recorded and
          *     ``first_look`` when none is, in which case ``since`` is seven days before
-         *     ``now`` and the interface says so. ``papers`` holds at most 1,000, newest
-         *     first; ``total`` counts them all.
+         *     ``now`` and the interface says so. ``papers`` is the first page of them, up
+         *     to 1,000, newest first; ``total`` counts them all, and ``next_cursor``
+         *     (``None`` when the page holds every one) reads the next page from
+         *     ``GET /api/today/papers``.
          */
         Today: {
             /** From Searches */

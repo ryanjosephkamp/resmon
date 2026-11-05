@@ -6292,10 +6292,10 @@
       },
       "ExplorerPage": {
         "additionalProperties": true,
-        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match, capped at ``count_cap`` when\n``total_is_capped``. Under ``sort == \"similarity\"`` the phrase ranks the\nfiltered set rather than filtering it, and ``ranked_count``,\n``unranked_count`` and ``model`` say how; ``similarity_unavailable`` says\nwhy a requested ranking was refused and the page fell back to newest.\nEach of those four is absent when it does not apply.\n\n``links``, ``matches`` and ``lifecycle`` are present only when the request's\n``include`` named them: what ``/api/links/for-documents``,\n``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``\nanswer for this page's papers, so a page and its marks arrive together.",
+        "description": "``POST /api/explorer/search``.\n\n``total`` is the count of every match when ``total_is_exact``; when it is\nfalse, counting ran out of its time budget (``count_budget_ms``) and\n``total`` is how many it had counted, which the matches are at least. Under\n``sort == \"similarity\"`` the phrase ranks the filtered set rather than\nfiltering it, and ``ranked_count``, ``unranked_count`` and ``model`` say how;\n``similarity_unavailable`` says why a requested ranking was refused and the\npage fell back to newest. Each of those four is absent when it does not\napply.\n\n``start_date``, ``newer_count`` and ``newer_count_is_exact`` are present\nwhen the request jumped to a date: the page starts at the newest match\npublished on or before it, and ``newer_count`` matches were published after.\n\n``links``, ``matches`` and ``lifecycle`` are present only when the request's\n``include`` named them: what ``/api/links/for-documents``,\n``/api/profiles/matches/for-documents`` and ``/api/lifecycle/for-documents``\nanswer for this page's papers, so a page and its marks arrive together.",
         "properties": {
-          "count_cap": {
-            "title": "Count Cap",
+          "count_budget_ms": {
+            "title": "Count Budget Ms",
             "type": "integer"
           },
           "has_more": {
@@ -6343,6 +6343,28 @@
             ],
             "title": "Model"
           },
+          "newer_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newer Count"
+          },
+          "newer_count_is_exact": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newer Count Is Exact"
+          },
           "next_cursor": {
             "anyOf": [
               {},
@@ -6389,12 +6411,23 @@
             "title": "Sort",
             "type": "string"
           },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
+          },
           "total": {
             "title": "Total",
             "type": "integer"
           },
-          "total_is_capped": {
-            "title": "Total Is Capped",
+          "total_is_exact": {
+            "title": "Total Is Exact",
             "type": "boolean"
           },
           "unranked_count": {
@@ -6418,8 +6451,8 @@
           "next_cursor",
           "has_more",
           "total",
-          "total_is_capped",
-          "count_cap",
+          "total_is_exact",
+          "count_budget_ms",
           "used_full_text_index",
           "page_size",
           "sort"
@@ -6647,6 +6680,17 @@
             },
             "title": "Sources",
             "type": "array"
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date"
           }
         },
         "title": "ExplorerSearchBody",
@@ -17032,7 +17076,7 @@
       },
       "Today": {
         "additionalProperties": true,
-        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` holds at most 1,000, newest\nfirst; ``total`` counts them all.",
+        "description": "``GET /api/today``.\n\n``window`` is ``since_last_look`` when a look is recorded and\n``first_look`` when none is, in which case ``since`` is seven days before\n``now`` and the interface says so. ``papers`` is the first page of them, up\nto 1,000, newest first; ``total`` counts them all, and ``next_cursor``\n(``None`` when the page holds every one) reads the next page from\n``GET /api/today/papers``.",
         "properties": {
           "from_searches": {
             "title": "From Searches",
@@ -22540,7 +22584,7 @@
     },
     "/api/explorer/export": {
       "post": {
-        "description": "Export everything matching the current filters, not just the page shown.\n\nReuses the same renderers as the per-execution export; only the way the\ndocuments are selected differs.",
+        "description": "Export everything matching the current filters, not just the page shown.\n\nEvery match, however many: the papers are read from the database a batch at\na time and the file is sent as it is written, so the engine never holds the\nwhole of it (measured: `python -m perf scale`). The count in\n``X-Resmon-Document-Count`` and the papers are read in one transaction on a\nconnection of the export's own, so the header is exactly what the file holds\neven while a run is storing papers. Reuses the same renderers as the\nper-execution export; only the way the documents are selected differs.",
         "operationId": "explorer_export_api_explorer_export_post",
         "requestBody": {
           "content": {

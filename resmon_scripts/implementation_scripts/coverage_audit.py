@@ -175,12 +175,11 @@ def audit_routine(
         )
         return payload
 
-    # Distances for the routine's own results. ``within_ids`` keeps the ranking
-    # inside the routine, and ``k`` covers all of them so nothing is silently
-    # truncated out of the distribution.
-    ranked = vector_index.nearest(
-        conn, model, intent_vector, k=max(1, len(returned)), within_ids=returned
-    )
+    # Distances for every one of the routine's own results, so nothing is
+    # silently truncated out of the distribution. A ranking, not a
+    # nearest-neighbour query: ``vec0`` refuses a ``k`` past 4,096, and a watch
+    # that had returned more than that read as having none embedded.
+    ranked = vector_index.rank_all(conn, model, intent_vector, within_ids=returned)
     payload["results_embedded"] = len(ranked)
     if not ranked:
         payload["reason"] = (
@@ -229,7 +228,13 @@ def audit_routine(
     # Over-fetch, because the returned set is excluded afterwards and would
     # otherwise eat the whole budget on a routine that dominates the corpus.
     budget = max_missed + len(returned) + 50
-    neighbours = vector_index.nearest(conn, model, intent_vector, k=budget)
+    if budget <= vector_index.KNN_K_MAX:
+        neighbours = vector_index.nearest(conn, model, intent_vector, k=budget)
+    else:
+        # Past ``vec0``'s largest ``k`` the whole collection is ranked instead,
+        # which also makes the count below exact rather than a floor.
+        neighbours = vector_index.rank_all(conn, model, intent_vector)
+        budget = len(neighbours) + 1
     returned_set = set(returned)
     candidates = [
         (doc_id, d) for doc_id, d in neighbours

@@ -17,7 +17,7 @@ import zipfile
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Literal, Optional, TypeVar
+from typing import Callable, Iterable, Iterator, Literal, Optional, TypeVar
 
 import httpx
 
@@ -259,13 +259,18 @@ def _ephemeral_db_path(generation: int) -> str:
     return str(Path(_memory_dir.name) / f"resmon_{generation}.db")
 
 
-def _open_connection():
-    """Open one connection to the configured database."""
+def _db_file_path() -> str:
+    """The file the configured database lives in (a temporary one for ``":memory:"``)."""
     path = _db_path or None
-    db_str = (
+    return (
         _ephemeral_db_path(_db_generation) if path == ":memory:"
         else (str(path) if path else str(DEFAULT_DB_PATH))
     )
+
+
+def _open_connection():
+    """Open one connection to the configured database."""
+    db_str = _db_file_path()
     conn = sqlite3.connect(db_str, check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
@@ -3486,19 +3491,66 @@ class ReferenceExportBody(BaseModel):
     format: str = "bibtex"
 
 
+# A streamed export is sent in pieces of about this many characters: large enough
+# that a file of 100,000 papers is a few thousand writes, small enough that a
+# piece is never more than a moment's memory.
+_EXPORT_PIECE = 64 * 1024
+
+
 def _reference_response(
-    documents: list[dict], fmt: str, stem: str, *, include_ids: bool = False,
-) -> Response:
+    documents: Iterable[dict], fmt: str, stem: str, count: int, *,
+    include_ids: bool = False, close: Optional[Callable[[], None]] = None,
+) -> StreamingResponse:
+    """A reference file, written and sent a piece at a time.
+
+    *count* is how many papers *documents* holds, said in a header before the
+    first piece is sent, which is why a caller reads it in the same transaction
+    as the papers. *close* runs once the last piece is sent, or when the reader
+    goes away first.
+    """
+    done: list[bool] = []
+    lock = threading.Lock()
+
+    def finish() -> None:
+        # Once, from whichever comes first: the last piece written, or the
+        # response ending because the reader went away. The server lets a piece
+        # being written finish before either, so nothing is reading the
+        # connection when it closes.
+        with lock:
+            if close is None or done:
+                return
+            done.append(True)
+        close()
+
     try:
-        text, media_type, extension = reference_export.render(documents, fmt, include_ids=include_ids)
+        media_type, extension = reference_export.describe(fmt, include_ids=include_ids)
     except ValueError as exc:
+        finish()
         raise HTTPException(400, str(exc)) from None
-    return Response(
-        content=text,
+
+    def body() -> Iterator[bytes]:
+        try:
+            pending: list[str] = []
+            size = 0
+            for piece in reference_export.stream(documents, fmt, include_ids=include_ids):
+                pending.append(piece)
+                size += len(piece)
+                if size >= _EXPORT_PIECE:
+                    yield "".join(pending).encode("utf-8")
+                    pending, size = [], 0
+            if pending:
+                yield "".join(pending).encode("utf-8")
+        finally:
+            finish()
+
+    from starlette.background import BackgroundTask  # noqa: PLC0415
+    return StreamingResponse(
+        body(),
         media_type=media_type,
+        background=BackgroundTask(finish),
         headers={
             "Content-Disposition": f'attachment; filename="{stem}.{extension}"',
-            "X-Resmon-Document-Count": str(len(documents)),
+            "X-Resmon-Document-Count": str(count),
             # Readable by the renderer, which is another origin: the count is how
             # it says what a saved file holds, in the engine's number rather
             # than one it worked out before asking.
@@ -3519,7 +3571,7 @@ def export_execution_references(
         documents = get_execution_documents(conn, exec_id, only_new=only_new)
         suffix = "-new" if only_new else ""
         return _reference_response(documents, format, f"resmon-execution-{exec_id}{suffix}",
-                                   include_ids=include_ids)
+                                   len(documents), include_ids=include_ids)
     finally:
         _close_db(conn)
 
@@ -3545,7 +3597,7 @@ def export_selected_references(body: ReferenceExportBody):
                 unique_ids.update(doc["id"] for doc in get_execution_documents(conn, exec_id))
             ids = sorted(unique_ids)
         documents = get_documents_by_ids(conn, ids)
-        return _reference_response(documents, body.format, "resmon-selection")
+        return _reference_response(documents, body.format, "resmon-selection", len(documents))
     finally:
         _close_db(conn)
 
@@ -4325,6 +4377,10 @@ class ExplorerSearchBody(ExplorerFilters):
     # answered with the default rather than a 422: a renderer from a newer build
     # talking to an older backend should get papers, not a validation error.
     sort: str = "newest"
+    # The newest sort's jump: with no cursor, start at the newest match published
+    # on or before this day (YYYY, YYYY-MM or YYYY-MM-DD). Not a filter: the
+    # count is still every match, and ``newer_count`` says how many come first.
+    start_date: Optional[str] = None
     # What else to answer for this page's papers, in the same reply: their
     # near-duplicate links, the people they matched, and their lifecycle
     # notices, each as its own ``/for-documents`` route answers it. Nothing
@@ -4363,6 +4419,12 @@ def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optio
         )
     if not (text or "").strip():
         return None, None, "Ranking by meaning needs a search phrase."
+    key = (str(_db_path or ""), _db_generation, lane, text)
+    with _phrase_vectors_lock:
+        known = _phrase_vectors.get(key)
+        if known is not None:
+            _phrase_vectors.move_to_end(key)
+            return known, lane.model, None
     try:
         vectors = embeddings.embed_texts(lane, [text])
     except embeddings.EmbeddingUnavailable as exc:
@@ -4372,7 +4434,23 @@ def _embed_query(conn, text: str) -> tuple[Optional[bytes], Optional[str], Optio
         return None, None, f"The embedding call failed: {message}"
     if not vectors:
         return None, None, "The embedding model returned nothing for that phrase."
-    return vector_index.pack_vector(vectors[0]), lane.model, None
+    packed = vector_index.pack_vector(vectors[0])
+    with _phrase_vectors_lock:
+        _phrase_vectors[key] = packed
+        while len(_phrase_vectors) > _PHRASE_VECTORS_MAX:
+            _phrase_vectors.popitem(last=False)
+    return packed, lane.model, None
+
+
+# Phrases already embedded, by lane and phrase: each page of a search ranked by
+# meaning asks for the same phrase, and the model's answer for it does not change,
+# so "Show more" asks the model once rather than once a page. A lane names its
+# provider, model, and endpoint, so a changed setting is a different key; the
+# database and its generation are in the key too, so a database swapped in (a
+# restore, a test's fresh one) starts with none.
+_PHRASE_VECTORS_MAX = 32
+_phrase_vectors: "OrderedDict[tuple, bytes]" = OrderedDict()
+_phrase_vectors_lock = threading.Lock()
 
 
 @app.post("/api/explorer/search", response_model=response_models.ExplorerPage,
@@ -4392,7 +4470,7 @@ def explorer_search(body: ExplorerSearchBody):
             vector, model, reason = _embed_query(conn, body.query or "")
         result = explorer.search(
             conn, cursor=body.cursor, limit=body.limit, sort=body.sort,
-            query_vector=vector, model=model, **_filter_kwargs(body),
+            query_vector=vector, model=model, start_date=body.start_date, **_filter_kwargs(body),
         )
         if reason:
             # The request asked for a ranking and did not get one. Saying so is
@@ -4726,16 +4804,40 @@ def explorer_facets(body: ExplorerFilters):
 def explorer_export(body: ExplorerExportBody):
     """Export everything matching the current filters, not just the page shown.
 
-    Reuses the same renderers as the per-execution export; only the way the
-    documents are selected differs.
+    Every match, however many: the papers are read from the database a batch at
+    a time and the file is sent as it is written, so the engine never holds the
+    whole of it (measured: `python -m perf scale`). The count in
+    ``X-Resmon-Document-Count`` and the papers are read in one transaction on a
+    connection of the export's own, so the header is exactly what the file holds
+    even while a run is storing papers. Reuses the same renderers as the
+    per-execution export; only the way the documents are selected differs.
     """
-    conn = _get_db()
     try:
-        ids = explorer.matching_ids(conn, **_filter_kwargs(body))
-        documents = get_documents_by_ids(conn, ids)
-        return _reference_response(documents, body.format, "resmon-explorer")
-    finally:
-        _close_db(conn)
+        reference_export.describe(body.format)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    _close_db(_get_db())  # the database is initialized before a second connection opens it
+    # Its own connection, because the pieces are written on whichever worker
+    # thread the server hands each one to, and a thread's connection belongs to it.
+    conn = sqlite3.connect(_db_file_path(), check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+
+    def close() -> None:
+        try:
+            conn.rollback()
+        finally:
+            conn.close()
+
+    try:
+        conn.execute("PRAGMA busy_timeout=5000;")
+        conn.execute("BEGIN")
+        filters = _filter_kwargs(body)
+        total = explorer.count_matching(conn, **filters)
+        documents = explorer.iter_matching(conn, **filters)
+    except BaseException:
+        close()
+        raise
+    return _reference_response(documents, body.format, "resmon-explorer", total, close=close)
 
 
 # ---------------------------------------------------------------------------
