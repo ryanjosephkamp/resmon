@@ -167,6 +167,10 @@ class Lane:
             if snapshot != preview.request:
                 se.fail('Preview content changed. Inspect a new preview before Send.', 'changed_preview', 409)
             runtime = assistant_runtime.get_bound_runtime(binding, settings, backend_port=self.port, profile=se.PROFILE)
+            # The runtime the answer runs on is checked itself, as assembly
+            # checks its own: a command gone since then starts nothing.
+            if not runtime.status().available:
+                se.fail('The selected connection is unavailable. Review its existing settings.', 'runtime_unavailable', 503)
             runtime.selected_system_sha256 = snapshot['system_sha256']
             # Freeze system bytes only through the fixed, trusted profile. A
             # changed asset between preview and process construction refuses.

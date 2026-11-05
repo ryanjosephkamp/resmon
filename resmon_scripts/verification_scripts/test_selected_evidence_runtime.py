@@ -15,11 +15,12 @@ import uuid
 import pytest
 
 from implementation_scripts import assistant_runtime as cli, assistant_api_runtime as api
-from implementation_scripts import assistant_tool_calling, selected_evidence as se
+from implementation_scripts import ai_cli, assistant_tool_calling, selected_evidence as se
 from implementation_scripts import selected_evidence_context as ctx, selected_evidence_runtime as lane
 from test_selected_evidence_context import workspace, available, selection, assemble
 from test_selected_evidence import answer
 from test_evidence import Workspace, sql_snapshot, files_snapshot
+from test_assistant_runtime import bare_name_on_path, record_starts
 
 
 class CancellationTrace:
@@ -388,6 +389,25 @@ def test_cli_faults_fail_without_retry_and_reap(workspace,available,tmp_path,fau
     assert capture.exists() and '--resume' not in json.loads(capture.read_text())['argv']
 
 
+@pytest.mark.parametrize('command',['missing','present'])
+def test_cli_profile_starts_only_the_command_found(workspace,available,tmp_path,monkeypatch,command):
+    """A missing command is ``cli_missing`` and starts nothing, not the ``claude`` on PATH."""
+    request,_,_=assemble(workspace,selection(workspace));binary,capture=fake_cli(tmp_path)
+    ran=bare_name_on_path(tmp_path,monkeypatch)
+    path=str(binary) if command=='present' else str(tmp_path/'no-such-claude')
+    started=record_starts(monkeypatch)
+    runtime=cli.ClaudeCliRuntime(cli_path=path,profile=se.PROFILE)
+    events=list(runtime.run_turn(-6,request['user_prompt'],cli_session_id=str(uuid.uuid4()),resume=False))
+    assert not ran.exists() and not cli.is_running(-6)
+    if command=='missing':
+        sentence=ai_cli.discover_cli('claude_code',path).describe()
+        assert events==[{'type':'error','detail':'cli_missing','message':sentence}]
+        assert started==[] and not capture.exists()
+    else:
+        assert events[-1]['type']=='done' and not any(e['type']=='error' for e in events)
+        assert [argv[0] for argv in started]==[path] and capture.exists()
+
+
 def test_cli_actual_stop_before_late_success(workspace,available,tmp_path):
     request,_,_=assemble(workspace,selection(workspace));binary,capture=fake_cli(tmp_path,fault='wait')
     runtime=cli.ClaudeCliRuntime(cli_path=str(binary),profile=se.PROFILE);events=[]
@@ -548,6 +568,41 @@ def test_admission_rechecks_frozen_preview_before_any_process(workspace,tmp_path
         assert not capture.exists() and workspace.conn.execute('SELECT count(*) FROM evidence_answers').fetchone()[0]==0
     finally:
         if fault=='retained_changed':retained.write_bytes(original_bytes);assert retained.read_bytes()==original_bytes
+        value.shutdown()
+
+
+@pytest.mark.parametrize('command',['gone','present'])
+def test_send_checks_the_runtime_it_runs_on(workspace,tmp_path,monkeypatch,command):
+    """A command gone after the frozen preview's recheck starts nothing, not the ``claude`` on PATH."""
+    value,body,capture=real_lane(workspace,tmp_path)
+    ran=bare_name_on_path(tmp_path,monkeypatch)
+    binary=Path(value.settings(None)['ai_cli_path'])
+    preview=value.preview(workspace.conn,workspace.project_id,body,threading.Event())
+    send={'expected_vault_id':workspace.vault_id,'expected_runtime_id':value.runtime_id,'preview_id':preview['preview_id'],
+          'request_sha256':preview['request_sha256'],'confirmed':True}
+    original=ctx.assemble
+    def assemble_then(*args,**kwargs):
+        made=original(*args,**kwargs)
+        if command=='gone':binary.unlink()
+        return made
+    monkeypatch.setattr(ctx,'assemble',assemble_then)
+    started=record_starts(monkeypatch)
+    try:
+        if command=='gone':
+            with pytest.raises(se.ev.EvidenceError) as refusal:
+                value.send(workspace.conn,workspace.project_id,send,threading.Event())
+            assert (refusal.value.reason,refusal.value.status)==('runtime_unavailable',503)
+            assert workspace.conn.execute('SELECT count(*) FROM evidence_answers').fetchone()[0]==0
+            assert started==[] and not capture.exists()
+        else:
+            result=value.send(workspace.conn,workspace.project_id,send,threading.Event())
+            job=value.subscribe(result['answer_id'],workspace.vault_id,workspace.project_id,value.runtime_id)
+            while not job.completed.is_set():value.next_event(job)
+            saved=se.detail(workspace.conn,workspace.vault_id,workspace.project_id,result['answer_id'])
+            assert saved['state']=='succeeded' and capture.exists()
+            assert [argv[0] for argv in started]==[str(binary)]
+        assert not ran.exists()
+    finally:
         value.shutdown()
 
 
