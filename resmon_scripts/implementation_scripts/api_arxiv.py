@@ -124,12 +124,23 @@ def _patience_seconds(unattended: bool = False) -> float:
     return _budget("RESMON_ARXIV_PATIENCE_SECONDS", _PATIENCE_SECONDS)
 
 
+# How often a wait looks for a cancelled run: the longest a cancel waits for it.
+_WAIT_SLICE_SECONDS = 0.5
+
+
 def _wait(seconds: float) -> None:
     """Wait between attempts, ending early if the run is cancelled.
 
-    A seam, so a test can wait without sleeping.
+    Slept with ``time.sleep`` a slice at a time, so a test that stubs
+    ``time.sleep`` waits for nothing, and a seam besides, so a test can record
+    the waits instead.
     """
-    search_outcome().stop.wait(seconds)
+    stop = search_outcome().stop
+    left = max(0.0, float(seconds))
+    while left > 0 and not stop.is_set():
+        step = min(_WAIT_SLICE_SECONDS, left)
+        time.sleep(step)
+        left -= step
 
 
 def _stopped() -> bool:
