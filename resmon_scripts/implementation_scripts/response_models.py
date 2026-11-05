@@ -2356,7 +2356,8 @@ class RunPapersPage(LosslessModel):
 
 class RunDocumentIds(LosslessModel):
     """``GET /api/executions/{exec_id}/document-ids``: every paper the run
-    stored that is still in the collection, by id, for the run's map."""
+    stored that is in the collection named (the default one where none is),
+    by id, for the run's map, which is that collection's."""
 
     ids: list[int]
 
@@ -2449,10 +2450,15 @@ class CollapsePreview(LosslessModel):
 class EmbeddingStatus(EmbeddingJobStatus):
     """``GET /api/embeddings/status``: the backfill, the coverage, the vector
     extension and index, the configured lane, and whether ranking by meaning
-    is available now (and if not, why)."""
+    is available now (and if not, why).
+
+    ``coverage`` counts every paper resmon holds, which is what a backfill
+    embeds. ``collection_coverage``, present when a ``collection`` is named,
+    counts that collection's papers alone."""
 
     lane: Optional[EmbeddingLaneView]
     capability: EmbeddingCapability
+    collection_coverage: Optional[EmbeddingCoverage] = None
 
 
 # ===========================================================================

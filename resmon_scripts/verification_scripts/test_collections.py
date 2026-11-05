@@ -25,7 +25,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "resmon_scripts"))
 
 from implementation_scripts import (  # noqa: E402
-    analytics, collection_map, explorer, map_facets, paper_collections as pc, reading_queue, today,
+    analytics, collection_map, embedding_job, explorer, map_facets, paper_collections as pc, reading_queue, today,
 )
 from implementation_scripts import sweep_engine as se  # noqa: E402
 from implementation_scripts.admission import admission, routine_claims  # noqa: E402
@@ -610,6 +610,49 @@ def test_papers_are_moved_copied_and_put_back_by_id_and_by_search(http):
     both = client.post(f"/api/collections/{physics}/papers", json={
         "mode": "copy", "document_ids": [a], "matching": {}})
     assert both.status_code == 400
+
+
+def test_the_embedding_coverage_of_one_collection_counts_its_papers_alone(conn, two):
+    """Search says how many of the shown collection's papers have a vector; a backfill
+    still covers every paper, which ``coverage`` keeps counting."""
+    for doc_id in (two["a"], two["p"]):
+        conn.execute("INSERT INTO document_embeddings (document_id, model, dims, vector, fields) "
+                     "VALUES (?, 'm', 1, x'00000000', 'title')", (doc_id,))
+    conn.commit()
+    assert embedding_job.coverage(conn, "m") == {"embedded": 2, "total": 4, "model": "m"}
+    assert embedding_job.collection_coverage(conn, "m", 1) == {"embedded": 1, "total": 3, "model": "m"}
+    assert embedding_job.collection_coverage(conn, "m", two["physics"]) == {"embedded": 1, "total": 2, "model": "m"}
+    assert embedding_job.collection_coverage(conn, None, two["physics"]) == {"embedded": 0, "total": 2, "model": None}
+    pc.delete(conn, two["physics"])
+    assert embedding_job.collection_coverage(conn, "m", 1) == embedding_job.coverage(conn, "m")
+
+
+def test_the_embedding_status_names_a_collections_coverage_when_asked(http):
+    resmon_mod, client = http
+    conn = resmon_mod._get_db()
+    physics = client.post("/api/collections", json={"name": "Physics"}).json()["id"]
+    _paper(conn, "a")
+    _paper(conn, "b")
+    _paper(conn, "p", collection_id=physics)
+    every = client.get("/api/embeddings/status").json()
+    assert every["coverage"]["total"] == 3 and "collection_coverage" not in every
+    mine = client.get("/api/embeddings/status", params={"collection": "Physics"}).json()
+    assert mine["coverage"]["total"] == 3 and mine["collection_coverage"]["total"] == 1
+    assert client.get("/api/embeddings/status", params={"collection": 1}).json()["collection_coverage"]["total"] == 2
+    assert client.get("/api/embeddings/status", params={"collection": "Nowhere"}).status_code == 404
+
+
+def test_a_runs_paper_ids_are_those_in_the_collection_its_map_shows(http):
+    resmon_mod, client = http
+    conn = resmon_mod._get_db()
+    physics = client.post("/api/collections", json={"name": "Physics"}).json()["id"]
+    a = _paper(conn, "a")
+    p = _paper(conn, "p", collection_id=physics)
+    run = _run(conn, [a, p])
+    assert client.get(f"/api/executions/{run}/document-ids").json() == {"ids": [a]}
+    assert client.get(f"/api/executions/{run}/document-ids", params={"collection": "Physics"}).json() == {"ids": [p]}
+    client.delete(f"/api/collections/{physics}")
+    assert client.get(f"/api/executions/{run}/document-ids").json() == {"ids": [a, p]}
 
 
 def test_every_read_takes_a_collection_and_an_absent_one_is_the_default(http):

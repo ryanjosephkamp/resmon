@@ -5991,10 +5991,20 @@
       },
       "EmbeddingStatus": {
         "additionalProperties": true,
-        "description": "``GET /api/embeddings/status``: the backfill, the coverage, the vector\nextension and index, the configured lane, and whether ranking by meaning\nis available now (and if not, why).",
+        "description": "``GET /api/embeddings/status``: the backfill, the coverage, the vector\nextension and index, the configured lane, and whether ranking by meaning\nis available now (and if not, why).\n\n``coverage`` counts every paper resmon holds, which is what a backfill\nembeds. ``collection_coverage``, present when a ``collection`` is named,\ncounts that collection's papers alone.",
         "properties": {
           "capability": {
             "$ref": "#/components/schemas/EmbeddingCapability"
+          },
+          "collection_coverage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingCoverage"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "coverage": {
             "$ref": "#/components/schemas/EmbeddingCoverage"
@@ -14540,7 +14550,7 @@
       },
       "RunDocumentIds": {
         "additionalProperties": true,
-        "description": "``GET /api/executions/{exec_id}/document-ids``: every paper the run\nstored that is still in the collection, by id, for the run's map.",
+        "description": "``GET /api/executions/{exec_id}/document-ids``: every paper the run\nstored that is in the collection named (the default one where none is),\nby id, for the run's map, which is that collection's.",
         "properties": {
           "ids": {
             "items": {
@@ -23606,8 +23616,29 @@
     },
     "/api/embeddings/status": {
       "get": {
-        "description": "N of M embedded with model X, the run, the index, and the extension.",
+        "description": "N of M embedded with model X, the run, the index, and the extension.\n\n``coverage`` counts every paper, as a backfill does; with ``collection``,\n``collection_coverage`` counts that collection's papers too.",
         "operationId": "embedding_status_api_embeddings_status_get",
+        "parameters": [
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -23618,6 +23649,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Embedding Status"
@@ -24876,7 +24917,7 @@
     },
     "/api/executions/{exec_id}/document-ids": {
       "get": {
-        "description": "Every paper this run stored that is still in the collection, by id.\n\nThe run's map needs all of them and nothing else about them: the map\nalready holds their positions. The papers themselves are paged by\n``/documents``; ids alone are a few bytes each, so they come whole.",
+        "description": "Every paper this run stored that is in the collection, by id.\n\nThe run's map is the collection's map, so it needs these and nothing else\nabout them: the map already holds their positions. The papers themselves\nare paged by ``/documents``; ids alone are a few bytes each, so they come\nwhole.",
         "operationId": "get_execution_document_ids_api_executions__exec_id__document_ids_get",
         "parameters": [
           {
@@ -24886,6 +24927,25 @@
             "schema": {
               "title": "Exec Id",
               "type": "integer"
+            }
+          },
+          {
+            "description": "The collection, by its id or its name. Absent, the default collection.",
+            "in": "query",
+            "name": "collection",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The collection, by its id or its name. Absent, the default collection.",
+              "title": "Collection"
             }
           }
         ],

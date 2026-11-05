@@ -537,7 +537,7 @@ Calls in `mcp_server.py` that resolve to no single route, and so are not in the 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
 | `POST` | `/api/documents/briefs` | token | — | `list` | A line about each paper asked for, for the plate's hover: title, authors, |
-| `GET` | `/api/executions/{exec_id}/document-ids` | token | — | `RunDocumentIds` | Every paper this run stored that is still in the collection, by id. |
+| `GET` | `/api/executions/{exec_id}/document-ids` | token | — | `RunDocumentIds` | Every paper this run stored that is in the collection, by id. |
 | `GET` | `/api/map` | token | — | `CollectionMap` | Where every paper of a collection sits on the Atlas plate, and on what basis. |
 | `GET` | `/api/map/facets` | token | — | `MapFacets` | What the map's filters and colors read about every paper of a collection: |
 | `GET` | `/api/map/find` | token | — | `MapFind` | The papers of a collection whose title or authors contain `q`, newest |

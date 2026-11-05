@@ -3593,21 +3593,25 @@ def get_execution_progress_events(
 
 @app.get("/api/executions/{exec_id}/document-ids", response_model=response_models.RunDocumentIds,
          response_model_exclude_unset=True)
-def get_execution_document_ids(exec_id: int):
-    """Every paper this run stored that is still in the collection, by id.
+def get_execution_document_ids(exec_id: int, collection: Optional[str] = _COLLECTION_QUERY):
+    """Every paper this run stored that is in the collection, by id.
 
-    The run's map needs all of them and nothing else about them: the map
-    already holds their positions. The papers themselves are paged by
-    ``/documents``; ids alone are a few bytes each, so they come whole.
+    The run's map is the collection's map, so it needs these and nothing else
+    about them: the map already holds their positions. The papers themselves
+    are paged by ``/documents``; ids alone are a few bytes each, so they come
+    whole.
     """
     conn = _get_db()
     try:
         if get_execution_by_id(conn, exec_id) is None:
             raise HTTPException(404, "Execution not found")
+        chosen = _collection_id(conn, collection)
+        within, params = ("", ()) if paper_collections.holds_every_paper(conn, chosen) else (
+            f" AND {paper_collections.member_clause('ed.document_id')}", (chosen,))
         rows = conn.execute(
             "SELECT DISTINCT ed.document_id FROM execution_documents ed "
-            "JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ? "
-            "ORDER BY ed.document_id", (exec_id,))
+            f"JOIN documents d ON d.id = ed.document_id WHERE ed.execution_id = ?{within} "
+            "ORDER BY ed.document_id", (exec_id, *params))
         return {"ids": [int(r[0]) for r in rows]}
     finally:
         _close_db(conn)
@@ -7011,14 +7015,22 @@ def probe_embedding_lane(body: EmbeddingProbeBody | None = None):
 
 @app.get("/api/embeddings/status", response_model=response_models.EmbeddingStatus,
          response_model_exclude_unset=True)
-def embedding_status():
-    """N of M embedded with model X, the run, the index, and the extension."""
+def embedding_status(collection: Optional[str] = _COLLECTION_QUERY):
+    """N of M embedded with model X, the run, the index, and the extension.
+
+    ``coverage`` counts every paper, as a backfill does; with ``collection``,
+    ``collection_coverage`` counts that collection's papers too.
+    """
     conn = _get_db()
     try:
+        chosen = _collection_id(conn, collection) if collection is not None else None
         lane = _current_embedding_lane(conn)
         payload = embedding_job.backfill_job.status(conn, lane.model if lane else None)
         payload["lane"] = lane.to_dict() if lane else None
         payload["capability"] = _embedding_capability(conn)
+        if chosen is not None:
+            payload["collection_coverage"] = embedding_job.collection_coverage(
+                conn, lane.model if lane else None, chosen)
         return payload
     finally:
         _close_db(conn)

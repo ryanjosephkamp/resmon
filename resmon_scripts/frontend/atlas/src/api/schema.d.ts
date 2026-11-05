@@ -1409,6 +1409,9 @@ export interface paths {
         /**
          * Embedding Status
          * @description N of M embedded with model X, the run, the index, and the extension.
+         *
+         *     ``coverage`` counts every paper, as a backfill does; with ``collection``,
+         *     ``collection_coverage`` counts that collection's papers too.
          */
         get: operations["embedding_status_api_embeddings_status_get"];
         put?: never;
@@ -1928,11 +1931,12 @@ export interface paths {
         };
         /**
          * Get Execution Document Ids
-         * @description Every paper this run stored that is still in the collection, by id.
+         * @description Every paper this run stored that is in the collection, by id.
          *
-         *     The run's map needs all of them and nothing else about them: the map
-         *     already holds their positions. The papers themselves are paged by
-         *     ``/documents``; ids alone are a few bytes each, so they come whole.
+         *     The run's map is the collection's map, so it needs these and nothing else
+         *     about them: the map already holds their positions. The papers themselves
+         *     are paged by ``/documents``; ids alone are a few bytes each, so they come
+         *     whole.
          */
         get: operations["get_execution_document_ids_api_executions__exec_id__document_ids_get"];
         put?: never;
@@ -7051,9 +7055,14 @@ export interface components {
          * @description ``GET /api/embeddings/status``: the backfill, the coverage, the vector
          *     extension and index, the configured lane, and whether ranking by meaning
          *     is available now (and if not, why).
+         *
+         *     ``coverage`` counts every paper resmon holds, which is what a backfill
+         *     embeds. ``collection_coverage``, present when a ``collection`` is named,
+         *     counts that collection's papers alone.
          */
         EmbeddingStatus: {
             capability: components["schemas"]["EmbeddingCapability"];
+            collection_coverage?: components["schemas"]["EmbeddingCoverage"] | null;
             coverage: components["schemas"]["EmbeddingCoverage"];
             extension: components["schemas"]["VectorExtensionStatus"];
             index: components["schemas"]["EmbeddingIndexState"];
@@ -10704,7 +10713,8 @@ export interface components {
         /**
          * RunDocumentIds
          * @description ``GET /api/executions/{exec_id}/document-ids``: every paper the run
-         *     stored that is still in the collection, by id, for the run's map.
+         *     stored that is in the collection named (the default one where none is),
+         *     by id, for the run's map, which is that collection's.
          */
         RunDocumentIds: {
             /** Ids */
@@ -15545,7 +15555,10 @@ export interface operations {
     };
     embedding_status_api_embeddings_status_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -15559,6 +15572,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["EmbeddingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -16472,7 +16494,10 @@ export interface operations {
     };
     get_execution_document_ids_api_executions__exec_id__document_ids_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The collection, by its id or its name. Absent, the default collection. */
+                collection?: string | null;
+            };
             header?: never;
             path: {
                 exec_id: number;
