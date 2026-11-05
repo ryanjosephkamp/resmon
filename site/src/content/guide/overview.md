@@ -30,7 +30,7 @@ A field extracted from a document, a field matched against your collection, and 
 
 ## The screens
 
-The top bar holds seven sections, a **New search** menu, **Search commands**, and Settings.
+The top bar holds seven sections, a **New search** menu, **Search commands**, and Settings. **Settings › Top bar** puts the sections in the order you choose and hides any or all of them; Settings itself always stays at the bar's right end.
 
 | Section | Tabs | What it is for |
 |---|---|---|
@@ -41,15 +41,15 @@ The top bar holds seven sections, a **New search** menu, **Search commands**, an
 | **Library** | To read · Read · Your files · Projects | Saved papers, kept files, and the projects built from them |
 | **Ask** | | The assistant and every conversation kept with it |
 | **Health** | Source wall · Watchdog · Analytics · This engine | What the sources did, what is wrong, what the collection holds, and which engine this window uses |
-| **Settings** | Appearance · In the background · Email · Notifications · AI · Sources · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
+| **Settings** | Appearance · Top bar · In the background · Email · Notifications · AI · Sources · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
 
-Between the sections and **New search** is the run monitor: the accent's ring and core while nothing runs, an orbit for each run going now (its arc is the share of the run's sources that have finished, and it stops and turns gray when the run has said nothing for 15 seconds), one spreading ring when a run finishes, and a struck red mark when a run has failed since you last opened it. Click it, or press Enter on it, for its panel: the runs going now, with their sources, time, and **Stop**; those waiting; today's, with **Why** beside a failure; and **Open Runs**. Escape or a click elsewhere closes it. **Settings › Appearance** can hide it.
+Between the sections and **New search** is the run monitor: the accent's ring and core while nothing runs, an orbit for each run going now (its arc is the share of the run's sources that have finished, and it stops and turns gray when the run has said nothing for 15 seconds), one spreading ring when a run finishes, and a struck red mark when a run has failed since you last opened it. Click it, or press Enter on it, for its panel: the runs going now, with their sources, time, and **Stop**; those waiting; today's, with **Why** beside a failure; and **Open Runs**. Escape or a click elsewhere closes it. **Settings › Top bar** can hide it.
 
 The **Search commands** button, or ⌘K (Ctrl+K on Windows and Linux), opens a palette that goes to any screen, starts a search or a conversation, and changes the theme or accent color. A run, a paper, a watch, and a person each have a page of their own, reached from the lists that name them.
 
 ### Windows
 
-**File › New Window** (⌘N, or Ctrl+N on Windows and Linux) opens another window at **Today**. To open a screen in a window of its own, ⌘-click (Ctrl-click) a section in the top bar or a link to it, right-click the link and choose **Open in New Window**, or press ⌘Enter on the screen in the command palette, which also offers **Open this page in a new window**. Each window keeps its own page and its own back and forward, and is named by its page. All of them use the same engine, so what one window changes, another shows the next time it reads that page. A notification about a run you started opens the run in the window you started it from; one about a watch's run opens it in the window in front.
+**File › New Window** (⌘N, or Ctrl+N on Windows and Linux) opens another window at the start page: **Today**, unless you choose another in **Settings › Top bar**. To open a screen in a window of its own, ⌘-click (Ctrl-click) a section in the top bar or a link to it, right-click the link and choose **Open in New Window**, or press ⌘Enter on the screen in the command palette, which also offers **Open this page in a new window**. Each window keeps its own page and its own back and forward, and is named by its page. All of them use the same engine, so what one window changes, another shows the next time it reads that page. A notification about a run you started opens the run in the window you started it from; one about a watch's run opens it in the window in front.
 
 On macOS the windows can be tabs. **File › New Tab** (⌘T) opens one, and the **Window** menu holds **Merge All Windows**, **Move Tab to New Window**, **Show Tab Bar**, and **Show Next Tab** and **Show Previous Tab** (⌃⇥ and ⌃⇧⇥). While the windows are in tabs, the top bar sits below the tab bar.
 
@@ -59,8 +59,7 @@ The shortcuts use ⌘ on macOS and Ctrl elsewhere. All of them work while you ty
 
 | Keys | What it does |
 |---|---|
-| ⌘1 to ⌘6 | Go to Today, Watches, Search, Library, Ask, or Health |
-| ⌘7 | Go to Runs |
+| ⌘1 to ⌘7 | Go to the sections in the top bar's order, from the left (Today, Watches, Search, Runs, Library, Ask, and Health, unless you change it); a hidden section keeps a key, after the shown ones |
 | ⌘, | Settings |
 | ⌘K | Search commands |
 | ⌘D and ⇧⌘D | New Deep Dive and new Deep Sweep |

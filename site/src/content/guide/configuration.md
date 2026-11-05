@@ -33,7 +33,8 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 
 | Group | What it holds |
 |---|---|
-| **Appearance** | Theme, accent color, and the run monitor |
+| **Appearance** | Theme and accent color |
+| **Top bar** | The sections' order and which are shown, the start page, where the resmon name goes, and the run monitor |
 | **In the background** | The background service, and how many runs go at once |
 | **Email** | The mail account watches send reports through |
 | **Notifications** | When resmon posts a desktop notification |
@@ -47,6 +48,12 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 ### Appearance
 
 **Theme** is **Follow the system**, **Light**, or **Dark**. **Accent color** is used for the rings around new papers, the current tab, links, and the main button on each screen. Any color works. Where one would be hard to read, resmon draws it lighter or deeper in that theme and shows you the contrast it measured for links, rings, and button text. Both are kept in resmon's database, so they are the same on every launch and come back with a backup. The command palette changes both too.
+
+### Top bar
+
+**Sections** lists the seven sections in the bar's order, from the left. Drag one by its handle, or move it with its arrows. ⌘1 to ⌘7 follow the bar, then go on to the hidden sections. A section's switch hides it, which only takes it out of the bar: its shortcut, the command palette, and links to it still open it, and so does its address. You can hide every section; Settings stays at the bar's right end, and ⌘, opens it.
+
+**Start page** is the page a launch and a new window open on: any section, or a tab within one, such as **Search › Saved**. **The resmon name**, "research monitor" at the bar's left end, goes to the start page unless you choose another page for it. **Reset the top bar** shows every section again, in the first order, and opens on **Today**. All of it is kept in resmon's database, so every window and every launch has the same bar, and it comes back with a backup.
 
 **Show the run monitor in the top bar** shows or hides the run monitor. Hidden, runs still notify you, and the **Runs** tab still lists them. The switch is kept in resmon's database too.
 

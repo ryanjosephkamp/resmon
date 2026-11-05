@@ -66,7 +66,7 @@ Beside the form are the five newest runs, with a link to the **Runs** tab.
 
 ## Runs
 
-The **Runs** tab (⌘7) holds every run.
+The **Runs** tab (⌘4, in the top bar's first order) holds every run.
 
 - **Running now.** Each run going now, with each of its sources in the Source wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so.
 - **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't run**; a watch's run is stopped by pausing the watch.
