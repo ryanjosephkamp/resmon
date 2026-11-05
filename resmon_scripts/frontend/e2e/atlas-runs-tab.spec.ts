@@ -104,6 +104,10 @@ conn.commit()
     expect(pages[0]).toBe('?limit=50&offset=0&omit_events=true');
     await expect(rows.first()).toContainText('run 0999');
     await expect(win.locator('[data-runs="none-running"]')).toContainText('Nothing is running.');
+    // Select all ticks the runs listed, and says how many more there are.
+    const all = history.locator('[data-runs="select-all"]');
+    await expect(all).toContainText('Select all 50');
+    await expect(all.locator('.num')).toHaveText('listed; 950 older are listed as you scroll');
 
     // — Read on as the list nears its end, a page at a time, to the last ----------------------
     const readAll = Date.now();

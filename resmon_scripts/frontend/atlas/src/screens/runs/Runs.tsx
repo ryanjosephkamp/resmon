@@ -104,7 +104,8 @@ export function Runs() {
         </section>
       )}
 
-      <RunHistory filter={filter} words={words} watchName={watchName} notice={notice?.deleted ?? null} tools={(
+      <RunHistory filter={filter} words={words} watchName={watchName} notice={notice?.deleted ?? null}
+        slots={{ cap, running: running.length }} tools={(
         <div className="runs-tools">
           <div className="seg" role="group" aria-label="Show">
             {FILTERS.map((f) => (

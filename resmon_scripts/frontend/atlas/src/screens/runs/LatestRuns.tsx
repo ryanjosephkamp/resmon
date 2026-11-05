@@ -42,8 +42,8 @@ export function LatestRuns() {
     queryFn: () => answer(engine().GET('/api/routines')) as Promise<RoutineName[]>,
   });
   const watches = useMemo(() => new Map((routines.data ?? []).map((r) => [r.id, r.name])), [routines.data]);
+  const groups = useMemo(() => byDay(latest.data?.runs ?? [], now), [latest.data, now]);
   const runs = latest.data?.runs ?? [];
-  const groups = useMemo(() => byDay(runs, now), [runs, now]);
   const total = latest.data?.total ?? null;
 
   return (

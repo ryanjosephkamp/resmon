@@ -72,10 +72,12 @@ A manual search is named by its terms and a watch's run by the watch's name. Eac
 
 A run ends **completed**, **failed**, **cancelled**, or **interrupted**. Interrupted means the process running it went away before it finished, for example because the app was force-quit. It is not failed, because nothing went wrong with the search, and the row says what resmon observed and when it last saw the run working. A run fails when every source selected for it was asked and none answered. It is not recorded as completed, because "completed" over a dead source would state an empty field where a failure happened. A source resmon never asked, such as one with no key, is not a failure and never makes a run one.
 
-Tick runs to work on them together:
+Tick runs to work on them together, or **Select all** to tick every run listed:
 
 - **BibTeX**, **RIS**, or **CSV** exports the papers of every ticked run as one file, with one entry per paper however many runs found it.
 - **Bundle** saves each run's report, with a PDF and LaTeX where they could be made, its log, its metadata, and its search record, in one archive.
+- **Save as searches** saves each ticked Deep Dive or Deep Sweep as a saved search, named by its terms, with its own sources, terms, dates, and cap, summarizing as its run was set to, and linked back to the run. A watch's run is not saved: its search is the watch's, and **Saved** keeps a copy of every watch.
+- **Run again** starts each ticked run again now, with its own terms, dates, limit, and sources, as a new run linked back to it. It asks first, saying how each summarizes, that a watch's run is emailed and delivered as its watch is set, and how many wait for a free slot. A run still going is left alone.
 - **Delete** removes the run's record, what each source answered, which papers it found, and where its report was sent. The papers stay in your collection, and the report and log files stay in the reports folder. A run still going cannot be deleted. The question is asked on the page first; **Not now** or Escape leaves everything as it was.
 
 **Restart…** appears on a run that was interrupted, failed, or cancelled. Before anything starts it says what Restart will do: it asks the same sources with the same terms, dates, and cap as a new run, never resumes the old one, summarizes only if the old run tried to, using what **Settings › AI** holds now, and emails and delivers only if the run belonged to a watch, as the watch is set when the run finishes.

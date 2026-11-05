@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import { answer, engine, EngineError } from '../../api/client';
 import { breakable } from '../../shell/breakable';
@@ -8,7 +8,7 @@ import { useMinute } from '../../lib/useMinute';
 import { clock, count, number } from '../today/format';
 import { Confirm } from './Confirm';
 import { saveRunsBundle } from './downloads';
-import { byDay, listedRuns, runSummary, totalWords, useRunHistory, type RunFilter } from './history';
+import { byDay, HISTORY_KEY, listedRuns, runSummary, totalWords, useRunHistory, type RunFilter } from './history';
 import {
   deletedSentence, deleteQuestion, interruptedSentence, RESTARTABLE, runKind, runsFileStem, runTitle, stillRunning,
   type RunRow,
@@ -16,6 +16,11 @@ import {
 import { exportReferences, FORMATS, type ReferenceFormat } from './references';
 import { useDeleteRuns } from './remove';
 import { RestartFacts } from './RestartFacts';
+import { ACTIVE_KEY } from './active';
+import { SAVED_KEY } from '../collection/savedSearches';
+import {
+  ranAgainSentence, runAgain, runAgainQuestion, savable, saveAsSearches, savedSentence,
+} from './selection';
 
 /** One run's row: its title (a link to its page), when it started, its kind, and what happened. */
 export function RunLine({ run, watch, children }: { run: RunRow; watch: string | null; children?: ReactNode }) {
@@ -48,17 +53,22 @@ interface Props {
   notice: string | null;
   /** The controls that narrow it, drawn beside its heading. */
   tools?: ReactNode;
+  /** How many runs resmon runs at once, and how many are running: Run again says how many would wait. */
+  slots?: { cap: number | null; running: number };
 }
 
 /**
  * The history: every run newest first, by day, a page at a time, read on as
  * the list nears its end. Ticked runs export their papers together, are
  * bundled, or are deleted after the question says what deleting removes and
- * what it leaves. A run that stopped before it finished can be restarted
- * from its row, after the same account of what Restart does that its page
- * gives.
+ * what it leaves; saved as saved searches, one for each that can be one; or
+ * run again now, after a question that says what that starts and how many
+ * would wait. Select all ticks every run listed. A run that stopped before it
+ * finished can be restarted from its row, after the same account of what
+ * Restart does that its page gives.
  */
-export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
+export function RunHistory({ filter, words, watchName, notice, tools, slots }: Props) {
+  const client = useQueryClient();
   const navigate = useNavigate();
   const now = useMinute();
   const history = useRunHistory(filter, words);
@@ -95,7 +105,7 @@ export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
   });
   const bundling = useMutation({ mutationFn: (runIds: number[]) => saveRunsBundle(runIds) });
   const remove = useDeleteRuns();
-  const [asking, setAsking] = useState<'delete' | null>(null);
+  const [asking, setAsking] = useState<'delete' | 'again' | null>(null);
   const question = asking === 'delete'
     ? deleteQuestion(chosen.map((run) => ({ id: run.id, status: run.status, title: titleOf(run) }))) : null;
   const doomed = ids.filter((id) => !going.some((run) => run.id === id));
@@ -108,8 +118,32 @@ export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
       },
     });
   };
+  // Save as searches: each Deep Dive's or Deep Sweep's own search, named by its terms, under Saved.
+  const keep = useMutation({
+    mutationFn: (runs: RunRow[]) => saveAsSearches(runs, watchName),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: SAVED_KEY });
+      void client.invalidateQueries({ queryKey: HISTORY_KEY });
+    },
+  });
+  // Run again: each run's own search, as a new run linked back to it, after the question.
+  const rerun = useMutation({
+    mutationFn: (runs: RunRow[]) => runAgain(runs),
+    onSettled: () => {
+      setAsking(null);
+      void client.invalidateQueries({ queryKey: ACTIVE_KEY });
+      void client.invalidateQueries({ queryKey: HISTORY_KEY });
+    },
+  });
+  const free = slots && slots.cap !== null ? Math.max(0, slots.cap - slots.running) : null;
+  const againQuestion = asking === 'again' ? runAgainQuestion(chosen, { free, cap: slots?.cap ?? null }) : null;
+  const again = chosen.filter((run) => run.status !== 'running');
+  const keepable = savable(chosen);
   const said = (remove.data ? deletedSentence(remove.data) : null) ?? queuedSaid ?? notice;
-  const failure = exporting.error ?? bundling.error;
+  const failure = exporting.error ?? bundling.error ?? keep.error ?? rerun.error;
+  const everyListed = listed.length > 0 && listed.every((run) => selected.includes(run.id));
+  const someListed = listed.some((run) => selected.includes(run.id));
+  const selectAll = () => setSelected(everyListed ? [] : listed.map((run) => run.id));
 
   // Read on as the list nears its end, a page at a time.
   const end = useRef<HTMLDivElement>(null);
@@ -145,6 +179,15 @@ export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
               disabled={bundling.isPending} onClick={() => bundling.mutate(ids)}>
               <Icon name="download" size={14} />{bundling.isPending ? 'Building the bundle' : 'Bundle'}
             </button>
+            <button type="button" className="btn sm" data-runs="save-searches" disabled={keep.isPending || !keepable.length}
+              title={keepable.length ? undefined : 'A watch’s run is not saved: its search is its watch’s.'}
+              onClick={() => keep.mutate(chosen)}>
+              {keep.isPending ? 'Saving' : 'Save as searches'}
+            </button>
+            <button type="button" className="btn sm" data-runs="run-again" disabled={rerun.isPending || !again.length}
+              onClick={() => { rerun.reset(); setAsking('again'); }}>
+              <Icon name="reset" size={14} />{rerun.isPending ? 'Starting' : 'Run again'}
+            </button>
             <button type="button" className="btn sm" data-runs="delete" disabled={remove.isPending || !doomed.length}
               onClick={() => { remove.reset(); setAsking('delete'); }}>
               {remove.isPending ? 'Deleting' : 'Delete'}
@@ -162,6 +205,24 @@ export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
             <Confirm name="delete-runs" question={question}
               act={doomed.length === 1 ? 'Delete 1 run' : `Delete ${number(doomed.length)} runs`}
               busy={remove.isPending} onAct={confirmDelete} onCancel={() => setAsking(null)} />
+          )}
+          {againQuestion && (
+            <Confirm name="run-again" question={againQuestion} tone="go"
+              act={again.length === 1 ? 'Run it again' : `Run ${number(again.length)} again`}
+              busy={rerun.isPending} onAct={() => rerun.mutate(again)} onCancel={() => setAsking(null)} />
+          )}
+          {keep.data && (
+            <div className="export-note" role="status" data-runs="saved">
+              {savedSentence(keep.data)}
+              {keep.data.saved.length > 0 && <>{' '}<Link to="/search/saved">Open Saved</Link>.</>}
+              {keep.data.failed.map((failed) => <p key={failed.id} className="field-error" role="alert">{failed.reason}</p>)}
+            </div>
+          )}
+          {rerun.data && (
+            <div className="export-note" role="status" data-runs="ran-again">
+              {ranAgainSentence(rerun.data)}
+              {rerun.data.refused.map((refused) => <p key={refused.id} className="field-error" role="alert">{refused.reason}</p>)}
+            </div>
           )}
           {failure && (
             <p className="field-error" role="alert">
@@ -181,6 +242,16 @@ export function RunHistory({ filter, words, watchName, notice, tools }: Props) {
       <div className="history-list">
         {history.isPending && <p className="index-cap">Reading the runs.</p>}
         {history.isError && <p className="index-cap">The runs could not be read ({history.error.message}).</p>}
+        {listed.length > 0 && (
+          <label className="history-select" data-runs="select-all">
+            <input type="checkbox" checked={everyListed}
+              ref={(box) => { if (box) box.indeterminate = someListed && !everyListed; }} onChange={selectAll} />
+            {everyListed ? `All ${number(listed.length)} selected` : `Select all ${number(listed.length)}`}
+            {total !== null && total > listed.length && (
+              <span className="num">listed; {number(total - listed.length)} older are listed as you scroll</span>
+            )}
+          </label>
+        )}
         {history.data && !listed.length && (
           <p className="index-empty">
             {words ? `No run matches “${words}”.`

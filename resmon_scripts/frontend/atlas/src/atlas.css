@@ -864,6 +864,14 @@ a.active-title:hover { text-decoration: underline; text-decoration-thickness: 1p
   .run-mark .rm-pulse { animation: none; }
 }
 
+/* Select all: every run listed, and how many more are older. */
+.history-select {
+  display: flex; align-items: center; gap: 10px; margin-top: 14px; font: 500 13px/1.3 var(--sans); color: var(--ink-2); cursor: pointer;
+}
+.history-select input { margin: 0; width: 15px; height: 15px; accent-color: var(--accent-fill); }
+.history-select .num { font-weight: 400; color: var(--ink-3); }
+.runs-bar .export-note a { color: var(--ink); text-underline-offset: 3px; }
+
 /* A question asked in place before something that cannot be undone. */
 .confirm {
   flex-basis: 100%; margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--rule-2); border-radius: 8px;
