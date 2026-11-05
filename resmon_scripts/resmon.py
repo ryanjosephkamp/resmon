@@ -9353,9 +9353,13 @@ class AssistantSessionCreate(BaseModel):
 
 
 class AssistantMessageBody(BaseModel):
+    """One message. ``collection`` is the window's: the turn's tools read it,
+    and a run the turn starts lands in it, where a call names no other."""
+
     model_config = {"extra": "forbid"}
     text: str
     legacy_adoption: Optional[dict] = None
+    collection: CollectionRef = None
 
 
 class AssistantPermissionOpen(BaseModel):
@@ -9591,7 +9595,22 @@ async def answer_assistant_permission(request_id: str, body: AssistantPermission
 def _run_assistant_turn(session_id: int, prompt: str, resume: bool,
                         cli_session_id: str,
                         history: Optional[list], runtime, user_message_id: int,
-                        events, finished: threading.Event, detached: threading.Event) -> None:
+                        events, finished: threading.Event, detached: threading.Event,
+                        collection_id: Optional[int] = None) -> None:
+    """The worker thread, in the window's collection: every tool call of the
+    turn that names no collection reads it, and a run it starts lands in it,
+    in this thread for resmon's own loop and in the MCP server a CLI starts
+    (``mcp_server.in_collection``)."""
+    import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+    with mcp_server.in_collection(collection_id):
+        _assistant_turn(session_id, prompt, resume, cli_session_id, history, runtime,
+                        user_message_id, events, finished, detached)
+
+
+def _assistant_turn(session_id: int, prompt: str, resume: bool,
+                    cli_session_id: str,
+                    history: Optional[list], runtime, user_message_id: int,
+                    events, finished: threading.Event, detached: threading.Event) -> None:
     """The worker thread: drive the CLI, publish events, store the turn.
 
     Runs on its own thread with its own database connection (``_get_db`` is
@@ -9732,6 +9751,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
     text = (body.text or "").strip()
     if not text:
         raise HTTPException(400, "There is nothing to send.")
+    turn_collection = _collection_id(conn, body.collection) if body.collection is not None else None
 
     settings = _assistant_settings(conn)
     binding = assistant_store.get_choices(conn, session_id)
@@ -9783,7 +9803,7 @@ async def send_assistant_message(session_id: int, body: AssistantMessageBody):
         worker = threading.Thread(
             target=_run_assistant_turn,
             args=(session_id, text, admitted['resume'], admitted['cli_session_id'], admitted['history'],
-                  runtime, admitted['user_message_id'], events, finished, detached),
+                  runtime, admitted['user_message_id'], events, finished, detached, turn_collection),
             daemon=True,
         )
         worker.start()

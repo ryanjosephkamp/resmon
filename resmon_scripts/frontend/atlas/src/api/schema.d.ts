@@ -4910,8 +4910,14 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** AssistantMessageBody */
+        /**
+         * AssistantMessageBody
+         * @description One message. ``collection`` is the window's: the turn's tools read it,
+         *     and a run the turn starts lands in it, where a call names no other.
+         */
         AssistantMessageBody: {
+            /** Collection */
+            collection?: number | string | null;
             /** Legacy Adoption */
             legacy_adoption?: {
                 [key: string]: unknown;

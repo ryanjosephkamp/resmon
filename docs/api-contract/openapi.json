@@ -1327,7 +1327,22 @@
       },
       "AssistantMessageBody": {
         "additionalProperties": false,
+        "description": "One message. ``collection`` is the window's: the turn's tools read it,\nand a run the turn starts lands in it, where a call names no other.",
         "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
           "legacy_adoption": {
             "anyOf": [
               {

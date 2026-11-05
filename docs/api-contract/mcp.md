@@ -234,11 +234,19 @@ Every tool below is backed by an endpoint the app serves. `mcp_server.py`'s 26 t
 
 **Collections.** resmon keeps several collections in one database, and a paper can be in more
 than one. `list_collections` names them. `search_corpus`, `get_analytics`, and
-`get_profile_matches` read one collection, and `run_sweep` and `create_routine` say where the
-papers land, each through an optional `collection`: a collection's name or its id, resolved by
-the backend, which refuses one that names no collection. Without one, a call reads, or files
-into, the default collection, which holds every paper a database had before collections, so a
-harness written for contract 1.0 reads what it read.
+`get_profile_matches` read **one** collection, and `run_sweep` and `create_routine` say which one
+the papers land in, each through an optional `collection`: a string, the collection's name or
+its id (digits are read as an id where one exists), resolved by the backend, which refuses one
+that names no collection. Without one, a call reads, or files into, the default collection, not
+every collection; the default holds every paper a database had before collections, so a harness
+written for contract 1.0 reads what it read. Each of these answers carries `collection`, the id
+and name of the collection it read or wrote, so a caller cannot take one collection for
+everything.
+
+The in-app assistant reads the collection of the window it is asked from: each message carries
+the window's collection, and for that turn a call that names none reads it and a sweep it
+starts lands in it, in resmon's own loop and in the server a CLI starts (given it as
+`RESMON_MCP_COLLECTION`). A call that names a collection still reads that one.
 
 ### Read
 

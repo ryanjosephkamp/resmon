@@ -33,8 +33,10 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import httpx
 from implementation_scripts import api_auth
@@ -732,18 +734,65 @@ def _expected_runtime(args: dict) -> Optional[str]:
     return value
 
 
-def _collection(args: dict) -> Any:
-    """The collection a call names, by id or name, or None for the default one.
+#: The collection a call that names none reads, where one is set. The in-app
+#: assistant sets the window's for a turn (``in_collection``), and gives it to
+#: a server it starts as ``RESMON_MCP_COLLECTION``. Otherwise a call that names
+#: no collection reads the default one.
+COLLECTION_ENV = "RESMON_MCP_COLLECTION"
+_TURN_COLLECTION: ContextVar[Optional[str]] = ContextVar("resmon_mcp_collection", default=None)
 
-    Passed to the backend as given: the backend resolves a name and refuses one
-    that names no collection, so this server and the app cannot disagree about
-    which collection a name means."""
+
+@contextmanager
+def in_collection(collection: Optional[Any]) -> Iterator[None]:
+    """Calls made inside read and write *collection* (an id or a name) where they name none."""
+    token = _TURN_COLLECTION.set(None if collection is None else str(collection))
+    try:
+        yield
+    finally:
+        _TURN_COLLECTION.reset(token)
+
+
+def turn_collection() -> Optional[str]:
+    """The collection set for calls that name none, or None for the default one."""
+    return _TURN_COLLECTION.get() or (os.environ.get(COLLECTION_ENV) or "").strip() or None
+
+
+def _collection(args: dict) -> Optional[str]:
+    """The collection a call names, by id or name, as a string, or the one set
+    for the turn, or None for the default one.
+
+    Passed to the backend as given: the backend resolves a name, reads a string
+    of digits as an id where one exists, and refuses a name that is no
+    collection, so this server and the app cannot disagree about which
+    collection a name means."""
     value = args.get("collection")
     if value is None or (isinstance(value, str) and not value.strip()):
-        return None
+        return turn_collection()
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ToolError("invalid_argument", "'collection' is a collection's name or its id.")
-    return value
+    return str(value).strip()
+
+
+def _collection_used(collection: Optional[str]) -> dict:
+    """The collection a call read or wrote, by id and name, resolved as the
+    backend resolves it: none is the default one, digits are an id where one
+    exists, and anything else is a name in any case. Where the collections
+    cannot be read, both are None rather than the answer failing."""
+    try:
+        data = backend.request("GET", "/api/collections") or {}
+    except ToolError:
+        return {"id": None, "name": None}
+    rows = (data.get("collections") if isinstance(data, dict) else None) or []
+    chosen = None
+    if collection is None:
+        chosen = next((r for r in rows if r.get("id") == data.get("default_id")), None)
+    else:
+        text = str(collection).strip()
+        if text.isdigit():
+            chosen = next((r for r in rows if r.get("id") == int(text)), None)
+        if chosen is None:
+            chosen = next((r for r in rows if str(r.get("name", "")).casefold() == text.casefold()), None)
+    return {"id": chosen.get("id"), "name": chosen.get("name")} if chosen else {"id": None, "name": None}
 
 
 def t_list_collections(args: dict) -> Any:
@@ -846,6 +895,8 @@ def t_search_corpus(args: dict) -> Any:
         "total": data.get("total"),
         "total_is_exact": data.get("total_is_exact"),
         "mode": served,
+        # The one collection searched: the default one where the call named none.
+        "collection": _collection_used(collection),
     }
     if served == "semantic":
         # How much of the answer is actually ranked. Papers with no vector are
@@ -1119,7 +1170,9 @@ def t_get_analytics(args: dict) -> Any:
     collection = _collection(args)
     if collection is not None:
         params["collection"] = collection
-    return backend.request("GET", path, params=params or None)
+    data = backend.request("GET", path, params=params or None)
+    # The one collection the view counts: the default one where the call named none.
+    return {**data, "collection": _collection_used(collection)} if isinstance(data, dict) else data
 
 
 def t_get_watchdog_findings(args: dict) -> Any:
@@ -1172,9 +1225,11 @@ def t_run_sweep(args: dict) -> Any:
         # finds it in ``list_executions`` afterwards.
         return {"execution_id": None, "queued": True,
                 "queue_position": data.get("queue_position"), "ticket": data.get("ticket"),
-                "detail": data.get("detail")}
+                "detail": data.get("detail"), "collection": _collection_used(collection)}
     return {"execution_id": data.get("execution_id"),
-            "detail": "Started. Poll get_execution for progress."}
+            "detail": "Started. Poll get_execution for progress.",
+            # Where its papers land: the default collection where the call named none.
+            "collection": _collection_used(collection)}
 
 
 def t_create_routine(args: dict) -> Any:
@@ -1235,7 +1290,10 @@ def t_create_routine(args: dict) -> Any:
         except ToolError:
             routine = created
 
+    landing = routine.get("collection_id") if isinstance(routine, dict) else None
     answer = {"routine": routine,
+              # Where its runs' papers land.
+              "collection": _collection_used(str(landing) if landing is not None else collection),
               "detail": "Created inactive. Activate it — in resmon, or by asking "
                         "to turn it on — to put it on its schedule."}
     # The creation reply carries a sentence when none of the named sources can be
@@ -1584,6 +1642,8 @@ def t_get_profile_matches(args: dict) -> Any:
         } for r in rows],
         "total": body.get("total", 0),
         "by_basis": body.get("by_basis", {}),
+        # The one collection read: the default one where the call named none.
+        "collection": _collection_used(collection),
         "what_a_basis_means": {
             "identifier": "the source returned this profile's ORCID on the paper",
             "name+affiliation": ("a name matched and an affiliation on the record "
@@ -1595,10 +1655,10 @@ def t_get_profile_matches(args: dict) -> Any:
 
 
 #: The optional argument every read of the collection and every start of a run takes.
-_COLLECTION_ARG = {"type": ["string", "integer"], "description": (
-    "Optional. The collection, by its name or its id, as list_collections gives them. "
-    "Without one, the default collection, which holds every paper resmon had before "
-    "it had collections.")}
+_COLLECTION_ARG = {"type": "string", "description": (
+    "Optional. One collection, by its name or its id as a string, as list_collections "
+    "gives them. The call reads that collection only; without one, the default "
+    "collection, not every collection. The answer names the collection used.")}
 
 TOOLS: list[dict] = [
     {"name": "health", "fn": t_health,
@@ -1608,9 +1668,11 @@ TOOLS: list[dict] = [
 
     {"name": "search_corpus", "fn": t_search_corpus,
      "description": (
-         "Search the papers resmon has already collected. mode='semantic' ranks the "
-         "corpus by closeness to the query rather than filtering on its words, so it "
-         "finds papers that share no wording with it; the answer says which mode was "
+         "Search the papers resmon has already collected, in one collection: the "
+         "one named as 'collection', or the default one when it is omitted (the "
+         "answer's 'collection' says which). mode='semantic' ranks the collection by "
+         "closeness to the query rather than filtering on its words, so it finds "
+         "papers that share no wording with it; the answer says which mode was "
          "actually served."
      ),
      "schema": {"type": "object", "required": ["query"], "properties": {
@@ -1707,7 +1769,9 @@ TOOLS: list[dict] = [
          "doc_id": {"type": "integer"}}}},
 
     {"name": "get_analytics", "fn": t_get_analytics,
-     "description": "A summary view over the corpus and run history.",
+     "description": ("A summary view over one collection's papers and the runs that fed it: "
+                     "the one named as 'collection', or the default one when it is omitted "
+                     "(the answer's 'collection' says which)."),
      "schema": {"type": "object", "required": ["view"], "properties": {
          "view": {"type": "string", "enum": sorted(_ANALYTICS_VIEWS)},
          "window": {"type": "string"},
@@ -1741,7 +1805,8 @@ TOOLS: list[dict] = [
          "'identifier' means the source returned this profile's ORCID; "
          "'name+affiliation' and 'name_only' are string matches and are NOT "
          "evidence of identity. Never present a 'name_only' match as this "
-         "person's paper."
+         "person's paper. Reads one collection: the one named as 'collection', "
+         "or the default one when it is omitted (the answer's 'collection' says which)."
      ),
      "schema": {"type": "object", "required": ["profile_id"], "properties": {
          "profile_id": {"type": "integer"},
@@ -1757,7 +1822,10 @@ TOOLS: list[dict] = [
          "format": {"type": "string", "enum": ["bibtex", "ris", "csv", "json"]}}}},
 
     {"name": "run_sweep", "fn": t_run_sweep, "requires_confirmation": True,
-     "description": "Search sources now and store what comes back. Returns immediately. Poll get_execution: a run whose backend was killed ends interrupted, not failed.",
+     "description": ("Search sources now and store what comes back in one collection: the one "
+                     "named as 'collection', or the default one when it is omitted (the answer's "
+                     "'collection' says which). Returns immediately. Poll get_execution: a run "
+                     "whose backend was killed ends interrupted, not failed."),
      "schema": {"type": "object", "required": ["query", "sources"], "properties": {
          "query": {"type": "string"},
          "sources": {"type": "array", "items": {"type": "string"}},
@@ -1765,11 +1833,13 @@ TOOLS: list[dict] = [
          "max_results": {"type": "integer"},
          "ai_enabled": {"type": "boolean"},
          "collection": {**_COLLECTION_ARG, "description": (
-             "Optional. The collection its papers land in, by name or id. Without "
-             "one, the default collection.")}}}},
+             "Optional. The one collection its papers land in, by name or by id as a "
+             "string. Without one, the default collection.")}}}},
 
     {"name": "create_routine", "fn": t_create_routine, "requires_confirmation": True,
-     "description": "Create a monitoring routine. It is created INACTIVE; the user activates it in resmon.",
+     "description": ("Create a monitoring routine whose runs' papers land in one collection: the one "
+                     "named as 'collection', or the default one when it is omitted (the answer's "
+                     "'collection' says which). It is created INACTIVE; the user activates it in resmon."),
      "schema": {"type": "object", "required": ["name", "keywords", "sources", "schedule"],
                 "properties": {
                     "name": {"type": "string"},
@@ -1777,8 +1847,8 @@ TOOLS: list[dict] = [
                     "sources": {"type": "array", "items": {"type": "string"}},
                     "schedule": {"type": "string", "description": "cron expression"},
                     "collection": {**_COLLECTION_ARG, "description": (
-                        "Optional. The collection its runs' papers land in, by "
-                        "name or id. Without one, the default collection.")},
+                        "Optional. The one collection its runs' papers land in, by "
+                        "name or by id as a string. Without one, the default collection.")},
                     "intent": {"type": "string", "description": (
                         "Optional. What this routine is really looking for, in "
                         "the user's own words. The coverage audit compares "

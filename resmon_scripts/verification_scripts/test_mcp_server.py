@@ -812,9 +812,9 @@ def test_analytics_view_names_map_to_endpoints_that_exist():
     for view in ("volume", "sources", "keywords"):
         with _stub({("GET", mcp._ANALYTICS_VIEWS[view]): {"ok": view}}):
             seen[view] = _payload(mcp.call_tool("get_analytics", {"view": view}))
-    assert seen["volume"] == {"ok": "volume"}
-    assert seen["sources"] == {"ok": "sources"}
-    assert seen["keywords"] == {"ok": "keywords"}
+    assert seen["volume"]["ok"] == "volume"
+    assert seen["sources"]["ok"] == "sources"
+    assert seen["keywords"]["ok"] == "keywords"
     assert mcp._ANALYTICS_VIEWS["volume"] == "/api/analytics/publication-volume"
 
 
@@ -849,7 +849,9 @@ def test_create_routine_creates_it_inactive():
     # caller can now see ``is_active`` rather than take the detail sentence's
     # word for it.
     assert seen == [("POST", f"{STUB_BASE}/api/routines"),
-                    ("GET", f"{STUB_BASE}/api/routines/1")]
+                    ("GET", f"{STUB_BASE}/api/routines/1"),
+                    # The collection its runs' papers land in, named in the answer.
+                    ("GET", f"{STUB_BASE}/api/collections")]
     assert body["routine"]["is_active"] is False
     # A dict, not a JSON string: RoutineCreate declares `parameters: dict` and
     # rejects the string form with a 422. The column stores JSON text, which
@@ -1164,12 +1166,14 @@ def test_malformed_identity_shape_is_unavailable(change):
 def test_run_sweep_passes_a_queued_sweeps_ticket_through(monkeypatch):
     """At the run limit a sweep waits; the ticket is how a caller finds the run it becomes."""
     monkeypatch.delenv(mcp.READ_ONLY_ENV, raising=False)
-    monkeypatch.setattr(mcp.backend, "request", lambda *a, **k: {
+    listed = {"collections": [{"id": 1, "name": "Your collection"}], "default_id": 1}
+    monkeypatch.setattr(mcp.backend, "request", lambda method, path, **k: listed if path == "/api/collections" else {
         "execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"})
     result = mcp.call_tool("run_sweep", {"query": "x", "sources": ["arxiv"]})
     assert result["isError"] is False
     payload = json.loads(result["content"][0]["text"])
-    assert payload == {"execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits"}
+    assert payload == {"execution_id": None, "queued": True, "queue_position": 2, "ticket": "abc123", "detail": "waits",
+                       "collection": {"id": 1, "name": "Your collection"}}
 
 
 # ---------------------------------------------------------------------------
@@ -1214,14 +1218,54 @@ def test_list_collections_names_each_and_the_default():
     ("create_routine", {"name": "n", "keywords": ["a"], "sources": ["arxiv"], "schedule": "0 8 * * *"}, "json"),
 ])
 def test_a_collection_is_sent_as_named_and_left_out_when_not(tool, args, where):
-    """The backend resolves the name; with none, the request carries none, which is the default collection."""
-    for given, expected in (({"collection": "Optics"}, "Optics"), ({"collection": 2}, 2), ({}, None)):
-        patcher, sent = _sending({})
+    """The backend resolves the name; with none, the request carries none, which is the default
+    collection. Every answer names the one collection used, by id and name."""
+    listed = {"collections": [{"id": 1, "name": "Your collection"}, {"id": 2, "name": "Optics"}], "default_id": 1}
+    for given, expected, used in (({"collection": "optics"}, "optics", (2, "Optics")),
+                                  ({"collection": 2}, "2", (2, "Optics")),
+                                  ({"collection": "2"}, "2", (2, "Optics")),
+                                  ({}, None, (1, "Your collection"))):
+        patcher, sent = _sending({"/api/collections": listed, "/api/routines/0": {"collection_id": used[0]}})
         with patcher:
-            mcp.call_tool(tool, {**args, **given})
+            body = _payload(mcp.call_tool(tool, {**args, **given}))
         first = sent[0][where] or {}
         assert first.get("collection") == expected, (tool, given, first)
-    assert "collection" in next(t for t in mcp.TOOLS if t["name"] == tool)["schema"]["properties"]
+        assert (body["collection"]["id"], body["collection"]["name"]) == used, (tool, given, body)
+    schema = next(t for t in mcp.TOOLS if t["name"] == tool)
+    assert schema["schema"]["properties"]["collection"]["type"] == "string"
+    assert "default" in schema["description"]
+
+
+def test_no_tool_declares_a_list_of_types_which_some_clients_reject_whole():
+    def types(node):
+        if isinstance(node, dict):
+            if isinstance(node.get("type"), list):
+                yield node["type"]
+            for value in node.values():
+                yield from types(value)
+        elif isinstance(node, list):
+            for value in node:
+                yield from types(value)
+    assert [t for tool in mcp.TOOLS for t in types(tool["schema"])] == []
+
+
+def test_the_turns_collection_is_the_one_a_call_that_names_none_reads(monkeypatch):
+    """The in-app assistant reads and runs in the window's collection: set for the turn in-process,
+    or given to a server it starts as RESMON_MCP_COLLECTION. A call that names one still wins."""
+    monkeypatch.delenv(mcp.COLLECTION_ENV, raising=False)
+    listed = {"collections": [{"id": 1, "name": "Your collection"}, {"id": 2, "name": "Optics"}], "default_id": 1}
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher, mcp.in_collection(2):
+        body = _payload(mcp.call_tool("search_corpus", {"query": "x"}))
+        named = _payload(mcp.call_tool("search_corpus", {"query": "x", "collection": "Your collection"}))
+    assert sent[0]["json"]["collection"] == "2" and body["collection"] == {"id": 2, "name": "Optics"}
+    assert named["collection"] == {"id": 1, "name": "Your collection"}
+    assert mcp.turn_collection() is None
+    monkeypatch.setenv(mcp.COLLECTION_ENV, "Optics")
+    patcher, sent = _sending({"/api/collections": listed})
+    with patcher:
+        body = _payload(mcp.call_tool("get_analytics", {"view": "overview"}))
+    assert sent[0]["params"]["collection"] == "Optics" and body["collection"] == {"id": 2, "name": "Optics"}
 
 
 def test_a_collection_that_is_neither_a_name_nor_an_id_is_refused_before_the_backend():

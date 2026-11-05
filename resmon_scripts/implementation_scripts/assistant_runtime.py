@@ -397,6 +397,11 @@ class ClaudeCliRuntime(AssistantRuntime):
         from . import api_auth  # noqa: PLC0415
 
         env["RESMON_STATE_DIR"] = str(api_auth.state_dir())
+        # The window's collection, which a call that names none reads.
+        import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+
+        if mcp_server.turn_collection():
+            env[mcp_server.COLLECTION_ENV] = mcp_server.turn_collection()
 
         return {"mcpServers": {
             "resmon": {
@@ -1296,6 +1301,11 @@ class CodexCliRuntime(AssistantRuntime):
                "RESMON_MCP_READ_ONLY": "1"}
         if self.backend_port:
             env["RESMON_PORT"] = str(self.backend_port)
+        # The window's collection, which a call that names none reads.
+        import mcp_server  # noqa: PLC0415 - a sibling script, not a package
+
+        if mcp_server.turn_collection():
+            env[mcp_server.COLLECTION_ENV] = mcp_server.turn_collection()
         overrides = [
             f"mcp_servers.resmon.command={_toml_string(self.python_executable)}",
             f"mcp_servers.resmon.args=[{_toml_string(str(Path(server_dir) / 'mcp_server.py'))}]",

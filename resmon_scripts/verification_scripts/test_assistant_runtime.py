@@ -185,6 +185,19 @@ def test_stream_json_carries_the_verbose_flag_it_requires():
     assert "--verbose" in argv
 
 
+def test_the_mcp_servers_the_clis_start_read_the_windows_collection():
+    """A turn sent from a window on a collection gives that collection to the MCP server each CLI
+    starts, so a call that names none reads it; a turn with none set gives none."""
+    with mcp_server.in_collection(2):
+        claude = ar.ClaudeCliRuntime(backend_port=51234).mcp_config(7, "/tmp/wd")["mcpServers"]
+        codex = ar.CodexCliRuntime(backend_port=51234).mcp_overrides()
+    assert claude["resmon"]["env"][mcp_server.COLLECTION_ENV] == "2"
+    assert f'mcp_servers.resmon.env.{mcp_server.COLLECTION_ENV}="2"' in codex
+    plain = ar.ClaudeCliRuntime(backend_port=51234).mcp_config(7, "/tmp/wd")["mcpServers"]
+    assert mcp_server.COLLECTION_ENV not in plain["resmon"]["env"]
+    assert not any(mcp_server.COLLECTION_ENV in o for o in ar.CodexCliRuntime(backend_port=51234).mcp_overrides())
+
+
 def test_the_mcp_config_names_the_backend_port_explicitly():
     """A named port is never widened to the default, and this is why.
 
