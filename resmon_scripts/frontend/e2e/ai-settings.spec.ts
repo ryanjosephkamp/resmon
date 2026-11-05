@@ -30,6 +30,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import { launchEnv, FRONTEND_ROOT } from './fixtures/resmon-app';
 import { installIpcGuards, readGuards } from './fixtures/ipc-guards';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -127,7 +128,7 @@ async function launchWithCli(cli: 'claude' | 'codex' | null, settings: Record<st
         await onlyStubs(win, stateDir, checks);
       } finally {
         await app.close().catch(() => { /* already gone */ });
-        fs.rmSync(stateDir, { recursive: true, force: true });
+        removeStateDir(stateDir);
       }
     },
   };

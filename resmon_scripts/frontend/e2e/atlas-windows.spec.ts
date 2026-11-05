@@ -27,6 +27,7 @@ import { test, expect, _electron as electron, type ElectronApplication, type Pag
 import { ATLAS_LANDMARK, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { windowTitle } from '../atlas/src/windowTitle';
 import { cascade, type Rect } from '../electron/windows';
+import { removeStateDir } from './fixtures/cleanup';
 
 const TITLE = 'Authored windows fixture on tidal dissipation';
 const FEED = `<feed xmlns="http://www.w3.org/2005/Atom"><entry>
@@ -487,7 +488,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await app.close().catch(() => { /* already gone */ });
     await new Promise<void>((resolve) => source.close(() => resolve()));
     const blocked = fs.existsSync(path.join(stateDir, 'blocked.jsonl')) ? fs.readFileSync(path.join(stateDir, 'blocked.jsonl'), 'utf8') : '';
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
     expect(blocked).toBe('');
   }
 });

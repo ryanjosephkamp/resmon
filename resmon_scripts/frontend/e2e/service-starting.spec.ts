@@ -17,6 +17,7 @@ import * as path from 'path';
 import { execFileSync } from 'child_process';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 test.describe.configure({ mode: 'serial' });
 test.skip(process.platform !== 'darwin', 'The check of the service at launch is the Mac\'s.');
@@ -56,15 +57,6 @@ function startingService(stateDir: string, env: Record<string, string>, port: nu
 async function startingWindow(app: ElectronApplication): Promise<Page> {
   const found = app.windows().find((page) => page.url().startsWith('data:'));
   return found ?? app.waitForEvent('window', { predicate: (page) => page.url().startsWith('data:'), timeout: 60_000 });
-}
-
-/**
- * Remove a launch's state folder. Chromium's helper processes can still be writing to the
- * profile inside it for a moment after the app has gone, which makes a single removal fail
- * with ENOTEMPTY; it is tried again for up to two seconds.
- */
-function removeState(stateDir: string): void {
-  fs.rmSync(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
 }
 
 function exited(app: ElectronApplication): Promise<number | null> {
@@ -141,7 +133,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
       console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
     }
-    removeState(stateDir);
+    removeStateDir(stateDir);
   }
 });
 
@@ -168,6 +160,6 @@ test('closing the starting window stops waiting, and leaves the service starting
       console.log(`SERVICE STARTING LEFT A PROCESS ${pid} (${command.slice(0, 200)}); stopped.`);
       try { process.kill(pid, 'SIGKILL'); } catch { /* gone */ }
     }
-    removeState(stateDir);
+    removeStateDir(stateDir);
   }
 });

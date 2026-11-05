@@ -35,6 +35,7 @@ import { test, expect, _electron as electron } from '@playwright/test';
 import { launchEnv, atlasEnv, FRONTEND_ROOT, WINDOW_WIDTH, ATLAS_LANDMARK } from './fixtures/resmon-app';
 import { readFuses, FUSES_VERIFICATION_DEPENDS_ON, fuseBinaryFor } from './fixtures/electron-fuses';
 import { SCREENS } from './screens';
+import { removeStateDir } from './fixtures/cleanup';
 
 // A deliberate `require`: the path is computed, so an `import` cannot express
 // it. This carried a suppression for `@typescript-eslint/no-var-requires`,
@@ -200,6 +201,6 @@ test('Q6: the packaged app launches under Playwright and serves every screen', a
     expect(empty).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });

@@ -22,6 +22,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 /** Whether this engine loaded sqlite-vec. The macos-15 runner's python3 cannot. */
 async function vecLoaded(win: Page): Promise<boolean> {
@@ -164,7 +165,7 @@ test('the collection, a paper, and the reading queue', async () => {
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
 
@@ -246,6 +247,6 @@ test('a collection past ten thousand is counted whole, scrolled as one list, and
     expect(problems).toEqual([]);
   } finally {
     await app.close();
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }
 });
