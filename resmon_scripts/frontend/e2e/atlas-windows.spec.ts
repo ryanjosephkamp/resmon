@@ -85,10 +85,20 @@ test('several windows on one engine: ⌘N, each its own page, run, download, and
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-windows-')));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const source = http.createServer((_req, res) => {
+  // "slow" is held until the spec lets it go, and "broken" is refused, for the run monitor's states.
+  const held: http.ServerResponse[] = [];
+  const source = http.createServer((req, res) => {
+    const query = decodeURIComponent(new URL(req.url ?? '/', 'http://127.0.0.1').searchParams.get('search_query') ?? '');
+    if (query.includes('all:broken')) {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('refused');
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'application/atom+xml' });
-    res.end(FEED);
+    if (query.includes('all:slow')) held.push(res);
+    else res.end(FEED);
   });
+  const release = () => { for (const res of held.splice(0)) res.end(FEED); };
   await new Promise<void>((resolve) => source.listen(0, '127.0.0.1', resolve));
   const sourcePort = (source.address() as net.AddressInfo).port;
   expect(sourcePort).not.toBe(8742);
@@ -227,6 +237,48 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await expect.poll(() => notices().find((n) => n.executionId === unasked), { timeout: 120_000 }).toBeTruthy();
     expect(notices().find((n) => n.executionId === unasked)?.window).toBe(firstId);
 
+    // — the run monitor and the Runs tab: one engine's runs, the same in both windows -----------
+    const api = <T>(page: Page, route: string, method = 'GET', body?: unknown) => page.evaluate(async ([r, m, b]) => {
+      const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+      const response = await e2eFetch(`http://127.0.0.1:${port}${r}`, {
+        method: m as string,
+        headers: b === undefined ? {} : { 'Content-Type': 'application/json' },
+        ...(b === undefined ? {} : { body: JSON.stringify(b) }),
+      });
+      return response.json();
+    }, [route, method, body] as const) as Promise<T>;
+    const mark = (page: Page) => page.locator('header.bar .mon');
+    await first.evaluate(() => { window.location.hash = '#/runs'; });
+    await second.evaluate(() => { window.location.hash = '#/runs'; });
+    await expect.poll(() => second.evaluate(() => document.title)).toBe('Runs');
+    const slow = await api<{ execution_id: number }>(first, '/api/search/dive', 'POST',
+      { repository: 'arxiv', query: 'slow', keywords: ['slow'], max_results: 5 });
+    for (const page of [first, second]) {
+      await expect(mark(page)).toHaveAttribute('data-monitor', 'running', { timeout: 30_000 });
+      await expect(page.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)).toHaveCount(1, { timeout: 30_000 });
+    }
+    // Stop in one window; the other shows it at its next read of the engine.
+    await first.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)
+      .getByRole('button', { name: /^Stop/ }).first().click();
+    release();
+    for (const page of [second, first]) {
+      await expect(page.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)).toHaveCount(0, { timeout: 30_000 });
+      await expect(mark(page)).not.toHaveAttribute('data-monitor', 'running', { timeout: 30_000 });
+    }
+    expect((await api<{ status: string }>(second, `/api/executions/${slow.execution_id}`)).status).toBe('cancelled');
+    // A failure is red in both; the panel opened in one clears it in both, since what was seen is the engine's.
+    const broken = await api<{ execution_id: number }>(second, '/api/search/dive', 'POST',
+      { repository: 'arxiv', query: 'broken', keywords: ['broken'], max_results: 5 });
+    for (const page of [first, second]) await expect(mark(page)).toHaveAttribute('data-monitor', 'failed', { timeout: 60_000 });
+    await second.screenshot({ path: path.join(shots, 'windows-monitor-failed-second.png') });
+    const seen = first.waitForResponse((r) => r.url().endsWith('/api/executions/seen') && r.request().method() === 'POST');
+    await mark(first).click();
+    await seen;
+    await expect(mark(first)).toHaveAttribute('data-monitor', 'idle');
+    await expect(mark(second)).toHaveAttribute('data-monitor', 'idle', { timeout: 15_000 });
+    expect((await api<{ failed_unseen: number[] }>(second, '/api/executions/active')).failed_unseen).not.toContain(broken.execution_id);
+    await first.keyboard.press('Escape');
+
     // — Open in New Window: a ⌘-click on a section, and the command palette ----------------
     const fromClick = app.waitForEvent('window');
     await sections(first).getByRole('link', { name: 'Library' }).click({ modifiers: [MOD as 'Meta' | 'Control'] });
@@ -234,7 +286,7 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
     await library.locator(ATLAS_LANDMARK).waitFor({ timeout: 60_000 });
     expect(library.url()).toMatch(/#\/library$/);
     // The window clicked in stays where it was.
-    expect(first.url()).toMatch(/#\/today$/);
+    expect(first.url()).toMatch(/#\/runs$/);
     await library.close();
     await expect.poll(async () => (await windowsOf(app)).length).toBe(2);
 
