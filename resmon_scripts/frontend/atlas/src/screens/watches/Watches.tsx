@@ -13,17 +13,19 @@ import {
 } from './firing';
 import { useCalendar } from './MonthAhead';
 import { WatchTabs } from './WatchTabs';
+import { collectionParam, useCollection } from '../../collections/current';
 import {
   WATCHES_KEY, instant, promisedFires, scheduleText, watchAsks, watchWarnings, type RoutineRow, type WatchWarning,
 } from './model';
 
-/** The papers a watch's runs collected, for its constellation. */
+/** The papers a watch's runs collected that the collection shown holds, for its constellation on that map. */
 export function useWatchPapers(id: number | null) {
+  const { id: collection } = useCollection();
   return useQuery({
-    queryKey: ['routine-documents', id],
+    queryKey: ['routine-documents', id, collection],
     enabled: id !== null,
     queryFn: () => answer(engine().GET('/api/routines/{routine_id}/documents', {
-      params: { path: { routine_id: id ?? 0 } },
+      params: { path: { routine_id: id ?? 0 }, query: collectionParam(collection) },
     })),
   });
 }

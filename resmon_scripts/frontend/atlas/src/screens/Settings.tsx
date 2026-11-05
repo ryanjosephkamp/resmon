@@ -7,6 +7,7 @@ import {
   type AccentTones, type ThemeName,
 } from '../theme/accent';
 import { useAppearance, type ThemeChoice } from '../theme/appearance';
+import { CollectionsSettings } from '../collections/CollectionsSettings';
 import { About } from './settings/About';
 import { Ai } from './settings/Ai';
 import { Background } from './settings/Background';
@@ -145,6 +146,7 @@ export function Settings() {
           {known?.slug === 'notifications' && <Notifications />}
           {known?.slug === 'ai' && <Ai />}
           {known?.slug === 'sources' && <Sources />}
+          {known?.slug === 'collections' && <CollectionsSettings />}
           {known?.slug === 'storage' && <Storage />}
           {known?.slug === 'library' && <LibrarySettings />}
           {known?.slug === 'tutorials' && <Tutorials />}

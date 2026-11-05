@@ -6,6 +6,7 @@ import { errorWords } from './Cards';
 import { evidence, type Project } from './evidenceApi';
 import { goesWith, shortWho } from './galleryModel';
 import { LIBRARY, type LibraryRemoval } from './libraryApi';
+import { useCollection } from '../../collections/current';
 
 /** A sheet over the page, as the shortcuts sheet is: Escape or a click outside closes it, and the keyboard stays inside. */
 export function Sheet({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
@@ -73,10 +74,14 @@ export function PaperPicker({ vault, file, onClose, onLinked }: {
     const settle = window.setTimeout(() => setQ(draft.trim()), 250);
     return () => window.clearTimeout(settle);
   }, [draft]);
+  // Searched in the collection this window shows; a paper of another is found there.
+  const { id: collection } = useCollection();
   const found = useQuery({
-    queryKey: ['library-link-search', q],
+    queryKey: ['library-link-search', collection, q],
     enabled: q.length >= 2,
-    queryFn: () => answer(engine().POST('/api/explorer/search', { body: { query: q, limit: 12, sort: 'newest', authors: [], categories: [], sources: [] } })),
+    queryFn: () => answer(engine().POST('/api/explorer/search', {
+      body: { query: q, limit: 12, sort: 'newest', authors: [], categories: [], sources: [], ...(collection !== null ? { collection } : {}) },
+    })),
   });
   const link = useMutation({
     mutationFn: (documentId: number) => answer(engine().POST('/api/library/files/{file_id}/paper-links', {

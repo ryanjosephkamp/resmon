@@ -5,7 +5,8 @@ import { answer, engine } from '../../api/client';
 import { Icon } from '../../shell/Icon';
 import { exportReferences, FORMATS, type ReferenceFormat } from '../runs/references';
 import { collectionSky } from '../sky/collectionSky';
-import { invalidateFor, MAP_KEY } from '../today/freshness';
+import { invalidateFor, mapKey, readMap } from '../today/freshness';
+import { collectionParam, useCollection } from '../../collections/current';
 import { epochDay } from '../today/model';
 import { count, number } from '../today/format';
 import { errorWords, FileCard, PaperCard, ProjectCard } from './Cards';
@@ -71,9 +72,11 @@ export function Library({ shelf = 'to_read' }: { shelf?: Show }) {
     refetchInterval: (query) => (query.state.data?.changing ? 1000 : false),
   });
   const vault = status.data?.status === 'ready' ? status.data.vault?.vault_id ?? null : null;
+  // The reading queue is one list; each collection shows the saved papers it holds.
+  const { id: collection } = useCollection();
   const queueCounts = useQuery({
-    queryKey: ['reading-queue', 'counts'],
-    queryFn: () => answer(engine().GET('/api/reading-queue', { params: { query: { limit: 1 } } })),
+    queryKey: ['reading-queue', 'counts', collection],
+    queryFn: () => answer(engine().GET('/api/reading-queue', { params: { query: { limit: 1, ...collectionParam(collection) } } })),
   });
   // Under Evidence's own key, so a project made or changed there is read again here.
   const projects = useQuery({ queryKey: ['evidence-projects', vault, 'all'], enabled: !!vault, queryFn: () => allProjects(vault!) });
@@ -337,11 +340,12 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   say: (n: Omit<Notice, 'id'>) => void; onChanged: () => void;
 }) {
   const shelfName = status === 'read' ? 'Read' : 'To read';
+  const { id: collection } = useCollection();
   const queue = useInfiniteQuery({
-    queryKey: ['reading-queue', 'gallery', status, sort, q],
+    queryKey: ['reading-queue', 'gallery', collection, status, sort, q],
     initialPageParam: 0,
     queryFn: ({ pageParam }) => answer(engine().GET('/api/reading-queue', {
-      params: { query: { status, sort, q, limit: QUEUE_PAGE, offset: pageParam } },
+      params: { query: { status, sort, q, limit: QUEUE_PAGE, offset: pageParam, ...collectionParam(collection) } },
     })),
     getNextPageParam: (last) => (last.offset + last.entries.length < last.total ? last.offset + last.entries.length : undefined),
   });
@@ -350,7 +354,7 @@ function PaperShelf({ status, sort, q, vault, selecting, onSelecting, tools, say
   const catalog = useQuery({ queryKey: ['catalog'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/repositories/catalog')) });
   const names = useMemo(() => new Map((catalog.data ?? []).map((e) => [e.slug, e.name])), [catalog.data]);
   const sourceName = useCallback((slug: string) => names.get(slug) ?? slug, [names]);
-  const map = useQuery({ queryKey: MAP_KEY, queryFn: () => answer(engine().GET('/api/map')) });
+  const map = useQuery({ queryKey: mapKey(collection), queryFn: () => readMap(collection) });
   const atlas = useMemo<Atlas | null>(() => {
     if (!map.data || map.data.state !== 'ready') return null;
     return { sky: collectionSky(map.data, epochDay(new Date())).sky, regions: map.data.regions };

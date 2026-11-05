@@ -25,6 +25,7 @@ import { FiringNote, WatchWarnings, useSchedulerStatus, useWatchPapers } from '.
 import {
   CALENDAR_KEY, WATCHES_KEY, instant, missedFireWords, promisedFires, scheduleText, watchAsks, watchWarnings, type Routine,
 } from './model';
+import { useCollection } from '../../collections/current';
 
 const TABS = ['What it finds', 'Where reports go', 'Schedule'] as const;
 type Tab = typeof TABS[number];
@@ -54,6 +55,7 @@ export function Watch() {
 function WatchPage({ raw }: { raw: string }) {
   const id = Number(raw);
   const client = useQueryClient();
+  const collections = useCollection();
   const [now] = useState(() => new Date());
   const [tab, setTab] = useState<Tab>('What it finds');
   /**
@@ -166,6 +168,7 @@ function WatchPage({ raw }: { raw: string }) {
   const firing: Firing = data.is_active ? firingOf(status.data, id) : undefined;
   const due = data.is_active ? nextWords(firing, fires[0] ? when(fires[0].start, now) : null) : null;
   const notice = data.is_active && status.data ? firingNotice(status.data, id) : null;
+  const lands = collections.several ? collections.list.find((c) => c.id === data.collection_id)?.name ?? null : null;
 
   return (
     <div className="run watch-page" data-routine={data.id} data-active={data.is_active ? 'true' : 'false'}
@@ -196,6 +199,7 @@ function WatchPage({ raw }: { raw: string }) {
               ? `${sourceNames.slice(0, 3).join(', ')}, and ${sourceNames.length - 3} more`
               : sourceNames.join(', ') || 'no sources'}
           </span>
+          {lands && (<><span className="sep" /><span data-watch="lands">its papers land in <b>{lands}</b></span></>)}
           {running && (
             <><span className="sep" /><Link to={`/runs/${running.id}`} className="run-status" data-status="running">
               <i className="live-dot" aria-hidden="true" />running now, run {running.id}

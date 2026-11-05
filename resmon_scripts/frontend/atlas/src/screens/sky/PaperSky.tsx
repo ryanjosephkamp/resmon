@@ -4,7 +4,8 @@ import { useNavigate } from 'react-router-dom';
 import { answer, engine } from '../../api/client';
 import { useAppearance } from '../../theme/appearance';
 import { Tip } from '../Today';
-import { MAP_KEY } from '../today/freshness';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection } from '../../collections/current';
 import { epochDay, gridCell, watchShape, type Sky } from '../today/model';
 import { Plate, type PlateHandle, type PlateHover, type PlateLook } from '../today/Plate';
 import { collectionSky } from './collectionSky';
@@ -122,9 +123,10 @@ export const PaperSky = forwardRef<PaperSkyHandle, Props>(function PaperSky(prop
   } = props;
   const navigate = useNavigate();
   const { shown, theme } = useAppearance();
+  const { id: collection } = useCollection();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted is asked for again until it is drawn, as on Today:
     // otherwise a page opened during the fit says it is drawing until left.
     refetchInterval: (query) => {

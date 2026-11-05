@@ -16,7 +16,8 @@ import { ColorKey, DimKey, MapBar } from './sky/MapControls';
 import { MapPaper } from './sky/MapPaper';
 import { filterCount } from './sky/look';
 import { useMapLook } from './sky/useMapLook';
-import { MAP_KEY, TODAY_KEY, invalidateFor, useRunsEnded } from './today/freshness';
+import { invalidateFor, mapKey, readMap, todayKey, useRunsEnded } from './today/freshness';
+import { collectionParam, useCollection } from '../collections/current';
 
 type CollectionMap = components['schemas']['CollectionMap'];
 type TodayData = components['schemas']['Today'];
@@ -49,9 +50,10 @@ interface Earlier {
 export function Today() {
   const client = useQueryClient();
   const { theme, shown } = useAppearance();
+  const { id: collection } = useCollection();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     // A map being fitted, or refitted, is asked for again until it is done;
     // otherwise once a minute and on returning to the window, like Today.
     refetchInterval: (query) => {
@@ -64,8 +66,8 @@ export function Today() {
   // read again once a minute and on returning to the window. Read once, it
   // went on saying "nothing collected" over a collection that had grown.
   const today = useQuery({
-    queryKey: TODAY_KEY,
-    queryFn: () => answer(engine().GET('/api/today')),
+    queryKey: todayKey(collection),
+    queryFn: () => answer(engine().GET('/api/today', { params: { query: collectionParam(collection) } })),
     refetchInterval: 60_000,
     refetchOnWindowFocus: true,
   });
@@ -131,7 +133,7 @@ export function Today() {
   const nextCursor = read ? read.cursor : today.data?.next_cursor ?? null;
   const readEarlier = useMutation({
     mutationFn: async ({ after, cursor }: { after: string; cursor: string }) => ({
-      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor } } })),
+      after, page: await answer(engine().GET('/api/today/papers', { params: { query: { cursor, ...collectionParam(collection) } } })),
     }),
     onSuccess: ({ after, page }) => setEarlier((was) => ({
       after,
@@ -179,7 +181,7 @@ export function Today() {
   const opening = useOpening(sky && today.data ? answerKey(today.data.papers[0]) : null, still);
 
   const looked = useMutation({
-    mutationFn: () => answer(engine().POST('/api/today/looked')),
+    mutationFn: () => answer(engine().POST('/api/today/looked', { params: { query: collectionParam(collection) } })),
     onSuccess: () => invalidateFor(client, 'looked'),
   });
   const save = useMutation({

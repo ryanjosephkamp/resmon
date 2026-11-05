@@ -8,6 +8,7 @@ import {
   type KeywordContribution, type Overview,
 } from './analyticsModel';
 import { HealthTabs } from './HealthTabs';
+import { collectionParam, useCollection } from '../../collections/current';
 import { instantOf } from './model';
 
 const DAY = new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
@@ -44,7 +45,11 @@ function OwnAndShared({ own, shared }: { own: string; shared: string }) {
  * or a category's month total, opens the collection narrowed to it.
  */
 export function Analytics() {
-  const overview = useQuery({ queryKey: ANALYTICS_KEY, queryFn: () => answer(engine().GET('/api/analytics/overview')) });
+  const { id: collection } = useCollection();
+  const overview = useQuery({
+    queryKey: [...ANALYTICS_KEY, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/overview', { params: { query: collectionParam(collection) } })),
+  });
   const catalog = useQuery({
     queryKey: ['catalog'], staleTime: Infinity,
     queryFn: () => answer(engine().GET('/api/repositories/catalog')),
@@ -132,10 +137,11 @@ function Sources({ view, nameOf }: { view: Overview['source_contribution']; name
 
 function Keywords() {
   const [asked, setAsked] = useState(false);
+  const { id: collection } = useCollection();
   const yieldQuery = useQuery({
-    queryKey: ['keyword-contribution'],
+    queryKey: ['keyword-contribution', collection],
     enabled: asked,
-    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution')),
+    queryFn: () => answer(engine().GET('/api/analytics/keyword-contribution', { params: { query: collectionParam(collection) } })),
   });
   const data: KeywordContribution | undefined = yieldQuery.data;
   const largest = Math.max(0, ...(data?.keywords ?? []).map((k) => k.matched));
@@ -248,9 +254,12 @@ function Watches({ view }: { view: Overview['routine_health'] }) {
 
 function Volume({ nameOf }: { nameOf: (slug: string) => string }) {
   const [by, setBy] = useState<'source' | 'category'>('source');
+  const { id: collection } = useCollection();
   const volume = useQuery({
-    queryKey: ['publication-volume', by],
-    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', { params: { query: { group_by: by, months: 12 } } })),
+    queryKey: ['publication-volume', by, collection],
+    queryFn: () => answer(engine().GET('/api/analytics/publication-volume', {
+      params: { query: { group_by: by, months: 12, ...collectionParam(collection) } },
+    })),
     placeholderData: keepPreviousData,
   });
   const data = volume.data;

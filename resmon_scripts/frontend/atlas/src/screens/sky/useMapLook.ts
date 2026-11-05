@@ -4,7 +4,8 @@ import { answer, engine } from '../../api/client';
 import type { Sky } from '../today/model';
 import type { PlateLook } from '../today/Plate';
 import { DEFAULT_VIEW, FIND_MIN, joinFacts, lookOf, needsFacts, type MapView } from './look';
-import { FACETS_KEY } from '../today/freshness';
+import { facetsKey } from '../today/freshness';
+import { collectionParam, useCollection } from '../../collections/current';
 
 /** How long typing rests before the engine is asked. */
 const FIND_SETTLE_MS = 220;
@@ -38,11 +39,12 @@ export function useMapLook(name: 'today' | 'run', sky: Sky | null, names: (slug:
 
   // The facets are read when the view needs them, or when the filters are opened to choose one.
   const [wanted, setWanted] = useState(false);
+  const { id: collection } = useCollection();
   const facets = useQuery({
-    queryKey: FACETS_KEY,
+    queryKey: facetsKey(collection),
     enabled: wanted || needsFacts(view),
     staleTime: 30_000,
-    queryFn: () => answer(engine().GET('/api/map/facets')),
+    queryFn: () => answer(engine().GET('/api/map/facets', { params: { query: collectionParam(collection) } })),
   });
   const facts = useMemo(() => (sky && facets.data ? joinFacts(sky, facets.data) : null), [sky, facets.data]);
 
@@ -58,10 +60,10 @@ export function useMapLook(name: 'today' | 'run', sky: Sky | null, names: (slug:
   }, [typed, term]);
   const finding = term.length >= FIND_MIN;
   const find = useQuery({
-    queryKey: ['map-find', term],
+    queryKey: ['map-find', collection, term],
     enabled: finding,
     staleTime: 30_000,
-    queryFn: () => answer(engine().GET('/api/map/find', { params: { query: { q: term } } })),
+    queryFn: () => answer(engine().GET('/api/map/find', { params: { query: { q: term, ...collectionParam(collection) } } })),
   });
   // While the engine is asked, the last answer stays lit rather than flashing the whole map.
   const matches = finding ? find.data?.ids ?? null : null;

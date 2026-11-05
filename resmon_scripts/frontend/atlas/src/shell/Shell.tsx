@@ -13,6 +13,7 @@ import { PageFailed } from './PageFailed';
 import { canGo } from './history';
 import { Icon } from './Icon';
 import { NewSearch } from './NewSearch';
+import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
@@ -159,6 +160,7 @@ export function Shell() {
           <b aria-hidden="true">res</b><span aria-hidden="true">earch </span>
           <b aria-hidden="true">mon</b><span aria-hidden="true">itor</span>
         </Link>
+        <CollectionSwitcher />
         <nav className="tabs" aria-label="Sections">
           <ul>
             {SECTIONS.map((section) => (

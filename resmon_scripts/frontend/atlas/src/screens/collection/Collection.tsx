@@ -24,6 +24,9 @@ import { jumpWords, monthEnd, readJump, withJump } from './jump';
 import { ResultList, type Marks } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
+import { useCollection } from '../../collections/current';
+import { MoveCopy } from '../../collections/MoveCopy';
+import { PickBar, usePicking } from '../../collections/PickBar';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 /** No paper marked on the map: the same list each time, so the map is not drawn again for a new empty one. */
@@ -70,6 +73,9 @@ const SETTLE_MS = 350;
  */
 export function Collection() {
   const [params, setParams] = useSearchParams();
+  // The collection this window shows: every read below names it.
+  const { id: collection, name: collectionName } = useCollection();
+  const within = useMemo(() => (collection === null ? {} : { collection }), [collection]);
   const filters = useMemo(() => readFilters(params), [params]);
   const filtered = filterCount(filters) > 0;
   const [menu, setMenu] = useState<Menu | null>(null);
@@ -124,11 +130,11 @@ export function Collection() {
   const nameOf = (slug: string) => names.get(slug) ?? slug;
 
   const pages = useInfiniteQuery({
-    queryKey: ['explorer', query, ranking, filters, jump],
+    queryKey: ['explorer', collection, query, ranking, filters, jump],
     initialPageParam: null as string | null,
     queryFn: ({ pageParam }) => answer(engine().POST('/api/explorer/search', {
       body: {
-        ...engineFilters(filters, query), sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS],
+        ...engineFilters(filters, query), ...within, sort: ranking, limit: 50, cursor: pageParam, include: [...MARKS],
         // The jump says where the first page starts; every page after it follows its cursor.
         ...(pageParam === null && jump ? { start_date: jump } : {}),
       },
@@ -149,7 +155,10 @@ export function Collection() {
   // filters by the words instead, so this follows what it served, and what
   // was asked for until it answers.
   const served = first ? (first.sort === 'similarity' ? 'similarity' : 'newest') : ranking;
-  const scope: EngineFilters = useMemo(() => engineFilters(filters, narrowingWords(query, served)), [filters, query, served]);
+  const scope: EngineFilters = useMemo(
+    () => ({ ...engineFilters(filters, narrowingWords(query, served)), ...within }), [filters, query, served, within]);
+  // Papers picked to move or copy: by row, or every match of this search.
+  const pick = usePicking(JSON.stringify(scope));
   const facets = useQuery({
     queryKey: ['explorer-facets', scope],
     enabled: menu !== null && menu !== 'published',
@@ -234,7 +243,7 @@ export function Collection() {
         <div className="results-head">
           <SearchTabs />
           <div className="collection-head">
-            <h1 className="page-title">Your collection</h1>
+            <h1 className="page-title">{collectionName ?? 'Your collection'}</h1>
             <AskForMore />
           </div>
           <label className="terms compact" htmlFor="collection-query">
@@ -287,6 +296,9 @@ export function Collection() {
               <p className="rank-off" data-collection="ranking">
                 The engine did not say whether the collection can be ranked by meaning ({status.error.message}).
               </p>
+            )}
+            {!pick.picking.on && rows.length > 0 && (
+              <button type="button" className="btn sm" data-collection="pick" onClick={pick.start}>Select</button>
             )}
             {anyLinks && (
               <label className="fold-toggle">
@@ -344,6 +356,14 @@ export function Collection() {
             </p>
           )}
           {first?.similarity_unavailable && <p className="rank-note">{first.similarity_unavailable}</p>}
+          {pick.picking.on && (
+            <div className="collection-picking">
+              <PickBar picking={pick.picking} total={first?.total_is_exact ? total : null} onAll={pick.pickAll} onDone={pick.done}>
+                <MoveCopy which={pick.picking.all ? { matching: scope } : { ids: [...pick.picking.picked] }}
+                  from={collection} count={pick.picking.all ? total : pick.picking.picked.size} onDone={pick.clear} />
+              </PickBar>
+            </div>
+          )}
           {fold && folded.data && rows.length > visible.length && (
             <p className="collapse-note">
               {count(rows.length - visible.length, 'row')} folded into another that looks like the same work.{' '}
@@ -365,8 +385,9 @@ export function Collection() {
           {first && !rows.length && (
             <p className="index-empty">
               {jumped ? 'Nothing that matches was published on or before then.'
-                : query ? `Nothing in your collection matches "${query}"${filtered ? ' within these filters' : ''}.`
-                : filtered ? 'Nothing in your collection matches these filters.' : 'Your collection is empty.'}
+                : query ? `Nothing in ${collectionName ?? 'your collection'} matches "${query}"${filtered ? ' within these filters' : ''}.`
+                : filtered ? `Nothing in ${collectionName ?? 'your collection'} matches these filters.`
+                : `${collectionName ?? 'Your collection'} holds no papers yet.`}
             </p>
           )}
         </div>
@@ -381,6 +402,7 @@ export function Collection() {
             sourceName={nameOf}
             scroller={scroller}
             more={{ has: !!hasNextPage, reading: isFetchingNextPage, read: readMore }}
+            picking={pick.picking.on ? { ...pick.picking, onPick: pick.toggle } : undefined}
           />
         </div>
       </section>

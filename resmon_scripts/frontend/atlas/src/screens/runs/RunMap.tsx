@@ -4,7 +4,8 @@ import { answer, engine } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
 import { Tip, findPosition } from '../Today';
-import { MAP_KEY } from '../today/freshness';
+import { mapKey, readMap } from '../today/freshness';
+import { useCollection } from '../../collections/current';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
@@ -39,9 +40,10 @@ interface Props {
 export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
   const { theme, shown } = useAppearance();
   const [now] = useState(() => new Date());
+  const { id: collection } = useCollection();
   const map = useQuery({
-    queryKey: MAP_KEY,
-    queryFn: () => answer(engine().GET('/api/map')),
+    queryKey: mapKey(collection),
+    queryFn: () => readMap(collection),
     refetchInterval: (query) => {
       const data = query.state.data as CollectionMap | undefined;
       return data && (data.state === 'fitting' || data.refitting) ? 2_000 : false;

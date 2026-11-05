@@ -31,6 +31,7 @@ import {
 } from './window';
 import { CountField } from '../../shell/CountField';
 import { useDraft } from '../../shell/drafts';
+import { useCollection } from '../../collections/current';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -126,7 +127,12 @@ interface WatchDraft {
 function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchSeed | null }) {
   const navigate = useNavigate();
   const client = useQueryClient();
-  const initial = useMemo(() => (existing ? formFrom(existing) : seededForm(seed)), [existing, seed]);
+  // A new watch puts its papers in the collection this window shows, unless another is chosen.
+  const collections = useCollection();
+  const initial = useMemo(() => {
+    const form = existing ? formFrom(existing) : seededForm(seed);
+    return form.collection === null && collections.id !== null ? { ...form, collection: collections.id } : form;
+  }, [existing, seed, collections.id]);
   const initialSummaries = useMemo<SummaryChoice>(
     () => (existing ? choiceOf(!!existing.ai_enabled, existing.ai_settings) : NO_CHOICE), [existing]);
   // The form as it was left on this history entry, when Back returns to it. A draft of a change to a watch
@@ -357,6 +363,21 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
               </label>
             </div>
           </>
+        )}
+
+        {collections.several && (
+          <div className="form-field editor-collection" data-editor="collection">
+            <label className="form-label" htmlFor="watch-collection">Its papers land in</label>
+            <select id="watch-collection" value={form.collection ?? ''}
+              onChange={(event) => set({ collection: Number(event.target.value) })}>
+              {collections.list.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <p className="form-hint">
+              {existing
+                ? 'Changing it changes where the next runs put their papers. Papers its earlier runs found stay where they are.'
+                : 'Every paper its runs find is put there, including one resmon already holds in another collection.'}
+            </p>
+          </div>
         )}
 
         <div className="form-field editor-intent">

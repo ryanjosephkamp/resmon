@@ -6,6 +6,7 @@ import { authors, count, publishedWords } from '../today/format';
 import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model';
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 import { standingInFor } from './fold';
+import type { Picking } from '../../collections/PickBar';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 export type Marks = {
@@ -35,6 +36,8 @@ interface Props {
   scroller: RefObject<HTMLDivElement | null>;
   /** More pages, and asking for the next one. */
   more: { has: boolean; reading: boolean; read: () => void };
+  /** Papers being picked, and picking one; absent where nothing is picked. */
+  picking?: Picking & { onPick: (id: number) => void };
 }
 
 /**
@@ -45,7 +48,7 @@ interface Props {
  * row says its place in the whole (`aria-posinset`). The next page is read as
  * the view nears the last row; Show more reads it too, for a keyboard.
  */
-export function ResultList({ rows, total, marks, folded, showFolded, ranking, sourceName, scroller, more }: Props) {
+export function ResultList({ rows, total, marks, folded, showFolded, ranking, sourceName, scroller, more, picking }: Props) {
   const virtual = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,
@@ -69,10 +72,19 @@ export function ResultList({ rows, total, marks, folded, showFolded, ranking, so
           const also = marks.links[String(paper.id)] ?? [];
           const people = marks.matches[String(paper.id)] ?? [];
           const standing = folded ? standingInFor(folded, paper.id) : 0;
+          const picked = !!picking?.on && (picking.all || picking.picked.has(paper.id));
           return (
-            <li key={item.key} ref={virtual.measureElement} data-index={item.index} className="result" data-document={paper.id}
+            <li key={item.key} ref={virtual.measureElement} data-index={item.index} data-document={paper.id}
+              className={`result${picking?.on ? ' picking' : ''}${picked ? ' picked' : ''}`}
               aria-posinset={item.index + 1} aria-setsize={total ?? -1}
               style={{ transform: `translateY(${item.start}px)` }}>
+              {picking?.on && (
+                <label className="result-pick">
+                  <input type="checkbox" checked={picked} aria-label={`Pick ${paper.title}`}
+                    onChange={() => picking.onPick(paper.id)} />
+                  <span className={`tick${picked ? ' on' : ''}`} aria-hidden="true" />
+                </label>
+              )}
               <Link to={`/papers/${paper.id}`} className="result-title">{paper.title}</Link>
               <LifecycleMarks events={marks.events[String(paper.id)]} />
               <div className="meta">
