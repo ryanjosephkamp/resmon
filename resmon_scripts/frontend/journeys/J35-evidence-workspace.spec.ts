@@ -54,7 +54,7 @@ journey.describe('J35 Evidence workspace', () => {
       { name: NOTE, content: NOTE_TEXT },
       { name: ASIDE, content: ASIDE_TEXT },
     ]);
-    expect(imported).toContain('3 retained');
+    expect(imported).toContain('3 files added.');
     const library = await resmon.readTheLibraryItems();
     const versionOf = (name: string) => library.find((item) => item.name === name)!;
 

@@ -641,7 +641,9 @@ CREATE INDEX IF NOT EXISTS idx_reading_queue_status_saved
 # rather than as an answer, and ``execution_ai_models``, the models an agent
 # CLI reported for a run's summaries. 24 rebuilds ``assistant_session_choices``
 # so a conversation can be fixed to Codex, with Codex's own effort levels.
-SCHEMA_VERSION = 24
+# 25 rebuilds ``library_files`` so the Library keeps TeX (``text/x-tex``) and
+# adds ``library_removed``, the record a removed Library file is put back from.
+SCHEMA_VERSION = 25
 _SCHEMA_VERSION_KEY = "schema_version"
 
 # ---------------------------------------------------------------------------
@@ -730,6 +732,7 @@ def init_db(db_path: str | Path | None = None, *, conn: sqlite3.Connection | Non
     _migrate_metadata_hash_index(conn)
     _migrate_answer_records(conn)
     _migrate_assistant_codex(conn)
+    _migrate_library_v25(conn)
     _repair_doaj_month_names(conn)
     _repair_biorxiv_published_detail(conn)
     # Commit before returning. Each thread holds its own connection (sharing
@@ -1425,7 +1428,12 @@ def _migrate_library(conn: sqlite3.Connection) -> None:
             if row is None:
                 conn.execute(ddl)
             row = conn.execute("SELECT sql FROM sqlite_master WHERE name=?", (name,)).fetchone()
-            if not row or " ".join((row[0] or "").split()) != " ".join(ddl.split()):
+            # Schema 25 rebuilds ``library_files`` in place; that shape is this
+            # one's successor, not a conflict with it.
+            accepted = {" ".join(ddl.split())}
+            if name == "library_files":
+                accepted.add(" ".join(_LIBRARY_FILES_V25_DDL.split()))
+            if not row or " ".join((row[0] or "").split()) not in accepted:
                 raise sqlite3.DatabaseError("Conflicting schema-16 object: " + name)
         conn.execute(
             "INSERT INTO app_settings(key,value) VALUES (?,?) "
@@ -2235,6 +2243,125 @@ def _migrate_assistant_codex(conn: sqlite3.Connection) -> None:
         (_SCHEMA_VERSION_KEY, "24"),
     )
     conn.commit()
+
+
+# Schema 25. The Library keeps TeX, and a removed file can be put back.
+#
+# ``library_files.media_type`` is held by a CHECK that names the three kinds
+# schema 16 kept. A CHECK cannot be altered in place, so the table is rebuilt
+# with ``text/x-tex`` added, on fresh and upgraded databases alike, as schema 19
+# rebuilt ``executions``: under a temporary name, renamed into place, with
+# ``PRAGMA foreign_keys`` off around it. Three tables reference this one with
+# ``ON DELETE RESTRICT`` (``library_file_documents``, ``evidence_project_files``
+# and ``evidence_notes``); with foreign keys on, dropping the old table would be
+# refused, and the rebuild must not touch a child row. ``foreign_key_check`` is
+# run before the step is released, so a rebuild that orphaned one is undone.
+#
+# ``library_removed`` is new. Removing a file from the Library renames its
+# folder into the vault's ``removed/`` and moves its catalog row, and every row
+# that went with it (its paper links, project memberships and notes), into one
+# record here, as JSON. Undo and Restore read it back exactly; nothing is
+# derived or summarized. ``bytes_state`` says whether there were bytes to hold:
+# a file deleted outside resmon is removed as a record alone.
+_LIBRARY_FILES_V25_DDL = """CREATE TABLE "library_files" (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL UNIQUE,
+    vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0 AND byte_size <= 67108864),
+    media_type TEXT NOT NULL CHECK (media_type IN ('application/pdf', 'text/plain', 'text/markdown', 'text/x-tex')),
+    original_name TEXT NOT NULL,
+    relative_path TEXT NOT NULL UNIQUE,
+    created_at_utc TEXT NOT NULL,
+    UNIQUE(vault_id, sha256)
+)"""
+
+_LIBRARY_REMOVED_DDL = """CREATE TABLE library_removed (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id TEXT NOT NULL UNIQUE,
+    version_id TEXT NOT NULL UNIQUE,
+    vault_id TEXT NOT NULL REFERENCES library_vault(vault_id) ON DELETE RESTRICT,
+    original_name TEXT NOT NULL,
+    media_type TEXT NOT NULL,
+    byte_size INTEGER NOT NULL CHECK (byte_size > 0),
+    sha256 TEXT NOT NULL CHECK (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+    bytes_state TEXT NOT NULL CHECK (bytes_state IN ('held', 'missing')),
+    record_json TEXT NOT NULL,
+    removed_at_utc TEXT NOT NULL
+)"""
+
+
+def _library_file_references(conn: sqlite3.Connection) -> set[tuple[str, int]]:
+    """The rows of the three referencing tables whose ``library_files`` parent is missing."""
+    return {(child, row[1]) for child in ("library_file_documents", "evidence_project_files", "evidence_notes")
+            for row in conn.execute(f"PRAGMA foreign_key_check({child})") if row[2] == "library_files"}
+
+
+def _migrate_library_v25(conn: sqlite3.Connection) -> None:
+    """Rebuild ``library_files`` with the schema-25 CHECK, and add ``library_removed``.
+
+    Already in that shape: only what is missing is made, and the marker moves.
+    In schema 16's shape: the rows are carried into the new table unchanged,
+    ids, sequence and all. Any other shape is a conflict -- ``_migrate_library``
+    has already refused it.
+    """
+    def shape(name: str) -> str:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (name,)).fetchone()
+        return " ".join(((row[0] if row else "") or "").split())
+
+    target = " ".join(_LIBRARY_FILES_V25_DDL.split())
+    conn.commit()
+    had_foreign_keys = bool(conn.execute("PRAGMA foreign_keys").fetchone()[0])
+    conn.execute("PRAGMA foreign_keys=OFF")
+    try:
+        conn.execute("SAVEPOINT library_v25")
+        try:
+            if shape("library_files") != target:
+                if shape("library_files") != " ".join(_LIBRARY_DDL["library_files"].split()):
+                    raise sqlite3.DatabaseError("Conflicting schema-25 object: library_files")
+                # A reference that already dangled before (a backup can carry one)
+                # is not this step's to judge; one the rebuild made is refused.
+                dangling_before = _library_file_references(conn)
+                seq_row = conn.execute("SELECT seq FROM sqlite_sequence WHERE name='library_files'").fetchone()
+                previous_seq = int(seq_row[0]) if seq_row else None
+                carried = [(row[0], row[1]) for row in conn.execute(
+                    "SELECT name, sql FROM sqlite_master WHERE tbl_name='library_files' "
+                    "AND type IN ('index','trigger') AND sql IS NOT NULL").fetchall()]
+                conn.execute(_LIBRARY_FILES_V25_DDL.replace('"library_files"', "library_files_v25_new", 1))
+                columns = ", ".join(f'"{row[1]}"' for row in conn.execute("PRAGMA table_info(library_files)"))
+                conn.execute(f"INSERT INTO library_files_v25_new ({columns}) SELECT {columns} FROM library_files")
+                conn.execute("DROP TABLE library_files")
+                conn.execute("ALTER TABLE library_files_v25_new RENAME TO library_files")
+                for _name, sql in carried:
+                    conn.execute(sql)
+                # The mark is put back exactly, and so is its absence: copying no
+                # rows still makes a sequence row at 0, which the old table never had.
+                conn.execute("DELETE FROM sqlite_sequence WHERE name='library_files'")
+                if previous_seq is not None:
+                    conn.execute("INSERT INTO sqlite_sequence(name, seq) VALUES ('library_files', ?)", (previous_seq,))
+                if shape("library_files") != target:
+                    raise sqlite3.DatabaseError("Conflicting schema-25 object: library_files")
+                if _library_file_references(conn) - dangling_before:
+                    raise sqlite3.DatabaseError("The schema-25 rebuild would leave a Library reference without its file")
+            if shape("library_removed") == "":
+                conn.execute(_LIBRARY_REMOVED_DDL)
+            if shape("library_removed") != " ".join(_LIBRARY_REMOVED_DDL.split()):
+                raise sqlite3.DatabaseError("Conflicting schema-25 object: library_removed")
+            conn.execute(
+                "INSERT INTO app_settings(key,value) VALUES (?,?) "
+                "ON CONFLICT(key) DO UPDATE SET value=excluded.value "
+                "WHERE CAST(app_settings.value AS INTEGER)<25",
+                (_SCHEMA_VERSION_KEY, "25"),
+            )
+            conn.execute("RELEASE library_v25")
+        except BaseException:
+            conn.execute("ROLLBACK TO library_v25")
+            conn.execute("RELEASE library_v25")
+            raise
+        conn.commit()
+    finally:
+        conn.execute("PRAGMA foreign_keys=" + ("ON" if had_foreign_keys else "OFF"))
 
 
 # A DOAJ date stored with its month as a name: ``2025-January-01``,

@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld('resmonAPI', {
     ipcRenderer.invoke('resmon:open-path', targetPath),
   revealPath: (targetPath: string): Promise<boolean> =>
     ipcRenderer.invoke('resmon:reveal-path', targetPath),
+  trashPath: (targetPath: string): Promise<string> =>
+    ipcRenderer.invoke('resmon:trash-path', targetPath),
   // Quit and open again; resolves false where the main process refuses (the
   // service, or a frame that is not the renderer's own).
   relaunch: (): Promise<boolean> => ipcRenderer.invoke('resmon:relaunch'),

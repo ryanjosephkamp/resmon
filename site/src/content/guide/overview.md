@@ -13,7 +13,7 @@ There is no account, no resmon server, and no telemetry. The app is an Electron 
 - **Watches.** A watch is a search resmon runs on a schedule, keeping every paper it finds. It can follow words, a person's new papers, or retractions and corrections on a person's papers. See [Watches and people](/resmon/guide/watches/).
 - **Shows what is new.** **Today** draws your whole collection as a map and rings the papers collected since you last marked them read. See [Today](/resmon/guide/today/).
 - **Shows what broke.** **Health** has the **Source wall** (what every source did on each recent run), the **Watchdog** (what resmon can say is wrong with its watching), analytics, and a check for retractions and newer versions of papers you already hold. See [Health](/resmon/guide/health/).
-- **Keeps your reading.** **Library** holds a reading queue, copies of PDF, TXT, and MD files in a folder you choose, and **Evidence** projects where you pin exact passages and ask questions of excerpts you pick. See [The Library](/resmon/guide/library/) and [Evidence](/resmon/guide/projects/).
+- **Keeps your reading.** **Library** is one gallery: a reading queue, copies of PDF, TXT, MD, and TeX files in a folder you choose, and **Evidence** projects where you pin exact passages and ask questions of excerpts you pick. See [The Library](/resmon/guide/library/) and [Evidence](/resmon/guide/projects/).
 - **Answers questions about itself.** **Ask** is an assistant that reads your watches, runs, papers, and sources through the same tools an outside program can use. See [Ask and the MCP server](/resmon/guide/assistant/).
 - **Reaches outside the window.** A `resmon` command line, an MCP server, and a local HTTP API all talk to the running engine. See [Install and launch](/resmon/guide/install/), [Ask and the MCP server](/resmon/guide/assistant/), and the [HTTP API reference](/resmon/guide/api-reference/).
 
@@ -30,7 +30,7 @@ A field extracted from a document, a field matched against your collection, and 
 
 ## The screens
 
-The top bar holds six sections, a **New search** menu, **Search commands**, and Settings.
+The top bar holds seven sections, a **New search** menu, **Search commands**, and Settings.
 
 | Section | Tabs | What it is for |
 |---|---|---|
@@ -38,10 +38,10 @@ The top bar holds six sections, a **New search** menu, **Search commands**, and 
 | **Watches** | Searches · Calendar · People | Your watches, when each is due, and the people resmon looks for on papers |
 | **Search** | Your collection · Ask the sources · Saved · Shared wording | Searching what you hold, asking the sources for more, saved searches, and abstracts that share wording |
 | **Runs** | | Every run: those going now, those waiting for a free slot, and the history |
-| **Library** | Reading queue · Your files · Evidence | Saved papers, kept files, and passages pinned from them |
+| **Library** | To read · Read · Your files · Projects | Saved papers, kept files, and the projects built from them |
 | **Ask** | | The assistant and every conversation kept with it |
 | **Health** | Source wall · Watchdog · Analytics · This engine | What the sources did, what is wrong, what the collection holds, and which engine this window uses |
-| **Settings** | Appearance · In the background · Email · Notifications · AI · Sources · Backup · Tutorials · About resmon · Danger zone | Everything you can change |
+| **Settings** | Appearance · In the background · Email · Notifications · AI · Sources · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
 
 Between the sections and **New search** is the run monitor: the accent's ring and core while nothing runs, an orbit for each run going now (its arc is the share of the run's sources that have finished, and it stops and turns gray when the run has said nothing for 15 seconds), one spreading ring when a run finishes, and a struck red mark when a run has failed since you last opened it. Click it, or press Enter on it, for its panel: the runs going now, with their sources, time, and **Stop**; those waiting; today's, with **Why** beside a failure; and **Open Runs**. Escape or a click elsewhere closes it. **Settings › Appearance** can hide it.
 

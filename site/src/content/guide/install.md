@@ -40,7 +40,7 @@ macOS builds do not update themselves: an update needs a signed app. To update, 
 
 Run the installer. It lets you choose the install folder. The installer is not signed, so Windows SmartScreen may warn; choose **More info**, then **Run anyway**.
 
-**The Library is unavailable on Windows.** **Library › Your files** and **Library › Evidence** (which includes the PDF reader and cited answers) keep and read files with operations that do not follow symbolic links and that work relative to an open folder. Python on Windows does not offer them, so the engine refuses with "Safe descriptor-relative Library access is unavailable on this platform." The rest of the app works.
+**The Library is unavailable on Windows.** **Library › Your files** and Evidence (which includes the PDF reader and cited answers) keep and read files with operations that do not follow symbolic links and that work relative to an open folder. Python on Windows does not offer them, so the engine refuses with "Safe descriptor-relative Library access is unavailable on this platform." The rest of the app works.
 
 ## Linux
 

@@ -105,7 +105,7 @@ def test_a_fresh_database_answers_the_duplicate_check_from_the_index(tmp_path):
     database.init_db(str(tmp_path / "fresh.db"))
     conn = _open(tmp_path / "fresh.db")
     try:
-        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 24
+        assert database.get_schema_version(conn) == database.SCHEMA_VERSION == 25
         plan = _plan(conn)
         assert any(INDEX in step for step in plan), plan
         assert not any(step.startswith("SCAN") for step in plan), plan
@@ -153,9 +153,10 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     """21 -> 22 over a database a schema 21 resmon wrote, as its next launch does.
 
     The launch also takes the steps past 22: schema 23 adds two tables, schema
-    24 rebuilds ``assistant_session_choices`` with its rows, and the marker
-    moves to 24. Those are those steps', and are named here so that nothing
-    else can arrive or change unnoticed.
+    24 rebuilds ``assistant_session_choices`` with its rows, schema 25 rebuilds
+    ``library_files`` with its rows and adds the empty ``library_removed``, and
+    the marker moves to 25. Those are those steps', and are named here so that
+    nothing else can arrive or change unnoticed.
     """
     path = tmp_path / "schema21.db"
     conn = _open(path)
@@ -166,6 +167,7 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     assert any(step.startswith("SCAN") for step in plan), (
         f"the schema 21 corpus should scan for a hash; its plan was {plan}")
     objects_before, rows_before = _objects(conn), _rows(conn)
+    before_library_columns = list(conn.execute("PRAGMA table_info(library_files)"))
     conn.close()
 
     database.init_db(str(path))            # the launch
@@ -173,18 +175,26 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         objects_after, rows_after = _objects(conn), _rows(conn)
-        assert set(objects_after) - set(objects_before) == {INDEX} | set(database._ANSWER_RECORDS_V23_DDL)
+        # Schema 25 adds ``library_removed``; its autoindexes have no stored SQL.
+        assert set(objects_after) - set(objects_before) == (
+            {INDEX} | set(database._ANSWER_RECORDS_V23_DDL) | {"library_removed"})
         assert set(objects_before) - set(objects_after) == set()
+        # Schema 24 rebuilds ``assistant_session_choices`` and schema 25
+        # rebuilds ``library_files`` on purpose; everything else is untouched.
+        rebuilt = {"assistant_session_choices", "library_files"}
         assert all(objects_after[n] == objects_before[n] for n in objects_before
-                   if n != "assistant_session_choices")
+                   if n not in rebuilt)
         assert "'codex_cli'" in objects_after["assistant_session_choices"]
+        assert "'text/x-tex'" in objects_after["library_files"]
+        assert [r[1] for r in conn.execute("PRAGMA table_info(library_files)")] == [
+            r[1] for r in before_library_columns]
         assert objects_after[INDEX] == (
             "CREATE INDEX idx_documents_metadata_hash ON documents(metadata_hash)")
 
         settings_before = dict(rows_before.pop("app_settings"))
         settings_after = dict(rows_after.pop("app_settings"))
         assert settings_before.pop("schema_version") == "21"
-        assert settings_after.pop("schema_version") == "24"
+        assert settings_after.pop("schema_version") == "25"
         # One-shot backfill markers this build writes on any launch, which the
         # cumulative-upgrade test names; they are not this step's doing.
         settings_after.pop("document_facets_backfilled", None)
@@ -192,6 +202,8 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
         # Schema 23's tables arrive empty; they are that step's, not this one's.
         assert rows_after.pop("assistant_turn_failures") == []
         assert rows_after.pop("execution_ai_models") == []
+        # Schema 25's removed-file record arrives empty.
+        assert rows_after.pop("library_removed") == []
         assert rows_after == rows_before
 
         assert any(INDEX in step for step in _plan(conn))
@@ -202,7 +214,7 @@ def test_the_schema_21_corpus_gains_the_index_and_nothing_else(tmp_path):
     conn = _open(path)
     try:
         assert _objects(conn) == objects_after
-        assert database.get_schema_version(conn) == 24
+        assert database.get_schema_version(conn) == 25
     finally:
         conn.close()
 

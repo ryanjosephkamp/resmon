@@ -8,7 +8,7 @@ import { count, number } from '../today/format';
 import { Answers } from './Answers';
 import { evidence, evidenceFetch, EvidenceRefusal, type Anchor, type FileRecord, type Member, type Note, type Project } from './evidenceApi';
 import { bundleRefusal, NO_SAVED_RECORDS, pinOf } from './evidenceModel';
-import { LibraryTabs } from './LibraryTabs';
+import { Icon } from '../../shell/Icon';
 import { Reader } from './Reader';
 import { LIBRARY, LIBRARY_KEY, kindOf, retryLibrary, sizeWords, unsupportedWords, type LibraryFile } from './libraryApi';
 
@@ -34,7 +34,9 @@ export function Evidence() {
   const vault = status.data?.status === 'ready' ? status.data.vault?.vault_id ?? null : null;
   return (
     <div className="page library evidence-page" aria-busy={status.isFetching}>
-      <LibraryTabs />
+      <nav className="lib-back" aria-label="Back to the Library">
+        <Link to="/library?show=projects"><Icon name="back" size={14} />Library</Link>
+      </nav>
       <div className="library-head"><h1 className="page-title">Evidence</h1></div>
       {status.isPending && <p className="page-lede">Reading the library.</p>}
       {unsupported && <p className="page-lede" role="alert" data-evidence="unsupported">{unsupported}</p>}
@@ -43,7 +45,7 @@ export function Evidence() {
       )}
       {status.data && !vault && (
         <p className="page-lede" data-evidence="no-vault">
-          Evidence works on files kept in your library. <Link to="/library/files">Make the library first, under Your files</Link>.
+          Evidence works on files kept in your library. <Link to="/library?show=files">Make the library first, under Your files</Link>.
         </p>
       )}
       {vault && <Workspaces vault={vault} />}

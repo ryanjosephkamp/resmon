@@ -15,6 +15,8 @@ export interface ResmonBridge {
   chooseFile?: (defaultPath?: string) => Promise<string | null>;
   openPath?: (targetPath: string) => Promise<string>;
   revealPath?: (targetPath: string) => Promise<boolean>;
+  /** Send a file the Library holds as removed to the system's Trash; '' when it went, else why not. */
+  trashPath?: (targetPath: string) => Promise<string>;
   /** Quit and open the app again; false where the main process refuses. Absent outside the app. */
   relaunch?: () => Promise<boolean>;
   /** The app menu's commands (New Deep Dive and the rest, `shell/shortcuts.ts`); returns the way to stop listening. */

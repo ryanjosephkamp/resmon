@@ -159,9 +159,10 @@ test('the maps: any paper beside the map, a run\'s own map, and filters, colors,
     await expect(bar.locator('.map-find-at')).toHaveText('2 of 20');
     await shot(win, 'today-find');
 
-    // Remembered by the engine, and drawn from it after a reload.
-    const view = await engine<{ color: string; watches: number[] }>(win, '/api/map/views/today');
-    expect(view).toMatchObject({ color: 'source', watches: [] });
+    // Remembered by the engine, and drawn from it after a reload. The last filter change is saved a
+    // moment after it is made, so the engine is read until it holds it.
+    await expect.poll(() => engine<{ color: string; watches: number[] }>(win, '/api/map/views/today'), { timeout: 10_000 })
+      .toMatchObject({ color: 'source', watches: [] });
     await win.reload();
     await throttle(win);
     await expect(win.locator(canvas)).toBeVisible({ timeout: 60_000 });

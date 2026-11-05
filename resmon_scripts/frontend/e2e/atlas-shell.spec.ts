@@ -103,7 +103,7 @@ test('the top bar: its name goes home, and a click leaves no ring for the next k
     const bar = win.locator('header.bar');
     const library = win.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Library' });
     await library.click();
-    await expect(win.getByRole('heading', { name: 'Reading queue', level: 1 })).toBeVisible({ timeout: 30_000 });
+    await expect(win.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible({ timeout: 30_000 });
     // A toolbar keeps no focus: Shift (part of the screenshot keys) then rings nothing in the bar.
     await win.keyboard.press('Shift');
     expect(await bar.evaluate((node) => node.querySelectorAll(':focus-visible').length)).toBe(0);

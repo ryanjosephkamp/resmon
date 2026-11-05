@@ -1232,6 +1232,32 @@ class ReadingQueueEntry(LosslessModel):
     updated_at: str
     read_at: Optional[str]
     document: Optional[ReadingQueueDocument] = None
+    pdf: Optional["ReadingQueuePdf"] = None
+    found_by: Optional["ReadingQueueFoundBy"] = None
+
+
+class ReadingQueuePdf(LosslessModel):
+    """The Library PDF most recently linked to the paper: the person's association."""
+
+    vault_id: str
+    file_id: str
+    version_id: str
+    sha256: str
+    byte_size: int
+    original_name: str
+
+
+class ReadingQueueFoundBy(LosslessModel):
+    """The first run that collected the paper. ``watch_name`` is ``None`` once the watch is deleted."""
+
+    execution_id: int
+    kind: str
+    watch_id: Optional[int]
+    watch_name: Optional[str]
+    at: str
+
+
+ReadingQueueEntry.model_rebuild()
 
 
 class ReadingQueueCounts(LosslessModel):
@@ -1256,13 +1282,25 @@ class ReadingQueuePage(LosslessModel):
     offset: int
     status: Optional[str]
     counts: ReadingQueueCounts
+    sort: str
+    q: str
 
 
 class ReadingQueueRemoval(LosslessModel):
-    """``DELETE /api/reading-queue/{document_id}``. The paper is not touched."""
+    """``DELETE /api/reading-queue/{document_id}``. The paper is not touched;
+    ``entry`` is the entry as it was, for Undo."""
 
     removed: bool
     document_id: int
+    entry: ReadingQueueEntry
+
+
+class ReadingQueueRestored(LosslessModel):
+    """``POST /api/reading-queue/{document_id}/restore``. ``restored`` is false when
+    the paper was saved again since, and ``entry`` is then its entry as it is."""
+
+    restored: bool
+    entry: ReadingQueueEntry
 
 
 # ===========================================================================
@@ -3045,41 +3083,53 @@ class KeywordContribution(LosslessModel):
 # The owned Library
 # ---------------------------------------------------------------------------
 #
-# Every Library body carries ``version: 1`` and the vault it was read from, and
-# none carries an absolute path except ``open``'s, which exists to hand one to
-# the desktop's own opener. ``availability: not_checked`` says a listing reads
-# recorded metadata and did not hash the files.
+# Every Library body carries ``version: 1`` and the vault it was read from. An
+# absolute path appears where it is the point: the Library folder's own, which
+# Settings shows, and a verified file's, for the desktop's opener and its Trash.
+# ``availability: not_checked`` says a listing reads recorded metadata and did
+# not hash the files; ``missing`` says the file's folder is not in ``files/``.
 
 
 class LibraryCounts(LosslessModel):
-    """What the database records the vault holding; ``basis`` says it was not re-measured."""
+    """What the database records the vault holding; ``basis`` says it was not re-measured.
+
+    ``removed`` counts removed files still on record. ``missing`` is how many
+    recorded files have no folder in the Library folder now; it is present only
+    when the folder was read.
+    """
 
     items: int
     retained_bytes: int
     basis: str
+    removed: int
+    missing: Optional[int] = None
 
 
 class LibraryLimits(LosslessModel):
+    """One size for keeping a file and reading it, and the free space an import leaves."""
+
     file_bytes: int
-    batch_files: int
-    vault_bytes: int
-    items: int
+    read_bytes: int
+    free_space_floor: int
 
 
 class LibraryVault(LosslessModel):
-    """The vault by its id and folder name: never its absolute root."""
+    """The vault by its id, its folder's name, and where that folder is recorded to be."""
 
     vault_id: str
     label: str
+    path: str
     created_at_utc: str
 
 
 class LibraryStatus(LosslessModel):
-    """``GET /api/library`` and ``POST /api/library/vault``.
+    """``GET /api/library``, ``POST /api/library/vault`` and ``.../vault/relink``.
 
-    ``status`` is ``unconfigured``, ``ready``, ``busy``, ``mismatch``,
-    ``needs_attention`` or ``unavailable``; ``reason`` is present only for the
-    two that came from a refusal.
+    ``status`` is ``unconfigured``, ``ready``, ``busy``, ``missing`` (the folder
+    is not where it was recorded), ``mismatch``, ``needs_attention`` or
+    ``unavailable``; ``reason`` is present only for those that came from a
+    refusal, and for ``missing``. ``changing`` is ``moving`` or ``relinking``
+    while the folder's place is being changed, and absent otherwise.
     """
 
     version: int
@@ -3087,6 +3137,7 @@ class LibraryStatus(LosslessModel):
     status: str
     counts: LibraryCounts
     limits: LibraryLimits
+    changing: Optional[str] = None
     reason: Optional[str] = None
 
 
@@ -3111,11 +3162,15 @@ class LibraryFile(LosslessModel):
     relative_path: str
     created_at_utc: str
     paper_links: list[LibraryPaperLink]
+    project_count: int
     availability: str
 
 
 class LibraryFiles(LosslessModel):
-    """``GET /api/library/files``: a descending page under a fixed ceiling, ``through_id``."""
+    """``GET /api/library/files``: a page under a fixed ceiling, ``through_id``, in ``sort`` order.
+
+    ``total`` counts the files under the ceiling that match the name filter.
+    """
 
     version: int
     vault_id: str
@@ -3123,6 +3178,9 @@ class LibraryFiles(LosslessModel):
     through_id: int
     next_before_id: Optional[int]
     has_more: bool
+    sort: str
+    offset: int
+    total: int
 
 
 class LibraryImported(LosslessModel):
@@ -3172,8 +3230,125 @@ class LibraryInventory(LosslessModel):
     text: str
 
 
+class LibraryMoved(LosslessModel):
+    """Where a move took the Library folder. ``old_folder_kept`` is the old folder's path
+    when the move copied across disks and left it where it was, else ``None``."""
+
+    previous: str
+    path: str
+    same_disk: bool
+    old_folder_kept: Optional[str]
+
+
+class LibraryMovedStatus(LibraryStatus):
+    """``POST /api/library/vault/move``: the status after the move, and the move itself."""
+
+    moved: LibraryMoved
+
+
+class LibraryPicture(LosslessModel):
+    """``PUT /api/library/files/{file_id}/picture``: the picture kept for this version."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    media_type: str
+    byte_size: int
+
+
+class LibraryRemovalLink(LosslessModel):
+    document_id: int
+    title: Optional[str]
+
+
+class LibraryRemovalProject(LosslessModel):
+    """A project the file is in (``member``) or has notes in, with how many of each."""
+
+    project_id: str
+    name: str
+    member: bool
+    notes: int
+    passages: int
+
+
+class LibraryRemoval(LosslessModel):
+    """``GET /api/library/files/{file_id}/removal``: what would go with the file."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    version_id: str
+    original_name: str
+    links: list[LibraryRemovalLink]
+    projects: list[LibraryRemovalProject]
+    needs_confirmation: bool
+
+
+class LibraryRemovedProject(LosslessModel):
+    project_id: str
+    name: Optional[str]
+    notes: int
+
+
+class LibraryRemovedFile(LosslessModel):
+    """A removed file on record. ``bytes`` is ``held``, ``missing`` (none to hold when it
+    was removed) or ``gone`` (no longer in the removed folder)."""
+
+    file_id: str
+    version_id: str
+    original_name: str
+    media_type: str
+    byte_size: int
+    sha256: str
+    removed_at_utc: str
+    bytes: str
+    links: int
+    projects: list[LibraryRemovedProject]
+    notes: int
+
+
+class LibraryRemoved(LosslessModel):
+    """``DELETE /api/library/files/{file_id}``: the file as it is now held."""
+
+    version: int
+    vault_id: str
+    removed: LibraryRemovedFile
+
+
+class LibraryRemovedList(LosslessModel):
+    """``GET /api/library/removed``: every removed file on record, and the bytes still held."""
+
+    version: int
+    vault_id: str
+    removed: list[LibraryRemovedFile]
+    bytes: int
+
+
+class LibraryReleased(LosslessModel):
+    """``POST /api/library/removed/{file_id}/release``: the held file's path, for the Trash only."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    path: str
+
+
+class LibraryForgotten(LosslessModel):
+    """``DELETE /api/library/removed/{file_id}``: the record is gone; its bytes had already left."""
+
+    version: int
+    vault_id: str
+    file_id: str
+    forgotten: bool
+
+
 class LibraryText(LosslessModel):
-    """``GET /api/library/files/{file_id}/text``: a retained TXT or MD file's bytes as literal text."""
+    """``GET /api/library/files/{file_id}/text``: a retained TXT, MD, or TeX file's bytes as literal text.
+
+    With ``lines``, ``text`` is only the file's first lines and ``shown_lines``
+    says how many; the file was still read and verified whole.
+    """
 
     version: int
     kind: str
@@ -3187,6 +3362,7 @@ class LibraryText(LosslessModel):
     byte_size: int
     line_count: int
     text: str
+    shown_lines: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -3212,6 +3388,21 @@ class EvidenceProject(LosslessModel):
     updated_at_utc: str
     file_count: int
     note_count: int
+    passage_count: int
+    cover_files: list["EvidenceCoverFile"]
+
+
+class EvidenceCoverFile(LosslessModel):
+    """One of a project's first three PDFs, for its cover in the Library's gallery."""
+
+    file_id: str
+    version_id: str
+    sha256: str
+    byte_size: int
+    media_type: str
+
+
+EvidenceProject.model_rebuild()
 
 
 class EvidenceFileRecord(LosslessModel):
