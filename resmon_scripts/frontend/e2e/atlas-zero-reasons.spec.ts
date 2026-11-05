@@ -76,10 +76,10 @@ async function progress(win: Page, source: string) {
   return { state: await row.getAttribute('data-state'), label: (await row.locator('.src-label').innerText()).trim() };
 }
 
-/** The run's line in the run log beside Ask the sources. */
+/** The run's line in the Runs tab's history. */
 async function logLine(win: Page, id: number): Promise<string> {
-  await win.evaluate(() => { window.location.hash = '#/search/ask'; });
-  const line = win.locator(`.run-row[data-run="${id}"] .run-status`);
+  await win.evaluate(() => { window.location.hash = '#/runs'; });
+  const line = win.locator(`[data-runs="history"] .run-row[data-run="${id}"] .run-status`);
   await expect(line).toBeVisible({ timeout: 30_000 });
   return (await line.innerText()).trim();
 }

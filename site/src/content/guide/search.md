@@ -54,15 +54,21 @@ Under the button, resmon states what it already knows about this selection and n
 
 **bioRxiv and medRxiv** cannot be asked for words. resmon reads the preprints they list for your dates, newest first, for up to 45 seconds, and matches your terms itself. So both need a start date, and while either is chosen the form fills one in and **Any time** is off. A longer window may not be read back to its start. A search that runs out of time, or reaches the run's cap, has read the newest part of the range and is **answered in part**. That is not an answer for the whole window, and it is not a failure of the source.
 
-If resmon is already running as many runs as **Settings › In the background** allows, it refuses a new search and says so. Try again when one finishes.
+If resmon is already running as many runs as **Settings › In the background** allows, a new search waits its turn: the **Runs** tab lists it under **Waiting**, and it starts on its own when a run finishes. Only when as many more are waiting as resmon queues is a search turned away.
 
 **Save this search** keeps the sources, terms, dates, and cap together under **Saved**. **Watch this search** opens the watch editor with the sources, terms, and cap filled in. It leaves the dates out, because dates fixed today would be asked again on every run.
 
-Below the form is the log of every run.
+Beside the form are the five newest runs, with a link to the **Runs** tab.
 
 ## Runs
 
-The **Runs** log lists runs newest first, 20 at a time, grouped by day. A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, or **Watch run**, and one line of what happened: how many of its sources answered, and how many papers it found and how many of those were new.
+The **Runs** tab (⌘7) holds every run.
+
+- **Running now.** Each run going now, with each of its sources in the Source wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so.
+- **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't run**; a watch's run is stopped by pausing the watch.
+- **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches**, **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
+
+A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, or **Watch run**, and one line of what happened: how many of its sources answered, and how many papers it found and how many of those were new.
 
 A run ends **completed**, **failed**, **cancelled**, or **interrupted**. Interrupted means the process running it went away before it finished, for example because the app was force-quit. It is not failed, because nothing went wrong with the search, and the row says what resmon observed and when it last saw the run working. A run fails when every source selected for it was asked and none answered. It is not recorded as completed, because "completed" over a dead source would state an empty field where a failure happened. A source resmon never asked, such as one with no key, is not a failure and never makes a run one.
 
@@ -70,17 +76,17 @@ Tick runs to work on them together:
 
 - **BibTeX**, **RIS**, or **CSV** exports the papers of every ticked run as one file, with one entry per paper however many runs found it.
 - **Bundle** saves each run's report, with a PDF and LaTeX where they could be made, its log, its metadata, and its search record, in one archive.
-- **Delete** removes the run's record, what each source answered, which papers it found, and where its report was sent. The papers stay in your collection, and the report and log files stay in the reports folder. A run still going cannot be deleted.
+- **Delete** removes the run's record, what each source answered, which papers it found, and where its report was sent. The papers stay in your collection, and the report and log files stay in the reports folder. A run still going cannot be deleted. The question is asked on the page first; **Not now** or Escape leaves everything as it was.
 
 **Restart…** appears on a run that was interrupted, failed, or cancelled. Before anything starts it says what Restart will do: it asks the same sources with the same terms, dates, and cap as a new run, never resumes the old one, summarizes only if the old run tried to, using what **Settings › AI** holds now, and emails and delivers only if the run belonged to a watch, as the watch is set when the run finishes.
 
 ### A run's page
 
-A run's page opens when you start a search, from the Runs log, from a watch's history, and from a notification.
+A run's page opens when you start a search, from the Runs tab, from a watch's history, and from a notification. **← Runs** goes back to the Runs tab.
 
 - **Header.** **Stop** (while it runs; a stop is cooperative, so the run ends at its next checkpoint), **Restart**, export buttons, **Bundle**, **Save as a search**, and **Delete this run**. The line under the name gives the kind, when it started, how long it took, its status, and the saved search or earlier run it is linked to. **Dates** states the dates the run asked for; for a watch whose window moves, they are the dates computed when it fired.
 - **Summaries** says whether the run summarized, with which connection, and what each connection it tried did.
-- **Sources.** While the run goes, one line per source changes as its answer arrives. Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, and a fault mark a non-answer. Each source gives a result count, or "count not recorded".
+- **Sources.** While the run goes, the page says the stage it is at, a bar shows how many of its sources have finished, and the heading's clock ticks. Each source is drawn in the Source wall's marks; one being asked says how long, from the engine's heartbeat every two seconds, the requests sent and any retries, and what it is waiting for (the source's pace, a pause the source asked for, or the pause before asking again). Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, and a fault mark a non-answer. Each source gives a result count, or "count not recorded".
 - **The map.** A small map of where this run's papers sit in the collection.
 
 The tabs below hold the run's own record:

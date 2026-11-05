@@ -783,6 +783,103 @@ input:is([type="checkbox"], [type="radio"]):not(.sr-only):disabled:checked { opa
 .run-restart-confirm .run-restart-facts { margin-top: 0; }
 .run-restart-confirm .form-actions { margin-top: 10px; }
 
+/* ------------------------------------------------------------- runs tab */
+
+.runs-page > * { max-width: 1240px; }
+.runs-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.runs-notice { margin: 14px 0 0; }
+.runs-h { display: flex; align-items: baseline; gap: 8px; margin: 0; font: 600 17px/1.2 var(--sans); color: var(--ink); }
+.runs-h .num { font: 500 13px/1 var(--sans); color: var(--ink-3); }
+.runs-h-note { margin: 6px 0 0; font: 400 13px/1.45 var(--sans); color: var(--ink-3); max-width: 76ch; }
+.runs-now { margin-top: 34px; }
+.runs-now .index-empty { max-width: 76ch; }
+.runs-now .index-empty a { color: var(--ink-2); text-underline-offset: 3px; }
+.runs-waiting { margin-top: 34px; }
+.run-history { margin-top: 40px; }
+.history-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; padding-bottom: 12px; border-bottom: 1px solid var(--rule);
+}
+.history-head .runs-h { margin-right: auto; }
+.runs-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 12px; }
+.runs-find {
+  display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; width: clamp(220px, 26vw, 340px);
+  border: 1px solid var(--field-edge); border-radius: var(--r); background: var(--panel); color: var(--ink-3);
+}
+.runs-find:focus-within { border-color: var(--accent-mark); box-shadow: 0 0 0 3px var(--accent-wash); }
+.runs-find input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font: 400 13px/1 var(--sans); color: var(--ink);
+  caret-color: var(--accent-mark);
+}
+.runs-find input::placeholder { color: var(--ink-3); }
+.runs-find input::-webkit-search-cancel-button { filter: grayscale(1); opacity: .6; }
+.run-history .runs-bar { position: sticky; top: 0; z-index: 2; margin-top: 12px; border: 1px solid var(--rule); border-radius: 8px; }
+.run-history .runlog-said { padding-left: 0; border-bottom: 0; }
+/* A row is drawn when it nears the screen, so a history of a thousand runs scrolls as one of fifty. */
+.history-list .run-row { content-visibility: auto; contain-intrinsic-size: auto 74px; }
+.history-list .group { padding-top: 26px; }
+.history-end { min-height: 1px; }
+
+/* The runs going now and waiting: the run monitor's rows, at the page's width. */
+.active-list { list-style: none; margin: 12px 0 0; padding: 0; }
+.active-row {
+  display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; column-gap: 14px; align-items: start;
+  padding: 14px 0 15px; border-top: 1px solid var(--rule);
+}
+.active-row:last-child { border-bottom: 1px solid var(--rule); }
+.active-row > .run-mark { width: 26px; height: 26px; margin-top: 1px; overflow: visible; }
+.active-title { font: 560 15px/1.3 var(--sans); color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+.active-title.it { font: italic 400 19px/1.2 var(--serif); }
+a.active-title:hover { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 4px; text-decoration-color: var(--ink-3); }
+.active-meta { margin: 4px 0 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.active-meta b { font-weight: 500; color: var(--ink-2); }
+.active-meta a { color: var(--ink-2); text-underline-offset: 3px; }
+.active-said { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin-top: 8px; font: 400 13px/1.4 var(--sans); color: var(--ink-2); }
+.active-note { margin: 6px 0 0; font: 400 12.5px/1.45 var(--sans); color: var(--ink); }
+.active-row .field-error { margin: 6px 0 0; }
+.src-marks { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.src-marks li { display: inline-flex; }
+.src-marks .wall-mark { width: 13px; height: 13px; }
+
+/* The run monitor's mark (runs/RunMark.tsx), as the approved comp draws it. */
+.run-mark .rm-ring { fill: none; stroke: var(--accent-mark); stroke-width: 1.4; }
+.run-mark .rm-core { fill: var(--accent-mark); }
+.run-mark .rm-track { fill: none; stroke: var(--rule-2); stroke-width: 1; }
+.run-mark .rm-arc { fill: none; stroke: var(--accent-mark); stroke-width: 1.9; stroke-linecap: round; }
+.run-mark .rm-fault { fill: none; stroke: var(--fault); stroke-width: 1.6; stroke-linecap: round; }
+.run-mark .rm-fault.thin { stroke-width: 1.3; }
+.run-mark .rm-waiting { fill: none; stroke: var(--ink-3); stroke-width: 1.3; stroke-dasharray: 2 2.2; }
+.run-mark .rm-pulse {
+  fill: none; stroke: var(--accent-mark); stroke-width: 1.4; vector-effect: non-scaling-stroke; transform-box: view-box;
+  transform-origin: 12px 12px; opacity: 0; animation: rm-pulse 700ms var(--ease-out) 1;
+}
+.run-mark .rm-spin { transform-box: view-box; transform-origin: 12px 12px; animation: rm-turn 2.4s linear infinite; }
+.run-mark .rm-spin.s1 { animation-duration: 3.2s; animation-delay: -1.1s; }
+.run-mark .rm-spin.s2 { animation-duration: 4s; animation-delay: -2.3s; }
+.run-mark .rm-spin.stalled { animation: none; }
+.run-mark .rm-spin.stalled .rm-arc { stroke: var(--ink-3); }
+@keyframes rm-turn { to { transform: rotate(360deg); } }
+@keyframes rm-pulse { 0% { transform: scale(1); opacity: .95; } 100% { transform: scale(1.9); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .run-mark .rm-spin { animation: none; }
+  .run-mark .rm-pulse { animation: none; }
+}
+
+/* A question asked in place before something that cannot be undone. */
+.confirm {
+  flex-basis: 100%; margin: 10px 0 0; padding: 12px 14px; border: 1px solid var(--rule-2); border-radius: 8px;
+  background: var(--panel); outline: none;
+}
+.confirm:focus-visible { box-shadow: 0 0 0 2px var(--accent-mark); }
+.confirm-question { margin: 0; font: 400 13.5px/1.5 var(--sans); color: var(--ink); max-width: 84ch; }
+.confirm .form-actions { margin-top: 10px; }
+.run-head .confirm { max-width: 860px; margin-top: 14px; }
+
+/* Ask the sources' column: the latest five, and the way to the rest. */
+.latest-runs .index-bar .btn { margin-left: auto; gap: 6px; }
+.run-row.no-tick { grid-template-columns: minmax(0, 1fr); }
+.latest-more { margin-top: 18px; }
+.latest-more a { color: var(--ink-2); text-underline-offset: 3px; }
+
 /* ------------------------------------------------------------------ run */
 
 .run { height: 100%; overflow: auto; padding: 26px 56px 64px; }

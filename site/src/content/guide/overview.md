@@ -37,6 +37,7 @@ The top bar holds six sections, a **New search** menu, **Search commands**, and 
 | **Today** | | The collection as a map, and the papers collected since you last marked all read |
 | **Watches** | Searches · Calendar · People | Your watches, when each is due, and the people resmon looks for on papers |
 | **Search** | Your collection · Ask the sources · Saved · Shared wording | Searching what you hold, asking the sources for more, saved searches, and abstracts that share wording |
+| **Runs** | | Every run: those going now, those waiting for a free slot, and the history |
 | **Library** | Reading queue · Your files · Evidence | Saved papers, kept files, and passages pinned from them |
 | **Ask** | | The assistant and every conversation kept with it |
 | **Health** | Source wall · Watchdog · Analytics · This engine | What the sources did, what is wrong, what the collection holds, and which engine this window uses |
@@ -51,6 +52,7 @@ The shortcuts use ⌘ on macOS and Ctrl elsewhere. All of them work while you ty
 | Keys | What it does |
 |---|---|
 | ⌘1 to ⌘6 | Go to Today, Watches, Search, Library, Ask, or Health |
+| ⌘7 | Go to Runs |
 | ⌘, | Settings |
 | ⌘K | Search commands |
 | ⌘D and ⇧⌘D | New Deep Dive and new Deep Sweep |

@@ -6,7 +6,7 @@ import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { MapPaper } from '../sky/MapPaper';
 import { PaperSky, basisWords, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
-import { RUNS_KEY } from '../runs/RunLog';
+import { RUNS_KEY } from '../runs/model';
 import type { CatalogEntry } from '../runs/model';
 import { choiceOf, stateSentence } from '../settings/summaryChoice';
 import { AI_KEY } from '../settings/summaryLanes';

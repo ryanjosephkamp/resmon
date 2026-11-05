@@ -13,8 +13,8 @@ import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
 import { SwipeNavigation } from './SwipeNavigation';
 import {
-  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionIndex,
-  shortcut, shortcutFor, type ShortcutId,
+  COMMAND_ENTER_CHORD, ariaKeys, blockingDialogOpen, commandEnterAction, isMenuCommand, isTyping, keysText, pressed, sectionPath,
+  sectionShortcut, shortcut, shortcutFor, type ShortcutId,
 } from './shortcuts';
 
 const HOME_LABEL = SECTIONS.find((section) => section.path === HOME)?.label ?? 'Today';
@@ -75,10 +75,9 @@ export function Shell() {
       return;
     }
     closeDialogs();
-    const section = sectionIndex(id);
+    const section = sectionPath(id);
     if (section !== null) {
-      const target = SECTIONS[section];
-      if (target) go(target.path);
+      go(section);
       return;
     }
     switch (id) {
@@ -156,13 +155,13 @@ export function Shell() {
         </Link>
         <nav className="tabs" aria-label="Sections">
           <ul>
-            {SECTIONS.map((section, index) => (
+            {SECTIONS.map((section) => (
               <li key={section.path}>
                 <NavLink
                   to={section.path}
                   onMouseDown={keepFocus}
-                  aria-keyshortcuts={[keys(`section-${index + 1}` as ShortcutId), section.path === '/ask' ? keys('ask') : '']
-                    .filter(Boolean).join(' ')}
+                  aria-keyshortcuts={[sectionShortcut(section.path), section.path === '/ask' ? 'ask' : null]
+                    .filter((id): id is ShortcutId => id !== null).map(keys).join(' ') || undefined}
                 >
                   {section.label}
                   {section.path === '/ask' && answering && <span className="tab-live" role="img" aria-label=", answering" />}

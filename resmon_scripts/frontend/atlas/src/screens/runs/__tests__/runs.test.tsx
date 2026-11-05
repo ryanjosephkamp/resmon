@@ -16,7 +16,8 @@ import {
   logForReading, outcomeOf, reportInLocalTime, restartFacts, runNumbers, runsFileStem, runTitle, stillRunning, ZERO_LABELS,
   type ProgressEvent,
 } from '../model';
-import { runsCountWords } from '../RunLog';
+import { byDay, filterQuery, listedRuns, runSummary, totalWords } from '../history';
+import { placeWords } from '../active';
 import { Metadata } from '../RunTabs';
 import { runSkyCaption } from '../RunSky';
 
@@ -226,10 +227,47 @@ describe('the run\'s log, as the Log tab shows it', () => {
   });
 });
 
-describe('the run log\'s count', () => {
-  test('says the latest runs while older ones are still to read, and the number when it holds them all', () => {
-    expect(runsCountWords(20, true)).toBe('the latest 20');
-    expect(runsCountWords(23, false)).toBe('23');
+describe('the Runs tab\'s history', () => {
+  const row = (id: number, start: string | null, status = 'completed') => ({
+    id, start_time: start, status, coverage: { counts: { answered: 1, non_answer: 0, in_part: 0 }, total: 1 },
+    total_results: 3, new_results: 2, error_message: null,
+  }) as unknown as Parameters<typeof runSummary>[0];
+
+  test('says how many runs match, and nothing while it does not know', () => {
+    expect(totalWords(1_024)).toBe('1,024 runs');
+    expect(totalWords(1)).toBe('1 run');
+    expect(totalWords(null)).toBe('');
+  });
+
+  test('asks the engine for searches, watches\' runs, or failed runs', () => {
+    expect(filterQuery('all')).toEqual({});
+    expect(filterQuery('searches')).toEqual({ type: 'deep_dive,deep_sweep' });
+    expect(filterQuery('watches')).toEqual({ type: 'automated_sweep' });
+    expect(filterQuery('failed')).toEqual({ status: 'failed' });
+  });
+
+  test('lists a run at the edge of two pages once', () => {
+    expect(listedRuns([{ runs: [row(3, null), row(2, null)], total: 3 }, { runs: [row(2, null), row(1, null)], total: 3 }])
+      .map((run) => run.id)).toEqual([3, 2, 1]);
+  });
+
+  test('groups by the reader\'s day against the clock it is given, so "today" turns at midnight', () => {
+    const runs = [row(2, '2026-11-04T23:30:00Z'), row(1, '2026-11-04T12:00:00Z')];
+    // Eastern time: 6:30 PM and 7:00 AM on November 4.
+    expect(byDay(runs, new Date('2026-11-04T23:45:00Z')).map((g) => [g.day, g.runs.length])).toEqual([['today', 2]]);
+    // The same list read after local midnight: those runs were yesterday.
+    expect(byDay(runs, new Date('2026-11-05T05:30:00Z')).map((g) => g.day)).toEqual(['yesterday']);
+  });
+
+  test('a run\'s one line, from what the engine recorded', () => {
+    expect(runSummary(row(1, null))).toBe('1 of 1 source answered · 3 found, 2 new');
+    expect(runSummary(row(1, null, 'running'))).toBe('running');
+  });
+
+  test('a waiting run\'s place in line', () => {
+    expect([1, 2, 3, 4, 11, 12, 13, 21, 22].map(placeWords)).toEqual([
+      'next in line', '2nd in line', '3rd in line', '4th in line', '11th in line', '12th in line', '13th in line',
+      '21st in line', '22nd in line']);
   });
 });
 

@@ -8,7 +8,7 @@ import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { commandEnter } from '../../shell/shortcuts';
 import { SAVED_KEY } from '../collection/savedSearches';
-import { RUNS_KEY } from '../runs/RunLog';
+import { RUNS_KEY } from '../runs/model';
 import type { CatalogEntry } from '../runs/model';
 import { SummaryChoiceField, choiceProblem } from '../settings/SummaryChoiceField';
 import { NO_CHOICE, choiceOf, choiceSentence, type SummaryChoice } from '../settings/summaryChoice';

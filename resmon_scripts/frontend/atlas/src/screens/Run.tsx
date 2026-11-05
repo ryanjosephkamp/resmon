@@ -15,7 +15,9 @@ import { saveBundle } from './runs/downloads';
 import { useDeleteRuns } from './runs/remove';
 import { RestartFacts } from './runs/RestartFacts';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
-import { RUNS_KEY, type RunLogNotice } from './runs/RunLog';
+import { RUNS_KEY } from './runs/model';
+import type { RunsNotice } from './runs/Runs';
+import { Confirm } from './runs/Confirm';
 import { RunSky } from './runs/RunSky';
 import { MapPaper } from './sky/MapPaper';
 import type { PaperSkyHandle, SkyChoice } from './sky/PaperSky';
@@ -208,7 +210,12 @@ export function Run() {
     })),
     onSuccess: (started) => {
       void client.invalidateQueries({ queryKey: RUNS_KEY });
-      navigate(`/runs/${started.execution_id}`);
+      // Waiting for a free slot, the restart has no page yet: the Runs tab lists it under Waiting.
+      if (started.execution_id === null) {
+        navigate('/runs', { state: { queued: started.detail ?? 'The restart waits for a free run slot.' } satisfies RunsNotice });
+      } else {
+        navigate(`/runs/${started.execution_id}`);
+      }
     },
   });
   const exporting = useMutation({
@@ -234,16 +241,17 @@ export function Run() {
       void client.invalidateQueries({ queryKey: RUNS_KEY });
     },
   });
-  // Deleted, the run has no page: back to the log, which no longer lists it,
-  // in place of this page in the history so Back does not return to it.
+  // Deleted, the run has no page: back to the Runs tab, which no longer lists
+  // it, in place of this page in the history so Back does not return to it.
+  // The question is asked on the page, under the actions, not in a system dialog.
   const remove = useDeleteRuns();
-  const askToDelete = (data: RunData, title: string) => {
-    const question = deleteQuestion([{ id: data.id, status: data.status, title }]);
-    if (!question || !window.confirm(question)) return;
+  const [weighingDelete, setWeighingDelete] = useState<number | null>(null);
+  const deleteRun = (data: RunData) => {
     remove.mutate([data.id], {
       onSuccess: (outcome) => {
+        setWeighingDelete(null);
         const said = deletedSentence(outcome);
-        if (said) navigate('/search/ask', { replace: true, state: { deleted: said } satisfies RunLogNotice });
+        if (said) navigate('/runs', { replace: true, state: { deleted: said } satisfies RunsNotice });
       },
     });
   };
@@ -266,7 +274,7 @@ export function Run() {
       <div className="page">
         <h1 className="page-title">Run {raw} could not be read</h1>
         <p className="page-lede">{run.error?.message ?? 'The engine has no such run.'}</p>
-        <p><Link to="/search/ask" className="btn">Back to the runs</Link></p>
+        <p><Link to="/runs" className="btn">Back to the runs</Link></p>
       </div>
     );
   }
@@ -298,7 +306,7 @@ export function Run() {
   return (
     <div className="run" data-run={data.id} data-status={data.status}>
       <header className="run-head">
-        <Link to="/search/ask" className="back"><Icon name="back" size={14} />Runs</Link>
+        <Link to="/runs" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">
           <h1 className={watch ? 'run-name it' : 'run-name'}>{breakable(title)}</h1>
           <div className="run-actions">
@@ -336,7 +344,7 @@ export function Run() {
             {/* A run still running is not offered: the engine refuses to delete it. */}
             {!running && (
               <button type="button" className="btn quiet" data-run="delete" disabled={remove.isPending}
-                onClick={() => askToDelete(data, title)}>
+                onClick={() => { remove.reset(); setWeighingDelete(id); }}>
                 {remove.isPending && remove.variables?.[0] === id ? 'Deleting' : 'Delete this run'}
               </button>
             )}
@@ -401,6 +409,13 @@ export function Run() {
             </span>
           </div>
         )}
+        {weighingDelete === id && !running && (() => {
+          const question = deleteQuestion([{ id: data.id, status: data.status, title }]);
+          return question && (
+            <Confirm name="delete-run" question={question} act="Delete this run" busy={remove.isPending}
+              onAct={() => deleteRun(data)} onCancel={() => setWeighingDelete(null)} />
+          );
+        })()}
         {kept && naming === null && (
           <p className="settings-said" role="status" data-run="kept">
             Saved as “{kept}”, under <Link to="/search/saved">Saved</Link>.
