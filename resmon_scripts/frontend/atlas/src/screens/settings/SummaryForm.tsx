@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { answer, engine } from '../../api/client';
 import { bridge } from '../../bridge';
-import { STATUS_KEY } from '../ask/AskProvider';
+import { STATUS_KEY, readStatusAgain } from '../ask/AskProvider';
 import { ask } from '../ask/askApi';
 import { CliSignIn } from './CliSignIn';
 import { ModelField, listFor, useModelList, type ModelQuery } from './ModelField';
@@ -60,7 +60,7 @@ export function SummaryForm({ stored }: { stored: AiSettings }) {
     onSuccess: () => Promise.all([
       client.invalidateQueries({ queryKey: AI_KEY }),
       client.invalidateQueries({ queryKey: CLI_KEY }),
-      client.invalidateQueries({ queryKey: STATUS_KEY }),
+      readStatusAgain(client),
     ]),
   });
   const submit = (event: FormEvent) => { event.preventDefault(); if (!blocked) save.mutate(); };
