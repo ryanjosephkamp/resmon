@@ -46,6 +46,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { resolveInterpreter } from './python-interpreter';
+import { removeStateDir } from './cleanup';
 
 // ---------------------------------------------------------------------------
 // The local API token, for the suite's own backend calls
@@ -354,7 +355,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
     const { app, stateDir } = await launchResmon(true);
     await use(app);
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(stateDir, { recursive: true, force: true });
+    removeStateDir(stateDir);
   }, { scope: 'worker' }],
 
   win: [async ({ app, consoleErrors, failedRequests, currentRoute }, use) => {

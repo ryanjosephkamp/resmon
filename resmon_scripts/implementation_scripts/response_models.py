@@ -2122,11 +2122,13 @@ class RunRestarted(LosslessModel):
     """``POST /api/executions/{exec_id}/restart``: a new run with the old one's
     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
-    ``queue_position``, its ``ticket``, and a ``detail``."""
+    ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+    for a watch's run, which runs as its watch's Run now."""
 
     execution_id: Optional[int]
     restarted_from: Optional[int]
     ai_enabled: bool
+    routine_id: Optional[int] = None
     duplicate: Optional[bool] = None
     queued: Optional[bool] = None
     queue_position: Optional[int] = None
@@ -4595,6 +4597,21 @@ class BackupSummary(LosslessModel):
     fk_violations_rows: Optional[int]
 
 
+class PreUpgradeCopy(LosslessModel):
+    """The copy of the database kept beside it before the last schema upgrade, read from the file.
+
+    ``schema_version`` is the schema the database was at when it was copied,
+    from the file's name. ``written_at_utc`` is the file's modification time,
+    which is when the copy was finished unless something has written to the
+    file since. ``bytes`` is its size. Nothing is opened or checked here.
+    """
+
+    path: str
+    schema_version: int
+    written_at_utc: str
+    bytes: int
+
+
 # ---------------------------------------------------------------------------
 # Restore
 # ---------------------------------------------------------------------------
@@ -4767,6 +4784,8 @@ class BackupLast(LosslessModel):
     while this database still has the removed upload to Google Drive after
     each run switched on, until ``POST
     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+    ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+    last schema upgrade, ``None`` when there is none there.
 
     A pointer or record edited by hand into a shape no resmon wrote matches
     neither model of its union, and this route then answers 500 rather than a
@@ -4781,6 +4800,7 @@ class BackupLast(LosslessModel):
     last_restore: Optional[Union[RestoreSucceeded, RestoreFailed]]
     undo_copies: list[str]
     drive_upload_retired: bool
+    pre_upgrade_copy: Optional[PreUpgradeCopy]
 
 
 class RestoreCancelled(LosslessModel):

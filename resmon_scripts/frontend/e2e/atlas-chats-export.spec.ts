@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 const hostile = '<script>window.chatInjected=true</script>\n[unsafe](https://example.invalid)\n``````\n雪\n' + 'longword'.repeat(150);
 
@@ -111,6 +112,6 @@ print(json.dumps({x:c.execute('SELECT * FROM "'+x+'" ORDER BY 1').fetchall() for
     expect(contacts).toEqual([]);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(state, { recursive: true, force: true });
+    removeStateDir(state);
   }
 });

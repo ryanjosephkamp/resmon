@@ -680,7 +680,7 @@ export interface paths {
         };
         /**
          * Backup Last
-         * @description The last bundle, the last restore outcome, and whether an undo copy exists.
+         * @description The last bundle, the last restore outcome, the undo copies, and the copy kept before the last upgrade.
          */
         get: operations["backup_last_api_backup_last_get"];
         put?: never;
@@ -5398,6 +5398,8 @@ export interface components {
          *     while this database still has the removed upload to Google Drive after
          *     each run switched on, until ``POST
          *     /api/backup/drive-upload-notice/acknowledge``; nothing uploads either way.
+         *     ``pre_upgrade_copy`` is the copy of the database kept beside it before the
+         *     last schema upgrade, ``None`` when there is none there.
          *
          *     A pointer or record edited by hand into a shape no resmon wrote matches
          *     neither model of its union, and this route then answers 500 rather than a
@@ -5417,6 +5419,7 @@ export interface components {
             pending_restore_runs_on: ("app_restart" | "service_restart" | "service_stopped") | null;
             /** Pending Restore Runs When */
             pending_restore_runs_when: string | null;
+            pre_upgrade_copy: components["schemas"]["PreUpgradeCopy"] | null;
             /** Undo Copies */
             undo_copies: string[];
         } & {
@@ -8824,6 +8827,27 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * PreUpgradeCopy
+         * @description The copy of the database kept beside it before the last schema upgrade, read from the file.
+         *
+         *     ``schema_version`` is the schema the database was at when it was copied,
+         *     from the file's name. ``written_at_utc`` is the file's modification time,
+         *     which is when the copy was finished unless something has written to the
+         *     file since. ``bytes`` is its size. Nothing is opened or checked here.
+         */
+        PreUpgradeCopy: {
+            /** Bytes */
+            bytes: number;
+            /** Path */
+            path: string;
+            /** Schema Version */
+            schema_version: number;
+            /** Written At Utc */
+            written_at_utc: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ProfileImportBody
          * @description One exported profile, or a list of them.
          */
@@ -10388,7 +10412,8 @@ export interface components {
          * @description ``POST /api/executions/{exec_id}/restart``: a new run with the old one's
          *     parameters, linked back to it. ``duplicate`` as on ``RunStarted``; and
          *     at the run limit, as there, no ``execution_id`` yet, ``queued``, its
-         *     ``queue_position``, its ``ticket``, and a ``detail``.
+         *     ``queue_position``, its ``ticket``, and a ``detail``. ``routine_id`` only
+         *     for a watch's run, which runs as its watch's Run now.
          */
         RunRestarted: {
             /** Ai Enabled */
@@ -10405,6 +10430,8 @@ export interface components {
             queued?: boolean | null;
             /** Restarted From */
             restarted_from: number | null;
+            /** Routine Id */
+            routine_id?: number | null;
             /** Ticket */
             ticket?: string | null;
         } & {

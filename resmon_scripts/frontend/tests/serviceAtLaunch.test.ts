@@ -162,6 +162,9 @@ class FakeWorld implements World {
   }
   async sleep(): Promise<void> { /* no time passes */ }
   log(line: string): void { this.lines.push(line); }
+  /** Each wait said, for the window that says resmon is starting. */
+  waits: string[] = [];
+  waiting(why: 'starting' | 'started'): void { this.waits.push(why); }
 }
 
 describe('the steps taken, once per launch', () => {
@@ -268,6 +271,74 @@ describe('the steps taken, once per launch', () => {
     world.running = { build: 'b-new', version: '1.0.0', active: 4 };
     expect(await ensureService(world, ME)).toEqual({ done: 'nothing', why: 'ours' });
     expect(world.calls).toEqual([]);
+  });
+});
+
+describe('a wait for the service is said, so the launch shows that resmon is starting', () => {
+  test('a service already starting: said once, as starting, and never stopped', async () => {
+    const world = new FakeWorld();
+    world.startingAs('b-new', 40);
+    expect(await ensureService(world, ME)).toEqual({ done: 'started' });
+    expect(world.waits).toEqual(['starting']);
+    expect(world.calls).toEqual(['release']);
+  });
+
+  test('a service this launch starts, kicks, or replaces: said once, as started', async () => {
+    const started = new FakeWorld();
+    started.job = { loaded: false, pid: null, disabled: false };
+    started.running = null;
+    started.slowStart = 20;
+    expect(await ensureService(started, ME)).toEqual({ done: 'started' });
+    expect(started.waits).toEqual(['started']);
+
+    const kicked = new FakeWorld();
+    kicked.job = { loaded: true, pid: null, disabled: false };
+    kicked.running = null;
+    expect(await ensureService(kicked, ME)).toEqual({ done: 'started' });
+    expect(kicked.waits).toEqual(['started']);
+
+    const replaced = new FakeWorld();
+    expect(await ensureService(replaced, ME)).toEqual({ done: 'started' });
+    expect(replaced.waits).toEqual(['started']);
+  });
+
+  test('a service still starting that never answers: said, and the wait ends with nothing stopped', async () => {
+    const world = new FakeWorld();
+    world.startingAs(null, 0);
+    expect(await ensureService(world, ME, 5_000)).toEqual({ done: 'nothing', why: 'starting' });
+    expect(world.waits).toEqual(['starting']);
+    expect(world.calls).toEqual(['release']);
+  });
+
+  test('nothing waited for: nothing said', async () => {
+    const ours = new FakeWorld();
+    ours.running = { build: 'b-new', version: '1.0.0', active: 0 };
+    expect(await ensureService(ours, ME)).toEqual({ done: 'nothing', why: 'ours' });
+
+    const blocked = new FakeWorld();
+    blocked.job = { loaded: false, pid: null, disabled: true };
+    expect(await ensureService(blocked, ME)).toEqual({ done: 'blocked' });
+
+    const kept = new FakeWorld();
+    kept.running = { build: 'b-old', version: '1.0.0', active: 2 };
+    kept.answers = false;
+    expect(await ensureService(kept, ME)).toEqual({ done: 'kept' });
+
+    // Another resmon holds the lock, and it, not this launch, opens the window.
+    const elsewhere = new FakeWorld();
+    elsewhere.startingAs(null, 0);
+    elsewhere.holding = false;
+    expect(await ensureService(elsewhere, ME)).toEqual({ done: 'nothing', why: 'starting' });
+
+    for (const world of [ours, blocked, kept, elsewhere]) expect(world.waits).toEqual([]);
+  });
+
+  test('a world that does not say waits is waited on as before', async () => {
+    const world = new FakeWorld();
+    world.startingAs('b-new', 3);
+    (world as { waiting?: unknown }).waiting = undefined;
+    expect(await ensureService(world, ME)).toEqual({ done: 'started' });
+    expect(world.waits).toEqual([]);
   });
 });
 

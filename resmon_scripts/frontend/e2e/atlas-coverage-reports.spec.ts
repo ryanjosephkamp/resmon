@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, SCREENSHOT_DIR, ATLAS_LANDMARK, atlasEnv, launchEnv } from './fixtures/resmon-app';
+import { removeStateDir } from './fixtures/cleanup';
 
 async function openRun(win: Page, id: number): Promise<void> {
   await win.evaluate((run) => { window.location.hash = `#/runs/${run}`; }, id);
@@ -93,6 +94,6 @@ test('recorded coverage: each outcome in its own words, a part-read source, an u
     expect(snapshot(), 'reading recorded coverage changed something stored').toBe(before);
   } finally {
     await app.close().catch(() => { /* already gone */ });
-    fs.rmSync(state, { recursive: true, force: true });
+    removeStateDir(state);
   }
 });

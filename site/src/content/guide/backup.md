@@ -1,6 +1,6 @@
 ---
 title: "Backup and restore"
-summary: "What a backup holds and leaves out, where it goes, restoring it, and keeping a copy in Google Drive."
+summary: "What a backup holds and leaves out, where it goes, restoring it, keeping a copy in Google Drive, and the copy kept before an update."
 order: 13
 ---
 **Settings › Backup** writes one folder holding everything resmon keeps for you locally, and restores it on this computer or another.
@@ -49,3 +49,16 @@ If your database has references to rows that are not there, the backup still run
 The Library goes back where the backup's database recorded it. A Library already there is moved aside, not deleted. The database being replaced is also set aside, in an undo copy, and nothing removes the undo copy on its own. After a restore, the page says what was kept and where. **Delete what the last restore replaced** removes it, after a warning that it is the only copy of what was there and the last way back.
 
 After a restore, a one-time card lists the credentials the backup recorded and this computer does not have, by name, until you press **Got it**. Webhook secrets are bound to a destination's row, so a destination that came back under a different id has no secret until you set one.
+
+## The copy kept before an update
+
+Some updates change how the database is laid out, and the first start after one (the background service's, if it runs) brings the database up to date. Before it changes anything, resmon keeps a copy of the database as it was, in the same folder as `resmon.db`: `resmon-before-schema-24.db`, where 24 is the schema the database was at. The copy is written with SQLite's backup interface, as a backup's database is, and is one file with no sidecar files.
+
+- **Only the most recent copy is kept.** The next update that changes the database writes a new one, and deletes the older copy once the new one is complete.
+- **If the disk has no room for it** with 512 MB to spare, resmon writes one line in its log, keeps no copy, and updates the database anyway. The same goes for a copy that fails to write.
+- **An update that stops part way** (a step fails, or resmon is stopped) keeps the copy from before it began. The next start carries on from where it stopped and does not copy the half-updated database.
+- **A restore keeps no copy**, since the backup it restores is one.
+- **Settings › Backup** says where the copy is and when it was written, under **Before an update**, or that there is none.
+- **Erase the paper corpus**, **Erase all app data**, and **Factory reset** delete it, because it holds your papers. A backup in a folder you chose is yours, and stays.
+
+The copy is not a backup. It sits on the same disk as the database, holds no Library files, and has nothing in it from after the update began. To go back to it, turn off **Run resmon in the background** in **Settings › In the background**, quit resmon, move `resmon.db`, `resmon.db-wal`, and `resmon.db-shm` aside, and copy the copy into their place as `resmon.db`. Open it with the version of resmon you had before the update: a newer one brings it up to date again when it starts. If you have added or removed Library files since the copy was written, the Library and the copy no longer match.

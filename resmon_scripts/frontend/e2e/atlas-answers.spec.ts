@@ -25,6 +25,7 @@ import * as path from 'path';
 import { test, expect, _electron as electron, type Page } from '@playwright/test';
 import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv, registerStateDir, selectedEvidenceTransport } from './fixtures/resmon-app';
 import { findCard } from './fixtures/gallery';
+import { removeStateDir } from './fixtures/cleanup';
 
 const FIXTURES = path.join(REPO_ROOT, 'resmon_scripts', 'verification_scripts', 'fixtures', 'evidence');
 const PASSAGE = 'exact passage';
@@ -319,6 +320,6 @@ with zipfile.ZipFile(sys.argv[1]) as z:
   } finally {
     await app.close();
     await fake.close();
-    fs.rmSync(root, { recursive: true, force: true });
+    removeStateDir(root);
   }
 });
