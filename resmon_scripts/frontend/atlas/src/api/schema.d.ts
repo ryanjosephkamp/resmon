@@ -3070,6 +3070,77 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/reading-queue/batch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save Many To Reading Queue
+         * @description Save many papers at once: each one not in the queue is added, each one in it is left as it is.
+         *
+         *     The answer counts both, and the ids it does not hold (``missing``), and
+         *     lists the ids it added with the moment they carry, for Undo
+         *     (``POST /api/reading-queue/batch/undo``).
+         */
+        post: operations["save_many_to_reading_queue_api_reading_queue_batch_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save All To Reading Queue
+         * @description Save every paper of a search, a run, or Today, read by the engine rather than listed.
+         *
+         *     At most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with
+         *     how many it holds. 409 when the set holds more than ``at_most``, the number
+         *     the person was asked about. Otherwise the answer of ``/batch``.
+         */
+        post: operations["save_all_to_reading_queue_api_reading_queue_batch_all_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/reading-queue/batch/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Undo Save To Reading Queue
+         * @description Undo a save of many: the entries it added go, unless they changed since.
+         *
+         *     ``document_ids`` and ``saved_at`` are the save's own answer. An entry marked
+         *     read since, or removed and saved again, stays, and is counted as ``kept``.
+         */
+        post: operations["undo_save_to_reading_queue_api_reading_queue_batch_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/reading-queue/{document_id}": {
         parameters: {
             query?: never;
@@ -8911,6 +8982,83 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * ReadingQueueAllBody
+         * @description Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.
+         *
+         *     ``scope`` says which set: ``search``, the papers ``search`` matches (the
+         *     filters as Search › Your collection sends them, the words left out where it
+         *     ranked by meaning, since there they order the list and do not narrow it);
+         *     ``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones
+         *     it found first; ``today``, Today's new papers. ``except_ids`` are left out.
+         *     ``at_most`` is how many the person was told would be saved: a set that holds
+         *     more by the time it is read is refused, so a filter lost on the way can never
+         *     save the whole collection.
+         */
+        ReadingQueueAllBody: {
+            /** At Most */
+            at_most: number;
+            /** Except Ids */
+            except_ids?: number[];
+            /** Execution Id */
+            execution_id?: number | null;
+            /**
+             * Only New
+             * @default false
+             */
+            only_new: boolean;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "search" | "run" | "today";
+            search?: components["schemas"]["ExplorerFilters"] | null;
+        };
+        /** ReadingQueueBatchBody */
+        ReadingQueueBatchBody: {
+            /** Document Ids */
+            document_ids: number[];
+        };
+        /**
+         * ReadingQueueBatchSaved
+         * @description ``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.
+         *
+         *     ``asked`` is how many distinct papers the request named or described;
+         *     ``saved`` were added now, ``already`` were in the queue and are as they
+         *     were, and ``missing`` are not in the collection. ``saved_ids`` and
+         *     ``saved_at`` (``None`` when nothing was added) are what an Undo names.
+         */
+        ReadingQueueBatchSaved: {
+            /** Already */
+            already: number;
+            /** Asked */
+            asked: number;
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Missing */
+            missing: number;
+            /** Saved */
+            saved: number;
+            /** Saved At */
+            saved_at: string | null;
+            /** Saved Ids */
+            saved_ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * ReadingQueueBatchUndone
+         * @description ``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:
+         *     changed since the save, so its Undo left them.
+         */
+        ReadingQueueBatchUndone: {
+            counts: components["schemas"]["ReadingQueueCounts"];
+            /** Kept */
+            kept: number;
+            /** Removed */
+            removed: number;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ReadingQueueCounts
          * @description How many are in each state, over the whole queue and not this page.
          */
@@ -9094,6 +9242,13 @@ export interface components {
         ReadingQueueStatusBody: {
             /** Status */
             status: string;
+        };
+        /** ReadingQueueUndoBody */
+        ReadingQueueUndoBody: {
+            /** Document Ids */
+            document_ids: number[];
+            /** Saved At */
+            saved_at: string;
         };
         /** ReferenceExportBody */
         ReferenceExportBody: {
@@ -17785,6 +17940,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadingQueueEntry"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_many_to_reading_queue_api_reading_queue_batch_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueBatchBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    save_all_to_reading_queue_api_reading_queue_batch_all_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueAllBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchSaved"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    undo_save_to_reading_queue_api_reading_queue_batch_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReadingQueueUndoBody"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadingQueueBatchUndone"];
                 };
             };
             /** @description Validation Error */

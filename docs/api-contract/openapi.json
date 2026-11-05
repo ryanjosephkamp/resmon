@@ -10520,6 +10520,163 @@
         "title": "PublicationVolumeMonth",
         "type": "object"
       },
+      "ReadingQueueAllBody": {
+        "additionalProperties": false,
+        "description": "Every paper of a set the engine reads itself, so a save of 12,000 lists none of them.\n\n``scope`` says which set: ``search``, the papers ``search`` matches (the\nfilters as Search › Your collection sends them, the words left out where it\nranked by meaning, since there they order the list and do not narrow it);\n``run``, the papers run ``execution_id`` stored, or with ``only_new`` the ones\nit found first; ``today``, Today's new papers. ``except_ids`` are left out.\n``at_most`` is how many the person was told would be saved: a set that holds\nmore by the time it is read is refused, so a filter lost on the way can never\nsave the whole collection.",
+        "properties": {
+          "at_most": {
+            "minimum": 1.0,
+            "title": "At Most",
+            "type": "integer"
+          },
+          "except_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "title": "Except Ids",
+            "type": "array"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "only_new": {
+            "default": false,
+            "title": "Only New",
+            "type": "boolean"
+          },
+          "scope": {
+            "enum": [
+              "search",
+              "run",
+              "today"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExplorerFilters"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "scope",
+          "at_most"
+        ],
+        "title": "ReadingQueueAllBody",
+        "type": "object"
+      },
+      "ReadingQueueBatchBody": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "ReadingQueueBatchBody",
+        "type": "object"
+      },
+      "ReadingQueueBatchSaved": {
+        "additionalProperties": true,
+        "description": "``POST /api/reading-queue/batch`` and ``/batch/all``: a save of many papers.\n\n``asked`` is how many distinct papers the request named or described;\n``saved`` were added now, ``already`` were in the queue and are as they\nwere, and ``missing`` are not in the collection. ``saved_ids`` and\n``saved_at`` (``None`` when nothing was added) are what an Undo names.",
+        "properties": {
+          "already": {
+            "title": "Already",
+            "type": "integer"
+          },
+          "asked": {
+            "title": "Asked",
+            "type": "integer"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/ReadingQueueCounts"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "integer"
+          },
+          "saved": {
+            "title": "Saved",
+            "type": "integer"
+          },
+          "saved_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Saved At"
+          },
+          "saved_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Saved Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "asked",
+          "saved",
+          "already",
+          "missing",
+          "saved_at",
+          "saved_ids",
+          "counts"
+        ],
+        "title": "ReadingQueueBatchSaved",
+        "type": "object"
+      },
+      "ReadingQueueBatchUndone": {
+        "additionalProperties": true,
+        "description": "``POST /api/reading-queue/batch/undo``. ``kept`` are still in the queue:\nchanged since the save, so its Undo left them.",
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ReadingQueueCounts"
+          },
+          "kept": {
+            "title": "Kept",
+            "type": "integer"
+          },
+          "removed": {
+            "title": "Removed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "removed",
+          "kept",
+          "counts"
+        ],
+        "title": "ReadingQueueBatchUndone",
+        "type": "object"
+      },
       "ReadingQueueCounts": {
         "additionalProperties": true,
         "description": "How many are in each state, over the whole queue and not this page.",
@@ -10979,6 +11136,32 @@
           "status"
         ],
         "title": "ReadingQueueStatusBody",
+        "type": "object"
+      },
+      "ReadingQueueUndoBody": {
+        "additionalProperties": false,
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 20000,
+            "minItems": 1,
+            "title": "Document Ids",
+            "type": "array"
+          },
+          "saved_at": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Saved At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "document_ids",
+          "saved_at"
+        ],
+        "title": "ReadingQueueUndoBody",
         "type": "object"
       },
       "ReferenceExportBody": {
@@ -26548,6 +26731,123 @@
           }
         },
         "summary": "Save To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch": {
+      "post": {
+        "description": "Save many papers at once: each one not in the queue is added, each one in it is left as it is.\n\nThe answer counts both, and the ids it does not hold (``missing``), and\nlists the ids it added with the moment they carry, for Undo\n(``POST /api/reading-queue/batch/undo``).",
+        "operationId": "save_many_to_reading_queue_api_reading_queue_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueBatchBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save Many To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch/all": {
+      "post": {
+        "description": "Save every paper of a search, a run, or Today, read by the engine rather than listed.\n\nAt most ``reading_queue.BATCH_MOST`` papers; a larger set is refused with\nhow many it holds. 409 when the set holds more than ``at_most``, the number\nthe person was asked about. Otherwise the answer of ``/batch``.",
+        "operationId": "save_all_to_reading_queue_api_reading_queue_batch_all_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueAllBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchSaved"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Save All To Reading Queue"
+      }
+    },
+    "/api/reading-queue/batch/undo": {
+      "post": {
+        "description": "Undo a save of many: the entries it added go, unless they changed since.\n\n``document_ids`` and ``saved_at`` are the save's own answer. An entry marked\nread since, or removed and saved again, stays, and is counted as ``kept``.",
+        "operationId": "undo_save_to_reading_queue_api_reading_queue_batch_undo_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadingQueueUndoBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadingQueueBatchUndone"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Undo Save To Reading Queue"
       }
     },
     "/api/reading-queue/{document_id}": {

@@ -10,6 +10,7 @@ import { MAP_KEY } from '../today/freshness';
 import { useReadAfter } from '../sky/readAfter';
 import { ColorKey, DimKey, MapBar } from '../sky/MapControls';
 import { MapPaper } from '../sky/MapPaper';
+import { SaveLit } from '../sky/SaveLit';
 import { filterCount } from '../sky/look';
 import { useMapLook } from '../sky/useMapLook';
 import { count, number } from '../today/format';
@@ -113,7 +114,8 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
         {sky && (
           <MapBar name="run" view={mapLook.view} onView={mapLook.setView} look={look} facts={mapLook.facts}
             facetsError={mapLook.facetsError} total={sky.count} names={sourceName} find={mapLook.find}
-            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError} />
+            findAt={findPosition(sky, look?.found, selectedId)} onStep={step} onWant={mapLook.wantFacets} keepError={mapLook.saveError}
+            save={<SaveLit sky={sky} look={look} finding={mapLook.find.finding} waiting={mapLook.find.waiting} />} />
         )}
         {sky && field && built ? (
           <Plate

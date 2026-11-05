@@ -21,9 +21,12 @@ import {
 } from './filters';
 import { foldedAway } from './fold';
 import { jumpWords, monthEnd, readJump, withJump } from './jump';
-import { ResultList, type Marks } from './ResultList';
+import { ResultList, type Marks, type Picking } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
+import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
+import { SelectBar } from '../selection/SelectBar';
+import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../selection/picks';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 /** No paper marked on the map: the same list each time, so the map is not drawn again for a new empty one. */
@@ -67,6 +70,13 @@ const SETTLE_MS = 350;
  * Export writes every paper the search matches, not the rows drawn so far,
  * however many: the engine renders the file as it reads the papers and the
  * system's save dialog asks where it goes.
+ *
+ * Select turns the export's row into a selection bar, and gives each row a
+ * box: pick rows by click, Shift-click, or the keyboard, or Select all, which
+ * is every match the search counted, read or not. Save to read saves the rows
+ * picked by their ids, or every match by the search itself, so a save of
+ * 12,000 lists none of them; past 200 it asks first. The bar holds its actions
+ * in one row, so another can join Save to read there.
  */
 export function Collection() {
   const [params, setParams] = useSearchParams();
@@ -193,6 +203,36 @@ export function Collection() {
   const said = first ? countSentence(first, filtered, query) : '';
   const stopped = first ? stoppedWords(first) : null;
   const offer = first ? exportWords(first, served) : null;
+
+  // Select mode. What is picked belongs to this search: a new search, filter, or order lets go of it.
+  const [selecting, setSelecting] = useState(false);
+  const visibleIds = useMemo(() => visible.map((row) => row.id), [visible]);
+  const picks = usePicks<number>(visibleIds, JSON.stringify(scope));
+  const counted = first?.total_is_exact ? total : null;
+  const picked = sizeOf(picks.picks, counted);
+  const allPicked = picks.picks.all && picks.picks.except.size === 0;
+  const saving = useSaveToRead(() => picks.release('all'));
+  const { pick, selectAll, clear } = picks;
+  const picking = useMemo<Picking | null>(() => (selecting ? {
+    has: (id) => has(picks.picks, id),
+    onPick: (index, range) => { const id = visibleIds[index]; if (id !== undefined) pick(id, range); },
+    onRange: (to, from) => { const id = visibleIds[to]; if (id !== undefined) pick(id, true, visibleIds[from]); },
+    onAll: () => { if (counted !== null) selectAll(); },
+  } : null), [selecting, picks.picks, visibleIds, pick, selectAll, counted]);
+  const { cancel } = saving;
+  const endSelecting = useCallback(() => { setSelecting(false); clear(); cancel(); }, [clear, cancel]);
+  const savePicked = () => {
+    if (picked === null || picked === 0) return;
+    if (picks.picks.all) {
+      saving.save({
+        target: { kind: 'search', search: scope, except: [...picks.picks.except], atMost: picked }, n: picked, all: allPicked,
+        what: allPicked ? `all ${count(picked, 'match', 'matches')}` : `these ${count(picked, 'paper')}`,
+      });
+    } else {
+      const ids = pickedIn(picks.picks, visibleIds);
+      saving.save({ target: { kind: 'listed', ids }, n: ids.length, all: false, what: `these ${count(ids.length, 'paper')}` });
+    }
+  };
   const jumped = first?.start_date ? jumpWords(first, at ?? first.start_date) : null;
 
   return (
@@ -315,7 +355,16 @@ export function Collection() {
             {said}
             {stopped && <span className="count-cap" data-collection="count-stopped"> · {stopped}</span>}
           </p>
-          {offer && (
+          {selecting && rows.length > 0 && (
+            <SelectBar label="The selected matches" className="collection-select" said={selectedWords(picked, counted)}
+              tick={isEmpty(picks.picks, counted) ? 'none' : allPicked ? 'on' : 'part'}
+              allLabel={allPicked || counted === null ? null : `Select all ${count(counted, 'match', 'matches')}`}
+              onAll={selectAll} onDone={endSelecting}
+              below={<><SaveLimit n={picked} />{saving.question}{saving.refused}</>}>
+              <SaveButton n={picked} all={allPicked} busy={saving.pending || saving.asking} saving={saving.pending} onSave={savePicked} />
+            </SelectBar>
+          )}
+          {offer && !(selecting && rows.length > 0) && (
             <div className="collection-export" data-collection="export" role="group" aria-label="Export the papers counted above">
               <Icon name="download" size={14} />
               <span>{offer.lead}</span>
@@ -323,6 +372,10 @@ export function Collection() {
                 <button key={format.id} type="button" className="btn sm" disabled={exporting.isPending}
                   onClick={() => exporting.mutate({ format: format.id, scope })}>{format.label}</button>
               ))}
+              {rows.length > 0 && (
+                <button type="button" className="btn sm collection-select-start" data-collection="select"
+                  onClick={() => setSelecting(true)}>Select</button>
+              )}
             </div>
           )}
           {offer?.note && <p className="export-note" data-collection="export-note">{offer.note}</p>}
@@ -381,9 +434,11 @@ export function Collection() {
             sourceName={nameOf}
             scroller={scroller}
             more={{ has: !!hasNextPage, reading: isFetchingNextPage, read: readMore }}
+            picking={picking}
           />
         </div>
       </section>
+      {saving.notice}
     </div>
   );
 }

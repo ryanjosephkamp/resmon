@@ -24,6 +24,8 @@ The list reads more papers as you scroll toward its end (**Show more** does the 
 
 The **Export these papers as** buttons (**BibTeX**, **RIS**, **CSV**) write every paper that matches, not only the rows drawn, through the system's save dialog. There is no limit on how many: resmon writes the file as it reads the papers, and says how many the file holds once it is saved.
 
+**Select**, at the end of that row, puts a box beside each result and turns the row into a selection bar. Click a box to pick a paper, Shift-click to pick every paper back to the last one picked, or use the keyboard: Space picks, the up and down arrows move between rows, and Shift with an arrow picks as it goes. **Select all** (or ⌘A, Ctrl+A on Windows and Linux) picks every match the count holds, not only the rows read so far, and a box ticked off afterward is left out. **Save to read** saves the papers picked to your **Library**, under **To read**; a paper already in your reading queue stays as it is, read or not. A save of more than 200 asks first, and one save takes at most 20,000 papers. The notice after it says how many were saved and how many were already there, and **Undo** takes back the ones it added for ten seconds. **Done** or Esc leaves.
+
 Each result shows its title, any retraction or correction recorded against it, its authors, source, and publication date. Two more lines can appear:
 
 - **Papers that look like the same work.** Each is labeled "also appears in (source)" with the reason resmon linked them: "same DOI" is an identifier, and "near-identical title" is an inference. resmon links and never merges: both records are kept, with what each source said. **Fold the same work into one row** hides the extra rows in this view only; the count does not change, and turning it off shows every row. Links are made by a scan started over the HTTP API (`POST /api/links/scan`); Atlas shows the links that exist.
@@ -99,7 +101,7 @@ The tabs below hold the run's own record:
 
 | Tab | What it holds |
 |---|---|
-| **Papers** | The papers the run stored, each with **Save to read** |
+| **Papers** | The papers the run stored, each with **Save to read**; **Save this run's new papers** saves every paper the run was the first to find, and **Select** saves the papers you pick, or with **Select all** every paper it stored |
 | **Map** | The run's papers on the collection map, with find, filters, and colors; a paper is named under the pointer and when chosen from the keyboard |
 | **Report** | The Markdown report as resmon wrote it, with **Save as Markdown** |
 | **Search record** | The dated, reproducible account of the search: the terms as typed, what each source's requests carried, the dates and cap, what each source returned, deduplication, and caveats, with **Save as Markdown** |

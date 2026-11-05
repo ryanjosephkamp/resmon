@@ -382,6 +382,9 @@ ROUTE_JOURNEYS: dict[tuple[str, str], tuple[str, ...]] = {
     ("DELETE", "/api/reading-queue/{document_id}"): ("J28",),
     ("PUT", "/api/reading-queue/{document_id}"): ("J28",),
     ("POST", "/api/reading-queue/{document_id}/restore"): ("J28",),
+    ("POST", "/api/reading-queue/batch"): ("J28",),
+    ("POST", "/api/reading-queue/batch/all"): ("J28",),
+    ("POST", "/api/reading-queue/batch/undo"): ("J28",),
     # --- Routines ----------------------------------------------------------
     ("GET", "/api/routines"): ("J03",),
     ("POST", "/api/routines"): ("J03",),
