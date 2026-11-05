@@ -171,14 +171,12 @@ const SOLE_INSTANCE = app.requestSingleInstanceLock();
 
 /**
  * Whether this launch makes sure of the background service before it opens
- * (`service.ts`): a window launch of the packaged app on a Mac, once. A launch
- * the check started again to hand over (`RESMON_SERVICE_CHECKED`) does not
- * check again. `RESMON_SERVICE_AT_LAUNCH=1` turns it on for a checkout, which
- * a test does with a label and a launchctl of its own.
+ * (`service.ts`): a window launch of the packaged app on a Mac.
+ * `RESMON_SERVICE_AT_LAUNCH=1` turns it on for a checkout, which a test does
+ * with a label and a launchctl of its own.
  */
 const CHECKS_SERVICE = !SERVICE && process.platform === 'darwin'
-  && (app.isPackaged || process.env.RESMON_SERVICE_AT_LAUNCH === '1')
-  && process.env.RESMON_SERVICE_CHECKED !== '1';
+  && (app.isPackaged || process.env.RESMON_SERVICE_AT_LAUNCH === '1');
 
 if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
   // `quit`, the pattern Electron documents for a launch that did not get the
@@ -1763,14 +1761,23 @@ function closeStartingWindow(): void {
 }
 
 /**
- * Open again, with the check done, so this launch hands over to whichever
- * resmon holds the profile now: the service just started, which opens the
- * window on its own engine.
+ * Hand this launch's window to the resmon that holds the profile now: the
+ * service it waited for or started. Asking for the lock again sends that
+ * resmon this launch's request, and it opens the window on its own engine
+ * (`second-instance`) while this launch quits. True when it did; false when
+ * nothing holds the profile any more, and this launch, holding it again,
+ * opens on its own.
+ *
+ * It does not open again (`app.relaunch`) and leave the request to a new
+ * launch: Electron starts that one only once this one has exited, so the
+ * window would wait on this launch's whole exit, which the e2e suite measured
+ * at 15 to 63 s under load, with nothing on the screen meanwhile.
  */
-function handOver(): void {
-  process.env.RESMON_SERVICE_CHECKED = '1';
-  app.relaunch();
-  app.exit(0);
+function handOver(): boolean {
+  if (app.requestSingleInstanceLock()) return false;
+  console.log('[service] Asked the resmon that holds the profile for the window');
+  app.quit();
+  return true;
 }
 
 /**
@@ -1789,10 +1796,7 @@ async function checkServiceAtLaunch(): Promise<boolean> {
   }
   console.log(`[service] At launch: ${JSON.stringify(outcome)}`);
   holdBackStartingWindow();
-  if (outcome.done === 'started') {
-    handOver();
-    return true;
-  }
+  if (outcome.done === 'started') return handOver();
   // Another resmon holds the profile, and opened the window when this launch asked for it.
   if (!SOLE_INSTANCE) {
     app.quit();
@@ -1800,10 +1804,7 @@ async function checkServiceAtLaunch(): Promise<boolean> {
   }
   // The lock was let go for a service that did not come up: taken back, or, if
   // something took it meanwhile, handed over to that.
-  if (!app.hasSingleInstanceLock() && !app.requestSingleInstanceLock()) {
-    handOver();
-    return true;
-  }
+  if (!app.hasSingleInstanceLock()) return handOver();
   return false;
 }
 
@@ -1856,8 +1857,9 @@ function initAutoUpdater(): void {
 app.whenReady().then(async () => {
   // Before anything else: this launch may hand over to the service it starts.
   if (CHECKS_SERVICE && await checkServiceAtLaunch()) return;
-  // A second instance has handed over and is exiting (`SOLE_INSTANCE`).
-  if (!SOLE_INSTANCE) return;
+  // A second instance has handed over and is exiting (`SOLE_INSTANCE`). One
+  // that took the lock back after the check (`handOver`) opens on its own.
+  if (!app.hasSingleInstanceLock()) return;
   try {
     // The renderer server comes first: the backend has to be told the
     // renderer's exact origin, which is only known once this port is bound.

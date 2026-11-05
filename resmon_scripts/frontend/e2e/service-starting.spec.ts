@@ -30,6 +30,8 @@ test.describe.configure({ mode: 'serial' });
 test.skip(process.platform !== 'darwin', 'The check of the service at launch is the Mac\'s.');
 
 const LABEL = 'com.resmon.e2e';
+/** What the waiting launch says once it has asked the service for the window (`handOver` in `main.ts`). */
+const ASKED = '[service] Asked the resmon that holds the profile for the window';
 /** Kept back from each test's timeout for its teardown: the service's quit alone can take 20 s (`before-quit`). */
 const TEARDOWN_MS = 60_000;
 
@@ -80,6 +82,18 @@ function exited(child: ChildProcess): Promise<number | null> {
 }
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** Stop a launch where it is (SIGSTOP), as a launch slow to exit would be; false when it has already exited. */
+function hold(child: ChildProcess): boolean {
+  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return false;
+  try { process.kill(child.pid, 'SIGSTOP'); return true; } catch { return false; }
+}
+
+/** Let a held launch go on (SIGCONT); true when it was told to. */
+function release(child: ChildProcess): boolean {
+  if (child.pid === undefined) return false;
+  try { process.kill(child.pid, 'SIGCONT'); return true; } catch { return false; }
+}
 
 /**
  * A test's steps, each logged with when it began and held to a time of its
@@ -177,7 +191,7 @@ function processes(): Proc[] {
 /**
  * The processes a test started, which only it started: the apps it launched
  * and everything under them (the engine each started, Chromium's helpers),
- * resmon on its own profile (a launch the hand-over started again), and the
+ * resmon on its own profile (any launch on it, whoever started it), and the
  * service's engine on its own port, which outlives an app that was killed.
  */
 function startedBy(apps: number[], profileDir: string, port: number): Map<number, string> {
@@ -268,6 +282,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
 
   const apps: Launched[] = [];
   const wrote: { who: string; all: () => string }[] = [];
+  let held = false;
   let passed = false;
   try {
     const waiting = await step(`the waiting launch starts, on port ${port} and ${stateDir}`, 90_000,
@@ -276,6 +291,12 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     apps.push({ app: waiting, child: waitingProcess });
     const fromWaiting = capture(waiting);
     wrote.push({ who: 'THE WAITING LAUNCH', all: fromWaiting.all });
+    // Once it has asked the service for the window, the waiting launch is held
+    // where it is, as a launch slow to exit would be (one took a minute under
+    // load): the window must not wait for it to go.
+    waitingProcess.stdout?.on('data', () => {
+      if (!held && fromWaiting.out().includes(ASKED)) held = hold(waitingProcess);
+    });
     say(`the waiting launch is up, pid ${waitingProcess.pid}`);
 
     const page = await step('the waiting launch shows the starting window', 60_000, (ms) => startingWindow(waiting, ms));
@@ -302,7 +323,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     // A wait, never a stop: nothing but questions has gone to launchd.
     expect(onlyAsked(launchd.calls())).toBe(true);
 
-    // The service answers, as launchd would have started it: the launch hands over and goes, and the service opens the window.
+    // The service answers, as launchd would have started it: the launch asks it for the window and goes, and the service opens the window.
     const serviceEnv = { ...env };
     delete serviceEnv.RESMON_SERVICE_AT_LAUNCH;
     const service = await step('the service starts', 90_000,
@@ -311,21 +332,23 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
     const fromService = capture(service);
     wrote.push({ who: 'THE SERVICE', all: fromService.all });
     say(`the service is up, pid ${service.process().pid}`);
-    // Three steps, so a stall names which side of the hand-over it is on.
+    // A step each, so a stall names which side of the hand-over it is on.
     await step('the service\'s engine answers', 120_000,
       (ms) => expect.poll(() => fromService.out(), { timeout: ms }).toContain('[main] The service is running'));
-    await step('the waiting launch sees the service answer, and hands over', 60_000,
-      (ms) => expect.poll(() => fromWaiting.out(), { timeout: ms }).toContain('[service] At launch: '));
+    await step('the waiting launch sees the service answer, and asks it for the window', 60_000,
+      (ms) => expect.poll(() => fromWaiting.out(), { timeout: ms }).toContain(ASKED));
     expect(fromWaiting.out()).toContain('[service] At launch: {"done":"started"}');
-    expect(await step('the waiting launch exits', 30_000, () => exited(waitingProcess))).toBe(0);
+    say(held ? 'the waiting launch is held where it is' : 'the waiting launch exited before it could be held');
     const opened = await step('the service opens its window', 60_000, (ms) => service.firstWindow({ timeout: ms }));
+    if (held) held = !release(waitingProcess);
     await step('the service\'s window draws Atlas', 60_000, (ms) => opened.locator(ATLAS_LANDMARK).waitFor({ timeout: ms }));
     expect(await step('the service\'s window names its engine\'s port', 15_000,
       () => opened.evaluate(() => (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort())))
       .toBe(String(port));
+    expect(await step('the waiting launch exits', 120_000, () => exited(waitingProcess))).toBe(0);
     expect(onlyAsked(launchd.calls())).toBe(true);
-    // The launch the hand-over started again has handed its window request on and gone too.
-    say('the launch the hand-over started again goes');
+    // Nothing else on the profile: no launch was started again to pass the request on.
+    say('the service is the one resmon on the profile');
     await expect.poll(() => leftOn(profileDir).filter(({ pid }) => pid !== service.process().pid), { timeout: 30_000 }).toEqual([]);
     say('done');
     passed = true;
@@ -334,6 +357,7 @@ test('a launch waiting for a starting service says resmon is starting, and goes 
       for (const { who, all } of wrote) tell(who, all());
       tellState(stateDir, profileDir, port, launchd.calls);
     }
+    if (held && apps[0]) release(apps[0].child);
     say('putting away what the test started');
     await putAway(apps, profileDir, port);
     removeStateDir(stateDir);
