@@ -38,6 +38,7 @@ from typing import Optional
 
 from implementation_scripts import today
 from implementation_scripts.database import DEFAULT_COLLECTION_ID, get_setting, set_setting
+from implementation_scripts.paper_collections import holds_every_paper, member_clause
 
 #: The maps a view is remembered for: Today's, and one for every run's map.
 VIEW_NAMES = ("today", "run")
@@ -65,8 +66,12 @@ def published_day(value: Optional[str]) -> Optional[int]:
         return None
 
 
-_IN_COLLECTION = ("EXISTS (SELECT 1 FROM collection_documents cm "
-                  "WHERE cm.collection_id = ? AND cm.document_id = {column})")
+def _within(conn: sqlite3.Connection, collection_id: int, column: str) -> str:
+    """The clause keeping *column*'s papers to one collection, its id written in
+    as an integer; ``1`` while it is the only collection, which holds every paper."""
+    if holds_every_paper(conn, collection_id):
+        return "1"
+    return member_clause(column).replace("?", str(int(collection_id)), 1)
 
 
 def facets(conn: sqlite3.Connection, now: Optional[datetime] = None,
@@ -82,7 +87,7 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None,
     cursor.row_factory = None
     rows = cursor.execute(
         "SELECT id, source_repository, publication_date, CAST(strftime('%s', first_seen_at) AS INTEGER) "
-        f"FROM documents WHERE {_IN_COLLECTION.format(column='documents.id')} ORDER BY id", (cid,)).fetchall()
+        f"FROM documents WHERE {_within(conn, cid, 'documents.id')} ORDER BY id").fetchall()
     slugs: dict[str, int] = {}
     days: dict[Optional[str], Optional[int]] = {}
     ids = [int(r[0]) for r in rows]
@@ -94,7 +99,7 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None,
     read: list[int] = []
     for doc_id, status in conn.execute(
             "SELECT document_id, status FROM reading_queue "
-            f"WHERE {_IN_COLLECTION.format(column='reading_queue.document_id')} ORDER BY document_id", (cid,)):
+            f"WHERE {_within(conn, cid, 'reading_queue.document_id')} ORDER BY document_id"):
         (read if status == "read" else saved).append(int(doc_id))
 
     # "New" is Today's window in this collection: after its last look, or the
@@ -107,8 +112,8 @@ def facets(conn: sqlite3.Connection, now: Optional[datetime] = None,
     for routine_id, doc_id in conn.execute(
             "SELECT DISTINCT e.routine_id, ed.document_id FROM execution_documents ed "
             "JOIN executions e ON e.id = ed.execution_id "
-            f"WHERE e.routine_id IS NOT NULL AND {_IN_COLLECTION.format(column='ed.document_id')} "
-            "ORDER BY e.routine_id, ed.document_id", (cid,)):
+            f"WHERE e.routine_id IS NOT NULL AND {_within(conn, cid, 'ed.document_id')} "
+            "ORDER BY e.routine_id, ed.document_id"):
         members.setdefault(int(routine_id), []).append(int(doc_id))
     watches = [{
         "id": int(r["id"]), "name": r["name"], "is_active": bool(r["is_active"]),
@@ -143,8 +148,8 @@ def find(conn: sqlite3.Connection, query: str, collection_id: Optional[int] = No
     cid = DEFAULT_COLLECTION_ID if collection_id is None else int(collection_id)
     return [int(r[0]) for r in conn.execute(
         "SELECT id FROM documents WHERE (title LIKE ? ESCAPE '\\' OR authors LIKE ? ESCAPE '\\') "
-        f"AND {_IN_COLLECTION.format(column='documents.id')} "
-        "ORDER BY first_seen_at DESC, id DESC", (pattern, pattern, cid))]
+        f"AND {_within(conn, cid, 'documents.id')} "
+        "ORDER BY first_seen_at DESC, id DESC", (pattern, pattern))]
 
 
 DEFAULT_VIEW = {

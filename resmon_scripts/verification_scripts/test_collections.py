@@ -341,6 +341,24 @@ def test_the_whole_collection_is_counted_from_its_memberships(conn, two, monkeyp
     assert explorer.count_where(conn, where, params) == explorer.Count(2, True)
 
 
+def test_a_small_collections_clause_is_tested_first_and_a_large_ones_last(conn, two):
+    """SQLite tests a search's clauses in the order written: the membership clause goes first
+    where it turns most papers away, and after the other filters where it does not."""
+    for n in range(4):
+        _paper(conn, f"more-{n}")
+
+    def where_for(cid):
+        return explorer._build_where(conn, query=None, sources=["arxiv"], authors=None, categories=None,
+                                     date_from=None, date_to=None, collection_id=cid)
+
+    large, large_params, _ = where_for(1)
+    small, small_params, _ = where_for(two["physics"])
+    assert large.endswith(pc.member_clause()) and large_params == ["arxiv", 1]
+    assert small.startswith(f" WHERE {pc.member_clause()} AND ") and small_params == [two["physics"], "arxiv"]
+    assert explorer.search(conn, collection_id=1, sources=["arxiv"])["total"] == 6
+    assert explorer.search(conn, collection_id=two["physics"], sources=["arxiv"])["total"] == 2
+
+
 def test_the_only_collection_holds_every_paper_and_is_read_without_a_clause(conn):
     """While there is one collection every paper is in it, so a read of it costs what a read of
     the whole database does; the second collection made brings the clause back."""

@@ -43,9 +43,11 @@ One collection at a time
 ------------------------
 Every read takes the collection it searches (``collection_id``), and the
 filters narrow that collection's papers: the clause is one lookup per paper in
-the membership's primary key (``paper_collections.MEMBER_SQL``). A count of a
-whole collection reads the membership table instead of walking the papers.
-While there is one collection it holds every paper, and the clause is left out.
+the membership's primary key (``paper_collections.MEMBER_SQL``), tested before
+the other filters when the collection holds a minority of the papers and after
+them otherwise. A count of a whole collection reads the membership table
+instead of walking the papers. While there is one collection it holds every
+paper, and the clause is left out.
 ``collection_id=None`` searches every paper in the database, which no route
 asks for: an absent collection there means the default one.
 
@@ -295,13 +297,6 @@ def _build_where(
     params: list[Any] = []
     used_fts = False
 
-    if collection_id is not None and not holds_every_paper(conn, collection_id):
-        # First, so a search with no other filter is exactly this clause, which
-        # ``count_where`` counts from the membership table. The only collection
-        # holds every paper and needs none.
-        clauses.append(member_clause())
-        params.append(int(collection_id))
-
     if query and query.strip():
         if _fts_available(conn):
             expr = _fts_query(query)
@@ -346,8 +341,31 @@ def _build_where(
         clauses.append("documents.publication_date <= ?")
         params.append(date_to)
 
+    if collection_id is not None and not holds_every_paper(conn, collection_id):
+        # SQLite tests these clauses in the order written. A collection that
+        # holds a minority of the papers turns most away, so its clause goes
+        # first; a larger one's goes last, after the filters that turn more
+        # away. With no other filter the search is exactly this clause, which
+        # ``count_where`` counts from the membership table. The only
+        # collection holds every paper and needs none.
+        if clauses and not _a_minority(conn, int(collection_id)):
+            clauses.append(member_clause())
+            params.append(int(collection_id))
+        else:
+            clauses.insert(0, member_clause())
+            params.insert(0, int(collection_id))
+
     where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
     return where, params, used_fts
+
+
+def _a_minority(conn: sqlite3.Connection, collection_id: int) -> bool:
+    """Whether a collection holds fewer than half the papers stored: two counts
+    read from indexes, a millisecond or two each at 100,000 papers."""
+    held = conn.execute("SELECT COUNT(*) FROM collection_documents WHERE collection_id = ?",
+                        (collection_id,)).fetchone()[0]
+    stored = conn.execute("SELECT COUNT(*) FROM documents").fetchone()[0]
+    return held * 2 < stored
 
 
 def search(
