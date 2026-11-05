@@ -19,6 +19,12 @@ from .utils import compute_metadata_hash, month_from_name
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger(__name__)
+#: What a start did, once, to data an earlier version stored: the recount of
+#: earlier runs' new papers and the one-time rewrites of stored values. The
+#: engine writes this logger's INFO lines to its output
+#: (``implementation_scripts.logger.UPGRADE_LOGGERS``); the rest of this
+#: module's INFO lines stay out of it.
+upgrade_logger = logging.getLogger(f"{__name__}.upgrade")
 
 
 def utc_now_iso() -> str:
@@ -2592,7 +2598,7 @@ def _repair_doaj_month_names(conn: sqlite3.Connection) -> int:
         )
         repaired += 1
     if repaired:
-        logger.info(
+        upgrade_logger.info(
             "Rewrote %d DOAJ publication date(s) stored with the month as a name; "
             "%d hash(es) recomputed, %d kept because they could not be reproduced",
             repaired, hashes, repaired - hashes)
@@ -2628,7 +2634,7 @@ def _repair_biorxiv_published_detail(conn: sqlite3.Connection) -> int:
         (BIORXIV_PUBLISHED_DETAIL, _BIORXIV_PUBLISHED_DETAIL_BEFORE),
     ).rowcount
     if rewritten:
-        logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
+        upgrade_logger.info("Rewrote the wording of %d bioRxiv published-article finding(s)", rewritten)
     return rewritten
 
 
@@ -2753,17 +2759,17 @@ def _recount_run_new_papers(
         conn.commit()
     except Exception:
         conn.rollback()
-        logger.exception(
+        upgrade_logger.exception(
             "Could not recount the new papers of earlier runs. They are left as they were, "
             "and the next start tries again.")
         return None
 
     for run_id, recorded, recount in disagreements[:_DISAGREEMENTS_LOGGED]:
-        logger.info(
+        upgrade_logger.info(
             "Run %d: %d of its papers are new to it by the recount, and its new-paper count, "
             "left as it was, is %d.", run_id, recount, recorded)
     if len(disagreements) > _DISAGREEMENTS_LOGGED:
-        logger.info(
+        upgrade_logger.info(
             "%d more run(s) whose new papers by the recount differ from their new-paper count.",
             len(disagreements) - _DISAGREEMENTS_LOGGED)
     if kept_copy is not None:
@@ -2773,7 +2779,7 @@ def _recount_run_new_papers(
                       f"{SCHEMA_VERSION}.")
     else:
         copy_words = "No copy of the database was kept before this start's upgrade."
-    logger.info(
+    upgrade_logger.info(
         "Recounted which papers were new to earlier runs, once, from when each paper was first "
         "stored: %d run(s) with links corrected; %d link(s) newly marked new, and %d no longer new; "
         "%d run(s) with no end time left as they were; %d run(s) whose new papers by the recount "

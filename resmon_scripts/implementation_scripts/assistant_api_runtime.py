@@ -358,10 +358,9 @@ class ApiKeyRuntime:
             # **No ``logger.exception`` here.** It would write the raw traceback,
             # whose last line is the exception's own message -- and an
             # ``httpx.HTTPStatusError``'s message embeds the request URL, which
-            # can carry a key in its query string. The backend calls
-            # ``setup_app_logger`` nowhere and uvicorn installs no root handler,
-            # so the record would go out through ``logging.lastResort`` to
-            # stderr, which Electron pipes into the main process console. The
+            # can carry a key in its query string. The engine's root handler
+            # (``logger.install_engine_log``) writes every error to stderr,
+            # which Electron pipes into the main process console. The
             # sanitized sentence is always correct; only such a log would not
             # be. ``_sentence_for`` writes the log line itself, for the reason ``llm_remote._as_ai_error`` gives: one
             # place, so every raise path reports identically and no future
