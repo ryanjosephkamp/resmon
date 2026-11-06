@@ -391,19 +391,24 @@ export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | 
  * Back to the same results finds them where they were left, and to results
  * that have changed, at their top. With `fresh`, a change of `under` on the
  * screen is a new list, opened at its top (a new search); without it, the
- * same page shown another way, left where it is (another of a run's tabs).
+ * same page shown another way, left where it is.
  * `drawn` is whether the box is in the page yet: a run's page draws it once the
  * run has been read.
+ * `screen` is what makes two addresses one screen, the path by default. A run's
+ * tabs each have a path of their own, so its page names the run
+ * (`/runs/12`): another of the run's tabs is the same page shown another way,
+ * left where it is, and it is another run that opens at its top.
  *
  * Another screen opens with the box at its top, as the stage does (`landing`).
  */
-export function useScrollerPlace(box: RefObject<HTMLElement | null>, { name, under = '', fresh = false, drawn = true }: {
-  name: string; under?: string; fresh?: boolean; drawn?: boolean;
+export function useScrollerPlace(box: RefObject<HTMLElement | null>, { name, under = '', fresh = false, drawn = true, screen }: {
+  name: string; under?: string; fresh?: boolean; drawn?: boolean; screen?: string;
 }): void {
   const places = useContext(Places);
   const location = useLocation();
   const type = useNavigationType();
   const address = `${location.pathname}${location.search}`;
+  const where = screen ?? location.pathname;
   // Where the box's scrolling is kept, for the entry on screen and what the place depends on: worked out as
   // they change, so a scroll only writes.
   const here = useRef({ slot: slot(location.key, name), kept: kept(address, under) });
@@ -421,15 +426,15 @@ export function useScrollerPlace(box: RefObject<HTMLElement | null>, { name, und
     const node = box.current;
     if (!node || !places || !drawn) return undefined;
     const from = last.current;
-    last.current = { key: location.key, screen: location.pathname, under };
+    last.current = { key: location.key, screen: where, under };
     if (from === null || from.key !== location.key) {
       const remembered = type === 'POP' ? places.read(here.current.slot, here.current.kept) : null;
-      const to = landing(type, from?.screen ?? location.pathname, location.pathname, remembered);
+      const to = landing(type, from?.screen ?? where, where, remembered);
       if (to !== 'keep') return placeStage(node, to);
     }
     if (fresh && from !== null && from.under !== under) return placeStage(node, TOP);
     return undefined;
-  }, [box, places, name, under, fresh, drawn, location.key, location.pathname, address, type]);
+  }, [box, places, name, under, fresh, drawn, location.key, where, address, type]);
 }
 
 /** Where a box's places are kept: under its entry and its name. */

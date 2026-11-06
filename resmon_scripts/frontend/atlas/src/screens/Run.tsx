@@ -174,7 +174,7 @@ export function Run() {
     refetchInterval: (query) => (query.state.data?.status === 'running' ? 1_000 : false),
   });
   const running = run.data?.status === 'running';
-  useScrollerPlace(page, { name: 'run', under: tab, drawn: run.isSuccess });
+  useScrollerPlace(page, { name: 'run', under: tab, drawn: run.isSuccess, screen: `/runs/${id}` });
   useRunEnding(running ? id : null);
   // Keyed on how the run ended, so the events are read once more when it
   // settles: the last poll while running can land before the final events.

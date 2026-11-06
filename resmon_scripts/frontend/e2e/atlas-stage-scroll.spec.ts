@@ -464,9 +464,36 @@ test("Search's order and a run's tab are in the address: Back returns to both, a
     await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, found);
     await expect.poll(() => hash(win)).toBe(`#/runs/${found}`);
     await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
+    // Scrolled down until the tabs are near the top of the page, a tab clicked: the page stays where it is, with
+    // the tabs in view. Back returns to Papers, and to the place it was left.
+    await expect(win.locator(papers).first()).toBeAttached({ timeout: 60_000 });
+    await win.locator(page).evaluate((node) => {
+      const tabs = node.querySelector('.run-tabs')!;
+      node.scrollTop += tabs.getBoundingClientRect().top - node.getBoundingClientRect().top - 24;
+    });
+    const before = await stageTop(win, page);
+    expect(before, 'the tabs were not below the first screen').toBeGreaterThan(100);
     await runTab('Log').click();
     await expect.poll(() => hash(win)).toBe(`#/runs/${found}/log`);
     await expect(runTab('Log')).toHaveAttribute('aria-selected', 'true');
+    await win.waitForTimeout(1_000);
+    const after = await stageTop(win, page);
+    const furthest = await win.locator(page).evaluate((node) => Math.round(node.scrollHeight - node.clientHeight));
+    // Where it was, or at the end of a page now shorter than that.
+    expect(after === before || Math.abs(after - furthest) <= 2, `the page moved from ${before} to ${after} on a tab switch (the end is ${furthest})`).toBe(true);
+    expect(after, "the page went back to its top").toBeGreaterThan(0);
+    const tabsAt = await win.locator(page).evaluate((node) => {
+      const top = node.querySelector('.run-tabs')!.getBoundingClientRect().top - node.getBoundingClientRect().top;
+      return { top: Math.round(top), high: node.clientHeight };
+    });
+    expect(tabsAt.top, 'the tabs left the view').toBeGreaterThanOrEqual(0);
+    expect(tabsAt.top, 'the tabs left the view').toBeLessThan(tabsAt.high - 40);
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}`);
+    await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true');
+    await expect.poll(async () => Math.abs((await stageTop(win, page)) - before), { timeout: 5_000 }).toBeLessThanOrEqual(2);
+    await runTab('Log').click();
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/log`);
     await runTab('Search record').click();
     await expect.poll(() => hash(win)).toBe(`#/runs/${found}/search-record`);
     await runTab('Papers').click();
