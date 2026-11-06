@@ -16,7 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { expect, type Locator, type TestInfo } from '@playwright/test';
 import type {
-  AnalyticsView, AssistantPanelFacts, BackupResult, FirstRunCard, KeyField, ObservedRequest, RestoreCard, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
+  AnalyticsView, AssistantPanelFacts, BackupResult, FirstRunCard, FindReading, KeyField, ObservedRequest, RestoreCard, AssistantTurn, BackendFacts, ComposerChoice, LibraryItem, SavedTranscript, TurnChoiceFacts, VaultOnDisk, ConfigurationExport, CoverageAudit, DaemonPanel, DeliveryRecord,
   DrawnAppearance, EmailSettings, EvidenceBundle, EvidencePageView, ReopenedPassage, SavedEvidenceNote,
   OpenedCitation, SelectedAnswerPreview, SelectedAnswerView,
   ExplorerList, ExportedFile, ImportOutcome, InterruptedRow, JourneyDriver, NotificationPreferences, Place,
@@ -36,6 +36,8 @@ import type { Session } from './session';
 const ATLAS_PLACES: Partial<Record<Place, string>> = {
   Today: '/today',
   'Appearance settings': '/settings',
+  'Find a paper': '/search/find',
+  'Collections settings': '/settings/collections',
   // Routines and the calendar are both Watches in Atlas: each watch on its
   // Searches tab, and the month ahead's fires on its Calendar tab.
   Routines: '/watches',
@@ -118,6 +120,9 @@ export type AtlasDriver = Pick<JourneyDriver,
   | 'readTabsHere' | 'framesHere' | 'readExternalLinks' | 'readTheRecordingsHere' | 'chooseGoogleDrivesFolderForBackups'
   | 'backUpNow'
   | 'readRestoreCard'
+  | 'readHowFindReads' | 'findPaper' | 'readTheFind' | 'getTheFoundPdf' | 'readEarlierFinds'
+  | 'makeCollection' | 'readCollections' | 'switchCollection' | 'readShownCollection' | 'readPapersInThisCollection'
+  | 'copyPaperToCollection' | 'renameCollection' | 'askToDeleteCollection' | 'confirmDeleteCollection'
   // The setup a person does on a screen, taken through Atlas's own.
   | 'createRoutine' | 'fireRoutineNow' | 'addDeliveryTarget' | 'restoreIntoFreshState'
   | 'useAnAuthoredAgentCommand' | 'useAnAuthoredAgentCommandThatRecordsItsArguments' | 'useAnAuthoredProviderOnAKey'
@@ -233,6 +238,12 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     } else if (hash === '/watches/people') {
       await expect(win().getByRole('heading', { name: 'People', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.page.people')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+    } else if (hash === '/settings/collections') {
+      await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('[data-settings="collections"] .collection-row').first()).toBeVisible({ timeout: 30_000 });
+    } else if (hash === '/search/find') {
+      await expect(win().getByRole('heading', { name: 'Find a paper', level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().getByRole('search', { name: 'Find a paper' })).toBeVisible();
     } else if (hash?.startsWith('/settings/')) {
       await expect(win().getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
       await expect(win().locator('.settings-body > section.settings-group'))
@@ -952,8 +963,203 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
     return recorded;
   };
 
+  /** A typed find, once its own plan has arrived rather than the previous query's. */
+  const openFindQuery = async (query: string): Promise<{ kind: string; words: string }> => {
+    await goto('Find a paper');
+    const plan = await session.api<{ kind: string; value: string }>('GET', `/api/find/plan?q=${encodeURIComponent(query)}`);
+    await win().getByRole('search', { name: 'Find a paper' }).getByRole('textbox').fill(query);
+    const reads = win().locator('[data-find="reads"]');
+    await expect(reads).toHaveAttribute('data-kind', plan.kind, { timeout: 30_000 });
+    await expect(reads).toContainText(plan.kind === 'title' ? 'Reads as a title.' : plan.value);
+    return { kind: String(await reads.getAttribute('data-kind')), words: (await reads.innerText()).trim() };
+  };
+
+  const openFindResult = async (run: RunHandle): Promise<Locator> => {
+    await win().evaluate((id) => { window.location.hash = `#/search/find?run=${id}`; }, run.id);
+    const result = win().locator('[data-find="result"]');
+    await stored(`find ${run.id} finished`, () => backend.execution(run), (record) => record.status !== 'running', 120_000);
+    await expect(result).toHaveAttribute('data-status', String((await backend.execution(run)).status), { timeout: 30_000 });
+    return result;
+  };
+
+  const openCollectionRow = async (name: string): Promise<Locator> => {
+    await goto('Collections settings');
+    const collection = (await backend.collections()).collections.find((c) => c.name === name);
+    expect(collection, `the engine holds no collection named ${name}`).toBeTruthy();
+    const row = win().locator(`[data-collection-row="${collection!.id}"]`);
+    await expect(row.locator('.collection-head > .name')).toHaveText(name, { timeout: 30_000 });
+    return row;
+  };
+
   return {
     open: (place) => goto(place),
+
+    // — one paper and its PDF -------------------------------------------------
+
+    readHowFindReads: (query) => openFindQuery(query),
+
+    findPaper: async (query, sources): Promise<RunHandle> => {
+      await openFindQuery(query);
+      const picks = win().getByRole('group', { name: 'The sources to ask' }).getByRole('button');
+      await expect(picks.first()).toBeVisible();
+      for (const pick of await picks.all()) {
+        const wanted = sources.includes(String(await pick.getAttribute('data-source')));
+        if ((await pick.getAttribute('aria-pressed') === 'true') !== wanted) await pick.click();
+        await expect(pick).toHaveAttribute('aria-pressed', String(wanted));
+      }
+      for (const source of sources) await expect(win().locator(`.find-pick[data-source="${source}"]`)).toHaveAttribute('aria-pressed', 'true');
+      const started = win().waitForResponse((r) => r.url().endsWith('/api/find') && r.request().method() === 'POST');
+      await win().getByRole('button', { name: 'Find', exact: true }).click();
+      const response = await started;
+      expect(response.ok(), `Find was refused: HTTP ${response.status()}`).toBe(true);
+      const run = { id: Number((await response.json()).execution_id) };
+      await openFindResult(run);
+      return run;
+    },
+
+    readTheFind: async (run): Promise<FindReading> => {
+      const result = await openFindResult(run);
+      const paper = result.locator('[data-find="paper"]');
+      await expect(paper.locator('.fulltext')).toBeVisible({ timeout: 30_000 });
+      return {
+        title: (await paper.locator('.find-paper-title').innerText()).trim(),
+        details: (await paper.locator('.meta').innerText()).trim(),
+        sources: await result.locator('.find-source').evaluateAll((rows) => rows.map((row) => ({
+          source: row.getAttribute('data-source') ?? '', outcome: row.getAttribute('data-outcome') ?? '',
+          label: row.querySelector('.find-outcome')?.textContent?.trim() ?? '',
+          mark: row.querySelector('svg.wall-mark')?.getAttribute('data-mark') ?? '',
+        }))),
+        pdf: {
+          canGet: await paper.getByRole('button', { name: 'Get the PDF', exact: true }).count() > 0,
+          canRead: await paper.getByRole('link', { name: 'Read the PDF', exact: true }).count() > 0,
+          words: (await paper.locator('.fulltext-line').innerText()).trim(),
+        },
+      };
+    },
+
+    getTheFoundPdf: async (run) => {
+      const result = await openFindResult(run);
+      const record = await backend.find(run);
+      expect(record.reference_document_id).not.toBeNull();
+      await result.getByRole('button', { name: 'Get the PDF', exact: true }).click();
+      await stored('the found PDF retained in the Library', () => backend.fullTextForPaper(record.reference_document_id!),
+        (status) => status.download?.state === 'stored' && status.in_library !== null, 120_000);
+      await expect(result.getByRole('link', { name: 'Read the PDF', exact: true })).toBeVisible({ timeout: 30_000 });
+    },
+
+    readEarlierFinds: async () => {
+      await goto('Find a paper');
+      const finds = (await backend.executions()).filter((run) => run.execution_type === 'find_paper');
+      const links = win().locator('.find-earlier li a');
+      await expect(links).toHaveCount(finds.length, { timeout: 30_000 });
+      return links.evaluateAll((items) => items.map((link) => ({
+        id: Number(new URLSearchParams(link.getAttribute('href')?.split('?')[1]).get('run')),
+        query: link.textContent?.trim() ?? '',
+      })));
+    },
+
+    // — collections beside one another ---------------------------------------
+
+    makeCollection: async (name) => {
+      await goto('Collections settings');
+      await win().getByRole('form', { name: 'Make a collection' }).getByRole('textbox').fill(name);
+      await win().getByRole('button', { name: 'Make collection', exact: true }).click();
+      await stored(`the collection ${name}`, () => backend.collections(), (list) => list.collections.some((c) => c.name === name));
+      const row = await openCollectionRow(name);
+      return Number(await row.getAttribute('data-collection-row'));
+    },
+
+    readCollections: async () => {
+      await goto('Collections settings');
+      const list = await backend.collections();
+      const rows = win().locator('[data-settings="collections"] .collection-row');
+      await expect(rows).toHaveCount(list.collections.length, { timeout: 30_000 });
+      return rows.evaluateAll((items) => items.map((row) => ({
+        id: Number(row.getAttribute('data-collection-row')),
+        name: row.querySelector('.collection-head > .name')?.textContent?.trim() ?? '',
+        facts: row.querySelector('.collection-facts')?.textContent?.trim() ?? '',
+      })));
+    },
+
+    switchCollection: async (name) => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      const collection = (await backend.collections()).collections.find((c) => c.name === name);
+      expect(collection).toBeTruthy();
+      await scope.click();
+      await win().getByRole('menu', { name: 'Collections', exact: true })
+        .locator(`[data-collection="${collection!.id}"]`).click();
+      await stored(`the remembered collection ${name}`, () => backend.collections(), (list) => list.current_id === collection!.id);
+      await expect(scope).toHaveAccessibleName(`Collection: ${name}. Choose another collection`);
+    },
+
+    readShownCollection: async () => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      return (await scope.locator('.scope-name').innerText()).trim();
+    },
+
+    readPapersInThisCollection: async () => {
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      await expect(scope).toBeVisible();
+      const name = (await scope.locator('.scope-name').innerText()).trim();
+      const id = Number(await scope.getAttribute('data-collection-switch'));
+      await win().evaluate(() => { window.location.hash = '#/search'; });
+      await expect(win().getByRole('heading', { name, exact: true, level: 1 })).toBeVisible({ timeout: 30_000 });
+      await expect(win().locator('section.results')).toHaveAttribute('aria-busy', 'false', { timeout: 30_000 });
+      const papers = await backend.papersInCollection(id);
+      const rows = win().locator('.result-list .result');
+      await expect(rows).toHaveCount(papers.length, { timeout: 30_000 });
+      return rows.evaluateAll((items) => items.map((row) => ({
+        id: Number(row.getAttribute('data-document')), title: row.querySelector('.result-title')?.textContent?.trim() ?? '',
+      })).sort((a, b) => a.id - b.id));
+    },
+
+    copyPaperToCollection: async (paper, name) => {
+      await win().evaluate((id) => { window.location.hash = `#/papers/${id}`; }, paper);
+      const where = win().locator('[data-paper="collections"]');
+      await expect(where).toBeVisible({ timeout: 30_000 });
+      const target = (await backend.collections()).collections.find((c) => c.name === name);
+      expect(target).toBeTruthy();
+      await where.getByRole('button', { name: 'Copy to', exact: true }).click();
+      await win().getByRole('menu', { name: 'Copy to', exact: true })
+        .locator(`[data-collection-target="${target!.id}"]`).click();
+      await stored(`paper ${paper} copied to ${name}`, () => backend.paper(paper),
+        (record) => record.collections.some((c) => c.id === target!.id));
+      await expect(where.locator(`li[data-collection="${target!.id}"]`)).toBeVisible({ timeout: 30_000 });
+    },
+
+    renameCollection: async (name, renamed) => {
+      const row = await openCollectionRow(name);
+      const id = Number(await row.getAttribute('data-collection-row'));
+      const scope = win().getByRole('button', { name: /^Collection: / });
+      const shown = Number(await scope.getAttribute('data-collection-switch')) === id;
+      await row.getByRole('button', { name: 'Rename', exact: true }).click();
+      const form = row.getByRole('form', { name: `Rename ${name}` });
+      await form.getByRole('textbox').fill(renamed);
+      await form.getByRole('button', { name: 'Save', exact: true }).click();
+      await stored(`collection ${id} renamed`, () => backend.collections(), (list) => list.collections.some((c) => c.id === id && c.name === renamed));
+      await expect(row.locator('.collection-head > .name')).toHaveText(renamed, { timeout: 30_000 });
+      if (shown) await expect(scope).toHaveAccessibleName(`Collection: ${renamed}. Choose another collection`);
+    },
+
+    askToDeleteCollection: async (name) => {
+      const row = await openCollectionRow(name);
+      await row.getByRole('button', { name: `Delete ${name}`, exact: true }).click();
+      const question = row.getByRole('group', { name: `Delete ${name}?`, exact: true });
+      await expect(question.getByRole('button', { name: `Delete ${name}`, exact: true })).toBeEnabled({ timeout: 30_000 });
+      return (await question.innerText()).trim();
+    },
+
+    confirmDeleteCollection: async (name) => {
+      const question = win().getByRole('group', { name: `Delete ${name}?`, exact: true });
+      await expect(question).toBeVisible();
+      await question.getByRole('button', { name: `Delete ${name}`, exact: true }).click();
+      await stored(`collection ${name} deleted`, () => backend.collections(), (list) => !list.collections.some((c) => c.name === name));
+      const notice = win().locator('[data-settings="collections"] [role="status"]');
+      await expect(notice).toContainText(`Deleted ${name}.`, { timeout: 30_000 });
+      return (await notice.innerText()).trim();
+    },
 
     // — health: the Source wall, the watchdog, this engine --------------------
 
@@ -994,12 +1200,17 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         const drawn: SourceWallCellView[] = [];
         for (let j = 0; j < await cells.count(); j += 1) {
           const cell = cells.nth(j);
-          // `<source>, <run> <when>: <label>`: the label follows the last colon.
-          const announced = String(await cell.getAttribute('aria-label'));
+          // The accessible name includes the run, count, and note, whose own
+          // colons are not label boundaries. Read the short label in the cell's
+          // opened reading, once its note identifies the selected cell.
+          await cell.click();
+          const reading = win().locator('[data-health="reading"]');
+          await expect(reading.locator('.wall-reading-note'))
+            .toHaveText(served.sources[i]!.cells[j]!.note, { timeout: 30_000 });
           drawn.push({
             state: String(await cell.getAttribute('data-state')),
             glyph: String(await cell.locator('svg.wall-mark').getAttribute('data-mark')),
-            label: announced.slice(announced.lastIndexOf(': ') + 2),
+            label: (await reading.locator('.wall-reading-label').innerText()).trim(),
           });
         }
         out.rows.push({ source: (await row.locator('th[scope="row"]').innerText()).trim(), cells: drawn });

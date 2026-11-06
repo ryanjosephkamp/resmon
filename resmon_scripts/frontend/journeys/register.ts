@@ -1,10 +1,10 @@
 /**
  * The denominator.
  *
- * Forty-nine rows, one per user journey the app carries. `register.spec.ts`
+ * Fifty-one rows, one per user journey the app carries. `register.spec.ts`
  * refuses to let this file and the spec files in this directory disagree. A row
  * with no test cannot exist, and a test with no row cannot exist either; that
- * mutual guard is the only thing that makes "N of 49" a measurement rather than
+ * mutual guard is the only thing that makes "N of 51" a measurement rather than
  * a hand count.
  *
  * **Screens are held to the register too.** `ROUTE_ROWS` below names, for every
@@ -50,13 +50,13 @@
 /**
  * The part of the suite that owns a row's test. `refresh` holds the Source
  * wall row, and `atlas` the rows for Atlas's own routes and screens: J46, J47,
- * J48 and J49.
+ * J48, J49, J50 (Find a paper), and J51 (Collections).
  */
 export type JourneySlice = '1' | '2a' | '2b' | 'refresh' | 'atlas';
 export type JourneyStatus = 'carried' | 'not_carried_forward';
 
 export interface JourneyRow {
-  /** `J01`…`J49`. */
+  /** `J01`…`J51`. */
   id: string;
   /** The row's title. */
   title: string;
@@ -129,6 +129,8 @@ export const JOURNEY_REGISTER: readonly JourneyRow[] = [
   { id: 'J47', title: 'Collection map: where every paper sits', slice: 'atlas', status: 'carried', built: true },
   { id: 'J48', title: 'Today: the papers since you last looked', slice: 'atlas', status: 'carried', built: true },
   { id: 'J49', title: 'Shared wording across papers', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J50', title: 'Find a paper', slice: 'atlas', status: 'carried', built: true },
+  { id: 'J51', title: 'Collections', slice: 'atlas', status: 'carried', built: true },
 ];
 
 /** The slice whose rows are built by definition. */
@@ -200,6 +202,7 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
     why: 'Every run in one place: the runs going now, live, with Stop; those waiting for a free slot; and '
       + 'the history, whose selection exports, bundles, and deletes, and whose rows restart a run that stopped.',
   },
+  '/search/find': { rows: ['J50'] },
   '/search/saved': { rows: ['J21'] },
   '/search/wording': { rows: ['J49'] },
   '/library': { rows: ['J28'], why: 'Lands on the gallery\'s To read shelf: the reading queue.' },
@@ -234,6 +237,7 @@ export const ROUTE_ROWS: Readonly<Record<string, { rows: readonly string[]; why?
     rows: ['J22', 'J08'],
     why: 'Every source\'s keys and limits, including whether it can be asked about a person (J08).',
   },
+  '/settings/collections': { rows: ['J51'] },
   '/settings/storage': {
     rows: ['J41', 'J24'],
     why: 'Backup and restore, and where a backup goes: Google Drive for desktop\'s folder is J24.',

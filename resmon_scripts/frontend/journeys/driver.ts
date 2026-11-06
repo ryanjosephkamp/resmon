@@ -60,7 +60,9 @@ export type Place =
   | 'Source wall'
   // — Today and appearance ----------------------------------------------------
   | 'Today'
-  | 'Appearance settings';
+  | 'Appearance settings'
+  | 'Find a paper'
+  | 'Collections settings';
 
 /** One run, as the app and the API both identify it. */
 export interface RunHandle {
@@ -1722,4 +1724,99 @@ export interface JourneyDriver {
   scanForSharedWording(): Promise<SharedWordingReading>;
   /** Open the listed pair of these two papers and read it side by side. */
   openTheSharedWordingPair(a: number, b: number): Promise<SharedWordingPairReading>;
+}
+
+// — finding one paper (J50), and collections (J51) ------------------------------
+
+export interface FindReading {
+  title: string;
+  details: string;
+  sources: { source: string; outcome: string; label: string; mark: string }[];
+  pdf: { canGet: boolean; canRead: boolean; words: string };
+}
+
+export interface StoredFind {
+  execution_id: number;
+  status: string;
+  query: { kind: string; value: string; typed: string };
+  reference_document_id: number | null;
+  counts: Record<string, number>;
+  sources: {
+    source: string; outcome: string; document_id: number | null; matched_by: string | null;
+    open_copy: { downloadable: boolean; license: string | null; license_words: string | null } | null;
+  }[];
+}
+
+export interface StoredFullText {
+  document_id: number;
+  downloadable: boolean;
+  why_not: string | null;
+  why_not_words: string | null;
+  download: { state: string; file_id: string | null; license: string | null; license_words: string | null } | null;
+  in_library: { file_id: string; version_id: string; byte_size: number } | null;
+}
+
+export interface StoredLibraryFile {
+  file_id: string;
+  version_id: string;
+  original_name: string;
+  sha256: string;
+  byte_size: number;
+  media_type: string;
+  paper_links: { document_id: number; title: string | null }[];
+}
+
+export interface StoredCollections {
+  current_id: number;
+  default_id: number;
+  collections: { id: number; name: string; papers: number; watches: number; is_default: boolean }[];
+}
+
+export interface CollectionPaper { id: number; title: string }
+
+export interface BackendFacts {
+  /** The find's saved question and each source's recorded answer. */
+  find(run: RunHandle): Promise<StoredFind>;
+  /** The engine's current PDF/download record for this paper. */
+  fullTextForPaper(paper: number): Promise<StoredFullText>;
+  /** Retained files and their paper links, through the Library's guarded API. */
+  libraryFiles(): Promise<StoredLibraryFile[]>;
+  /** Every collection and the one the engine remembers. */
+  collections(): Promise<StoredCollections>;
+  /** Papers in the named collection, independently of what the window shows. */
+  papersInCollection(collection: number): Promise<CollectionPaper[]>;
+  /** A paper's stored metadata and collection memberships. */
+  paper(paper: number): Promise<CollectionPaper & {
+    authors: string | null; publication_date: string | null; collections: { id: number; name: string }[];
+  }>;
+}
+
+export interface JourneyDriver {
+  /** Type a query in Find a paper, and read what the page reads it as. */
+  readHowFindReads(query: string): Promise<{ kind: string; words: string }>;
+  /** Ask these sources for this one paper, through Find a paper. */
+  findPaper(query: string, sources: string[]): Promise<RunHandle>;
+  /** The reference paper, every source's words and mark, and its PDF controls. */
+  readTheFind(run: RunHandle): Promise<FindReading>;
+  /** Get the PDF from this find and wait for Read the PDF to replace it. */
+  getTheFoundPdf(run: RunHandle): Promise<void>;
+  /** Return to Find a paper with no open run, and read its earlier finds. */
+  readEarlierFinds(): Promise<{ id: number; query: string }[]>;
+  /** Make a collection in Settings, and return its stored number. */
+  makeCollection(name: string): Promise<number>;
+  /** Every collection listed in Settings, including its stated counts. */
+  readCollections(): Promise<{ id: number; name: string; facts: string }[]>;
+  /** Choose this collection in the top bar's switch. */
+  switchCollection(name: string): Promise<void>;
+  /** The name on the top bar's collection switch. */
+  readShownCollection(): Promise<string>;
+  /** The papers Search lists for the collection this window shows. */
+  readPapersInThisCollection(): Promise<CollectionPaper[]>;
+  /** Copy one paper from its page into another collection. */
+  copyPaperToCollection(paper: number, name: string): Promise<void>;
+  renameCollection(name: string, renamed: string): Promise<void>;
+  /** Open the deletion question without confirming it, and read its consequences. */
+  askToDeleteCollection(name: string): Promise<string>;
+  /** Confirm the open deletion question and read what the app says it kept. */
+  confirmDeleteCollection(name: string): Promise<string>;
 }

@@ -280,11 +280,11 @@ function seedTheTokenizer(stateDir: string): string {
  */
 const LANDMARK = 'nav[aria-label="Sections"]';
 
-function envFor(stateDir: string, root: AppRoot, sourceUrl: string): Record<string, string> {
+function envFor(stateDir: string, root: AppRoot, source: SourceEndpoint): Record<string, string> {
   // Held to the screen a run is held to (RESMON_E2E_SCREEN), as the e2e suite's windows are.
   const env = atlasEnv(launchEnv(stateDir, true));
   env.NLTK_DATA = seedTheTokenizer(stateDir);
-  const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl });
+  const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl: source.url, fullText: source.fullText });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';
   // Never the OS keyring: a journey must never read or write the person's real
@@ -334,7 +334,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
   // Every state directory this session has used, so a journey that moves to a
   // fresh one (a restore) does not leave the first behind on the machine.
   const stateDirs = [stateDir];
-  let env = envFor(stateDir, root, source.url);
+  let env = envFor(stateDir, root, source);
   registerStateDir(stateDir);
 
   let app!: ElectronApplication;
@@ -635,7 +635,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
       await put();
       stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-journey-restored-'));
       stateDirs.push(stateDir);
-      env = envFor(stateDir, root, source.url);
+      env = envFor(stateDir, root, source);
       registerStateDir(stateDir);
       await bring();
     },
