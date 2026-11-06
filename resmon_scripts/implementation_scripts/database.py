@@ -3404,12 +3404,17 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
     to the ``saved_configurations`` row it was launched from when the user
     picked a config in the ConfigLoader on the Deep Dive / Deep Sweep pages.
     ``None`` is the default for ad-hoc runs and routine fires.
+
+    ``request_id``, the ticket a window sent with its request, is written in the
+    same INSERT, so no reader ever sees the run without it. A second row with
+    the same ticket is refused by the partial UNIQUE index
+    (``sqlite3.IntegrityError``), and nothing is written.
     """
     sql = """\
         INSERT INTO executions
             (execution_type, routine_id, saved_configuration_id, parameters, start_time, status,
-             owner_pid, owner_runtime_id, last_seen_at_utc, restarted_from)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             owner_pid, owner_runtime_id, last_seen_at_utc, restarted_from, request_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     cursor = conn.execute(sql, (
         exec_dict["execution_type"],
@@ -3422,6 +3427,7 @@ def insert_execution(conn: sqlite3.Connection, exec_dict: dict) -> int:
         exec_dict.get("owner_runtime_id") or runtime_identity.current_runtime_id(),
         exec_dict.get("last_seen_at_utc") or utc_now_iso(),
         exec_dict.get("restarted_from"),
+        exec_dict.get("request_id") or None,
     ))
     conn.commit()
     return cursor.lastrowid

@@ -1565,12 +1565,13 @@ def _launch_execution(
 
 # Duplicate protection for a *submission* rather than for a routine. The
 # mechanism is the partial UNIQUE index over ``executions.request_id``, and the
-# two helpers below are the check that comes first and the undo that runs when
-# the check and the insert raced anyway. There is deliberately no lock: the
-# index decides, the loser removes the row it had just prepared, and both
-# callers end up holding the same execution id. A lock would make the common
-# case look safer without covering the case that actually needs covering -- a
-# second backend process, which shares the database and not this module.
+# two helpers below are the check that comes first and the answer when the check
+# and the insert raced anyway. The ticket is written in the run's own INSERT, so
+# no reader sees a run without it. There is deliberately no lock: the index
+# decides, the loser's INSERT writes nothing, and both callers end up holding the
+# same execution id. A lock would make the common case look safer without
+# covering the case that actually needs covering -- a second backend process,
+# which shares the database and not this module.
 
 
 def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
@@ -1584,36 +1585,19 @@ def _duplicate_execution_for(conn, request_id: Optional[str]) -> Optional[dict]:
     return get_execution_by_request_id(conn, request_id)
 
 
-def _reserve_request_id(conn, exec_id: int, request_id: Optional[str]) -> Optional[dict]:
-    """Stamp ``request_id`` on a freshly prepared row, or undo the row.
+def _winner_of_request_id(conn, request_id: Optional[str], error: sqlite3.IntegrityError) -> dict:
+    """The run another process started with this ticket, when this one's INSERT collided with it.
 
-    Returns the *winning* execution when the stamp collided with one written by
-    another process between the check and here, after deleting the row this
-    request prepared. Deleting it is safe precisely here and nowhere later: the
-    row is seconds old, no thread has been launched for it, and nothing else has
-    seen its id.
+    The ticket is written in the run's own INSERT (``insert_execution``), so no
+    reader sees a run without it; the partial UNIQUE index refuses a second row
+    with the same ticket, and this answers with the row that won. Any other
+    integrity error is re-raised.
     """
-    if not request_id:
-        return None
-    try:
-        conn.execute(
-            "UPDATE executions SET request_id = ? WHERE id = ?",
-            (request_id, int(exec_id)),
-        )
-        conn.commit()
-        return None
-    except sqlite3.IntegrityError:
-        conn.rollback()
-        winner = get_execution_by_request_id(conn, request_id)
-        try:
-            conn.execute("DELETE FROM executions WHERE id = ?", (int(exec_id),))
-            conn.commit()
-        except Exception:
-            logging.getLogger(__name__).exception(
-                "Failed to remove the losing side of a request_id race: "
-                "exec_id=%s", exec_id,
-            )
-        return winner
+    conn.rollback()
+    winner = get_execution_by_request_id(conn, request_id) if request_id else None
+    if winner is None:
+        raise error
+    return winner
 
 
 def _queue_full_refusal(what: str) -> HTTPException:
@@ -1716,11 +1700,12 @@ def _launch_search(
             db_conn=conn,
             config={"ai_enabled": ai_enabled, "ai_settings": ai_settings},
         )
-        exec_id = engine.prepare_execution(execution_type, repositories, query_params)
-        winner = _reserve_request_id(conn, exec_id, request_id)
-        if winner is not None:
+        try:
+            exec_id = engine.prepare_execution(execution_type, repositories, query_params, request_id=request_id)
+        except sqlite3.IntegrityError as error:
             # Another process started this very submission between the check
             # and here; that run is the answer, and this slot is not needed.
+            winner = _winner_of_request_id(conn, request_id, error)
             if reservation is not None:
                 admission.note_finished(reservation)
             return int(winner["id"])
@@ -3671,16 +3656,18 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
             # read as part of the query. The fact is durable anyway: the new run
             # writes its own ``execution_ai`` rows, which is where this decision
             # was read from in the first place.
-            new_id = insert_execution(own, {
-                "execution_type": row["execution_type"],
-                "routine_id": row.get("routine_id"),
-                "saved_configuration_id": row.get("saved_configuration_id"),
-                "parameters": row["parameters"],
-                "start_time": utc_now_iso(),
-                "restarted_from": exec_id,
-            })
-            winner = _reserve_request_id(own, new_id, ticket)
-            if winner is not None:
+            try:
+                new_id = insert_execution(own, {
+                    "execution_type": row["execution_type"],
+                    "routine_id": row.get("routine_id"),
+                    "saved_configuration_id": row.get("saved_configuration_id"),
+                    "parameters": row["parameters"],
+                    "start_time": utc_now_iso(),
+                    "restarted_from": exec_id,
+                    "request_id": ticket,
+                })
+            except sqlite3.IntegrityError as error:
+                winner = _winner_of_request_id(own, ticket, error)
                 if reservation is not None:
                     admission.note_finished(reservation)
                 return int(winner["id"])
@@ -7987,21 +7974,11 @@ def _dispatch_routine_fire(
                     "unattended": not run_now,
                 },
             )
+            # The watch goes in with the run's own INSERT: no reader sees a watch
+            # run that belongs to no watch, and none is left that way.
             exec_id = engine.prepare_execution(
-                "automated_sweep", repositories, params,
+                "automated_sweep", repositories, params, routine_id=int(routine_id),
             )
-
-            try:
-                conn.execute(
-                    "UPDATE executions SET routine_id = ? WHERE id = ?",
-                    (int(routine_id), int(exec_id)),
-                )
-                conn.commit()
-            except Exception:
-                dispatch_logger.exception(
-                    "Failed to stamp routine_id on execution row: routine_id=%s exec_id=%s",
-                    routine_id, exec_id,
-                )
 
             # Bind before the thread starts, so a second fire arriving in the
             # window between the claim and the launch is told *which* run holds
