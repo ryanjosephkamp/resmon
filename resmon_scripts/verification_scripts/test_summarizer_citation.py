@@ -50,11 +50,8 @@ def test_empty_input_handled():
 def test_sentence_split_falls_back_without_punkt_data(monkeypatch):
     """Summarization must degrade, not fail, when NLTK's punkt data is absent.
 
-    pip does not ship NLTK's corpora, and the bootstrap download in
-    summarizer.py fails silently when the machine is offline. Before this
-    fallback existed, every sent_tokenize call then raised
-    ``LookupError: Resource 'punkt_tab' not found`` and the whole execution
-    failed -- so AI summarization was unusable on a fresh offline install.
+    A source install may have no tokenizer data. The sentence splitter keeps
+    summaries usable offline without fetching data during a run.
     """
     from implementation_scripts import summarizer
 
@@ -91,3 +88,45 @@ def test_chunk_text_survives_missing_punkt_data(monkeypatch):
     chunks = pipeline.chunk_text("Alpha beta gamma. " * 50, max_tokens=50)
     assert chunks, "chunk_text returned nothing"
     assert all(c.strip() for c in chunks)
+
+
+def test_loading_and_summarizing_without_data_never_requests_a_download(monkeypatch, tmp_path):
+    """A cold tokenizer lookup must stay offline and split usable sentences."""
+    import importlib.util
+    import nltk
+    import nltk.downloader
+
+    requests: list[str] = []
+
+    def refuse(url, *args, **kwargs):
+        requests.append(str(url))
+        raise OSError("network refused")
+
+    monkeypatch.setattr(nltk.data, "path", [str(tmp_path)])
+    monkeypatch.setattr(nltk.downloader, "urlopen", refuse)
+    monkeypatch.setattr(nltk.downloader._downloader, "_index", None)
+    monkeypatch.setattr(nltk.downloader._downloader, "_download_dir", str(tmp_path))
+    nltk.tokenize._get_punkt_tokenizer.cache_clear()
+    spec = importlib.util.spec_from_file_location(
+        "implementation_scripts.offline_summarizer",
+        PROJECT_ROOT / "resmon_scripts/implementation_scripts/summarizer.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    class EchoClient:
+        provider = "local"
+
+        def summarize(self, text: str, prompt_params: dict) -> str:
+            return text
+
+    pipeline = module.SummarizationPipeline(EchoClient(), {"_show_audit_prefix": False})
+    text = "First sentence here. Second one follows! And a third?"
+    assert module._sent_tokenize(text) == [
+        "First sentence here.", "Second one follows!", "And a third?",
+    ]
+    assert pipeline.chunk_text(text, max_tokens=6, overlap_tokens=0) == [
+        "First sentence here.", "Second one follows!", "And a third?",
+    ]
+    assert pipeline.summarize_document(text) == text
+    assert requests == []

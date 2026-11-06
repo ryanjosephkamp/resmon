@@ -16,24 +16,9 @@ from .prompt_templates import (
 
 logger = logging.getLogger(__name__)
 
-# Ensure punkt_tab data is available (downloaded once at install time).
-#
-# ``nltk.download(..., quiet=True)`` returns False on failure rather than
-# raising, so this bootstrap fails silently whenever the machine is offline or
-# behind a firewall - and pip does not ship NLTK's corpora, so a fresh install
-# has nothing to fall back on. Every call to ``sent_tokenize`` then raised
-# ``LookupError: Resource 'punkt_tab' not found`` and the execution failed
-# outright, which meant AI summarization was unusable on any install that could
-# not reach NLTK's servers at first import. ``_sent_tokenize`` below degrades
-# instead.
-try:
-    nltk.data.find("tokenizers/punkt_tab")
-except LookupError:
-    try:
-        nltk.download("punkt_tab", quiet=True)
-    except Exception:  # pragma: no cover - defensive; download() rarely raises
-        pass
-
+# The packaged runtime includes punkt_tab from the build step. A source
+# install may have no tokenizer data; loading this module never fetches it.
+# ``_sent_tokenize`` uses the sentence splitter below when the data is absent.
 # Fallback sentence splitter: break after ., ! or ? followed by whitespace.
 # Cruder than punkt - it will split "et al. 2019" - but chunking only needs
 # roughly sentence-sized pieces, and a slightly wrong boundary is immeasurably
@@ -50,8 +35,8 @@ def _sent_tokenize(text: str) -> list[str]:
     except LookupError:
         if not _punkt_warning_emitted:
             logger.warning(
-                "NLTK punkt_tab data is not installed and could not be "
-                "downloaded, so summarization is using a simple regex sentence "
+                "NLTK punkt_tab data is not installed, so summarization is "
+                "using a simple regex sentence "
                 "splitter. Chunk boundaries will be slightly less accurate. To "
                 "install it, run: python -m nltk.downloader punkt_tab",
             )

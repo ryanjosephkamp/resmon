@@ -1,28 +1,14 @@
-# `nltk-data/` — the one tokenizer the app looks for at import
+# `nltk-data/` — English sentence-tokenizer data
 
 ## Why this is committed
 
-`resmon_scripts/implementation_scripts/summarizer.py` calls
-`nltk.data.find("tokenizers/punkt_tab")` **at import time** and, on a miss, calls
-`nltk.download("punkt_tab", quiet=True)` — which fetches
-`https://raw.githubusercontent.com/nltk/nltk_data/gh-pages/index.xml` and then the corpus.
+The packaged runtime includes punkt_tab from its build step. A source install without the data
+uses the summarizer's simple sentence splitter, without downloading anything when the module loads.
 
-That module is imported inside the launched backend the moment a run has AI summarization enabled,
-which in this suite is J17 and only J17. On a machine whose NLTK cache is warm — a developer's
-laptop, usually — nothing happens. On a CI runner, or a fresh install, the app reaches the internet
-during a user's run, the journeys launch guard refuses the connection, and J17's own
-"nothing left this machine" assertion fires.
-
-The guard is right and the row is right. So the suite gives the launched app the data instead:
-`drivers/session.ts` copies this directory into the session's own state directory and points
-`NLTK_DATA` at the copy, before the backend starts. The app then finds the tokenizer where it
-already knows to look and never reaches out. Nothing is downloaded, in CI or anywhere else, and
-the guard is not weakened by a single permitted exception.
-
-**This is also a finding about the app, not only about the suite**, and J17 prints it on every run:
-a local-first desktop application performs a network download at import when this data is absent.
-An offline first run must not depend on it. That belongs to 3.0 and to the register, not to a
-fixture directory.
+J17 exercises punkt's sentence boundaries. `drivers/session.ts` copies this directory into the
+session's own state directory and points `NLTK_DATA` at the copy before the backend starts.
+The copy dies with the session, nothing is downloaded, and the network guard stays intact.
+This fixture means J17 does not observe the fallback used when tokenizer data is absent.
 
 ## What is here, and where it came from
 
@@ -38,13 +24,17 @@ tokenizers/punkt_tab/english/ortho_context.tab
 tokenizers/punkt_tab/english/sent_starters.txt
 ```
 
-256 KB. **English only**: `nltk.data.find("tokenizers/punkt_tab")` resolves the *directory*, so the
-import-time check passes, and `nltk.sent_tokenize` defaults to English, which is the only language
+256 KB. **English only**: `nltk.sent_tokenize` defaults to English, which is the only language
 this suite tokenizes. The other seventeen languages are 11 MB and none of them is exercised here.
 
 `README` is upstream's and is not edited — it carries the models' attribution (Jan Strunk and Tibor
 Kiss, and the per-language contributors and source corpora) and the citation for Kiss & Strunk
 (2006). It is reproduced here exactly as NLTK ships it.
 
-Punkt and the NLTK data collection are distributed under the Apache License 2.0, as NLTK's own
-`nltk_data` repository states. No file here was modified.
+The downloaded `punkt_tab.zip` contains this README and model data, but no license file or explicit
+license grant. Its [package metadata](https://github.com/nltk/nltk_data/blob/gh-pages/packages/tokenizers/punkt_tab.xml)
+has no license attribute. NLTK's [dataset license table](https://github.com/nltk/nltk_data/blob/gh-pages/DATASET-LICENSES.md)
+classifies `punkt_tab` as unclarified, unknown, ambiguous, or citation-only. The repository's
+Apache License 2.0 does not establish a license for each data package; its
+[licensing overview](https://github.com/nltk/nltk_data/blob/gh-pages/LICENSE-OVERVIEW.md) explicitly
+distinguishes them. No tokenizer data here was modified.
