@@ -1291,9 +1291,9 @@ class SweepEngine:
         * At least one source must have been asked, and **every** asked source
           must have failed. Sources never asked do not count either way.
           One source answering makes this a graded question -- how much of
-          the field was actually
-          searched -- and grading it needs a status this schema cannot hold
-          yet. 26 of 27 failing is still ``completed`` here.
+          the field was actually searched -- and grading it needs a status
+          this schema cannot hold yet. 26 of 27 failing is still
+          ``completed`` here.
         * A source whose outcome was never recorded is ``unknown``, and
           ``unknown`` is not evidence. ``zero_reason`` refuses to call an
           unexplained zero an answer and this refuses to call it a failure;
