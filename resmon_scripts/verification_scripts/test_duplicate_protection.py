@@ -404,7 +404,14 @@ def test_a_runs_ticket_is_in_its_row_the_moment_any_reader_can_see_the_row(clien
 
     dive = client.post("/api/search/dive", json=dict(_DIVE, request_id="44444444-4444-4444-4444-444444444444"))
     assert dive.status_code == 200, dive.text
-    # Run again: the search once more, whatever the first run's state by now.
+    # Run again needs the first run ended; it runs on its own thread, so wait for that.
+    conn = resmon_mod._get_db()
+    first = dive.json()["execution_id"]
+    deadline = time.time() + 20
+    while time.time() < deadline and conn.execute(
+            "SELECT status FROM executions WHERE id = ?", (first,)).fetchone()[0] == "running":
+        time.sleep(0.02)
+    assert conn.execute("SELECT status FROM executions WHERE id = ?", (first,)).fetchone()[0] != "running"
     again = client.post(f"/api/executions/{dive.json()['execution_id']}/restart",
                         json={"request_id": "55555555-5555-5555-5555-555555555555", "again": True})
     assert again.status_code == 202, again.text
