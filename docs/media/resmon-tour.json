@@ -1,5 +1,5 @@
 {
- "seconds": 166.47,
+ "seconds": 166.33,
  "chapters": [
   {
    "slug": "today",
@@ -35,13 +35,13 @@
    "slug": "health",
    "title": "Health",
    "line": "What every source did on recent runs, and what needs attention.",
-   "start": 130.3
+   "start": 130.2
   },
   {
    "slug": "getting-around",
    "title": "Getting around",
    "line": "The command palette, the shortcuts, and a swipe back.",
-   "start": 150.1
+   "start": 150
   }
  ]
 }
