@@ -7974,21 +7974,11 @@ def _dispatch_routine_fire(
                     "unattended": not run_now,
                 },
             )
+            # The watch goes in with the run's own INSERT: no reader sees a watch
+            # run that belongs to no watch, and none is left that way.
             exec_id = engine.prepare_execution(
-                "automated_sweep", repositories, params,
+                "automated_sweep", repositories, params, routine_id=int(routine_id),
             )
-
-            try:
-                conn.execute(
-                    "UPDATE executions SET routine_id = ? WHERE id = ?",
-                    (int(routine_id), int(exec_id)),
-                )
-                conn.commit()
-            except Exception:
-                dispatch_logger.exception(
-                    "Failed to stamp routine_id on execution row: routine_id=%s exec_id=%s",
-                    routine_id, exec_id,
-                )
 
             # Bind before the thread starts, so a second fire arriving in the
             # window between the claim and the launch is told *which* run holds

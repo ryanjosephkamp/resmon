@@ -414,6 +414,28 @@ def test_a_runs_ticket_is_in_its_row_the_moment_any_reader_can_see_the_row(clien
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_watch_runs_watch_is_in_its_row_the_moment_any_reader_can_see_the_row(client, monkeypatch):
+    """A watch's run goes in with its watch, so no reader sees a watch run that belongs to no watch."""
+    from implementation_scripts import sweep_engine as sweep_engine_mod
+
+    seen: list[object] = []
+    real = database.insert_execution
+
+    def watched(conn, exec_dict):
+        exec_id = real(conn, exec_dict)
+        seen.append(conn.execute(
+            "SELECT routine_id FROM executions WHERE id = ?", (exec_id,)).fetchone()[0])
+        return exec_id
+
+    monkeypatch.setattr(sweep_engine_mod, "insert_execution", watched)
+    rid = _make_routine()
+    fired = client.post(f"/api/routines/{rid}/run")
+    assert fired.status_code == 200, fired.text
+    _wait_for_claim_release(rid)
+    assert seen == [rid]
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
 def test_a_launch_whose_ticket_another_run_holds_answers_with_that_run_and_writes_nothing(client):
     """The race between the duplicate check and the INSERT: the index refuses the second row."""
     conn = resmon_mod._get_db()
