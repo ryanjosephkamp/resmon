@@ -1173,9 +1173,9 @@ def _atom_timestamp(value: object) -> str:
 
 
 def _folder_bundle_link(
-    conn: sqlite3.Connection, routine: dict, exec_id: int,
+    conn: sqlite3.Connection, routine: dict, exec_id: int, *, feed_path: Path,
 ) -> Optional[str]:
-    """A ``file://`` link to the folder channel's bundle, when there is one.
+    """A link relative to the feed file to the folder channel's bundle.
 
     Only when the directory is actually there: an entry whose link is a guess
     at a path is worse than an entry with no link, because a reader renders
@@ -1194,7 +1194,12 @@ def _folder_bundle_link(
             continue
         for match in reversed(matches):
             if match.is_dir():
-                return "file://" + quote(str(match))
+                try:
+                    relative = os.path.relpath(match.resolve(), feed_path.parent.resolve())
+                except ValueError:
+                    # Different Windows volumes have no relative path.
+                    continue
+                return quote(Path(relative).as_posix()) + "/"
     return None
 
 
@@ -1239,14 +1244,14 @@ def _feed_entries(
 
 def render_feed(
     conn: sqlite3.Connection, routine: dict, entries: list[dict], *, feed_id: str,
+    feed_path: Path,
 ) -> str:
     """One Atom 1.0 document. No script, no tracker, no secret-bearing link.
 
-    The bundle link here is a ``file://`` path on this machine, never the
-    signed HTTP link the webhook envelope carries: a feed file is copied,
-    synced and read by things resmon has no relationship with, and a link in it
-    that carried a signature would be a credential inside a document the user
-    is about to put in a shared folder (PRODUCT-VISION.md:199).
+    The bundle link is relative to the feed file, so it carries no absolute
+    local path and still resolves when both destinations move together. A feed
+    can be copied or synced into a shared folder; neither a home directory nor
+    the webhook's signed HTTP credential belongs in it (PRODUCT-VISION.md:199).
     """
     from . import source_coverage
     from .database import get_execution_sources
@@ -1280,7 +1285,7 @@ def render_feed(
         )
         if coverage:
             summary += " " + coverage
-        link = _folder_bundle_link(conn, routine, exec_id)
+        link = _folder_bundle_link(conn, routine, exec_id, feed_path=feed_path)
         out.append("  <entry>")
         out.append(f"    <title>{_xml_escape(name)} - run {exec_id}</title>")
         out.append(f"    <id>{_xml_escape(feed_id)}/executions/{exec_id}</id>")
@@ -1316,9 +1321,9 @@ def _deliver_feed(
     is written beside the destination and renamed over it, so a reader polling
     the folder sees the old file or the new one and never half of either.
 
-    This channel never builds the bundle -- the feed carries facts and a link
-    to what the folder channel wrote, so a routine delivering only a feed does
-    not pay for a PDF render on every run.
+    This channel never builds the bundle -- the feed carries facts and a
+    relative link to what the folder channel wrote, so a routine delivering
+    only a feed does not pay for a PDF render on every run.
     """
     if not (target or "").strip():
         raise DeliveryError(
@@ -1341,7 +1346,7 @@ def _deliver_feed(
     feed_id = f"urn:resmon:routine:{int(routine['id'])}"
     entries = _feed_entries(
         conn, routine, delivery_row.get("target_id"), delivery_row)
-    document = render_feed(conn, routine, entries, feed_id=feed_id)
+    document = render_feed(conn, routine, entries, feed_id=feed_id, feed_path=final)
     tmp_path: Optional[Path] = None
     try:
         parent.mkdir(parents=True, exist_ok=True)
