@@ -6,9 +6,10 @@ opening the PDF again. The window may not keep it itself: Atlas keeps nothing in
 browser storage, and its content policy shows images from its own origin and
 ``data:`` only, so a picture reaches it as bytes it turns into a ``data:`` URL.
 
-A picture is keyed by the file's version id and the drawing revision. Covers
-made before embedded fonts worked are drawn again. It is checked against the
-catalog on every read and write, so no picture is served for a version the Library does not record.
+A picture is keyed by the file's version id and the drawing revision
+(``fonts-1``), so a picture from an earlier revision is never served and the
+cover is drawn again. It is checked against the catalog on every read and write,
+so no picture is served for a version the Library does not record.
 The folder is ``<database>-library-pictures/`` beside the database, as the map's
 fit is beside it: derived data, cheap to draw again, and never inside the
 person's Library folder. Only the three image formats a canvas encodes are
@@ -94,8 +95,8 @@ def write(conn: sqlite3.Connection, expected: str, file_id: str, version_id: str
         os.fsync(handle.fileno())
         staged = handle.name
     try:
-        # Earlier drawings may have substituted text faces for embedded math.
-        # They are derived images, and only this version's are replaced.
+        # A picture of this version from an earlier drawing revision is
+        # derived data; it is removed rather than kept beside the new one.
         for extension in _EXTENSION.values():
             (where / f'{uuid.UUID(version_id)}.{extension}').unlink(missing_ok=True)
         for other in _EXTENSION.values():

@@ -215,7 +215,7 @@ def test_pictures_are_kept_by_version_and_forgotten_with_the_record(world, tmp_p
     with pytest.raises(lib.LibraryError) as none:
         library_thumbs.read(c, vid, file['file_id'], file['version_id'])
     assert none.value.reason == 'no_picture'
-    # A cover cached before embedded fonts worked must be drawn again.
+    # A picture kept under the earlier drawing revision is not served, so the cover is drawn again.
     pictures = tmp_path / 'catalog.db-library-pictures'
     pictures.mkdir(exist_ok=True)
     legacy = pictures / f"{file['version_id']}.webp"
