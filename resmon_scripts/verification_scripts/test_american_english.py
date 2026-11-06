@@ -68,6 +68,10 @@ TOKEN_ALLOWLIST = [
     ("resmon_scripts/implementation_scripts/entity_matching.py", r'"centre"', "Input vocabulary recognizes upstream affiliation spellings."),
     ("resmon_scripts/implementation_scripts/collection_map.py", r"\btowards\b", "Stop-word vocabulary matches text received from papers."),
     ("resmon_scripts/verification_scripts/probe_transcriber.py", r"/LICENCE|['\"]licence['\"]", "Upstream license URL and discovery of third-party notice filenames."),
+    ("resmon_scripts/frontend/atlas/src/shell/CommandPalette.tsx", r"keywords: '[^']*'",
+     "Search synonyms for what a person types, British spellings included."),
+    ("resmon_scripts/frontend/atlas/src/shell/__tests__/topBarShell.test.tsx", r"'colour'",
+     "The test types the British spelling a person may search for."),
     ("site/src/data/plate.json", r'"title": "Towards Generalist Graph-Level Anomaly Detection"', "Verbatim upstream paper title."),
 ]
 
@@ -132,6 +136,9 @@ def test_compatibility_exceptions_do_not_hide_neighboring_prose() -> None:
     assert not violations("source.py", "raise asyncio.CancelledError()")
     assert not violations("resmon_scripts/frontend/atlas/src/example.ts", "run.cancelled || { cancelled: false }")
     assert not violations("source.py", 'word = "optimistic organism premise"')
+    palette = "resmon_scripts/frontend/atlas/src/shell/CommandPalette.tsx"
+    assert not violations(palette, "      keywords: 'accent color colour picker',")
+    assert violations(palette, "      label: 'Choose an accent colour',")
     # "Analyses" is also the plural of "analysis", in American English too.
     assert not violations("source.md", "Two analyses agree.")
     assert violations("source.md", "It was analysed twice.")

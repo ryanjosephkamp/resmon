@@ -6,7 +6,7 @@
  */
 import { createRef, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { AppearanceProvider, APPEARANCE_KEY } from '../../theme/appearance';
 import { CommandPalette } from '../CommandPalette';
@@ -77,4 +77,14 @@ test('the palette goes to every section in the keys\' order, the hidden ones too
   expect(goTo[0]!.querySelector('kbd')?.textContent).toBe('⌘1');
   // Settings › Top bar is a place the palette opens by name.
   expect(screen.getByRole('option', { name: /Arrange the top bar/ })).toBeInTheDocument();
+});
+
+test('the palette finds the accent color by either spelling a person types', () => {
+  wrap(<CommandPalette open onClose={() => {}} onRun={() => {}} dialog={createRef<HTMLDialogElement>()} mac />);
+  const search = screen.getByRole('combobox', { name: 'Search commands' });
+  for (const typed of ['colour', 'color']) {
+    fireEvent.change(search, { target: { value: typed } });
+    expect(screen.getByRole('option', { name: /Choose an accent color/ })).toBeInTheDocument();
+    expect(screen.getByRole('option', { name: /Use the default accent/ })).toBeInTheDocument();
+  }
 });
