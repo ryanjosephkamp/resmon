@@ -913,7 +913,7 @@ class SweepEngine:
             })
 
             # The last check. A stop the engine accepted before this point
-            # ends the run cancelled; one that comes after it is refused (the
+            # ends the run canceled; one that comes after it is refused (the
             # stop route answers 409), never accepted and then ignored.
             if not store.begin_finishing(exec_id):
                 return cancelled("reporting", report_docs=report_docs,
@@ -1288,8 +1288,10 @@ class SweepEngine:
         this function adds on top of ``build`` is only the narrowing the
         verdict needs:
 
-        * **Every** selected source must have failed. One source answering
-          makes this a graded question -- how much of the field was actually
+        * At least one source must have been asked, and **every** asked source
+          must have failed. Sources never asked do not count either way.
+          One source answering makes this a graded question -- how much of
+          the field was actually
           searched -- and grading it needs a status this schema cannot hold
           yet. 26 of 27 failing is still ``completed`` here.
         * A source whose outcome was never recorded is ``unknown``, and
@@ -1319,16 +1321,12 @@ class SweepEngine:
             # A source answered in part is among the answered: it answered
             # every page resmon asked for, and resmon stopped. A run whose only
             # shortfalls are those completes, and its coverage says what was read.
-            if coverage["total"] == 0 or coverage["counts"]["answered"]:
+            if coverage["counts"]["answered"] or coverage["counts"]["unknown"]:
                 return None
             # A raised query counts: resmon asked and the call did not come
-            # back. A *retired* source also lands on ``status == 'error'`` --
-            # the engine catches the registry's ValueError and records the
-            # withdrawal reason there (see the except branch in ``_run``) --
-            # and that one is not a failure, it is a source resmon declined to
-            # ask. Without this exclusion a dive on a retired source plus one
-            # that answered 503 recorded ``failed``; the single-retired case
-            # was hidden because ``all_repos_errored`` already fires on it.
+            # back. A retired source also has status "error", but resmon
+            # declined to ask it. Neither it nor a keyless source can hide
+            # the failure of every source that was actually asked.
             asked_and_failed = sum(
                 source["category"] == "non_answer"
                 and source["zero_reason"] != "retired"
@@ -1336,7 +1334,7 @@ class SweepEngine:
                      or source["zero_reason"] in _ASKED_AND_DID_NOT_ANSWER)
                 for source in coverage["sources"]
             )
-            if asked_and_failed != coverage["total"]:
+            if not asked_and_failed:
                 return None
             return str(coverage["summary"])
         except Exception as exc:  # pragma: no cover - defensive

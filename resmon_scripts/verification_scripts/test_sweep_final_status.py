@@ -151,7 +151,8 @@ def test_one_source_answering_keeps_the_run_completed(conn, monkeypatch):
         return httpx.Response(503, content=b"", request=built)
 
     monkeypatch.setattr(httpx.Client, "request", respond)
-    result = _sweep(conn, _SOURCES)
+    monkeypatch.setattr(cm, "get_credential", lambda _name: None)
+    result = _sweep(conn, [*_SOURCES, "core"])
     row = _row(conn, result)
 
     assert row["status"] == "completed"
@@ -220,26 +221,17 @@ def test_a_source_that_was_never_asked_is_not_a_failure(conn, monkeypatch):
     assert row["status"] == "completed"
 
 
-def test_a_withdrawn_source_beside_a_failing_one_does_not_make_the_run_failed(
+def test_a_withdrawn_source_does_not_hide_the_failure_of_every_asked_source(
     conn, transport,
 ):
-    """A retired source lands on ``status = 'error'``, and is still not a failure.
-
-    The engine catches the registry's ValueError for a withdrawn slug and
-    records it as an error row carrying `zero_reason = 'retired'`, so a rule
-    that counted every error row as a failure would read "resmon declined to
-    ask" as "the source broke". The single-retired case hides it, because
-    ``all_repos_errored`` already fires there; only the mixture shows it.
-    """
+    """A withdrawal is not an answer; the only asked source failed."""
     result = _sweep(conn, ["ssrn", "doaj"])
     row = _row(conn, result)
 
     sources = {s["source"]: s for s in get_execution_sources(conn, result["execution_id"])}
     assert sources["ssrn"]["zero_reason"] == "retired"
     assert sources["doaj"]["zero_reason"] == "upstream_failure"
-    # One source was asked and failed; the other was never asked. That is not
-    # "every source resmon asked came back with a non-answer".
-    assert row["status"] == "completed"
+    assert row["status"] == "failed"
 
 
 class _RaisingClient(BaseAPIClient):
@@ -263,3 +255,43 @@ def test_when_both_routes_fire_the_exception_text_is_what_is_kept(conn, monkeypa
 
     assert row["status"] == "failed"
     assert "the client itself fell over" in row["error_message"]
+
+
+@pytest.mark.parametrize("execution_type", ["deep_sweep", "automated_sweep"])
+def test_skipped_sources_do_not_hide_every_asked_source_failing(
+    conn, transport, monkeypatch, execution_type,
+):
+    monkeypatch.setattr(cm, "get_credential", lambda _name: None)
+    engine = SweepEngine(db_conn=conn, config={})
+    exec_id = engine.prepare_execution(
+        execution_type, ["doaj", "core", "springer"],
+        {"query": "cancer", "max_results": 5},
+    )
+    engine.run_prepared(exec_id)
+    sources = get_execution_sources(conn, exec_id)
+    assert {s["source"]: s["zero_reason"] for s in sources} == {
+        "doaj": "upstream_failure", "core": "missing_key", "springer": "missing_key",
+    }
+    assert get_execution_by_id(conn, exec_id)["status"] == "failed"
+
+
+def test_a_dive_uses_the_same_failure_rule(conn, transport):
+    result = SweepEngine(db_conn=conn, config={}).execute_dive(
+        "doaj", {"query": "cancer", "max_results": 5},
+    )
+    assert _row(conn, result)["status"] == "failed"
+
+
+def test_an_unknown_beside_a_failure_is_not_evidence_all_asked_sources_failed(
+    conn, transport, monkeypatch,
+):
+    real_get_client = se.get_client
+    monkeypatch.setattr(
+        se, "get_client",
+        lambda name: _SilentClient() if name == "doaj" else real_get_client(name),
+    )
+    result = _sweep(conn, ["doaj", "crossref"])
+    assert _row(conn, result)["status"] == "completed"
+    assert {s["zero_reason"] for s in get_execution_sources(conn, result["execution_id"])} == {
+        "not_recorded", "upstream_failure",
+    }
