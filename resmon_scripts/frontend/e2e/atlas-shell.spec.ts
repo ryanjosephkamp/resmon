@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
+import { atlasEnv, launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
 import { SCREEN_PATHS } from '../atlas/src/screenPaths';
 import { removeStateDir } from './fixtures/cleanup';
 
@@ -52,8 +52,10 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `resmon-e2e-atlas-${name}-`)));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
-  if (width) env.RESMON_E2E_WIDTH = String(width);
+  const base: Record<string, string> = { ...launchEnv(stateDir, true) };
+  if (width) base.RESMON_E2E_WIDTH = String(width);
+  // Held to the screen `RESMON_E2E_SCREEN` names, as CI's macOS runner holds the window to its own.
+  const env = atlasEnv(base);
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const cli = path.join(root, 'claude');
   fs.writeFileSync(cli, `#!/bin/sh\nexec "${python}" "${path.join(REPO_ROOT, 'resmon_scripts/verification_scripts/fixtures/fake_claude.py')}" "$@"\n`, { mode: 0o755 });
@@ -663,19 +665,33 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
           });
         }
       }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward', 'data-went'] });
+      // And how far the samples that reached the page travelled sideways, which the browser keeps when it
+      // merges samples that arrive within a frame: one sent outside the window reaches nothing, and proves nothing.
+      const reached = { travel: 0 };
+      (window as unknown as { wheelsReached: typeof reached }).wheelsReached = reached;
+      window.addEventListener('wheel', (event) => { reached.travel += Math.abs(event.deltaX); }, { capture: true, passive: true });
     });
     type Seen = { toward: string | null; swipe: number; went: boolean; transform: string };
     const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: Seen[] }).arrowSeen.splice(0));
+    /** How far the samples since the last count travelled in the page; they reach it a frame after they are sent. */
+    const reached = async (travel: number) => {
+      await expect.poll(() => win.evaluate(() => Math.round((window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel)))
+        .toBe(travel);
+      await win.evaluate(() => { (window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel = 0; });
+    };
 
     await win.evaluate(() => { window.location.replace('#/settings'); });
     await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     const title = win.getByRole('heading', { name: 'Settings', level: 1 });
     const box = (await title.boundingBox())!;
-    await point(box.x + box.width + 200, box.y + box.height / 2);
+    // On the page's heading, which takes no swipe itself, inside the window at every size: 200 pixels past
+    // its end was past the window's edge at 1024 by 684, CI's macOS screen, where no sample reached the page.
+    await point(box.x + Math.min(box.width, 120) / 2, box.y + box.height / 2);
 
-    // No page back: nothing is drawn, nothing happens.
+    // No page back: nothing is drawn, nothing happens, though the whole swipe reached the page.
     await swipe(-20);
     await settle();
+    await reached(240);
     expect(await shown()).toEqual([]);
     expect(await hash(win)).toBe('#/settings');
 
@@ -694,6 +710,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // — back: the arrow at the left edge grows, then it goes, once, however long the tail ------
     await swipe(-20, 4);
+    await reached(80);
     const growing = await shown();
     expect(growing.length).toBeGreaterThan(0);
     // Short of the threshold, at the back edge, and never smaller than it was while the fingers move on.
