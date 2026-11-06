@@ -57,7 +57,11 @@ authentication; it is a different credential, scoped to one file. See
 <p>A CORS preflight (<code>OPTIONS</code> with <code>Access-Control-Request-Method</code>) carries no credentials by
 specification, so it is answered without the token — but only for the renderer’s origin.
 <code>Access-Control-Allow-Private-Network: true</code> is sent only on such a preflight that asked for it.</p>
-<p>Refusals use the app’s usual shape: <code>{"detail": {"reason": "...", "message": "..."}}</code>.</p>
+<p>Refusals use the app’s usual shape: <code>{"detail": {"reason": "...", "message": "..."}}</code>. They carry
+no <code>Access-Control-Allow-Origin</code>, whatever the origin. An answer from a route does, for the
+renderer’s origin only, errors included: a route that raises is answered <code>500</code> with a sentence in
+<code>detail</code>, inside the CORS layer, so the window reads the engine’s failure rather than a request
+blocked by CORS.</p>
 <h2 id="where-the-token-lives">Where the token lives</h2>
 <ul>
 <li><strong>Electron-spawned backend.</strong> Electron mints the token and hands it to the backend in the
