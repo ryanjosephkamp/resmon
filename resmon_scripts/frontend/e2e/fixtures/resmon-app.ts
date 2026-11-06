@@ -248,7 +248,7 @@ function pythonPath(): string {
 /**
  * The environment a launched resmon runs in.
  *
- * Exported because `default-behaviour.spec.ts` launches the app with exactly
+ * Exported because `default-behavior.spec.ts` launches the app with exactly
  * this minus `RESMON_E2E`, and the two have to differ in nothing else for that
  * comparison to mean anything.
  */

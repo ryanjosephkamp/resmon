@@ -57,7 +57,7 @@ describe('whether a run summarized, with what, and how it went', () => {
     expect(runSummaries({ status: 'completed', result_count: 0, ai_lanes: [] }, [fromSettings]).note)
       .toBe('This run found no papers, so there was nothing to summarize.');
     expect(runSummaries({ status: 'cancelled', result_count: 4, ai_lanes: [] }, [fromSettings]).note)
-      .toBe('The run ended (cancelled) before any paper was summarized.');
+      .toBe('The run ended (canceled) before any paper was summarized.');
     expect(runSummaries({ status: 'running', ai_lanes: [] }, [fromSettings]).note)
       .toBe('Summaries are written once the run has its papers.');
     expect(runSummaries({ status: 'completed', ai_lanes: [] }, [choice({ lanes: [] })]).head)

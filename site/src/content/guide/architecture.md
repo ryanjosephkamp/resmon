@@ -27,7 +27,7 @@ Three more rules sit beside it. A watch claims its place before its worker start
 
 ### Progress
 
-A run's events go through `progress.py`, an in-memory bus with one list per run. Atlas reads a run's events once a second while it runs. The engine also serves them as server-sent events at `GET /api/executions/{id}/progress/stream`. After a run ends, its events are saved to the database so its Progress tab can be rebuilt after a restart. Cancelling is cooperative: it sets a flag, the pipeline notices at its next checkpoint, flushes a partial report, and ends as cancelled.
+A run's events go through `progress.py`, an in-memory bus with one list per run. Atlas reads a run's events once a second while it runs. The engine also serves them as server-sent events at `GET /api/executions/{id}/progress/stream`. After a run ends, its events are saved to the database so its Progress tab can be rebuilt after a restart. Canceling is cooperative: it sets a flag, the pipeline notices at its next checkpoint, flushes a partial report, and ends as canceled.
 
 ## The scheduler
 

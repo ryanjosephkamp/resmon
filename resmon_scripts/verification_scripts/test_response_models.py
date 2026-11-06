@@ -1093,9 +1093,9 @@ def _drive_selected_answers(drive: Drive, vault: str, project: str, revision: in
         again = drive("POST", f"{answers}/answers", expect=202, headers=library, json=consent)
         assert again["answer_id"] == sent["answer_id"]
         drive("GET", f"{answers}/answers?expected_vault_id={vault}", headers=library)
-        cancelled = drive("POST", f"{answer}/cancel", headers=library,
+        canceled = drive("POST", f"{answer}/cancel", headers=library,
                           json={"expected_vault_id": vault, "expected_runtime_id": runtime})
-        assert cancelled["state"] == "succeeded"
+        assert canceled["state"] == "succeeded"
     finally:
         resmon_mod.serving_port = original_port
 
@@ -1269,7 +1269,7 @@ def _only_scratch_paths(paths: dict[str, Any]) -> None:
 
 
 def _drive_backup_and_restore(drive: Drive) -> None:
-    """A bundle written, verified, staged, cancelled, applied as a start applies it, and its record read.
+    """A bundle written, verified, staged, canceled, applied as a start applies it, and its record read.
 
     Everything happens in folders this slice makes. ``RESMON_STATE_DIR`` names
     a scratch state directory for the slice, so the pointer, the record, the
@@ -1289,7 +1289,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
     ``vault_destination`` is ``None``.
 
     A restore is staged three times. The first, with no vault parent, is
-    cancelled, and a garbled pointer is read and cancelled after it. The
+    canceled, and a garbled pointer is read and canceled after it. The
     second is applied the way a start applies it, by
     ``backup.apply_pending_restore``, against a scratch database file rather
     than this app's own and with a scratch vault parent, so neither the live
@@ -1403,7 +1403,7 @@ def _drive_backup_and_restore(drive: Drive) -> None:
                 broken = drive("POST", "/api/backup/verify", json={"path": str(damaged)})
                 assert not broken["ok"] and broken["problems"] and broken["vault_destination"] is None, broken
 
-                # Staged, read, cancelled; then a pointer nobody can read.
+                # Staged, read, canceled; then a pointer nobody can read.
                 first = drive("POST", "/api/restore", json={**confirm, "path": str(bundle),
                                                             "accept_fk_violations": True})
                 assert first["staged"]["vault_parent"] is None, first["staged"]
@@ -1549,7 +1549,7 @@ def _drive_source_wall_and_analytics(drive: Drive) -> None:
     """The Source wall over every run the scenario recorded, and the analytics views.
 
     Last in the scenario, so the wall has the watchdog slice's failures, the
-    runs slice's ``missing_key`` non-answers and its cancelled run to classify,
+    runs slice's ``missing_key`` non-answers and its canceled run to classify,
     and every view has the slices' papers and watches to count.
 
     Two of the views are only interesting past a threshold, so this adds what
@@ -1826,7 +1826,7 @@ def _drive_collections(drive: Drive, doc_ids: list[int]) -> None:
 
 
 def _drive_runs(drive: Drive) -> None:
-    """Runs started over the API, read back, restarted and cancelled.
+    """Runs started over the API, read back, restarted and canceled.
 
     Real runs, not seeded rows, over sources that require an API key: the
     suite's keyring is empty, so each is skipped at once and records a

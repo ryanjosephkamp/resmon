@@ -146,7 +146,7 @@ real corpus’s shape rather than a fixture’s. What actually happened on those
 182 runs is not knowable and is not claimed.</p>
 <h3 id="bound-a--if-every-one-of-them-had-been-an-outage">Bound A — if every one of them had been an outage</h3>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>$ python fieldtest-bound.py resmon.db upstream_failure</span></span>
-<span class="line"><span>labelled 182 ok/0 rows as upstream_failure</span></span>
+<span class="line"><span>labeled 182 ok/0 rows as upstream_failure</span></span>
 <span class="line"><span>findings: 12</span></span></code></pre>
 <p>The four <code>source_quiet</code> findings (severity <strong>unusual</strong>, an inference) become
 seven <code>source_errors</code> findings (severity <strong>broken</strong>, a recorded fact), and
@@ -163,7 +163,7 @@ response format sends them to look for a problem that is not there:</p>
 <span class="line"><span>successfully 7 days ago.</span></span></code></pre>
 <h3 id="bound-c--if-every-one-of-them-had-been-an-unreadable-reply">Bound C — if every one of them had been an unreadable reply</h3>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>$ python fieldtest-bound.py resmon.db parse_failure</span></span>
-<span class="line"><span>labelled 182 ok/0 rows as parse_failure</span></span>
+<span class="line"><span>labeled 182 ok/0 rows as parse_failure</span></span>
 <span class="line"><span>findings: 12</span></span></code></pre>
 <p>The same twelve findings as bound A, with the same seven sources promoted from
 <code>source_quiet</code> to <code>source_errors</code> — as it should be, since both reasons are now
@@ -173,9 +173,9 @@ reason is applied. What differs is the sentence, quoted above: bound A says
 could not read the reply</em>.</p>
 <h3 id="bound-b--if-every-one-of-them-had-been-a-real-empty-answer">Bound B — if every one of them had been a real empty answer</h3>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="plaintext"><code><span class="line"><span>$ python fieldtest-bound.py resmon.db answered_empty</span></span>
-<span class="line"><span>labelled 182 ok/0 rows as answered_empty</span></span>
+<span class="line"><span>labeled 182 ok/0 rows as answered_empty</span></span>
 <span class="line"><span>findings: 9</span></span></code></pre>
-<p>Identical to the report without the rules, which is the other half of the check: labelling a
+<p>Identical to the report without the rules, which is the other half of the check: labeling a
 zero as a genuine answer must change nothing.</p>
 <h3 id="what-the-corpus-does-not-demonstrate">What the corpus does not demonstrate</h3>
 <p>The baseline rule should mean fewer <code>source_quiet</code> findings and more <code>unjudged</code> ones.

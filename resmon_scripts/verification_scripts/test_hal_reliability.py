@@ -374,7 +374,7 @@ def test_real_httpx_operation_deadline_closes_transport(server, monkeypatch, mod
     assert api_hal.HalClient().search("synthetic", max_results=3) == []
     elapsed = time.monotonic() - began
     assert 0.25 <= elapsed < 1.1
-    assert server.closed.wait(0.6), "remote end did not observe the cancelled transport closing"
+    assert server.closed.wait(0.6), "remote end did not observe the canceled transport closing"
     snapshot = api_base.search_outcome().snapshot()
     assert snapshot["attempts"] == len(server.hits) == 1
     assert snapshot["failures"] == 1 and snapshot["last_detail"] == "operation_deadline"
@@ -424,7 +424,7 @@ def test_real_httpx_read_timeout_exhausts_retry_before_watchdog(server, monkeypa
     assert snapshot["last_detail"] == "timeout" and snapshot["failures"] == 1
     assert zero_reason.derive(snapshot)[0] == "upstream_failure"
     assert elapsed < float(watchdog)
-    assert server.closed.wait(5), "remote end did not observe the cancelled transport closing"
+    assert server.closed.wait(5), "remote end did not observe the canceled transport closing"
     # The fixture can only ever see requests the client really sent, and may
     # still be behind it. Wait for the first, then assert both directions.
     assert settles(lambda: len(server.hits) >= 1), "no real request reached the loopback fixture"

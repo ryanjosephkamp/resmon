@@ -113,7 +113,7 @@ class Receiver:
 def https_no_verify(monkeypatch):
     """Let ``httpx`` accept the receiver's self-signed certificate.
 
-    The one production behaviour changed, and it is changed at the TLS context
+    The one production behavior changed, and it is changed at the TLS context
     rather than by replacing the client: the connection, the request bytes, the
     headers, the status code and the failures are all the real ones.
     """
@@ -319,7 +319,7 @@ def test_two_refusals_then_success_is_three_attempts_and_one_delivery(
     corpus, https_no_verify, base_url,
 ):
     """A receiver answering 503, 503, 200. The clock is injected so the backoff
-    is honoured rather than waited out: each drain runs at the time the
+    is honored rather than waited out: each drain runs at the time the
     previous one wrote into ``next_attempt_at_utc``, which is the only way to
     assert the second attempt really was gated on it."""
     conn = corpus["conn"]

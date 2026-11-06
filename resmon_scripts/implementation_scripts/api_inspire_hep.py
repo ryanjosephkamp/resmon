@@ -41,7 +41,7 @@ _cooldown_until = 0.0
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
 # abstract's own `source` field is arXiv or CERN; the rest are carried under
 # licenses INSPIRE cannot pass on. The API returns the field the license turns
-# on, so honouring it is a matter of reading it rather than of judgment.
+# on, so honoring it is a matter of reading it rather than of judgment.
 #
 # Scanning the whole list rather than testing abstracts[0] is defensive, not
 # measured: a record can carry more than one abstract and INSPIRE documents no

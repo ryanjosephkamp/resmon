@@ -34,7 +34,7 @@ def markdown(answer: dict) -> str:
 
 def build(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: str,
           *, cancel: threading.Event | None = None) -> evidence_export.Bundle:
-    evidence_export.cancelled(cancel)
+    evidence_export.canceled(cancel)
     # One read transaction captures the partial/terminal state; no current files
     # are traversed. Detail uses explicit public projections of private rows.
     answer = se.detail(conn, vault_id, project_id, answer_id)
@@ -52,10 +52,10 @@ def build(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: s
     try:
         with zipfile.ZipFile(bundle.path,'w',compression=zipfile.ZIP_DEFLATED) as archive:
             for name, raw in entries.items():
-                evidence_export.cancelled(cancel)
+                evidence_export.canceled(cancel)
                 info = zipfile.ZipInfo(name, (1980,1,1,0,0,0)); info.compress_type=zipfile.ZIP_DEFLATED
                 archive.writestr(info,raw)
-        evidence_export.cancelled(cancel)
+        evidence_export.canceled(cancel)
         bundle.size = bundle.path.stat().st_size
         bundle.manifest = {'answer_id':answer_id,'vault_id':vault_id,'project_id':project_id,'request_sha256':answer['request_sha256'],
                            'sha256':hashlib.sha256(bundle.path.read_bytes()).hexdigest(),
@@ -67,16 +67,16 @@ def build(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: s
 
 def build_html(conn: sqlite3.Connection, vault_id: str, project_id: str, answer_id: str,
                *, cancel: threading.Event | None = None) -> evidence_export.Bundle:
-    evidence_export.cancelled(cancel)
+    evidence_export.canceled(cancel)
     answer = se.detail(conn, vault_id, project_id, answer_id)
     raw = selected_evidence_html.render(answer, cancel=cancel)
     bundle = evidence_export.Bundle()
     try:
         with bundle.path.open('wb') as stream:
             for offset in range(0, len(raw), 65536):
-                evidence_export.cancelled(cancel)
+                evidence_export.canceled(cancel)
                 stream.write(raw[offset:offset + 65536])
-        evidence_export.cancelled(cancel)
+        evidence_export.canceled(cancel)
         bundle.size = len(raw)
         bundle.manifest = {'answer_id': answer_id, 'vault_id': vault_id, 'project_id': project_id,
                            'request_sha256': answer['request_sha256'],

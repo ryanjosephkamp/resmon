@@ -161,7 +161,7 @@ app.
 **A journey observes; it does not fix.** Where the app and the register
 disagree, the spec asserts what is true and prints a `NOT VERIFIED` line naming
 what it could not establish. J19 is the worked example: the register says a
-cancelled run keeps a partial report, and a sweep cancelled during the query
+canceled run keeps a partial report, and a sweep canceled during the query
 stage keeps a read-time coverage account and no report document.
 
 ## Rows whose journey is a gate, not a screen

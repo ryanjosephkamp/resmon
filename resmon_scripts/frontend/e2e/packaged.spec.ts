@@ -14,7 +14,7 @@
  *   2. **The bundled backend.** A packaged app runs `Contents/Resources/backend`
  *      with its own interpreter and points its state at the per-user directory.
  *      `RESMON_STATE_DIR` still redirects that, and `RESMON_DB_PATH` /
- *      `RESMON_REPORTS_DIR` are honoured because `main.ts` sets them with `||`.
+ *      `RESMON_REPORTS_DIR` are honored because `main.ts` sets them with `||`.
  *
  * The spec **skips rather than fails** when no packaged app is present, and the
  * skip reason names what is missing. Building one takes minutes and downloads a

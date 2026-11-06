@@ -170,9 +170,9 @@ def test_stop_is_recorded_as_stopped_not_as_an_exit_code(backend):
     while not any(e.get("type") == "text_delta" for e in sink):
         assert time.monotonic() < deadline, sink
         time.sleep(0.1)
-    cancelled = _API.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel",
+    canceled = _API.post(f"{backend.base}/api/assistant/sessions/{session['id']}/cancel",
                           timeout=20).json()
-    assert cancelled["cancelled"] is True
+    assert canceled["cancelled"] is True
     worker.join(timeout=30)
     errors = [e for e in sink if e["type"] == "error"]
     assert [e["code"] for e in errors] == ["stopped"]

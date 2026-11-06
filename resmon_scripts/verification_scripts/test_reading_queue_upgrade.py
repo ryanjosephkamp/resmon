@@ -175,7 +175,7 @@ def build_schema_13(path: Path) -> sqlite3.Connection:
     conn.execute(
         "INSERT INTO execution_ai (execution_id, lane_index, lane_label, lane_kind, "
         "provider, model, outcome, docs_attempted, docs_succeeded, started_at, ended_at) "
-        "VALUES (1, 0, 'Local summariser', 'local', 'ollama', 'llama3', 'ok', 2, 2, "
+        "VALUES (1, 0, 'Local summarizer', 'local', 'ollama', 'llama3', 'ok', 2, 2, "
         "'2026-01-16 09:01:00', '2026-01-16 09:01:30')")
     conn.execute(
         "INSERT INTO document_lifecycle (document_id, kind, severity, notice_key, label, "

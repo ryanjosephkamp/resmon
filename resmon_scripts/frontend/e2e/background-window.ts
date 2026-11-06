@@ -19,7 +19,7 @@
  *
  * ## The exception, and why it is a thrown error rather than a comment
  *
- * `ui-smoke.yml`'s **Window behaviour (Electron on macOS)** job exists to watch
+ * `ui-smoke.yml`'s **Window behavior (Electron on macOS)** job exists to watch
  * what the window does: maximize, focus, stacking. A run with this flag has
  * none of that to watch — no window ever reports focus, and the app has no
  * Dock icon and no menu bar — so a focus assertion against it is a statement
@@ -81,7 +81,7 @@ export function requestBackgroundWindows(
     throw new Error(
       `${WINDOW_BEHAVIOR_JOB_ENV}=1 and ${BACKGROUND_WINDOW_ENV}=`
       + `${JSON.stringify(env[BACKGROUND_WINDOW_ENV])} are set together. `
-      + 'The window-behaviour job tests what the window does — maximize, focus, '
+      + 'The window-behavior job tests what the window does — maximize, focus, '
       + 'stacking — and a run with background windows has none of that to test: '
       + 'no window reports focus, so the link-window focus arm skips itself and '
       + 'the job goes green having stopped asserting. Remove the '
@@ -91,7 +91,7 @@ export function requestBackgroundWindows(
   if (isWindowBehaviorJob) return;
   // An explicit value from the caller wins, including an explicit "0": someone
   // debugging a focus problem on their own machine needs a way to get the old
-  // behaviour back without editing this file.
+  // behavior back without editing this file.
   if (env[BACKGROUND_WINDOW_ENV] === undefined) env[BACKGROUND_WINDOW_ENV] = '1';
 }
 
@@ -105,13 +105,13 @@ export function requestBackgroundWindows(
  * the backend over HTTP — none of it needs the window to be on a screen.
  *
  * The same exemption as `requestBackgroundWindows`, and for a stronger reason:
- * the window-behaviour job watches maximize, focus and stacking, and under
+ * the window-behavior job watches maximize, focus and stacking, and under
  * this flag there is no window on the screen to watch at all. It would still
  * go green. So the job declines the flag, and the throw is here for the case
  * that matters — somebody handing the flag to that job from a workflow `env:`
  * block, where the decline alone would be silent.
  *
- * @throws if the window-behaviour job is somehow also asking for the flag.
+ * @throws if the window-behavior job is somehow also asking for the flag.
  */
 export function requestHiddenWindows(
   env: Record<string, string | undefined> = process.env,
@@ -121,7 +121,7 @@ export function requestHiddenWindows(
     throw new Error(
       `${WINDOW_BEHAVIOR_JOB_ENV}=1 and ${HIDDEN_WINDOW_ENV}=`
       + `${JSON.stringify(env[HIDDEN_WINDOW_ENV])} are set together. `
-      + 'The window-behaviour job tests what the window does — maximize, '
+      + 'The window-behavior job tests what the window does — maximize, '
       + 'focus, stacking — and under this flag no window reaches the screen '
       + 'at all, so that job would go green having stopped asserting. Remove '
       + 'the hidden-window variable from that job rather than from this check.',

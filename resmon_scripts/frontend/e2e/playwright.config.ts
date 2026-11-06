@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 import { requestBackgroundWindows } from './background-window';
 
 // Show the app's windows without taking the foreground, so a suite run does not
-// make the machine unusable. Skipped, and policed, on the window-behaviour job
+// make the machine unusable. Skipped, and policed, on the window-behavior job
 // — see `background-window.ts`.
 requestBackgroundWindows();
 

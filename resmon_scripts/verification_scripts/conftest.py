@@ -212,7 +212,7 @@ def pytest_runtest_makereport(item, call):
 # ``ci.yml`` runs ``pytest -v`` so that the last line printed names the last
 # test that finished — pytest-timeout's dump does not say which item it killed,
 # and in quiet mode a hang leaves a row of dots to count. With ``-v`` every
-# parametrised case prints its id, and
+# parametrized case prints its id, and
 # ``test_evidence_reader.py``'s bounds case carries ``b"a" * 262144`` as a
 # parameter, which pytest renders *into the id*. The collected line is 262,284
 # bytes. ``gh run view --log`` reads with Go's ``bufio.Scanner`` at its default
@@ -352,7 +352,7 @@ def pytest_sessionfinish(session, exitstatus):
 # ---------------------------------------------------------------------------
 #
 # Executions and cloud-status checks read credentials, and on macOS the real
-# keychain backend blocks on a GUI authorisation prompt that nothing can answer
+# keychain backend blocks on a GUI authorization prompt that nothing can answer
 # during a test run. Before the bounded-timeout gate in credential_manager that
 # hung the suite indefinitely; with it, the suite would still pay the timeout on
 # every lookup. Tests must not touch the developer's keychain at all.
@@ -499,7 +499,7 @@ def pytest_runtest_call(item):
     3.11, and the blunter ``InterfaceError: bad parameter or other API misuse``
     on 3.12 - which is how CI caught it while a local 3.11 run stayed green.
 
-    This has to be a hook rather than an autouse fixture. Fixtures finalise in
+    This has to be a hook rather than an autouse fixture. Fixtures finalize in
     reverse order of setup, and a conftest fixture is set up before a module's
     own - so it would tear down *after* ``_fresh_db`` had already closed the
     connection, which is exactly the window being closed here. ``pytest_runtest_call``

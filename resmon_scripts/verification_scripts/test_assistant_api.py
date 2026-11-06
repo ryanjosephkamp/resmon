@@ -319,7 +319,7 @@ def test_a_second_turn_resumes_rather_than_starting_over(backend):
 
 
 def test_an_unknown_cli_event_never_reaches_the_panel(backend):
-    """P6, through the whole relay rather than at the normaliser."""
+    """P6, through the whole relay rather than at the normalizer."""
     session = _session(backend.base)
     events = _turn(backend.base, session["id"],
                    'RAW:{"type":"rate_limit_event","secret":"do-not-render"}\nSAY:ok')
@@ -392,9 +392,9 @@ def test_cancel_ends_the_turn(backend):
         pytest.fail("the turn never produced anything")
 
     started = time.monotonic()
-    cancelled = _API.post(
+    canceled = _API.post(
         f"{backend.base}/api/assistant/sessions/{session['id']}/cancel", timeout=20)
-    assert cancelled.json()["cancelled"] is True
+    assert canceled.json()["cancelled"] is True
     worker.join(timeout=40)
     assert not worker.is_alive()
     assert time.monotonic() - started < 30
@@ -505,7 +505,7 @@ def test_a_read_tool_runs_without_asking_anyone(backend):
     implementing it. What is real on this side is that ``--allowedTools`` is
     built from ``READ_TOOLS`` and contains no write tool
     (``test_the_pre_approved_tools_are_exactly_the_read_tools``), and that the
-    real binary honours the flag — checked against the real CLI in
+    real binary honors the flag — checked against the real CLI in
     ``test_assistant_live.py``.
     """
     session = _session(backend.base)
@@ -576,7 +576,7 @@ def test_a_conversation_the_cli_has_lost_says_so_and_carries_on(backend):
     """P16a and P16b end to end: SSE, the store, and the next turn's argv.
 
     The double answers the resume the way claude 2.1.258 really answers one it
-    cannot honour — no init message, no ``result`` text, the sentence in
+    cannot honor — no init message, no ``result`` text, the sentence in
     ``errors`` — which is transcribed in the fixture and re-established against
     the binary by ``test_assistant_live.py``.
     """

@@ -124,12 +124,12 @@ def _patience_seconds(unattended: bool = False) -> float:
     return _budget("RESMON_ARXIV_PATIENCE_SECONDS", _PATIENCE_SECONDS)
 
 
-# How often a wait looks for a cancelled run: the longest a cancel waits for it.
+# How often a wait looks for a canceled run: the longest a cancel waits for it.
 _WAIT_SLICE_SECONDS = 0.5
 
 
 def _wait(seconds: float) -> None:
-    """Wait between attempts, ending early if the run is cancelled.
+    """Wait between attempts, ending early if the run is canceled.
 
     Slept with ``time.sleep`` a slice at a time, so a test that stubs
     ``time.sleep`` waits for nothing, and a seam besides, so a test can record
@@ -144,7 +144,7 @@ def _wait(seconds: float) -> None:
 
 
 def _stopped() -> bool:
-    """Whether the run this search belongs to was cancelled (``SearchOutcome.stop``)."""
+    """Whether the run this search belongs to was canceled (``SearchOutcome.stop``)."""
     return search_outcome().stop.is_set()
 
 
@@ -221,7 +221,7 @@ def _patient_request(params: dict, patience: _Patience) -> httpx.Response:
             return response
         patience.spend(seconds, f"answered {response.status_code}")
         if _stopped():
-            # The run was cancelled during the wait: nothing reads this search
+            # The run was canceled during the wait: nothing reads this search
             # any more, so arXiv is not asked again for it.
             return response
         patience.lengthen()

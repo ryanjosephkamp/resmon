@@ -11,7 +11,7 @@ _CONSTITUTION_CACHE: str | None = None
 
 
 def load_constitution() -> str:
-    """Return the summarization-model constitution text, memoised at module scope.
+    """Return the summarization-model constitution text, memoized at module scope.
 
     Loaded once per process via ``importlib.resources`` from
     ``implementation_scripts/assets/ai_summary_model_rules.md``. Size is
@@ -75,7 +75,7 @@ class _LazySystemPreamble:
     Kept as a descriptor-ish object so that importing ``prompt_templates``
     does not force the constitution file to be read (useful for tests and
     code paths that never touch summarization). String operations and
-    equality comparisons transparently materialise the full preamble.
+    equality comparisons transparently materialize the full preamble.
     """
 
     def __str__(self) -> str:
@@ -146,7 +146,7 @@ SUMMARIZE_ABSTRACT = (
 SUMMARIZE_FULL_TEXT = (
     "Write the summary in strict adherence to the attached constitution.\n"
     "Focus on methodology, results, and the authors' own contributions. "
-    "Omit boilerplate acknowledgments and formatting artefacts.\n\n"
+    "Omit boilerplate acknowledgments and formatting artifacts.\n\n"
     "Tone: {tone}\n"
     "Target length: {length} ({word_count_band} words)\n"
     "Extraction goals: {extraction_goals}\n\n"

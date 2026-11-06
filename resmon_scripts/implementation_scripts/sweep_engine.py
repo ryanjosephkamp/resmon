@@ -78,7 +78,7 @@ _HEARTBEAT_SECONDS = 2.0
 _SENT_QUERY_KEYS = ("author_queries", "queries_sent", "default_starts")
 
 
-class _ExecutionCancelled(Exception):
+class _ExecutionCanceled(Exception):
     """Raised internally when cooperative cancellation is detected mid-query."""
 
 
@@ -320,7 +320,7 @@ class SweepEngine:
         # into the report's footer.
         zero_notes: list[dict] = []
         # Records each source returned, for every source whose search finished.
-        # Only a cancelled run's report needs it: a finished report lists the
+        # Only a canceled run's report needs it: a finished report lists the
         # papers themselves.
         source_counts: dict[str, int] = {}
         # A person watch: what each source's author query sent, by slug.
@@ -337,7 +337,7 @@ class SweepEngine:
         find_matches: dict[str, Optional[paper_find.Match]] = {}
         find_candidates: dict[str, int] = {}
 
-        def cancelled(
+        def canceled(
             stage: str,
             *,
             report_docs: Optional[list[dict]] = None,
@@ -345,14 +345,14 @@ class SweepEngine:
             linked: Optional[list[int]] = None,
             ai_model: Optional[str] = None,
         ) -> dict:
-            """Finalize a cancelled run, leaving a report of what it collected.
+            """Finalize a canceled run, leaving a report of what it collected.
 
             ``stage`` is where the cancel took effect: ``querying`` (sources
             still being asked), ``collected`` (every source finished, nothing
             stored yet), ``summarizing`` (papers stored and linked) or
             ``reporting`` (papers stored, the run about to be recorded as
             finished). A report that cannot be written is logged and the run
-            is still cancelled; the report is never allowed to turn a cancel
+            is still canceled; the report is never allowed to turn a cancel
             into a failure.
             """
             report_path: Optional[Path] = None
@@ -389,7 +389,7 @@ class SweepEngine:
                 report_path = (REPORTS_DIR / "markdowns"
                                / f"report_{execution_type}_{exec_id}_{ts_slug}.md")
                 save_report(text, report_path)
-                task_log.log(f"Report of the cancelled run saved: {report_path}")
+                task_log.log(f"Report of the canceled run saved: {report_path}")
                 store.emit(exec_id, {
                     "type": "report_saved",
                     "report_path": str(report_path),
@@ -397,10 +397,10 @@ class SweepEngine:
                 })
             except Exception as exc:
                 logger.warning(
-                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    "Could not write the canceled run's report (exec_id=%s): %s",
                     exec_id, exc,
                 )
-                task_log.log(f"The cancelled run's report could not be written: {exc}")
+                task_log.log(f"The canceled run's report could not be written: {exc}")
                 report_path = None
             return self._handle_cancellation(
                 exec_id, task_log, all_results, wall_start,
@@ -471,7 +471,7 @@ class SweepEngine:
                 default_starts or None,
             )
             if stopped:
-                return cancelled("querying")
+                return canceled("querying")
 
             store.emit(exec_id, {
                 "type": "log_entry",
@@ -483,7 +483,7 @@ class SweepEngine:
             # 4. Normalize + deduplicate + insert
             # Cancellation checkpoint
             if store.should_cancel(exec_id):
-                return cancelled("collected")
+                return canceled("collected")
 
             store.emit(exec_id, {
                 "type": "stage",
@@ -504,7 +504,7 @@ class SweepEngine:
 
             # The match rows, written **after** the documents exist
             # because a match points at a document id. Written for every
-            # verified candidate, including the ones dedup recognised as
+            # verified candidate, including the ones dedup recognized as
             # already in the corpus: a paper you already had is still this
             # person's paper, and a watch routine that only ever surfaced brand
             # new documents would go quiet for anyone whose work you already
@@ -620,7 +620,7 @@ class SweepEngine:
             ai_possible = bool(ai_lanes) or self.llm_client is not None
             if ai_possible and self.config.get("ai_enabled") and report_docs:
                 if store.should_cancel(exec_id):
-                    return cancelled("summarizing", report_docs=report_docs,
+                    return canceled("summarizing", report_docs=report_docs,
                                      dedup=dedup_stats, linked=linked_ids)
 
                 store.emit(exec_id, {
@@ -689,16 +689,16 @@ class SweepEngine:
                     # *during* a slice, which is why the slice also announces
                     # itself before it starts.
                     total_chars = 0
-                    cancelled_mid_summary = False
+                    canceled_mid_summary = False
                     total_docs = len(doc_texts)
                     batch_size = max(1, int(getattr(ai_lanes[0], "batch_size", 1) or 1))
                     completed = 0
 
                     for start in range(0, total_docs, batch_size):
                         if store.should_cancel(exec_id):
-                            cancelled_mid_summary = True
+                            canceled_mid_summary = True
                             task_log.log(
-                                f"AI summarization cancelled after "
+                                f"AI summarization canceled after "
                                 f"{completed}/{total_docs} documents."
                             )
                             break
@@ -733,10 +733,10 @@ class SweepEngine:
                                 last=last,
                                 total=total_docs,
                             )
-                        except _ExecutionCancelled:
-                            cancelled_mid_summary = True
+                        except _ExecutionCanceled:
+                            canceled_mid_summary = True
                             task_log.log(
-                                f"AI summarization cancelled after "
+                                f"AI summarization canceled after "
                                 f"{completed}/{total_docs} documents."
                             )
                             break
@@ -821,8 +821,8 @@ class SweepEngine:
                             "timestamp": now_iso(),
                         })
 
-                    if cancelled_mid_summary:
-                        return cancelled("summarizing", report_docs=report_docs,
+                    if canceled_mid_summary:
+                        return canceled("summarizing", report_docs=report_docs,
                                          dedup=dedup_stats, linked=linked_ids,
                                          ai_model=chain.active_label or None)
 
@@ -916,7 +916,7 @@ class SweepEngine:
             # ends the run canceled; one that comes after it is refused (the
             # stop route answers 409), never accepted and then ignored.
             if not store.begin_finishing(exec_id):
-                return cancelled("reporting", report_docs=report_docs,
+                return canceled("reporting", report_docs=report_docs,
                                  dedup=dedup_stats, linked=linked_ids)
 
             # 7. Finalize
@@ -1047,7 +1047,7 @@ class SweepEngine:
         state most installs are in and is not a failure.
 
         **Three separate skip reasons, and each is recorded rather than
-        summarised.** No lane configured, the extension will not load, and the
+        summarized.** No lane configured, the extension will not load, and the
         lane refused are different conditions with different remedies, and a run
         that said only "embedding skipped" would leave the user to guess which.
         The extension case still writes vectors: they are in
@@ -1066,13 +1066,13 @@ class SweepEngine:
 
         try:
             todo = pending_ids(self.db, lane.model, within=linked_ids)
-        except Exception as exc:  # pragma: no cover - defence around an optional step
+        except Exception as exc:  # pragma: no cover - defense around an optional step
             logger.warning("could not determine what to embed: %s", exc)
             return
 
         # ``pending_ids`` rather than "the new ones". A document this run
         # returned that is already in the corpus but has no vector -- because it
-        # predates the lane, or a backfill was cancelled -- is embedded here, and
+        # predates the lane, or a backfill was canceled -- is embedded here, and
         # one that already has a vector is not re-embedded. The set is bounded by
         # this execution either way, and it is self-healing rather than merely
         # correct for new rows.
@@ -1423,17 +1423,17 @@ class SweepEngine:
         start = time.monotonic()
         thread.start()
 
-        cancelled = False
+        canceled = False
         while thread.is_alive():
             thread.join(timeout=heartbeat_interval)
             if not thread.is_alive():
                 break
-            if not cancelled and store.should_cancel(exec_id):
+            if not canceled and store.should_cancel(exec_id):
                 # Terminate the CLI, then wait for the worker to unwind rather
                 # than abandoning it: the temporary working directory holding
                 # the constitution is cleaned up on the way out, and a thread
-                # left holding it would leak one per cancelled batch.
-                cancelled = True
+                # left holding it would leak one per canceled batch.
+                canceled = True
                 try:
                     chain.cancel()
                 except Exception:  # pragma: no cover - defensive
@@ -1455,8 +1455,8 @@ class SweepEngine:
                 "timestamp": now_iso(),
             })
 
-        if cancelled:
-            raise _ExecutionCancelled()
+        if canceled:
+            raise _ExecutionCanceled()
         if "error" in holder:
             raise holder["error"]
         return holder.get("results", [("", None)] * len(texts))
@@ -1491,7 +1491,7 @@ class SweepEngine:
         """
         from . import lifecycle as lifecycle_module
         from . import watch_profiles as watch_profiles_module
-        from .report_generator import generate_cancelled_watch_report, generate_watch_report
+        from .report_generator import generate_canceled_watch_report, generate_watch_report
 
         store = progress_store
         profile = query_params["entity_profile"]
@@ -1514,18 +1514,18 @@ class SweepEngine:
         # placed: everything above reads the local database, and everything below
         # is a single bounded lifecycle pass that makes batched HTTP calls and
         # cannot be interrupted part-way. `begin_finishing` is the run's last
-        # check: a stop accepted before it ends the run cancelled, and from here
+        # check: a stop accepted before it ends the run canceled, and from here
         # a stop is refused (the stop route answers 409) rather than accepted
         # and ignored.
         if not store.begin_finishing(exec_id):
             report_path: Optional[Path] = None
             try:
                 report_path = REPORTS_DIR / "markdowns" / f"report_{execution_type}_{exec_id}_{ts_slug}.md"
-                save_report(generate_cancelled_watch_report(profile, len(document_ids)), report_path)
-                task_log.log(f"Report of the cancelled run saved: {report_path}")
+                save_report(generate_canceled_watch_report(profile, len(document_ids)), report_path)
+                task_log.log(f"Report of the canceled run saved: {report_path}")
             except Exception as exc:
                 logger.warning(
-                    "Could not write the cancelled run's report (exec_id=%s): %s",
+                    "Could not write the canceled run's report (exec_id=%s): %s",
                     exec_id, exc,
                 )
                 report_path = None
@@ -1540,7 +1540,7 @@ class SweepEngine:
 
         # Bounded, and bounded by the routine's own `max_results` so the same
         # dial that limits a keyword sweep limits this. A daily routine over a
-        # large back catalogue walks it: `documents_due` orders never-checked
+        # large back catalog walks it: `documents_due` orders never-checked
         # first, so each run advances rather than re-reading the head.
         limit = int(query_params.get("max_results") or 100)
         check = lifecycle_module.check_documents(
@@ -1734,7 +1734,7 @@ class SweepEngine:
         deduplication, the report and the search record come out as a
         one-at-a-time run wrote them whichever source happened to answer first.
 
-        Returns True when the run was cancelled. The collections then hold what
+        Returns True when the run was canceled. The collections then hold what
         the sources that finished contributed, and ``zero_notes`` also names
         each search the cancel interrupted and each source it was never sent
         to, so the caller's report can account for every selected source.
@@ -2088,12 +2088,12 @@ class SweepEngine:
                     exec_id, repo_name, "cancelled",
                     error_message="cancelled by user",
                 )
-                task_log.log(f"  {repo_name}: CANCELLED by user")
+                task_log.log(f"  {repo_name}: CANCELED by user")
                 name = _source_display_name(repo_name)
                 notes_by.setdefault(i, []).append({
                     "source": name, "slug": repo_name, "reason": "cancelled",
                     "sentence": (
-                        f"{name} was still being asked when the run was cancelled, "
+                        f"{name} was still being asked when the run was canceled, "
                         "and nothing it sent was kept. This is not a zero — the "
                         "source did not finish answering."
                     ),
@@ -2103,12 +2103,12 @@ class SweepEngine:
             # there is no outcome to record. The report still names it, so the
             # reader can see every selected source accounted for.
             for i, repo_name in waiting:
-                task_log.log(f"  {repo_name}: not asked; the run was cancelled first")
+                task_log.log(f"  {repo_name}: not asked; the run was canceled first")
                 name = _source_display_name(repo_name)
                 notes_by.setdefault(i, []).append({
                     "source": name, "slug": repo_name, "reason": "not_reached",
                     "sentence": (
-                        f"{name} was not asked: the run was cancelled before "
+                        f"{name} was not asked: the run was canceled before "
                         "resmon reached it."
                     ),
                 })
@@ -2279,7 +2279,7 @@ class SweepEngine:
     ) -> dict:
         """Clean up and finalize after cooperative cancellation is detected.
 
-        The cancelled run's report, when one was written, and its task log are
+        The canceled run's report, when one was written, and its task log are
         stored where a finished run's are, so the run's Report and Log read
         them the same way.
         """
@@ -2293,7 +2293,7 @@ class SweepEngine:
             log_path=str(log_path) if log_path else None,
             result_path=str(report_path) if report_path else None,
         )
-        task_log.finalize(status="CANCELLED", stats={"partial_results": len(partial_results)})
+        task_log.finalize(status="CANCELED", stats={"partial_results": len(partial_results)})
 
         store.emit(exec_id, {
             "type": "cancelled",

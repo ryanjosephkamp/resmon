@@ -9,7 +9,7 @@
  * that the composer carries a name assistive technology can announce, that the
  * keyboard alone opens the panel, that the panel does not hang off the edge of
  * the window it is drawn in, and that an error is given a role that is read
- * aloud instead of a colour that is not.
+ * aloud instead of a color that is not.
  *
  * **Where the assertions are not absolute.** The keyboard shortcut is reported
  * rather than required, because a renderer may reasonably offer a different one
@@ -57,7 +57,7 @@ journey.describe('J31 Readable Ask', () => {
 
     const afterFailure = await resmon.readTheAssistantPanel();
     console.log(`[J31] the error region carries roles: ${JSON.stringify(afterFailure.errorRoles)}`);
-    // The role, not the colour. An error a sighted person sees and a screen
+    // The role, not the color. An error a sighted person sees and a screen
     // reader never announces is half a feature.
     expect(
       afterFailure.errorRoles,

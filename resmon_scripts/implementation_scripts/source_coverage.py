@@ -106,7 +106,7 @@ def outcome(row: dict) -> dict:
             elif status == "error":
                 note = "Recorded query failure: " + str(row.get("error_message") or "unknown error")
             elif status == "cancelled":
-                note = "The run was cancelled while this source was being queried."
+                note = "The run was canceled while this source was being queried."
             elif status == "skipped_missing_key":
                 note = zero_reason.sentence(named, "missing_key")
             else:
@@ -211,21 +211,21 @@ def _counted(n: int, singular: str) -> str:
 def _non_answers(sources: list[dict], n: int) -> str:
     """The non-answer count, and why, in words that agree with the count.
 
-    A source the run was still asking when it was cancelled did not fail to
+    A source the run was still asking when it was canceled did not fail to
     answer: the run stopped first, and the report says so in those words. Only
     the rest are said to have been unable to answer.
     """
     phrase = f"{n} recorded non-answer{'' if n == 1 else 's'}"
     if not n:
         return phrase
-    cancelled = sum(s["category"] == "non_answer" and s["status"] == "cancelled" for s in sources)
-    could_not = n - cancelled
-    stopped = f"cancelled before {'it' if cancelled == 1 else 'they'} answered"
-    if not cancelled:
+    canceled = sum(s["category"] == "non_answer" and s["status"] == "cancelled" for s in sources)
+    could_not = n - canceled
+    stopped = f"canceled before {'it' if canceled == 1 else 'they'} answered"
+    if not canceled:
         return f"{phrase} (could not answer)"
     if not could_not:
         return f"{phrase} ({stopped})"
-    return f"{phrase} ({could_not} could not answer, {cancelled} {stopped})"
+    return f"{phrase} ({could_not} could not answer, {canceled} {stopped})"
 
 
 def build(execution: dict, rows: list[dict]) -> dict:

@@ -160,8 +160,8 @@ def test_a_watchs_scheduled_run_says_its_five_minute_wait_for_arxiv(monkeypatch)
     assert {b["retries"] for b in beats if "waiting" in b} == {1}
 
 
-def test_cancelling_a_run_ends_its_searches_long_waits(monkeypatch):
-    """A cancelled run tells each search still under way, so a long wait (arXiv's) ends rather than running on."""
+def test_canceling_a_run_ends_its_searches_long_waits(monkeypatch):
+    """A canceled run tells each search still under way, so a long wait (arXiv's) ends rather than running on."""
     monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
     seen: dict = {}
 

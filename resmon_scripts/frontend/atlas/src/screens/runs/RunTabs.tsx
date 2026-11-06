@@ -388,7 +388,7 @@ function SearchFacts({ search, run }: { search: Record<string, unknown>; run: Ru
     ['Kind', text(search.execution_type) ? runKind(String(search.execution_type)) : <span className="nr">not recorded</span>],
     ['Run at', <Value value={search.run_at} />],
     ['Completed at', <Value value={search.completed_at} />],
-    ['Status', <Value value={search.status} />],
+    ['Status', <Value value={search.status === 'cancelled' ? 'canceled' : search.status} />],
     // The words typed; what each source was sent is the next row.
     ['Search terms, as typed', keywords.length ? keywords.join(', ') : <span className="nr">none</span>],
     ['Query as sent', <QueriesSent queries={search.queries_as_sent as QuerySent[] | null | undefined} />],
@@ -615,10 +615,10 @@ function eventWords(event: ProgressEvent, names: ReadonlyMap<string, string>): s
       : `${source} answered with ${event.result_count ?? 'an unrecorded number of'} records.`;
     case 'repo_skipped_missing_key': return `${source} not queried: no API key.`;
     case 'repo_error': return event.error === 'cancelled by user'
-      ? `${source}: cancelled while it was being asked.`
+      ? `${source}: canceled while it was being asked.`
       : `${source}: ${event.error ?? 'error'}`;
     case 'complete': return `The run finished: ${event.status ?? 'status not recorded'}.`;
-    case 'cancelled': return 'The run was cancelled.';
+    case 'cancelled': return 'The run was canceled.';
     case 'error': return `The run failed: ${event.error ?? 'reason not recorded'}.`;
     default: return event.message || event.type.replace(/_/g, ' ');
   }

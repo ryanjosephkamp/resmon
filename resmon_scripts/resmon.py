@@ -294,7 +294,7 @@ _db_local = threading.local()
 #
 # The owner is recorded because closing a connection from a *different* thread
 # while its owner is mid-statement does not raise -- it segfaults. Connections
-# are opened with ``check_same_thread=False``, so nothing in sqlite3 serialises
+# are opened with ``check_same_thread=False``, so nothing in sqlite3 serializes
 # a close against another thread's in-flight query, and CPython hands the C
 # library a connection it is still using. ``close_db`` uses the owner to refuse
 # exactly that; see the note there.
@@ -495,7 +495,7 @@ class RestartRequest(BaseModel):
     # See DiveRequest.request_id.
     request_id: Optional[str] = None
     # Run again: a completed run's search, once more. Without it only a run
-    # that stopped before it finished (interrupted, failed, cancelled) is
+    # that stopped before it finished (interrupted, failed, canceled) is
     # restarted, as Restart has always done.
     again: bool = False
 
@@ -668,7 +668,7 @@ def health(expected_runtime_id: Optional[str] = None):
     identity = runtime_identity.project(conn)
     try:
         embeddings = vector_index.extension_status(conn)
-    except Exception as exc:  # pragma: no cover - defence; the status call catches its own
+    except Exception as exc:  # pragma: no cover - defense; the status call catches its own
         embeddings = {"extension": None, "reason": f"{type(exc).__name__}: {exc}"}
     finally:
         _close_db(conn)
@@ -2176,7 +2176,7 @@ def _upcoming_date_window(conn, routine_id: int, raw_parameters: object) -> Opti
 
 
 def _validated_entity(conn, parameters: dict) -> Optional[dict]:
-    """`parameters.entity`, normalised, or None when the routine is a keyword one.
+    """`parameters.entity`, normalized, or None when the routine is a keyword one.
 
     Validated at the seam rather than at fire time. A routine's
     ``parameters`` is an untyped JSON blob, so an entity naming a
@@ -3511,12 +3511,12 @@ _TERMINAL_EXECUTION_STATES = ("completed", "failed", "cancelled", "interrupted")
 def cancel_execution(exec_id: int):
     """Request cooperative cancellation of a running execution.
 
-    A row that is not in the in-memory ``ProgressStore`` is not cancellable,
+    A row that is not in the in-memory ``ProgressStore`` is not cancelable,
     and saying only "Execution not running" would read, on an
     interrupted row, as if resmon had lost track of something. The row's own
     state belongs in the sentence.
 
-    ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+    ``detail`` stays a **string**. FastAPI will serialize a dict there happily,
     and a renderer that renders ``detail`` directly -- which several of
     resmon's do -- would then show ``[object Object]``. Anything that needs the
     state structurally reads ``status`` off the row it already has.
@@ -3531,9 +3531,11 @@ def cancel_execution(exec_id: int):
         # always answered for an id the progress store does not hold.
         if not row:
             raise HTTPException(409, f"resmon has no record of execution {exec_id}.")
+        state = row.get("status")
+        state_word = "canceled" if state == "cancelled" else state
         raise HTTPException(409, (
-            f"Execution {exec_id} is {row.get('status')}; only a running "
-            "execution can be cancelled."))
+            f"Execution {exec_id} is {state_word}; only a running "
+            "execution can be canceled."))
     if not progress_store.request_cancel(exec_id):
         # Past the run's last cancellation check: it is recording its result.
         raise HTTPException(409, (
@@ -3592,7 +3594,7 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
     restart is a second thing that happened, not a correction of the first.
 
     ``again`` asks for a completed run's search once more (Run again, on the
-    Runs tab); without it only an interrupted, failed or cancelled run is
+    Runs tab); without it only an interrupted, failed or canceled run is
     restarted. At the run limit the new run waits in the queue
     (``_start_or_queue``) and its row is written only when it starts: the
     answer then carries no execution id, ``queued``, and its place.
@@ -3626,7 +3628,7 @@ def restart_execution(exec_id: int, response: Response, body: Optional[RestartRe
                 f"Execution {exec_id} is {state}; only a run that has ended can be run again."
                 if again else
                 f"Execution {exec_id} is {state}; only an interrupted, failed "
-                "or cancelled run can be restarted."))
+                "or canceled run can be restarted."))
         # The watch this run belongs to, if it still exists: a deleted watch's
         # runs keep their kind and lose their ``routine_id``.
         watch_id = row.get("routine_id") if row["execution_type"] == "automated_sweep" else None
@@ -4047,7 +4049,7 @@ async def import_configurations(files: list[UploadFile] = File(...)):
         # the Configurations page's Export Selected writes a ZIP, and an
         # import that decided what it had from this suffix read the archive as
         # text and raised. ``import_configs`` sniffs the content instead, and
-        # is handed the names the user recognises so a refusal can quote them
+        # is handed the names the user recognizes so a refusal can quote them
         # rather than a path inside the temporary directory.
         tmp_paths = []
         upload_names = []
@@ -4960,12 +4962,12 @@ async def _evidence_run(request: Request, operation: Callable[[sqlite3.Connectio
         if cancel.is_set():
             if isinstance(result, evidence_export.Bundle):
                 result.close()
-            raise HTTPException(409, {"reason": "cancelled", "message": "The Evidence request was cancelled."})
+            raise HTTPException(409, {"reason": "cancelled", "message": "The Evidence request was canceled."})
         return result
     except asyncio.CancelledError:
         cancel.set()
         # Shield the exact thread result so a completed export spool is not
-        # orphaned when the HTTP owner is cancelled after bytes were built.
+        # orphaned when the HTTP owner is canceled after bytes were built.
         try:
             result = await asyncio.shield(task)
             if isinstance(result, evidence_export.Bundle):
@@ -6622,14 +6624,14 @@ def calendar_events(
         execs = get_executions(conn, limit=500)
         events = []
         # Status → dot color. ``cancelled`` now uses the same red as the
-        # Dashboard/Results badge-cancelled palette (was amber/orange); the
+        # Dashboard/Results badge-canceled palette (was amber/orange); the
         # orange slot is reclaimed by the new ``scheduled`` status for
         # upcoming routine fires.
         status_color = {
             "completed": "#22c55e",  # green
             "running":   "#3b82f6",  # blue
             "failed":    "#ef4444",  # red
-            "cancelled": "#ef4444",  # red (matches badge-cancelled)
+            "cancelled": "#ef4444",  # red (matches badge-canceled)
             "scheduled": "#f59e0b",  # orange
         }
         for ex in execs:
@@ -7428,7 +7430,7 @@ def start_embedding_backfill():
 
     Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
     construction — the work remaining is a query, not a stored cursor — so a
-    cancelled run restarts where the corpus is, not where the last run thought
+    canceled run restarts where the corpus is, not where the last run thought
     it was.
     """
     conn = _get_db()
@@ -7846,7 +7848,7 @@ def _dispatch_routine_fire(
     Run now needs to be told, with the id of the run that already exists, so
     the endpoint asks for the exception. The scheduler and the drain get
     ``None`` and an info line: a fire arriving while the previous one is still
-    going is expected behaviour of a routine that runs longer than its period,
+    going is expected behavior of a routine that runs longer than its period,
     not a fault, and raising into APScheduler's worker would log it as one.
     A *scheduled* fire refused that way is still written down, as a missed
     fire ``skipped`` because the previous run was still going: the scheduler's
@@ -8918,7 +8920,7 @@ def flush_running_executions(reason: str = "daemon_restart") -> int:
 # the backend it spawned all leave the row exactly as the worker thread last
 # wrote it: ``status='running'``, ``progress_events`` NULL, and no in-memory
 # ``ProgressStore`` entry on the next start -- so the row was listed nowhere,
-# could not be cancelled, and sat in Results claiming to be running forever.
+# could not be canceled, and sat in Results claiming to be running forever.
 #
 # The rule below is deliberately one-sided. A row is adopted only where resmon
 # can *establish* that the process which owned it is gone; everything else is
@@ -8945,7 +8947,7 @@ _ORPHAN_RUNNING_ADOPT_AFTER = timedelta(hours=24)
 # one implementation the three call sites that need it share. The name stays
 # here because this module's reconciliation reads as prose with it, and because
 # ``test_executions_interrupted.py`` asks for it by name. Here the cost of
-# being wrong towards alive is a row that stays ``running`` a little longer;
+# being wrong toward alive is a row that stays ``running`` a little longer;
 # the cost in the other direction is resmon telling the user a live run is dead.
 _owner_process_is_alive = runtime_identity.process_is_alive
 

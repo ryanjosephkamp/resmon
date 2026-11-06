@@ -77,7 +77,7 @@ def _stub(routes: dict, base: str = STUB_BASE,
           formats: tuple[str, ...] = ("bibtex", "ris", "csv", "json")):
     """Serve canned JSON for exact paths; anything else 404s.
 
-    **This double honours the query string, and that is the point of it.**
+    **This double honors the query string, and that is the point of it.**
 
     It used to strip ``?...`` before matching, which made it structurally
     incapable of observing the parameter a real bug lived in: the MCP server

@@ -104,7 +104,7 @@ _STATUS_LABELS = {
     "ok": "answered",
     "error": "query failed",
     "skipped_missing_key": _LABELS["missing_key"],
-    "cancelled": "cancelled before it answered",
+    "cancelled": "canceled before it answered",
 }
 
 

@@ -164,7 +164,7 @@ def test_a_different_number_of_given_names_does_not_match():
 
 
 def test_a_name_of_only_stop_words_still_folds_to_something():
-    """`normalise_title` drops English stop words, and surnames contain them.
+    """`normalize_title` drops English stop words, and surnames contain them.
 
     "De La" folding to zero tokens would make it match everything or nothing
     depending on which side it landed on.

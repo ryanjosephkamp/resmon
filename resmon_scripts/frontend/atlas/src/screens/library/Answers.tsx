@@ -22,7 +22,7 @@ function errorWords(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-/** The answer this window started and still owns: it is cancelled if the window leaves it. */
+/** The answer this window started and still owns: it is canceled if the window leaves it. */
 interface Owned { answer: Answer; runtime: string }
 
 /**

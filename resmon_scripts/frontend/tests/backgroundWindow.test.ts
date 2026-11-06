@@ -1,5 +1,5 @@
 /**
- * The window-behaviour CI job must keep launching the app normally.
+ * The window-behavior CI job must keep launching the app normally.
  *
  * Both Playwright configs now ask for `RESMON_BACKGROUND_WINDOW=1`, which shows
  * the app's windows inactive and, on macOS, runs the process under the
@@ -7,7 +7,7 @@
  * on somebody's own Mac — it stops the suite taking the foreground dozens of
  * times — but it is wrong for exactly one job.
  *
- * `ui-smoke.yml`'s **Window behaviour (Electron on macOS)** job exists to watch
+ * `ui-smoke.yml`'s **Window behavior (Electron on macOS)** job exists to watch
  * maximize, focus and stacking. Under the flag no window ever reports focus and
  * the process has no Dock icon and no menu bar, so those assertions stop being
  * about the app that ships — and `window-manager.spec.ts`'s link-window focus
@@ -77,7 +77,7 @@ function outsideJobs(workflow: string): string[] {
   return jobsAt === -1 ? lines : lines.slice(0, jobsAt);
 }
 
-describe('the window-behaviour job never runs with background windows', () => {
+describe('the window-behavior job never runs with background windows', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
 
   test('the job declares the marker the Playwright config keys its opt-out on', () => {
@@ -107,7 +107,7 @@ describe('requestBackgroundWindows', () => {
     expect(env[BACKGROUND_WINDOW_ENV]).toBe('1');
   });
 
-  test('leaves the window-behaviour job alone', () => {
+  test('leaves the window-behavior job alone', () => {
     const env: Record<string, string | undefined> = { [WINDOW_BEHAVIOR_JOB_ENV]: '1' };
     requestBackgroundWindows(env);
     expect(env[BACKGROUND_WINDOW_ENV]).toBeUndefined();
@@ -119,12 +119,12 @@ describe('requestBackgroundWindows', () => {
     expect(env[BACKGROUND_WINDOW_ENV]).toBe('0');
   });
 
-  test('refuses to run the window-behaviour job with the flag set', () => {
+  test('refuses to run the window-behavior job with the flag set', () => {
     const env: Record<string, string | undefined> = {
       [WINDOW_BEHAVIOR_JOB_ENV]: '1',
       [BACKGROUND_WINDOW_ENV]: '1',
     };
-    expect(() => requestBackgroundWindows(env)).toThrow(/window-behaviour job/);
+    expect(() => requestBackgroundWindows(env)).toThrow(/window-behavior job/);
   });
 
   test('refuses even when the flag is an explicit off, because the conflict is the bug', () => {
@@ -142,10 +142,10 @@ describe('requestBackgroundWindows', () => {
  * `RESMON_BACKGROUND_WINDOW` leaves a window on the screen to look at.
  * `RESMON_HIDDEN_WINDOW` does not: `electron/main.ts` never calls `show()`, and
  * a CoreGraphics census of the launched process's own windows returns zero. So
- * the window-behaviour job under this flag would not merely stop reporting
+ * the window-behavior job under this flag would not merely stop reporting
  * focus — it would have no window on a screen at all, and would still go green.
  */
-describe('the window-behaviour job never runs with hidden windows', () => {
+describe('the window-behavior job never runs with hidden windows', () => {
   const workflow = fs.readFileSync(WORKFLOW, 'utf8');
 
   test('the job sets the hidden-window variable nowhere in its block', () => {
@@ -168,7 +168,7 @@ describe('requestHiddenWindows', () => {
     expect(env[HIDDEN_WINDOW_ENV]).toBe('1');
   });
 
-  test('leaves the window-behaviour job alone', () => {
+  test('leaves the window-behavior job alone', () => {
     const env: Record<string, string | undefined> = { [WINDOW_BEHAVIOR_JOB_ENV]: '1' };
     requestHiddenWindows(env);
     expect(env[HIDDEN_WINDOW_ENV]).toBeUndefined();
@@ -180,12 +180,12 @@ describe('requestHiddenWindows', () => {
     expect(env[HIDDEN_WINDOW_ENV]).toBe('0');
   });
 
-  test('refuses to run the window-behaviour job with the flag set', () => {
+  test('refuses to run the window-behavior job with the flag set', () => {
     const env: Record<string, string | undefined> = {
       [WINDOW_BEHAVIOR_JOB_ENV]: '1',
       [HIDDEN_WINDOW_ENV]: '1',
     };
-    expect(() => requestHiddenWindows(env)).toThrow(/window-behaviour job/);
+    expect(() => requestHiddenWindows(env)).toThrow(/window-behavior job/);
   });
 
   test('refuses even when the flag is an explicit off, because the conflict is the bug', () => {

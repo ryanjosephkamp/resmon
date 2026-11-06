@@ -139,7 +139,7 @@ REGISTER_TITLES = dict(REGISTER)
 #: route" and "nobody got round to mapping it" look identical otherwise.
 ROWLESS_REASONS: dict[str, str] = {
     "J08": (
-        "No route of its own. The capability is in the normaliser, the catalog's "
+        "No route of its own. The capability is in the normalizer, the catalog's "
         "`entity_search` syntax and `api_base.search_entity`; it reaches a user "
         "through the routes of J01, J02 and J07."
     ),
@@ -531,7 +531,7 @@ def modeled_route_count() -> int:
     return len(modeled_routes())
 
 
-def normalised_openapi() -> dict:
+def normalized_openapi() -> dict:
     """``app.openapi()`` with the version removed.
 
     ``info.version`` is ``config.APP_VERSION``, which moves at every release.
@@ -560,7 +560,7 @@ def contract_json() -> str:
     shows what changed rather than where it moved to.
     """
     return json.dumps(
-        normalised_openapi(), sort_keys=True, indent=2, ensure_ascii=False
+        normalized_openapi(), sort_keys=True, indent=2, ensure_ascii=False
     ) + "\n"
 
 
@@ -940,7 +940,7 @@ def _escape(text: str) -> str:
 
 def route_rows() -> list[dict]:
     """One row per ``(method, path)``, with everything the index prints."""
-    document = normalised_openapi()
+    document = normalized_openapi()
     paths = document.get("paths", {})
     by_key = {}
     for route in api_routes():

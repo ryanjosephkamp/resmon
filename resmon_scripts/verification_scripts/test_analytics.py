@@ -81,7 +81,7 @@ def test_empty_corpus_exports_are_valid_and_empty(conn):
 
 
 # ---------------------------------------------------------------------------
-# Thin corpus — enough to count, not enough to generalise
+# Thin corpus — enough to count, not enough to generalize
 # ---------------------------------------------------------------------------
 
 def test_discovery_lag_withholds_a_median_below_the_threshold(conn):

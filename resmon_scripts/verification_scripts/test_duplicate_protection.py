@@ -349,7 +349,7 @@ def test_the_same_request_id_twice_yields_one_execution(client):
 
     Cannot see: whether the *renderer* sends a fresh id per click. That is a
     renderer property and it is asserted in the renderer's own suite; what this
-    establishes is that the backend honours whatever it is sent.
+    establishes is that the backend honors whatever it is sent.
     """
     cases = [
         ("/api/search/sweep", dict(_SWEEP, request_id="11111111-1111-1111-1111-111111111111")),

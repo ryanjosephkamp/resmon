@@ -216,7 +216,7 @@ PROVIDER_TOOL_CALLING: dict[str, ProviderToolCalling] = {
         state="yes",
         reason=(
             "Ollama serves tool calling, for a model that supports it — but resmon's "
-            "assistant does not drive Ollama yet. Ollama remains a summarisation lane."
+            "assistant does not drive Ollama yet. Ollama remains a summarization lane."
         ),
         evidence=(
             f"{_PROBED_ON}: POST http://127.0.0.1:11434/api/chat to Ollama 0.33.2 with "

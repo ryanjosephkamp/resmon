@@ -207,7 +207,7 @@ jobs:
         # (@emnapi/*, @unrs/*, @napi-rs/*) is 27 lockfile entries, so
         # `npm install` stays.
         #
-        # The lockfile is still committed and still honoured for everything it
+        # The lockfile is still committed and still honored for everything it
         # does pin; this only relaxes the strict-equality check that npm itself
         # cannot satisfy across platforms.
         run: npm install --no-audit --no-fund

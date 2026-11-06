@@ -395,8 +395,8 @@ _DIGEST_PREAMBLE = r"""\documentclass[11pt,letterpaper]{article}
 
 \definecolor{accent}{RGB}{20,66,114}
 \definecolor{accentsoft}{RGB}{70,110,160}
-\definecolor{mutedgrey}{RGB}{95,95,95}
-\definecolor{rulegrey}{RGB}{200,205,215}
+\definecolor{mutedgray}{RGB}{95,95,95}
+\definecolor{rulegray}{RGB}{200,205,215}
 \definecolor{abstractbg}{RGB}{245,247,251}
 
 \hypersetup{
@@ -408,17 +408,17 @@ _DIGEST_PREAMBLE = r"""\documentclass[11pt,letterpaper]{article}
 
 \pagestyle{fancy}
 \fancyhf{}
-\fancyhead[L]{\small\color{mutedgrey}\textsc{resmon literature digest}}
-\fancyhead[R]{\small\color{mutedgrey}Page \thepage}
+\fancyhead[L]{\small\color{mutedgray}\textsc{resmon literature digest}}
+\fancyhead[R]{\small\color{mutedgray}Page \thepage}
 \renewcommand{\headrulewidth}{0.4pt}
-\renewcommand{\headrule}{\hbox to\headwidth{\color{rulegrey}\leaders\hrule height \headrulewidth\hfill}}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{rulegray}\leaders\hrule height \headrulewidth\hfill}}
 \renewcommand{\footrulewidth}{0pt}
 
 \titleformat{\section}
   {\Large\bfseries\color{accent}}
   {}{0pt}
   {}
-  [\vspace{-4pt}{\color{rulegrey}\titlerule[0.6pt]}]
+  [\vspace{-4pt}{\color{rulegray}\titlerule[0.6pt]}]
 \titlespacing*{\section}{0pt}{1.4em}{0.7em}
 
 \titleformat{\subsection}
@@ -432,8 +432,8 @@ _DIGEST_PREAMBLE = r"""\documentclass[11pt,letterpaper]{article}
   \needspace{6\baselineskip}%
   \vspace{0.4em}%
   {\large\bfseries\color{accent} #1}\par
-  \ifx\relax#2\relax\else{\small\color{mutedgrey} #2}\par\fi
-  \vspace{0.15em}{\color{rulegrey}\hrule height 0.3pt}\vspace{0.4em}%
+  \ifx\relax#2\relax\else{\small\color{mutedgray} #2}\par\fi
+  \vspace{0.15em}{\color{rulegray}\hrule height 0.3pt}\vspace{0.4em}%
 }
 
 \newcommand{\resmonabstract}[1]{%
@@ -486,18 +486,18 @@ def _build_digest_tex(parsed: dict, summary_only: bool = False) -> str:
     out.append(r"\begingroup")
     out.append(r"\noindent{\color{accent}\rule{\linewidth}{1.4pt}}\par\vspace{6pt}")
     out.append(
-        r"\noindent{\color{mutedgrey}\scshape\small Automated Literature Surveillance Digest}\par\vspace{2pt}"
+        r"\noindent{\color{mutedgray}\scshape\small Automated Literature Surveillance Digest}\par\vspace{2pt}"
     )
     out.append(
         r"\noindent{\LARGE\bfseries\color{accent} " + _render_inline(title) + r"}\par\vspace{4pt}"
     )
     if generated:
         out.append(
-            r"\noindent{\color{mutedgrey}\small Generated "
+            r"\noindent{\color{mutedgray}\small Generated "
             + _render_inline(generated)
             + r"}\par\vspace{3pt}"
         )
-    out.append(r"\noindent{\color{rulegrey}\rule{\linewidth}{0.4pt}}")
+    out.append(r"\noindent{\color{rulegray}\rule{\linewidth}{0.4pt}}")
     out.append(r"\endgroup")
     out.append(r"\vspace{0.6em}")
     out.append("")
@@ -524,7 +524,7 @@ def _build_digest_tex(parsed: dict, summary_only: bool = False) -> str:
             )
         out.append(r"\end{tabular}")
         out.append(r"\vspace{0.5em}")
-        out.append(r"\noindent{\color{rulegrey}\rule{\linewidth}{0.3pt}}")
+        out.append(r"\noindent{\color{rulegray}\rule{\linewidth}{0.3pt}}")
         out.append(r"\vspace{0.4em}")
         out.append("")
 
@@ -580,7 +580,7 @@ def _build_digest_tex(parsed: dict, summary_only: bool = False) -> str:
                     other_fields.append((k, v))
                 if other_fields:
                     out.append(
-                        r"\noindent\begin{tabular}{@{}>{\color{mutedgrey}\small}p{0.18\linewidth}@{\ }>{\small}p{0.78\linewidth}@{}}"
+                        r"\noindent\begin{tabular}{@{}>{\color{mutedgray}\small}p{0.18\linewidth}@{\ }>{\small}p{0.78\linewidth}@{}}"
                     )
                     for label, value in other_fields:
                         out.append(
@@ -595,7 +595,7 @@ def _build_digest_tex(parsed: dict, summary_only: bool = False) -> str:
                         r"\resmonabstract{" + _render_multiline(paper["abstract"]) + r"}"
                     )
                 elif not summary_only:
-                    out.append(r"\par\small\color{mutedgrey}\textit{No abstract available.}\normalsize\color{black}\par")
+                    out.append(r"\par\small\color{mutedgray}\textit{No abstract available.}\normalsize\color{black}\par")
 
                 if ai_summary.strip():
                     out.append(

@@ -318,7 +318,7 @@ app.on('window-all-closed', () => app.quit());
       });
       const run = { id: started.execution_id };
       await expect.poll(async () => String((await backend.execution(run)).status), { timeout: 150_000 })
-        .not.toMatch(/^(running|cancelling)$/);
+        .not.toMatch(/^(running|canceling)$/);
       return run;
     },
   };

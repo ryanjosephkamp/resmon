@@ -28,7 +28,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
-# How many modules to name before summarising the rest. A ``-k`` run during
+# How many modules to name before summarizing the rest. A ``-k`` run during
 # development can deselect three thousand cases across every module in the
 # suite, and a hundred-line block at the end of every local run is a block
 # people learn to scroll past.

@@ -74,7 +74,7 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
     await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
       { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
     ]);
-    console.log('ATTRIBUTION CANCELLED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
+    console.log('ATTRIBUTION CANCELED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
 
     // `setWindowOpenHandler` runs in the main process, so the new window is an
     // Electron fact rather than a DOM one.
@@ -93,7 +93,7 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
     expect(opened).toBeTruthy();
 
     // The title bar carries the address. That is the whole reason this window
-    // exists rather than a plain popup: a licence page that sets its own title
+    // exists rather than a plain popup: a license page that sets its own title
     // would otherwise hide where you are, and `page-title-updated` is prevented
     // in `openLinkWindow` for exactly that reason.
     expect((opened as { title: string }).title).toBe(href);

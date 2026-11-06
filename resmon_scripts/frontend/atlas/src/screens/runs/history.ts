@@ -122,7 +122,7 @@ export function runSummary(run: RunRow): string {
     case 'failed':
       return nonAnswer ? `failed · ${asked}` : `failed · ${run.error_message || asked}`;
     default:
-      return `${run.status} · ${asked}`;
+      return `${run.status === 'cancelled' ? 'canceled' : run.status} · ${asked}`;
   }
 }
 

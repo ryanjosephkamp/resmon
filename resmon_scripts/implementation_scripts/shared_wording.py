@@ -788,7 +788,7 @@ def _texts_for(conn: sqlite3.Connection, ids: Iterable[int]) -> dict[int, Option
     return out
 
 
-class _Cancelled(Exception):
+class _Canceled(Exception):
     pass
 
 
@@ -859,7 +859,7 @@ def find_pairs(
     for count, row in enumerate(_rows(conn)):
         if count % 2000 == 0:
             if cancel():
-                return _cancelled(settings)
+                return _canceled(settings)
             progress("reading", count, total)
         doc_id = int(row["id"])
         abstract = row["abstract"]
@@ -898,7 +898,7 @@ def find_pairs(
         at += len(piece)
     keys.sort()
     if cancel():
-        return _cancelled(settings)
+        return _canceled(settings)
 
     # Second: a phrase in two or more abstracts, but in no more than
     # ``common_works`` works, makes pairs of every abstract it is in, and
@@ -935,7 +935,7 @@ def find_pairs(
     common_sorted = np.unique(np.concatenate(common_tops)) if common_tops else np.empty(0, np.uint64)
     del keys
     if cancel():
-        return _cancelled(settings)
+        return _canceled(settings)
 
     codes = np.concatenate(pair_codes) if pair_codes else np.empty(0, dtype=np.int64)
     del pair_codes
@@ -978,7 +978,7 @@ def find_pairs(
     for n, (pa, pb) in enumerate(pairs_by_place):
         if n % 200 == 0:
             if cancel():
-                return _cancelled(settings)
+                return _canceled(settings)
             progress("measuring", n, len(pairs_by_place))
         left, right = papers[pa], papers[pb]
         result = measure(text_of(left.id), text_of(right.id), is_common, k)
@@ -1049,7 +1049,7 @@ def _works(conn: sqlite3.Connection, papers: Sequence[_Paper]) -> np.ndarray:
     return np.array([root(n) for n in range(len(papers))], dtype=np.int64)
 
 
-def _cancelled(settings: Settings) -> dict:
+def _canceled(settings: Settings) -> dict:
     return {"pairs": [], "documents": {}, "compared": 0, "not_compared": {}, "considered": 0,
             "candidates": 0, "cancelled": True, "settings": settings.as_dict()}
 
@@ -1795,7 +1795,7 @@ def _read_pages(conn: sqlite3.Connection, vault_id: str, row: dict, *,
     page = 1
     while page_count is None or page <= min(page_count, 200):
         if should_cancel():
-            raise _Cancelled()
+            raise _Canceled()
         waited = 0.0
         while True:
             try:
@@ -1805,7 +1805,7 @@ def _read_pages(conn: sqlite3.Connection, vault_id: str, row: dict, *,
                 if exc.reason != "reader_busy" or waited >= READER_WAIT_SECONDS:
                     raise
                 if should_cancel():
-                    raise _Cancelled()
+                    raise _Canceled()
                 wait(0.25)
                 waited += 0.25
         if result.get("page_count") is not None:
@@ -1873,7 +1873,7 @@ def compare_file(
     for count, doc in enumerate(_rows(conn)):
         if count % 2000 == 0:
             if cancel():
-                raise _Cancelled()
+                raise _Canceled()
             progress("reading abstracts", count, total)
         words = read_words(doc["abstract"])
         if len(words) < settings.min_words:
@@ -1907,7 +1907,7 @@ def compare_file(
     abstracts = _texts_for(conn, [papers[p].id for p in candidates])
     for n, place in enumerate(candidates):
         if cancel():
-            raise _Cancelled()
+            raise _Canceled()
         progress("measuring", n, len(candidates))
         paper = papers[place]
         other = Text.read(abstracts.get(paper.id), hasher, k)
@@ -1921,11 +1921,11 @@ def compare_file(
     files_not_read: list[dict] = []
     for n, other_row in enumerate(others):
         if cancel():
-            raise _Cancelled()
+            raise _Canceled()
         progress("reading the other files", n, len(others))
         try:
             theirs = pages_of(other_row)
-        except _Cancelled:
+        except _Canceled:
             raise
         except Exception as exc:  # one unreadable file is reported, not fatal
             reason = getattr(exc, "reason", None) or type(exc).__name__
@@ -2037,7 +2037,7 @@ class LibraryJob:
                                   on_progress=progress, page_cache=self._pages)
             with self._lock:
                 self._answers[key].update(state="done", result=result)
-        except _Cancelled:
+        except _Canceled:
             with self._lock:
                 self._answers[key].update(state="cancelled")
         except Exception as exc:

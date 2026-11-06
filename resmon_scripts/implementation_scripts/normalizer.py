@@ -57,7 +57,7 @@ def validate_result(result: NormalizedResult) -> bool:
 # ---------------------------------------------------------------------------
 
 def normalize_author_name(name: str) -> str:
-    """One author name, standardised to 'First Last'.
+    """One author name, standardized to 'First Last'.
 
     Handles 'Last, First' by reversing the components and collapses internal
     whitespace. Returns "" for a name that is nothing but whitespace.
@@ -72,12 +72,12 @@ def normalize_author_name(name: str) -> str:
 
 
 def normalize_authors(authors) -> list:
-    """Standardise author names, **keeping whatever else the source gave**.
+    """Standardize author names, **keeping whatever else the source gave**.
 
     Accepts names or ``Author`` objects and returns the same kind it was given,
     so the twenty-odd clients that still pass strings are unaffected and the
     handful that pass structured authors do not lose their ORCID to a
-    normalisation step. That last clause is the point: a function that took
+    normalization step. That last clause is the point: a function that took
     ``list[str]`` and returned ``list[str]`` would quietly discard exactly the
     fields author matching exists to keep.
     """

@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from . import open_access
-from .near_duplicates import normalise_title, title_similarity
+from .near_duplicates import normalize_title, title_similarity
 
 KINDS = ("doi", "arxiv", "pmid", "title")
 KIND_WORDS = {"doi": "DOI", "arxiv": "arXiv id", "pmid": "PMID", "title": "title"}
@@ -167,7 +167,7 @@ def title_match(asked: str, title: str | None) -> tuple[str | None, float]:
     """``exact_title``, ``close_title`` or None, and the similarity."""
     if not title:
         return None, 0.0
-    asked_words, words = normalise_title(asked), normalise_title(title)
+    asked_words, words = normalize_title(asked), normalize_title(title)
     if asked_words and asked_words == words:
         return "exact_title", 1.0
     similarity = title_similarity(asked, title)
@@ -225,7 +225,7 @@ def differences(record, ref) -> list[dict]:
     def add(field: str, this, other) -> None:
         out.append({"field": field, "this": this, "reference": other})
 
-    if normalise_title(record.title) != normalise_title(ref.title):
+    if normalize_title(record.title) != normalize_title(ref.title):
         add("title", record.title, ref.title)
     year, ref_year = str(record.publication_date or "")[:4] or None, str(ref.publication_date or "")[:4] or None
     if year != ref_year:

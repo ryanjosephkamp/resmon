@@ -142,7 +142,7 @@ codepoint check. Missing originals never cause a latest-version or fuzzy fallbac
 <code>idx_evidence_answers_project_order</code> (plus SQLite’s implicit UNIQUE indexes).
 There is no historical backfill or rewrite. The immutable request and private
 owner binding are inserted at admission. Admitted/running rows have one terminal
-CAS winner: succeeded/refused/failed/cancelled/interrupted. Checkpoints and ordered
+CAS winner: <code>succeeded</code>/<code>refused</code>/<code>failed</code>/<code>cancelled</code>/<code>interrupted</code>. Checkpoints and ordered
 reports are bounded; terminal updates preserve the final available prefix. A
 restarted backend preserves the last durable prefix, records interrupted and
 unknown completion/cleanup, and never automatically extracts, invokes or resumes.</p>
@@ -197,7 +197,7 @@ private binding or native-session history is consulted.</p>
 <table><thead><tr><th>Header</th><th>Value</th></tr></thead><tbody><tr><td><code>X-Resmon-Evidence-Contract</code></td><td><code>selected-answer-html/v1</code></td></tr><tr><td><code>X-Resmon-Vault</code> / <code>X-Resmon-Project</code></td><td>Exact selected vault/project UUIDs</td></tr><tr><td><code>X-Resmon-Bundle</code></td><td>Saved answer UUID</td></tr><tr><td><code>X-Resmon-Version</code></td><td>Saved request SHA256</td></tr><tr><td><code>Content-Length</code> / <code>X-Resmon-SHA256</code></td><td>Final UTF-8 byte count / SHA256</td></tr></tbody></table>
 <p>The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
 is at most 65,536 bytes. Oversize returns <code>export_limit</code>/413 before advertising a
-download. Cancellable render/write work uses the existing owned spool/chunks and
+download. Cancelable render/write work uses the existing owned spool/chunks and
 cleanup; a failure does not mutate saved rows or claim a complete file.</p>
 <p>The renderer escapes every untrusted value as text, retaining CR codepoints with
 character references. It emits only index-derived IDs and fragment links, native

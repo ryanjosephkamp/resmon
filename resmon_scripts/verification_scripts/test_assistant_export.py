@@ -105,7 +105,7 @@ def test_choice_metadata_and_messages_share_one_wal_snapshot(conn, monkeypatch):
 
 
 @pytest.mark.parametrize('fmt',['json','markdown'])
-def test_literal_choices_unknowns_and_metadata_count_towards_size_limit(conn,fmt):
+def test_literal_choices_unknowns_and_metadata_count_toward_size_limit(conn,fmt):
     from implementation_scripts import assistant_choices as choices
     model = '<img src=x onerror=alert(1)> `雪` [literal](https://invalid.example)'
     binding = choices.resolve({}, {'version':1,'runtime':'claude_cli','provider':'claude_code','model':model,'effort':None})

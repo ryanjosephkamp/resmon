@@ -520,7 +520,7 @@ def test_a_retractions_report_never_says_nothing_has_happened(fired):
     assert "have been checked for retractions and updates" in report
 
 
-def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
+def test_a_canceled_retractions_run_stops_before_it_asks_anybody(fired, monkeypatch):
     """The Cancel button does something, and the log says what.
 
     Everything before the checkpoint reads the local database; everything after
@@ -550,7 +550,7 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
     monkeypatch.setattr(progress_store, "register", register_and_stop)
     fired.post(f"/api/routines/{routine['id']}/run")
 
-    assert checked == [], "the run asked a provider after being cancelled"
+    assert checked == [], "the run asked a provider after being canceled"
 
     conn = _conn(fired)
     try:
@@ -562,8 +562,8 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
     # The run leaves a report, and it cannot be read as a check that found nothing.
     report = Path(row["result_path"]).read_text(encoding="utf-8")
     assert report.startswith("# Watch report — ")
-    assert "(cancelled)" in report.splitlines()[0]
-    assert "cancelled before it checked any paper" in report
+    assert "(canceled)" in report.splitlines()[0]
+    assert "canceled before it checked any paper" in report
     assert "## Findings" not in report
 
 
@@ -823,8 +823,8 @@ def test_no_askable_client_rewrites_the_query_it_is_handed():
             module.safe_request = original
 
         # **The field and the name must both survive**, rather than the byte
-        # string. A client may legitimately reformat: INSPIRE parenthesises when
-        # a date is present, and NDL canonicalises `creator="X"` into CQL's
+        # string. A client may legitimately reformat: INSPIRE parenthesizes when
+        # a date is present, and NDL canonicalizes `creator="X"` into CQL's
         # `creator = "X"`. What must never happen is the arXiv and NDL defect —
         # the field being swallowed, so the query silently becomes a search of
         # some other field or of the whole record.

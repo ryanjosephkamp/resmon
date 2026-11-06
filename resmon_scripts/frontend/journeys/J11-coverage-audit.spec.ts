@@ -11,7 +11,7 @@
  *
  * Two of the register's sentences cannot be reached by a corpus this size and
  * the spec says so rather than pretending. "Showing 25 of N" renders only when
- * a list is longer than twenty-five, and the missed count is labelled a floor
+ * a list is longer than twenty-five, and the missed count is labeled a floor
  * only when the nearest-neighbour budget came back full — which needs something
  * on the order of seventy-five close papers. An authored corpus of a handful
  * reaches neither, so both are asserted conditionally and printed as
@@ -53,7 +53,7 @@ journey.describe('J11 Coverage audit', () => {
     expect(circular.cannotSee, 'the panel does not say what it cannot see')
       .toMatch(/only compare against papers it already holds/);
 
-    // Write the sentence, and the panel stops apologising for the comparison.
+    // Write the sentence, and the panel stops apologizing for the comparison.
     await resmon.writeRoutineIntent(
       'Journey coverage routine',
       'Layered perovskite film stability, for the journey suite.',
@@ -81,10 +81,10 @@ journey.describe('J11 Coverage audit', () => {
       );
     }
     if (stated.missedShowing.includes('at least')) {
-      expect(stated.missedShowing, 'a bounded missed count is not labelled a floor').toContain('at least');
+      expect(stated.missedShowing, 'a bounded missed count is not labeled a floor').toContain('at least');
     } else {
       console.log(
-        '[J11] NOT VERIFIED: the missed count labelled a floor. That label appears only '
+        '[J11] NOT VERIFIED: the missed count labeled a floor. That label appears only '
         + "when the audit's nearest-neighbour budget came back full — on the order of "
         + 'seventy-five papers close to the intent — which this corpus does not reach.',
       );

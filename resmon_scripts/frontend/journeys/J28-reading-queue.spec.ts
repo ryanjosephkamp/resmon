@@ -5,7 +5,7 @@
  * The register's invariant is a single sentence and it is the one worth the
  * whole row: **membership removal never deletes a paper.** A queue that quietly
  * deleted what you took out of it would destroy a person's own retrieved
- * literature on a click labelled "Remove", and only the Danger Zone the user
+ * literature on a click labeled "Remove", and only the Danger Zone the user
  * operates deletes from a corpus. So the last thing this journey does is
  * go and look at the Explorer for the paper it just removed.
  *

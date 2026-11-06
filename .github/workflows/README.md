@@ -39,6 +39,9 @@ empty with no explanation, which is the intended outcome and an unhelpful first 
 *from* a fork does run these checks, because `pull_request` is evaluated in the base repository's context —
 that is GitHub's documented behavior and has not been exercised here, since there is no fork to try it on.
 
+The `ui-smoke.yml` window job reports the required check **Window behavior (Electron on macOS)**.
+Branch protection must use that exact name.
+
 ## Every job carries a timeout
 
 GitHub's default is 360 minutes per job. Nothing here needs anything like that, and an unbounded job is how

@@ -32,7 +32,7 @@ def test_it_loads_and_is_within_the_size_cap():
     assert len(text.encode("utf-8")) <= ac.MAX_BYTES
 
 
-def test_it_is_memoised():
+def test_it_is_memoized():
     ac._CACHE = None
     first = ac.load_assistant_constitution()
     assert ac.load_assistant_constitution() is first

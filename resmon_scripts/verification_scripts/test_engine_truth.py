@@ -110,7 +110,7 @@ class Wire:
 def wire(monkeypatch) -> Wire:
     """Both transports, because ``safe_request`` has two.
 
-    A client that passes a ``deadline=`` goes through the cancellable async
+    A client that passes a ``deadline=`` goes through the cancelable async
     scope and never touches ``httpx.Client``; ERIC is one, so patching only
     the synchronous half let its requests reach a real socket.
     """

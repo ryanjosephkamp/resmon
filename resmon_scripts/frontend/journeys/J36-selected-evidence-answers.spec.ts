@@ -124,7 +124,7 @@ journey.describe('J36 Selected-evidence answers', () => {
       .toHaveLength(2);
     expect(second.answer.state, 'an answer citing text outside the selection was accepted').toBe('failed');
     expect(second.answer.items, 'an answer citing outside the selection is shown with its citations').toEqual([]);
-    expect(second.answer.unvalidated, 'the refused answer is not labelled unvalidated').not.toBeNull();
+    expect(second.answer.unvalidated, 'the refused answer is not labeled unvalidated').not.toBeNull();
     expect((await resmon.backend.selectedAnswer('J36 project', second.answer.id)).result,
       'the app stored a structured result for an answer it should have refused').toBeNull();
 

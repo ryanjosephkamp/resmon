@@ -243,7 +243,7 @@ def _days_between(earlier: datetime | None, later: datetime | None) -> float | N
     return (later - earlier).total_seconds() / 86400.0
 
 
-def _humanise_days(days: float | None) -> str:
+def _humanize_days(days: float | None) -> str:
     """Render a duration the way a person would say it."""
     if days is None:
         return "an unknown time"
@@ -277,7 +277,7 @@ def _source_history(conn: sqlite3.Connection) -> dict[str, list[dict]]:
 
     **``cancelled`` and ``interrupted`` runs are excluded on the same
     reasoning, and that is deliberate.** Both stopped part-way through for a
-    reason that has nothing to do with the sources: the user cancelled, or the
+    reason that has nothing to do with the sources: the user canceled, or the
     backend went away (schema 19). Their ``execution_sources`` rows are a
     partial record of which sources happened to have been reached by then, and
     feeding that to the watchdog would report a source as having gone quiet
@@ -301,7 +301,7 @@ def _source_history(conn: sqlite3.Connection) -> dict[str, list[dict]]:
                e.execution_type     AS execution_type
         FROM execution_sources es
         JOIN executions e ON e.id = es.execution_id
-        WHERE e.status IN ('completed', 'failed')   -- see the docstring: not cancelled, not interrupted
+        WHERE e.status IN ('completed', 'failed')   -- see the docstring: not canceled, not interrupted
         ORDER BY e.start_time DESC, e.id DESC
         """
     ).fetchall()
@@ -489,7 +489,7 @@ def _check_sources(
                     )
                 else:
                     where = (
-                        f"It was last used {_humanise_days(age_days)} ago and "
+                        f"It was last used {_humanize_days(age_days)} ago and "
                         "returned nothing from this source."
                     )
                 findings.append(_finding(
@@ -543,7 +543,7 @@ def _check_sources(
                                          r.get("zero_reason"))), None,
             )
             last_ok_at = _parse_ts(last_ok["start_time"]) if last_ok else None
-            since = _humanise_days(_days_between(last_ok_at, now)) if last_ok_at else None
+            since = _humanize_days(_days_between(last_ok_at, now)) if last_ok_at else None
             evidence = {
                 "consecutive_errors": consecutive_errors,
                 # The same clause the detail quotes. ``error_message`` alone
@@ -741,7 +741,7 @@ def _check_sources(
                     "last_productive_run_at": (
                         productive[0]["start_time"] if productive else None
                     ),
-                    "quiet_for": _humanise_days(
+                    "quiet_for": _humanize_days(
                         _days_between(last_productive_at, now)
                     ),
                 },
@@ -883,12 +883,12 @@ def _check_routines(
                 severity="broken",
                 kind="routine_overdue",
                 scope={"type": "routine", "id": routine_id, "name": name},
-                title=f"'{name}' has not run for {_humanise_days(silent_days)}",
+                title=f"'{name}' has not run for {_humanize_days(silent_days)}",
                 detail=(
                     f"This watch is active and has run every "
-                    f"{_humanise_days(cadence)} on average across its last "
+                    f"{_humanize_days(cadence)} on average across its last "
                     f"{len(runs)} runs. It has now been silent for "
-                    f"{_humanise_days(silent_days)}. Scheduled runs happen in "
+                    f"{_humanize_days(silent_days)}. Scheduled runs happen in "
                     "the resmon background service, so this usually means that "
                     "service is not running."
                 ),
@@ -928,7 +928,7 @@ def _check_routines(
                         ),
                         detail=(
                             "It used to. The last run that found a new paper was "
-                            f"{_humanise_days(_days_between(last_new_at, now))} "
+                            f"{_humanize_days(_days_between(last_new_at, now))} "
                             "ago. A narrow query in a slow-moving field looks "
                             "exactly like this and is perfectly healthy, so this "
                             "is a prompt to check, not a fault."
@@ -992,7 +992,7 @@ def _cadence_advice(
     slow.sort(key=lambda s: s["median_lag_days"], reverse=True)
     slowest = slow[0]
     others = len(slow) - 1
-    lag_words = _humanise_days(slowest["median_lag_days"])
+    lag_words = _humanize_days(slowest["median_lag_days"])
     # By name: this finding is a watch's, and a screen renames only a source
     # finding's own key.
     source_name = _source_name(slowest["source"])
@@ -1007,7 +1007,7 @@ def _cadence_advice(
             f"{lag_words} after their dates"
         ),
         detail=(
-            f"'{name}' runs about every {_humanise_days(cadence)}. Across "
+            f"'{name}' runs about every {_humanize_days(cadence)}. Across "
             f"{int(slowest['sample_size'] or 0):,} dated papers from {source_name} in "
             "your collection, resmon first collected each a median of "
             f"{slowest['median_lag_days']} days after the date it carries"

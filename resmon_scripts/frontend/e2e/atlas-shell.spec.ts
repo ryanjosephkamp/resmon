@@ -665,7 +665,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
           });
         }
       }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward', 'data-went'] });
-      // And how far the samples that reached the page travelled sideways, which the browser keeps when it
+      // And how far the samples that reached the page traveled sideways, which the browser keeps when it
       // merges samples that arrive within a frame: one sent outside the window reaches nothing, and proves nothing.
       const reached = { travel: 0 };
       (window as unknown as { wheelsReached: typeof reached }).wheelsReached = reached;
@@ -673,7 +673,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     });
     type Seen = { toward: string | null; swipe: number; went: boolean; transform: string };
     const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: Seen[] }).arrowSeen.splice(0));
-    /** How far the samples since the last count travelled in the page; they reach it a frame after they are sent. */
+    /** How far the samples since the last count traveled in the page; they reach it a frame after they are sent. */
     const reached = async (travel: number) => {
       await expect.poll(() => win.evaluate(() => Math.round((window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel)))
         .toBe(travel);

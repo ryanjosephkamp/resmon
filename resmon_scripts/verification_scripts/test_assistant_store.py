@@ -151,7 +151,7 @@ def test_deleting_a_session_takes_its_messages_with_it(conn):
 
 
 def test_the_role_column_refuses_a_role_the_panel_cannot_render(conn):
-    """A CHECK constraint, because an unrecognised role is a rendering bug.
+    """A CHECK constraint, because an unrecognized role is a rendering bug.
 
     The panel switches on three roles. A fourth written by some future path
     would reach the renderer as an unhandled case; failing at the write is the

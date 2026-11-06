@@ -104,7 +104,7 @@ class ChainRunner:
         self._ephemeral = ephemeral
         # A client the caller already built for lane 0. The sweep engine has
         # accepted an ``llm_client`` since long before lanes existed, and tests
-        # construct one directly; honouring it keeps both working and avoids
+        # construct one directly; honoring it keeps both working and avoids
         # building the same client twice.
         self._primary_client = primary_client
         self._finished = False
@@ -112,12 +112,12 @@ class ChainRunner:
         # runner, rather than lazily when the lane is first reached.
         #
         # Summarization runs on a worker thread so a batched CLI call can
-        # be cancelled while it is in flight, and ``sqlite3`` objects belong to
+        # be canceled while it is in flight, and ``sqlite3`` objects belong to
         # the thread that made them. Opening lazily meant the first lane's
         # INSERT happened on that worker — which raised outright on a
         # default-threaded connection and, on the shared
         # ``check_same_thread=False`` connection the app actually uses, would
-        # have been an unserialised write from a second thread. That is the
+        # have been an unserialized write from a second thread. That is the
         # family the teardown segfault came from.
         #
         # Nothing is lost by opening early: ``finish`` already recorded a row
@@ -186,7 +186,7 @@ class ChainRunner:
         """Return ``(summary, error)`` for one document.
 
         ``summary`` is empty when every remaining lane failed on this document;
-        ``error`` is then the last failure, already classified and sanitised.
+        ``error`` is then the last failure, already classified and sanitized.
         A successful call returns ``(summary, None)``.
         """
         last_error: Optional[AIError] = None

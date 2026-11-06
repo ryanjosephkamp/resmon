@@ -6,7 +6,7 @@
  * are the engine's own (`/api/health`), the license is the repository's
  * `LICENSE` word for word, and the keychain is named for this platform. The
  * report link and one of the maker's links are clicked: each opens its page
- * in a link window of its own, and the request for that page is cancelled
+ * in a link window of its own, and the request for that page is canceled
  * before it leaves this machine, as `main-window.spec.ts` cancels its
  * attribution link. The page's Keyboard shortcuts button opens the sheet.
  *

@@ -1757,7 +1757,7 @@ with zipfile.ZipFile(sys.argv[1]) as bundle:
       );
       await win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }).click();
       expect((await saved).ok(), 'Settings › Email refused the save').toBe(true);
-      // Saved means nothing is left unsaved: the button greys out again.
+      // Saved means nothing is left unsaved: the button grays out again.
       await expect(win().locator('.email-form .form-actions').getByRole('button', { name: 'Save', exact: true }))
         .toBeDisabled({ timeout: 15_000 });
     },

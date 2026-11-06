@@ -95,7 +95,7 @@ MAX_LISTED_FK_VIOLATIONS = 100
 VAULT_UNDO_NAME = "vault-replaced"
 
 #: Every reason a vault parent chosen on the restoring machine can be refused.
-#: The route validates in this order and the property test parametrises over
+#: The route validates in this order and the property test parametrizes over
 #: this tuple, so a check added without a case to cover it changes the
 #: denominator and fails that test rather than passing unnoticed.
 VAULT_PARENT_REFUSALS = (

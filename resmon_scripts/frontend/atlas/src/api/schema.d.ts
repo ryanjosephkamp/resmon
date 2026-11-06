@@ -1319,7 +1319,7 @@ export interface paths {
          *
          *     Returns immediately; poll ``GET /api/embeddings/status``. Resumable by
          *     construction — the work remaining is a query, not a stored cursor — so a
-         *     cancelled run restarts where the corpus is, not where the last run thought
+         *     canceled run restarts where the corpus is, not where the last run thought
          *     it was.
          */
         post: operations["start_embedding_backfill_api_embeddings_backfill_post"];
@@ -1912,12 +1912,12 @@ export interface paths {
          * Cancel Execution
          * @description Request cooperative cancellation of a running execution.
          *
-         *     A row that is not in the in-memory ``ProgressStore`` is not cancellable,
+         *     A row that is not in the in-memory ``ProgressStore`` is not cancelable,
          *     and saying only "Execution not running" would read, on an
          *     interrupted row, as if resmon had lost track of something. The row's own
          *     state belongs in the sentence.
          *
-         *     ``detail`` stays a **string**. FastAPI will serialise a dict there happily,
+         *     ``detail`` stays a **string**. FastAPI will serialize a dict there happily,
          *     and a renderer that renders ``detail`` directly -- which several of
          *     resmon's do -- would then show ``[object Object]``. Anything that needs the
          *     state structurally reads ``status`` off the row it already has.
@@ -2164,7 +2164,7 @@ export interface paths {
          *     restart is a second thing that happened, not a correction of the first.
          *
          *     ``again`` asks for a completed run's search once more (Run again, on the
-         *     Runs tab); without it only an interrupted, failed or cancelled run is
+         *     Runs tab); without it only an interrupted, failed or canceled run is
          *     restarted. At the run limit the new run waits in the queue
          *     (``_start_or_queue``) and its row is written only when it starts: the
          *     answer then carries no execution id, ``queued``, and its place.
@@ -5244,7 +5244,7 @@ export interface components {
          *     Called by ``assistant_permission_server.py``, not the renderer, and held
          *     open until the person answers or five minutes pass. ``decision`` is
          *     ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
-         *     cancelled conversation all deny, and ``message`` says which.
+         *     canceled conversation all deny, and ``message`` says which.
          */
         AssistantPermissionDecision: {
             /** Decision */

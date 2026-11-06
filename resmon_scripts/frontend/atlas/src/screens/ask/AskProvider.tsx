@@ -17,7 +17,7 @@ export const chatKey = (id: number) => ['ask', 'chat', id] as const;
  * read under way when a command path is saved, a key is added, or Ask is
  * opened (the window's first read, often) may have been answered from the
  * settings as they were before, and its answer would then stand, with nothing
- * reading again. So the read under way is cancelled, and its answer dropped,
+ * reading again. So the read under way is canceled, and its answer dropped,
  * before the new one starts.
  */
 export async function readStatusAgain(client: QueryClient): Promise<void> {

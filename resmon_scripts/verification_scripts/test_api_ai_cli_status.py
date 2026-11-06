@@ -85,7 +85,7 @@ def _isolate_discovery(monkeypatch):
 
 
 def test_a_configured_path_survives_the_settings_round_trip(monkeypatch, tmp_path):
-    """P1: PUT ``ai_cli_path`` and cli-status honours it.
+    """P1: PUT ``ai_cli_path`` and cli-status honors it.
 
     This goes through ``PUT /api/settings/ai`` and the endpoint's own
     ``_get_settings_group`` read, with no monkeypatch between them. Replacing

@@ -69,7 +69,7 @@ class _EntitySource(BaseAPIClient):
 
 
 class _CannotBeAsked(_EntitySource):
-    """A source with no author query. `BaseAPIClient`'s default behaviour."""
+    """A source with no author query. `BaseAPIClient`'s default behavior."""
 
     def search_entity(self, profile, date_from=None, date_to=None,
                       max_results=100, **kwargs):
@@ -184,7 +184,7 @@ def test_a_paper_already_in_the_corpus_still_produces_a_match(engine, conn):
     """A watch routine that only surfaced brand-new documents would go quiet.
 
     Someone whose work you already collect is exactly the person you are most
-    likely to watch, and dedup recognising their paper is not a reason to stop
+    likely to watch, and dedup recognizing their paper is not a reason to stop
     telling you it is theirs.
     """
     profile = _profile(conn)

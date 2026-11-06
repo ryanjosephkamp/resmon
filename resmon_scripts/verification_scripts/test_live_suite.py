@@ -1398,7 +1398,7 @@ def test_source_outcome_property_keeps_categories_and_drops_text():
 # A live search that records a `source_outcome` is the only kind a quarantine
 # entry can excuse. (OAPEN is retired and both its live cases are removed; its
 # name stays below as the outage these proofs are written against.) The
-# *other* OAPEN live case — the parametrised author query in
+# *other* OAPEN live case — the parametrized author query in
 # `test_entity_search_live.py` — recorded none, so an entry naming it would
 # have printed in the summary as a quarantine and excused nothing:
 # `quarantine_disposition` needs exactly one recorded outcome in total and
@@ -1452,7 +1452,7 @@ def test_a_recorded_author_query_outcome_is_what_lets_the_quarantine_excuse_it(t
         recorded=[recorded],
     ) == ("excused", ["http_500", "timeout"])
 
-    # Today's behaviour without the property: the case is quarantined, runs,
+    # Today's behavior without the property: the case is quarantined, runs,
     # fails with exactly the signature the entry names — and counts anyway.
     assert quarantine_disposition(
         entry, today, call_outcome="failed", assertion_failure=True, recorded=[],

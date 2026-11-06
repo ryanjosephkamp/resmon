@@ -96,7 +96,7 @@ class ProgressStore:
         """Ask the execution to stop; ``False`` if it is too late to.
 
         ``True`` is a promise: the run reads the flag at ``begin_finishing``,
-        its last check, so a request answered ``True`` ends the run cancelled.
+        its last check, so a request answered ``True`` ends the run canceled.
         ``False`` means the run is past that check and will finish as it is.
         """
         with self._gate:
@@ -111,7 +111,7 @@ class ProgressStore:
         """The run's last cancellation check, taken once, just before it is recorded as finished.
 
         Returns ``False`` if a stop was requested, and the run must end
-        cancelled. Otherwise the run is committed to finishing, and any later
+        canceled. Otherwise the run is committed to finishing, and any later
         ``request_cancel`` is refused.
         """
         with self._gate:

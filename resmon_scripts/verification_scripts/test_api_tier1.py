@@ -3205,7 +3205,7 @@ def test_openaire_search_respects_date_window():
 # ---------------------------------------------------------------------------
 #
 # INSPIRE's Terms of Use §5(ii) permit reuse of an abstract only where that
-# abstract's own ``source`` is arXiv or CERN. The client honours that at parse
+# abstract's own ``source`` is arXiv or CERN. The client honors that at parse
 # time; these pin it, because the failure mode is silent — a stored abstract we
 # have no license for looks exactly like one we do.
 

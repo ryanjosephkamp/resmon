@@ -76,7 +76,7 @@ def test_mixed_run_positive_rights_unusable_and_cap_do_not_mean_new_or_empty():
     assert any("does not prove truncation" in n for n in result["notes"])
 
 
-def test_running_and_cancelled_keep_incomplete_note():
+def test_running_and_canceled_keep_incomplete_note():
     for status in ("running", "cancelled", "failed"):
         assert any("not completed" in n for n in project({"repository": "a"}, status=status)["notes"])
 
@@ -123,21 +123,21 @@ def test_the_summary_agrees_with_its_counts(rows, selected, summary):
     assert project(params, rows)["summary"] == summary
 
 
-def test_a_source_still_being_asked_when_the_run_was_cancelled_did_not_fail_to_answer():
-    cancelled = row("hal", status="cancelled", reason=None)
-    result = project({"repository": "hal"}, [cancelled], status="cancelled")
+def test_a_source_still_being_asked_when_the_run_was_canceled_did_not_fail_to_answer():
+    canceled = row("hal", status="cancelled", reason=None)
+    result = project({"repository": "hal"}, [canceled], status="cancelled")
     assert result["summary"] == (
-        "1 selected source: 0 answered, 1 recorded non-answer (cancelled before it answered), 0 unknown.")
+        "1 selected source: 0 answered, 1 recorded non-answer (canceled before it answered), 0 unknown.")
     assert "could not answer" not in result["summary"]
 
     both = project({"repositories": ["hal", "plos"]},
                    [row("hal", status="cancelled", reason=None), row("plos", status="cancelled", reason=None)],
                    status="cancelled")
-    assert "2 recorded non-answers (cancelled before they answered)" in both["summary"]
+    assert "2 recorded non-answers (canceled before they answered)" in both["summary"]
 
     mixed = project({"repositories": ["hal", "plos"]},
-                    [cancelled, row("plos", reason="upstream_failure")], status="cancelled")
-    assert "2 recorded non-answers (1 could not answer, 1 cancelled before it answered)" in mixed["summary"]
+                    [canceled, row("plos", reason="upstream_failure")], status="cancelled")
+    assert "2 recorded non-answers (1 could not answer, 1 canceled before it answered)" in mixed["summary"]
 
 
 def _refused(source, status=400):

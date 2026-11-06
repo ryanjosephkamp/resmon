@@ -349,7 +349,7 @@ def rebuild(conn: sqlite3.Connection, model: str) -> dict:
     could load the extension and the other could not. The canonical rows are
     never touched.
 
-    **Serialised process-wide** (:data:`_REBUILD_LOCK`). The table lives in the
+    **Serialized process-wide** (:data:`_REBUILD_LOCK`). The table lives in the
     database file, so two threads rebuilding at once drop it out from under each
     other; a caller that already holds the lock uses :func:`_rebuild_locked`.
 

@@ -4571,7 +4571,7 @@ class AssistantPermissionDecision(LosslessModel):
     Called by ``assistant_permission_server.py``, not the renderer, and held
     open until the person answers or five minutes pass. ``decision`` is
     ``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a
-    cancelled conversation all deny, and ``message`` says which.
+    canceled conversation all deny, and ``message`` says which.
     """
 
     decision: str

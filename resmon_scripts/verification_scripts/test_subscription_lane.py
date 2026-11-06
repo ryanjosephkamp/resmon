@@ -49,7 +49,7 @@ def test_other_lane_kinds_are_uncapped():
     assert AILane(kind="local", provider="local", model="m").doc_cap is None
 
 
-def test_an_explicit_cap_is_honoured():
+def test_an_explicit_cap_is_honored():
     lane = AILane(kind="subscription", provider="codex", doc_cap=3)
     assert lane.doc_cap == 3
 
@@ -80,7 +80,7 @@ def test_legacy_settings_resolve_to_a_capped_subscription_lane():
     assert lanes[0].doc_cap == DEFAULT_SUBSCRIPTION_DOC_CAP
 
 
-def test_legacy_settings_honour_a_configured_cap():
+def test_legacy_settings_honor_a_configured_cap():
     lanes = resolve_chain({
         "ai_provider": "codex",
         "ai_subscription_doc_cap": "5",

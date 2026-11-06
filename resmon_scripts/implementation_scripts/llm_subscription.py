@@ -227,7 +227,7 @@ class SubscriptionLLMClient:
         # what makes that safe against the thread doing the spawning.
         self._lock = threading.Lock()
         self._active: set = set()
-        self._cancelled = False
+        self._canceled = False
         # How many batches had to fall back to per-document calls. Reported on
         # the lane rather than inferred, because "batching worked" and
         # "batching was silently abandoned" produce identical summaries.
@@ -235,7 +235,7 @@ class SubscriptionLLMClient:
         self.batch_splits = 0
         self.batch_calls = 0
         # What the CLI said each call cost. Appended to, never read by the
-        # summarization path -- it changes no behaviour.
+        # summarization path -- it changes no behavior.
         #
         # It exists because the document cap and the not-default-for-bulk guard
         # were always about the **plan's usage window**, which is spent in
@@ -475,7 +475,7 @@ class SubscriptionLLMClient:
         thread other than the one running the CLI.
         """
         with self._lock:
-            self._cancelled = True
+            self._canceled = True
             active = list(self._active)
         for process in active:
             try:
@@ -533,7 +533,7 @@ class SubscriptionLLMClient:
         """One ``claude`` call for N documents, returning the validated object.
 
         With ``--json-schema`` the CLI puts the validated object in the result
-        envelope's ``structured_output`` field as well as serialising it into
+        envelope's ``structured_output`` field as well as serializing it into
         ``result``. ``structured_output`` is what is read: it is already
         parsed, and a ``result`` string is what an unvalidated answer also
         looks like.
@@ -709,17 +709,17 @@ class SubscriptionLLMClient:
         ``Popen`` rather than ``subprocess.run`` for one reason: a batched call
         is a single process holding ten documents, and cancellation has to be
         able to reach into it. ``run`` gives no handle to terminate. The
-        registration and the cancelled-flag check are both under the lock, so a
+        registration and the canceled-flag check are both under the lock, so a
         ``cancel()`` arriving between the check and the spawn still finds the
         process in ``_active``.
         """
         timeout = self.timeout if timeout is None else timeout
         try:
             with self._lock:
-                if self._cancelled:
+                if self._canceled:
                     raise self._error(
                         AIErrorKind.UNKNOWN,
-                        f"The run was cancelled before the {self.provider} CLI "
+                        f"The run was canceled before the {self.provider} CLI "
                         f"was started.",
                     )
                 process = subprocess.Popen(
@@ -966,7 +966,7 @@ class SubscriptionLLMClient:
         """The first non-empty line of *text*, truncated.
 
         Enough to be actionable without pasting an entire agent transcript into
-        a run report. ``AIError`` sanitises whatever comes back regardless.
+        a run report. ``AIError`` sanitizes whatever comes back regardless.
         """
         for line in (text or "").splitlines():
             line = line.strip()

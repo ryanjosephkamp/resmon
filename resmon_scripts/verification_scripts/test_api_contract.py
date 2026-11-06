@@ -118,7 +118,7 @@ def _committed(path: Path) -> str:
 
 @pytest.fixture(scope="module")
 def fresh_openapi() -> dict:
-    return api_contract.normalised_openapi()
+    return api_contract.normalized_openapi()
 
 
 @pytest.fixture(scope="module")

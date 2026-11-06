@@ -45,7 +45,7 @@ export class EvidenceRefusal extends EngineError {
 
 /**
  * The engine reads one PDF page at a time and answers a second read with
- * `reader_busy` until the first finishes or is cancelled, which a reader
+ * `reader_busy` until the first finishes or is canceled, which a reader
  * switching pages or files can meet. That one refusal is worth waiting for.
  */
 export function readerBusy(error: unknown): boolean {

@@ -4,7 +4,7 @@ Two boundaries, and each property below says which:
 
 * **argv** — what the CLI is actually spawned with. This is where P1 lives, and
   it is the boundary because the failure is invisible everywhere else: the
-  constitution can load, memoise and stay under 16 KB while a lane still sends
+  constitution can load, memoize and stay under 16 KB while a lane still sends
   "follow the attached constitution" with nothing attached.
 * **a real subprocess running a hermetic double** — a Python script that speaks
   stream-json and performs the real permission handshake, but hosts no model.
@@ -94,7 +94,7 @@ def test_the_constitution_is_re_sent_on_a_resumed_turn():
     on, a resume replays whatever system prompt was recorded on the first launch
     and an edited constitution never reaches an existing conversation. Verified
     against claude 2.1.258 by resuming a session and getting the appended rule's
-    behaviour back.
+    behavior back.
     """
     argv = argv_for(ar.ClaudeCliRuntime(), resume=True)
     assert "--resume" in argv and "--session-id" not in argv
@@ -105,7 +105,7 @@ def test_the_constitution_is_re_sent_on_a_resumed_turn():
 def test_every_runtime_kind_has_a_transmission_test():
     """The denominator, so a second runtime cannot ship without answering P1.
 
-    Modelled on ``test_every_lane_kind_has_a_transmission_test``, the guard
+    Modeled on ``test_every_lane_kind_has_a_transmission_test``, the guard
     against a constitution that reaches only some of the lanes.
     """
     tested = set(_TRANSMISSION_TESTS)
@@ -120,7 +120,7 @@ _TRANSMISSION_TESTS = {
     # Codex has no system-prompt flag; the constitution is the AGENTS.md in the
     # turn's working directory, read back from what the double found there.
     "codex_cli": "test_assistant_codex.py::test_the_constitution_arrives_as_agents_md_and_not_in_the_turn",
-    # In ``test_assistant_api_runtime.py``, parametrised over the three
+    # In ``test_assistant_api_runtime.py``, parametrized over the three
     # request families, against a loopback server that records what was actually
     # sent — the argv equivalent for a runtime that speaks HTTP.
     "api_key": (
@@ -263,16 +263,16 @@ def test_model_and_effort_ride_only_when_they_are_set():
 
 
 # ---------------------------------------------------------------------------
-# P6 — normalising the stream
+# P6 — normalizing the stream
 # ---------------------------------------------------------------------------
 
 def test_an_unknown_cli_event_is_dropped_rather_than_rendered_raw():
     """P6. The CLI's stream carries plenty the panel has no business showing."""
-    assert ar._normalise(json.dumps({"type": "rate_limit_event", "info": {}})) == []
-    assert ar._normalise(json.dumps({"type": "hook_event"})) == []
-    assert ar._normalise("not json at all") == []
-    assert ar._normalise("") == []
-    assert ar._normalise(json.dumps(["a", "list"])) == []
+    assert ar._normalize(json.dumps({"type": "rate_limit_event", "info": {}})) == []
+    assert ar._normalize(json.dumps({"type": "hook_event"})) == []
+    assert ar._normalize("not json at all") == []
+    assert ar._normalize("") == []
+    assert ar._normalize(json.dumps(["a", "list"])) == []
 
 
 def test_every_event_the_panel_can_receive_is_in_the_declared_set():
@@ -286,14 +286,14 @@ def test_every_event_the_panel_can_receive_is_in_the_declared_set():
             {"type": "tool_result", "tool_use_id": "t1", "content": "{}"}]}},
         {"type": "result", "subtype": "success", "usage": {}},
     ]
-    produced = [e for line in lines for e in ar._normalise(json.dumps(line))]
+    produced = [e for line in lines for e in ar._normalize(json.dumps(line))]
     assert {e["type"] for e in produced} <= set(ar.EVENT_TYPES)
     assert {e["type"] for e in produced} == {
         "started", "text_delta", "tool_call", "tool_result", "done"}
 
 
 def test_a_tool_name_is_shown_the_way_the_app_names_it():
-    event = ar._normalise(json.dumps({"type": "assistant", "message": {"content": [
+    event = ar._normalize(json.dumps({"type": "assistant", "message": {"content": [
         {"type": "tool_use", "id": "t", "name": "mcp__resmon__list_routines",
          "input": {}}]}}))[0]
     assert event["tool_name"] == "list_routines"
@@ -304,10 +304,10 @@ def test_a_tool_name_is_shown_the_way_the_app_names_it():
 
 def test_an_unreported_cost_is_none_rather_than_zero():
     """Zero is a measurement. Absent is not, and the panel says so differently."""
-    done = ar._normalise(json.dumps({"type": "result", "usage": {}}))[0]
+    done = ar._normalize(json.dumps({"type": "result", "usage": {}}))[0]
     assert done["cost_usd"] is None
     assert done["input_tokens"] is None
-    priced = ar._normalise(json.dumps({
+    priced = ar._normalize(json.dumps({
         "type": "result", "total_cost_usd": 0.5,
         "usage": {"input_tokens": 3, "output_tokens": 4}}))[0]
     assert priced["cost_usd"] == 0.5
@@ -433,7 +433,7 @@ def test_the_clis_own_last_word_beats_a_bare_exit_code(tmp_path):
     assert "not signed in" in events[-1]["message"]
 
 
-def test_an_unrecognised_failure_says_it_is_unrecognised(tmp_path):
+def test_an_unrecognized_failure_says_it_is_unrecognized(tmp_path):
     """Never a guess. The exit code and "resmon cannot tell you more"."""
     runtime = ar.ClaudeCliRuntime(cli_path=fake_binary(tmp_path))
     events = list(runtime.run_turn(1, "FAIL:", cli_session_id="s", resume=False))
@@ -549,7 +549,7 @@ def test_cancel_kills_the_running_turn(tmp_path):
     assert "after" not in [e.get("text") for e in collected]
 
 
-def test_cancelling_nothing_says_so_rather_than_claiming_success():
+def test_canceling_nothing_says_so_rather_than_claiming_success():
     assert ar.cancel_turn(123456) is False
 
 
@@ -685,7 +685,7 @@ def test_the_status_reports_codex_even_when_it_is_not_found(monkeypatch):
 # (recorded in ``fixtures/fake_claude.py`` and re-established live by
 # ``test_assistant_live.py``), then make the double answer with exactly it.
 
-def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
+def test_the_cannot_resume_shape_is_recognized_from_the_errors_array():
     """The sentence is in ``errors``, and there is no ``result`` text at all.
 
     Matched on the errors array first because that is where the real CLI puts
@@ -699,9 +699,9 @@ def test_the_cannot_resume_shape_is_recognised_from_the_errors_array():
     assert ar._is_cannot_resume(["Invalid API key"], "some other failure") is False
 
 
-def test_a_normalised_result_carries_the_clis_errors_array():
-    """The recovery hangs off this field, so normalising must keep it."""
-    (done,) = ar._normalise(json.dumps({
+def test_a_normalized_result_carries_the_clis_errors_array():
+    """The recovery hangs off this field, so normalizing must keep it."""
+    (done,) = ar._normalize(json.dumps({
         "type": "result", "subtype": "error_during_execution", "is_error": True,
         "errors": ["No conversation found with session ID: zzz"], "usage": {},
     }))
@@ -815,7 +815,7 @@ print(json.dumps({'type':'result','subtype':'success','result':'answer'}))
 @pytest.mark.parametrize('reported', [None, '', 2, {}, []])
 def test_r04c_missing_invalid_cli_model_is_not_inferred(reported):
     from implementation_scripts import assistant_runtime as runtime
-    event = runtime._normalise(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
+    event = runtime._normalize(json.dumps({'type':'system','subtype':'init','model':reported}))[0]
     assert event['model_report'] is None
 
 
@@ -855,7 +855,7 @@ def test_a_result_names_the_models_it_was_billed_for_biggest_writer_first():
                        "claude-opus-5-5": {"outputTokens": 120},
                        "": {"outputTokens": 9}},
     })
-    done = ar._normalise(line)[0]
+    done = ar._normalize(line)[0]
     assert [(r["model"], r["source"]) for r in done["model_reports"]] == [
         ("claude-opus-5-5", "claude_result_model_usage"),
         ("claude-haiku-4-5-20251001", "claude_result_model_usage"),
@@ -863,5 +863,5 @@ def test_a_result_names_the_models_it_was_billed_for_biggest_writer_first():
 
 
 def test_a_result_with_no_model_usage_reports_no_model():
-    done = ar._normalise(json.dumps({"type": "result", "subtype": "success"}))[0]
+    done = ar._normalize(json.dumps({"type": "result", "subtype": "success"}))[0]
     assert done["model_reports"] == []

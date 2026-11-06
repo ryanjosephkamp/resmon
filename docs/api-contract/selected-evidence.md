@@ -109,7 +109,7 @@ Schema 17→18 adds exactly `evidence_answers` and
 `idx_evidence_answers_project_order` (plus SQLite's implicit UNIQUE indexes).
 There is no historical backfill or rewrite. The immutable request and private
 owner binding are inserted at admission. Admitted/running rows have one terminal
-CAS winner: succeeded/refused/failed/cancelled/interrupted. Checkpoints and ordered
+CAS winner: `succeeded`/`refused`/`failed`/`cancelled`/`interrupted`. Checkpoints and ordered
 reports are bounded; terminal updates preserve the final available prefix. A
 restarted backend preserves the last durable prefix, records interrupted and
 unknown completion/cleanup, and never automatically extracts, invokes or resumes.
@@ -148,7 +148,7 @@ The response is `text/html; charset=utf-8`, with fixed attachment filename
 
 The final document, after escaping, is at most 4,194,304 bytes; app-authored CSS
 is at most 65,536 bytes. Oversize returns `export_limit`/413 before advertising a
-download. Cancellable render/write work uses the existing owned spool/chunks and
+download. Cancelable render/write work uses the existing owned spool/chunks and
 cleanup; a failure does not mutate saved rows or claim a complete file.
 
 The renderer escapes every untrusted value as text, retaining CR codepoints with

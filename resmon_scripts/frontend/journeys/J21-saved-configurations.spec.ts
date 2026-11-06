@@ -26,7 +26,7 @@
  * dialog is answered with the file rather than operated, because nothing
  * automated can operate one. What that dialog would have offered is still
  * read — the page's own `accept` list — and must admit the archive, because a
- * dialog that greys the file out is a round trip nobody can make. A refusal of
+ * dialog that grays the file out is a round trip nobody can make. A refusal of
  * any kind fails the row.
  */
 import { expect, journey } from './driver';
