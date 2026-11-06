@@ -6,16 +6,24 @@
  * Library's gallery, which draws only the rows near the view: Back puts the
  * same cover at the same height.
  *
- * Both lists are walked in the window's default size and in 960 by 640, the
- * smallest the app allows, where the rows are drawn at other heights and the
- * history's first page ends nearer the place it was left at. CI's macOS runner
- * holds the default window to its screen (1024 by 684). Each Back logs, at
- * every frame from the key to the check, the row's distance from where it was
- * left and the stage's scroll, so a miss says why. `RESMON_E2E_CPU_SLOWDOWN`
- * runs the page that many times slower, through the DevTools protocol.
+ * Then two lists that scroll in boxes of their own rather than the stage:
+ * Search › Your collection's results, which a virtualizer draws a window of,
+ * and a run's Papers tab. Each is scrolled far down, a paper on it is opened,
+ * and Back puts the same paper at the same height in the list's box. A new
+ * search opens the results at their top, and Back to the last one returns its
+ * place.
  *
- * Nothing leaves this machine: the runs and the saved papers are written into
- * the spec's own database before the app starts, and no search is run.
+ * All four lists are walked in the window's default size and in 960 by 640,
+ * the smallest the app allows, where the rows are drawn at other heights and
+ * the history's first page ends nearer the place it was left at. CI's macOS
+ * runner holds the default window to its screen (1024 by 684). Each Back logs,
+ * at every frame from the key to the check, the row's distance from where it
+ * was left and the scroll of the box it is in, so a miss says why.
+ * `RESMON_E2E_CPU_SLOWDOWN` runs the page that many times slower, through the
+ * DevTools protocol.
+ *
+ * Nothing leaves this machine: the runs and the papers are written into the
+ * spec's own database before the app starts, and no search of a source is run.
  */
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
@@ -28,12 +36,14 @@ const mac = process.platform === 'darwin';
 const MOD = mac ? 'Meta' : 'Control';
 const RUNS = 240;
 const SAVED = 180;
+/** Papers that are in the collection and not saved, all of them found by one run: Search lists every paper. */
+const FOUND = 420;
 
-async function launch(stateDir: string, size: readonly [number, number] | null): Promise<{ app: ElectronApplication; win: Page; problems: string[] }> {
+async function launch(stateDir: string, size: readonly [number, number] | null): Promise<{ app: ElectronApplication; win: Page; problems: string[]; found: number }> {
   const base = launchEnv(stateDir, true);
   const env = atlasEnv(size ? { ...base, RESMON_E2E_WIDTH: String(size[0]), RESMON_E2E_HEIGHT: String(size[1]) } : base);
   // Finished runs, enough for a history several screens long, and saved papers for a gallery as long.
-  execFileSync(env.RESMON_PYTHON!, ['-c', `
+  const seeded = execFileSync(env.RESMON_PYTHON!, ['-c', `
 import json, sys
 sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import database, reading_queue
@@ -59,7 +69,24 @@ for i in range(${SAVED}):
     reading_queue.save(conn, doc)
     at = f"2026-10-01 {i // 60:02d}:{i % 60:02d}:00"
     conn.execute("UPDATE reading_queue SET saved_at=?, updated_at=? WHERE document_id=?", (at, at, doc))
+found = database.insert_execution(conn, {
+    "execution_type": "deep_sweep", "routine_id": None, "status": "running",
+    "parameters": json.dumps({"query": "orbital decay", "keywords": ["orbital decay"], "repositories": ["arxiv"]}),
+    "start_time": "2026-10-30T09:00:00Z",
+})
+for i in range(${FOUND}):
+    title = f"Orbital decay of hot Jupiters, paper {i:04d}" + (", with a title long enough to wrap twice in the list" if i % 4 == 0 else "")
+    doc = database.insert_document(conn, {"source_repository": "arxiv", "external_id": f"found-{i}", "title": title,
+        "authors": "Lena Okafor, Tomas Reyes" + (", Mira Adeyemi, Jonas Berg" if i % 5 == 0 else ""),
+        "abstract": "We measure orbital decay from transit timing. " * 4,
+        "publication_date": f"2026-{(i % 9) + 1:02d}-{(i % 27) + 1:02d}", "url": f"https://example.org/found/{i}",
+        "categories": "", "metadata_hash": f"found-{i}"})
+    conn.execute("INSERT INTO execution_documents (execution_id, document_id, is_new) VALUES (?, ?, 1)", (found, doc))
+database.record_execution_source(conn, found, "arxiv", "ok", result_count=${FOUND})
+database.update_execution_status(conn, found, "completed", end_time="2026-10-30T09:05:00Z",
+                                 result_count=${FOUND}, new_result_count=${FOUND})
 conn.commit()
+print(found)
 `, env.RESMON_DB_PATH!], { env, encoding: 'utf8' });
   const app = await electron.launch({
     args: ['.', `--user-data-dir=${path.join(stateDir, 'electron-user-data')}`],
@@ -73,11 +100,13 @@ conn.commit()
   const problems: string[] = [];
   win.on('pageerror', (error) => problems.push(error.message));
   await win.locator(ATLAS_LANDMARK).waitFor({ timeout: 120_000 });
-  return { app, win, problems };
+  return { app, win, problems, found: Number(seeded.trim().split('\n').pop()) };
 }
 
 const hash = (page: Page) => page.evaluate(() => window.location.hash);
-const stageTop = (page: Page) => page.locator('main.stage').evaluate((node) => Math.round(node.scrollTop));
+/** The frame's one scrolling area; a screen's own box is named where a list scrolls in one. */
+const STAGE = 'main.stage';
+const stageTop = (page: Page, box = STAGE) => page.locator(box).evaluate((node) => Math.round(node.scrollTop));
 const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name, exact: true });
 
 async function shoot(page: Page, name: string) {
@@ -86,19 +115,19 @@ async function shoot(page: Page, name: string) {
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, name) });
 }
 
-/** Far down the page, past `beyond` pixels, as a person scrolls with a wheel, and then where it comes to rest. */
-async function scrollFar(win: Page, beyond: number): Promise<void> {
-  await win.locator('main.stage').hover();
+/** Far down the page, or the box, past `beyond` pixels, as a person scrolls with a wheel, and then where it comes to rest. */
+async function scrollFar(win: Page, beyond: number, box = STAGE): Promise<void> {
+  await win.locator(box).hover();
   await expect.poll(async () => {
     await win.mouse.wheel(0, 600);
-    return stageTop(win);
+    return stageTop(win, box);
   }, { message: 'the page did not scroll far enough' }).toBeGreaterThan(beyond);
   // A wheel's scroll eases out, and a list may still be reading its next page.
   let left = -1;
   await expect.poll(async () => {
     const was = left;
     await win.waitForTimeout(400);
-    left = await stageTop(win);
+    left = await stageTop(win, box);
     return left === was;
   }, { timeout: 15_000 }).toBe(true);
 }
@@ -106,11 +135,11 @@ async function scrollFar(win: Page, beyond: number): Promise<void> {
 /**
  * The lowest of the rows (by `rows`, each known by `known`) whose top is in
  * view, with as much of it in view as there is: its selector, and how far
- * below the stage's top edge it sits.
+ * below the top edge of the stage, or the box, it sits.
  */
-async function lastSeen(win: Page, rows: string, known: string): Promise<{ selector: string; at: number }> {
-  return win.evaluate(([all, attribute]) => {
-    const box = document.querySelector('main.stage')!.getBoundingClientRect();
+async function lastSeen(win: Page, rows: string, known: string, within = STAGE): Promise<{ selector: string; at: number }> {
+  return win.evaluate(([all, attribute, scroller]) => {
+    const box = document.querySelector(scroller)!.getBoundingClientRect();
     const seen = [...document.querySelectorAll(all)].filter((row) => {
       const r = row.getBoundingClientRect();
       return r.top >= box.top && r.top <= box.bottom - 40;
@@ -119,34 +148,37 @@ async function lastSeen(win: Page, rows: string, known: string): Promise<{ selec
     const row = (whole.length ? whole : seen).slice(-1)[0];
     if (!row) return { selector: '', at: Number.NaN };
     return { selector: `[${attribute}="${row.getAttribute(attribute)}"]`, at: Math.round(row.getBoundingClientRect().top - box.top) };
-  }, [rows, known] as const);
+  }, [rows, known, within] as const);
 }
 
-/** How far a row sits below the stage's top edge now, in pixels; NaN while it is not in the page. */
-const rowTop = (win: Page, selector: string) => win.evaluate((which) => {
+/** How far a row sits below the top edge of the stage, or the box, now, in pixels; NaN while either is not in the page. */
+const rowTop = (win: Page, selector: string, within = STAGE) => win.evaluate(([which, scroller]) => {
   const row = document.querySelector(which);
-  return row ? Math.round(row.getBoundingClientRect().top - document.querySelector('main.stage')!.getBoundingClientRect().top) : Number.NaN;
-}, selector);
+  const box = document.querySelector(scroller);
+  return row && box ? Math.round(row.getBoundingClientRect().top - box.getBoundingClientRect().top) : Number.NaN;
+}, [selector, within] as const);
 
 /**
- * From now, at every frame: the time, the address, the stage's scroll and
- * height, where the row sits below its top edge, and whether the place is held.
+ * From now, at every frame: the time, the address, the scroll and height of
+ * the stage or the box, where the row sits below its top edge, and whether the
+ * place is held on it.
  */
-async function watchFrames(win: Page, selector: string): Promise<void> {
-  await win.evaluate((which) => {
+async function watchFrames(win: Page, selector: string, within = STAGE): Promise<void> {
+  await win.evaluate(([which, scroller]) => {
     const kept: string[] = [];
     const started = performance.now();
     const record = () => {
-      const stage = document.querySelector<HTMLElement>('main.stage');
-      if (!stage) return;
+      const box = document.querySelector<HTMLElement>(scroller);
       const row = document.querySelector(which);
-      const at = row ? String(Math.round(row.getBoundingClientRect().top - stage.getBoundingClientRect().top)) : 'not in the page';
-      kept.push(`+${Math.round(performance.now() - started)} ms\t${window.location.hash}\ttop ${Math.round(stage.scrollTop)} of ${stage.scrollHeight}\trow ${at}\t${stage.hasAttribute('data-place-held') ? 'held' : 'let go'}`);
+      const at = row && box ? String(Math.round(row.getBoundingClientRect().top - box.getBoundingClientRect().top)) : 'not in the page';
+      kept.push(box
+        ? `+${Math.round(performance.now() - started)} ms\t${window.location.hash}\ttop ${Math.round(box.scrollTop)} of ${box.scrollHeight}\trow ${at}\t${box.hasAttribute('data-place-held') ? 'held' : 'let go'}`
+        : `+${Math.round(performance.now() - started)} ms\t${window.location.hash}\tno ${scroller} yet`);
       if (kept.length < 2_000) requestAnimationFrame(record);
     };
     requestAnimationFrame(record);
     (window as unknown as { stageFrames: string[] }).stageFrames = kept;
-  }, selector);
+  }, [selector, within] as const);
 }
 
 /** The frames watched, a line each, with a run of frames that changed nothing but the time said once. */
@@ -169,15 +201,15 @@ async function framesSaid(win: Page, left: number): Promise<string> {
  * it is there again, as near as a pixel or two, and still there a second
  * later. Every frame from the key on is logged, met or missed.
  */
-async function backTo(win: Page, to: string, selector: string, left: number, what: string): Promise<void> {
-  await watchFrames(win, selector);
+async function backTo(win: Page, to: string, selector: string, left: number, what: string, within = STAGE): Promise<void> {
+  await watchFrames(win, selector, within);
   await win.keyboard.press(`${MOD}+BracketLeft`);
   try {
     await expect.poll(() => hash(win)).toBe(to);
-    await expect.poll(async () => Math.abs((await rowTop(win, selector)) - left), { timeout: 5_000, message: `${what} is not where it was left` })
+    await expect.poll(async () => Math.abs((await rowTop(win, selector, within)) - left), { timeout: 5_000, message: `${what} is not where it was left` })
       .toBeLessThanOrEqual(2);
     await win.waitForTimeout(1_000);
-    expect(Math.abs((await rowTop(win, selector)) - left), `${what} moved after it was put back`).toBeLessThanOrEqual(2);
+    expect(Math.abs((await rowTop(win, selector, within)) - left), `${what} moved after it was put back`).toBeLessThanOrEqual(2);
   } finally {
     console.log(`STAGE BACK ${what}, ${selector}:\n${await framesSaid(win, left)}`);
   }
@@ -188,10 +220,10 @@ const SIZES: readonly (readonly [number, number] | null)[] = [null, [960, 640]];
 for (const size of SIZES) {
   const where = size ? `, in a ${size[0]} by ${size[1]} window` : '';
   const shot = size ? `-${size[0]}x${size[1]}` : '';
-  test(`a new screen opens at its top, and Back and Forward put the run history and the Library where each was left${where}`, async () => {
-    test.setTimeout(300_000);
+  test(`a new screen opens at its top, and Back and Forward put the run history, the Library, Search's results, and a run's papers where each was left${where}`, async () => {
+    test.setTimeout(420_000);
     const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-stage-')));
-    const { app, win, problems } = await launch(stateDir, size);
+    const { app, win, problems, found } = await launch(stateDir, size);
     try {
       if (size) await expect.poll(() => win.evaluate(() => window.innerWidth)).toBeLessThanOrEqual(size[0]);
 
@@ -248,6 +280,56 @@ for (const size of SIZES) {
       await win.keyboard.press(`${MOD}+BracketRight`);
       await expect.poll(() => hash(win)).toBe('#/health');
       await expect.poll(() => stageTop(win), { timeout: 2_000 }).toBe(0);
+
+      // — Search › Your collection: results that scroll in their own box ------------------
+      const results = '.collection .index-scroll';
+      const listed = `${results} .result[data-document]`;
+      await tab(win, 'Search').click();
+      await expect.poll(() => hash(win)).toBe('#/search');
+      await expect(win.locator(listed).first()).toBeVisible({ timeout: 60_000 });
+      await win.locator('#collection-query').fill('orbital');
+      await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
+      await expect(win.locator('.count-sentence')).toContainText('420', { timeout: 30_000 });
+      await expect.poll(() => stageTop(win, results), { timeout: 2_000 }).toBe(0);
+      // Far down, past the first page of fifty: the next pages are read as the list nears its end.
+      await scrollFar(win, 5_000, results);
+      const result = await lastSeen(win, listed, 'data-document', results);
+      expect(result.selector).toMatch(/^\[data-document="\d+"\]$/);
+      expect(result.at).toBeGreaterThan(0);
+      // The paper at the bottom of the screen opened from the list, as a person opens one.
+      await win.locator(`${results} ${result.selector}`).locator('.result-title').click();
+      await expect.poll(() => hash(win)).toMatch(/^#\/papers\/\d+$/);
+      // The paper's page drawn, and the results gone with Search: Back draws them again.
+      await expect(win.locator('.paper-name')).toBeVisible({ timeout: 30_000 });
+      await expect(win.locator(results)).toHaveCount(0);
+      await backTo(win, '#/search?q=orbital', `${results} ${result.selector}`, result.at, 'the paper at the bottom of the results', results);
+      expect(await stageTop(win)).toBe(0);
+      await shoot(win, `stage-search-restored${shot}.png`);
+      // A new search opens at its top; Back to the last one puts it where it was.
+      await win.locator('#collection-query').fill('orbital decay');
+      await expect.poll(() => hash(win)).toBe('#/search?q=orbital+decay');
+      await expect.poll(() => stageTop(win, results), { timeout: 5_000 }).toBe(0);
+      await win.locator('#collection-query').fill('orbital');
+      await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
+      await expect.poll(() => stageTop(win, results), { timeout: 5_000 }).toBe(0);
+
+      // — A run's Papers tab: a page that scrolls in its own box ---------------------------
+      const page = '.run';
+      const papers = `${page} .paper-row[data-document]`;
+      await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, found);
+      await expect.poll(() => hash(win)).toBe(`#/runs/${found}`);
+      await expect(win.locator(papers).nth(199)).toBeAttached({ timeout: 60_000 });
+      await expect.poll(() => stageTop(win, page), { timeout: 2_000 }).toBe(0);
+      await scrollFar(win, 5_000, page);
+      const paper = await lastSeen(win, papers, 'data-document', page);
+      expect(paper.selector).toMatch(/^\[data-document="\d+"\]$/);
+      await win.locator(`${page} ${paper.selector}`).locator('.paper-title').click();
+      await expect.poll(() => hash(win)).toMatch(/^#\/papers\/\d+$/);
+      await expect(win.locator('.paper-name')).toBeVisible({ timeout: 30_000 });
+      await expect(win.locator(page)).toHaveCount(0);
+      await backTo(win, `#/runs/${found}`, `${page} ${paper.selector}`, paper.at, 'the paper at the bottom of the run\'s Papers tab', page);
+      expect(await stageTop(win)).toBe(0);
+      await shoot(win, `stage-run-papers-restored${shot}.png`);
       expect(problems).toEqual([]);
     } finally {
       await app.close().catch(() => { /* gone */ });
