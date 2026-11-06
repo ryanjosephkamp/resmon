@@ -511,6 +511,62 @@ def test_a_cancel_after_every_source_finished_says_nothing_was_stored(monkeypatc
     assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 0
 
 
+def test_a_cancel_accepted_after_the_papers_were_stored_still_ends_the_run_cancelled(monkeypatch, conn):
+    """A Stop the engine answered 200 is never followed by 'completed'.
+
+    The flag is raised while the report is being built, past every checkpoint
+    the run had left on this path (no summaries are asked for). The last check
+    before the run is recorded as finished catches it: the papers stay in the
+    collection, and the run and its report say it was stopped.
+    """
+    exec_ids: list[int] = []
+    real_report = se.generate_report
+
+    def late_stop(*args, **kwargs):
+        assert progress_store.request_cancel(exec_ids[-1]) is True
+        return real_report(*args, **kwargs)
+
+    _stand_ins(monkeypatch, lambda slug: [_paper(slug, 1)])
+    monkeypatch.setattr(se, "generate_report", late_stop)
+    engine = SweepEngine(db_conn=conn, config={})
+    exec_ids.append(engine.prepare_execution(
+        "deep_sweep", ["arxiv"], {"query": "graphs", "max_results": 10}))
+    progress_store.register(exec_ids[-1])
+    result = engine.run_prepared(exec_ids[-1])
+
+    assert result["status"] == "cancelled"
+    assert get_execution_by_id(conn, exec_ids[-1])["status"] == "cancelled"
+    report = Path(result["report_path"]).read_text(encoding="utf-8")
+    assert "were added to your collection" in report
+    assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 1
+
+
+def test_a_stop_that_comes_once_the_run_is_finishing_is_refused_not_accepted(monkeypatch, conn):
+    """Past the last check a Stop is answered "too late", and the run completes."""
+    exec_ids: list[int] = []
+    answers: list = []
+    _stand_ins(monkeypatch, lambda slug: [_paper(slug, 1)])
+    engine = SweepEngine(db_conn=conn, config={})
+    exec_ids.append(engine.prepare_execution(
+        "deep_sweep", ["arxiv"], {"query": "graphs", "max_results": 10}))
+    progress_store.register(exec_ids[-1])
+    # A stop attempted as the run enters its "finalizing" stage, which it
+    # reaches only after the last check.
+    original_log = se.update_current_stage
+
+    def at_finalizing(db, exec_id, stage):
+        original_log(db, exec_id, stage)
+        if stage == "finalizing":
+            answers.append(progress_store.request_cancel(exec_id))
+
+    monkeypatch.setattr(se, "update_current_stage", at_finalizing)
+    result = engine.run_prepared(exec_ids[-1])
+
+    assert answers == [False]
+    assert result.get("status") != "cancelled"
+    assert get_execution_by_id(conn, exec_ids[-1])["status"] == "completed"
+
+
 # ---------------------------------------------------------------------------
 # The heartbeat
 # ---------------------------------------------------------------------------

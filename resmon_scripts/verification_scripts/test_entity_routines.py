@@ -541,12 +541,14 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
         profile["id"], mode="retractions", repositories=["fixture"])).json()
 
     from implementation_scripts.progress import progress_store  # noqa: PLC0415
-    original = progress_store.should_cancel
-    monkeypatch.setattr(progress_store, "should_cancel", lambda _exec_id: True)
-    try:
-        fired.post(f"/api/routines/{routine['id']}/run")
-    finally:
-        monkeypatch.setattr(progress_store, "should_cancel", original)
+    register = progress_store.register
+
+    def register_and_stop(exec_id):
+        register(exec_id)
+        assert progress_store.request_cancel(exec_id) is True
+
+    monkeypatch.setattr(progress_store, "register", register_and_stop)
+    fired.post(f"/api/routines/{routine['id']}/run")
 
     assert checked == [], "the run asked a provider after being cancelled"
 
@@ -563,6 +565,37 @@ def test_a_cancelled_retractions_run_stops_before_it_asks_anybody(fired, monkeyp
     assert "(cancelled)" in report.splitlines()[0]
     assert "cancelled before it checked any paper" in report
     assert "## Findings" not in report
+
+
+def test_a_stop_during_the_retractions_pass_is_refused_not_ignored(fired, monkeypatch):
+    """Past the checkpoint the pass cannot be interrupted, so a stop says so.
+
+    A stop answered 200 would be followed by a run that completes anyway.
+    """
+    from implementation_scripts import lifecycle as lifecycle_real  # noqa: PLC0415
+    from implementation_scripts.progress import progress_store  # noqa: PLC0415
+    answers: list = []
+
+    def during_the_pass(*a, **k):
+        for exec_id in progress_store.get_active_ids():
+            answers.append(progress_store.request_cancel(exec_id))
+            answers.append(fired.post(f"/api/executions/{exec_id}/cancel").status_code)
+        return {"checked_now": 0, "eligible": 0, "selected": 0, "errors": [],
+                "checked_at": ""}
+
+    monkeypatch.setattr(lifecycle_real, "check_documents", during_the_pass)
+    profile = _profile_over_api(fired, identifiers={"orcid": {"value": ORCID}})
+    routine = fired.post("/api/routines", json=_routine_body(
+        profile["id"], mode="retractions", repositories=["fixture"])).json()
+    fired.post(f"/api/routines/{routine['id']}/run")
+
+    assert answers == [False, 409]
+    conn = _conn(fired)
+    try:
+        row = conn.execute("SELECT status FROM executions ORDER BY id DESC LIMIT 1").fetchone()
+    finally:
+        resmon_mod._close_db(conn)
+    assert row["status"] == "completed"
 
 
 # ---------------------------------------------------------------------------

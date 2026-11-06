@@ -322,8 +322,13 @@ api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/
       await expect(page.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)).toHaveCount(1, { timeout: 30_000 });
     }
     // Stop in one window; the other is told, and reads the engine again at once.
+    // The held reply is let go only once the engine has accepted the stop: released at the click, the run can
+    // finish before the request arrives, and a stop that comes too late is rightly refused.
+    const accepted = first.waitForResponse((r) => r.url().endsWith(`/api/executions/${slow.execution_id}/cancel`)
+      && r.request().method() === 'POST');
     await first.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)
       .getByRole('button', { name: /^Stop/ }).first().click();
+    expect((await accepted).status(), 'the engine accepted the stop').toBe(200);
     release();
     for (const page of [second, first]) {
       await expect(page.locator(`[data-runs="running"] .active-row[data-run="${slow.execution_id}"]`)).toHaveCount(0, { timeout: 30_000 });

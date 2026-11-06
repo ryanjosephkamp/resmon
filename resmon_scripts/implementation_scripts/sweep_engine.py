@@ -349,9 +349,11 @@ class SweepEngine:
 
             ``stage`` is where the cancel took effect: ``querying`` (sources
             still being asked), ``collected`` (every source finished, nothing
-            stored yet) or ``summarizing`` (papers stored and linked). A report
-            that cannot be written is logged and the run is still cancelled;
-            the report is never allowed to turn a cancel into a failure.
+            stored yet), ``summarizing`` (papers stored and linked) or
+            ``reporting`` (papers stored, the run about to be recorded as
+            finished). A report that cannot be written is logged and the run
+            is still cancelled; the report is never allowed to turn a cancel
+            into a failure.
             """
             report_path: Optional[Path] = None
             try:
@@ -909,6 +911,13 @@ class SweepEngine:
                 "report_path": str(report_path),
                 "timestamp": now_iso(),
             })
+
+            # The last check. A stop the engine accepted before this point
+            # ends the run cancelled; one that comes after it is refused (the
+            # stop route answers 409), never accepted and then ignored.
+            if not store.begin_finishing(exec_id):
+                return cancelled("reporting", report_docs=report_docs,
+                                 dedup=dedup_stats, linked=linked_ids)
 
             # 7. Finalize
             store.emit(exec_id, {
@@ -1503,13 +1512,14 @@ class SweepEngine:
             f"Watch profile '{name}': {len(document_ids)} matched paper(s) in "
             f"the corpus")
 
-        # The one cancellation checkpoint this branch has, and it is honestly
+        # The one cancellation point this branch has, and it is honestly
         # placed: everything above reads the local database, and everything below
         # is a single bounded lifecycle pass that makes batched HTTP calls and
-        # cannot be interrupted part-way. `check_corpus` has the same shape.
-        # Cancelling after this point takes effect at the end of the pass, and
-        # the log says so rather than leaving a Cancel button that looks broken.
-        if store.should_cancel(exec_id):
+        # cannot be interrupted part-way. `begin_finishing` is the run's last
+        # check: a stop accepted before it ends the run cancelled, and from here
+        # a stop is refused (the stop route answers 409) rather than accepted
+        # and ignored.
+        if not store.begin_finishing(exec_id):
             report_path: Optional[Path] = None
             try:
                 report_path = REPORTS_DIR / "markdowns" / f"report_{execution_type}_{exec_id}_{ts_slug}.md"
@@ -1526,9 +1536,9 @@ class SweepEngine:
                 report_path=report_path, log_path=log_path,
             )
         task_log.log(
-            "Checking now. A cancel from here takes effect when this pass ends: "
-            "the lifecycle check runs in one bounded batch and is not "
-            "interruptible part-way.")
+            "Checking now. From here the check runs to its end: it is one "
+            "bounded batch that cannot be interrupted part-way, and a stop now "
+            "is refused.")
 
         # Bounded, and bounded by the routine's own `max_results` so the same
         # dial that limits a keyword sweep limits this. A daily routine over a

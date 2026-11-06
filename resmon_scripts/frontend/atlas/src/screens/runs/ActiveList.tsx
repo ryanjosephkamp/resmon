@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { answer, engine, EngineError } from '../../api/client';
+import { answer, engine, EngineError, stopRefusal } from '../../api/client';
 import { breakable } from '../../shell/breakable';
 import { Icon } from '../../shell/Icon';
 import { useNow } from '../../lib/useNow';
@@ -103,6 +103,7 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
         const stalled = isStalled(run, now);
         const ran = secondsSince(run.start_time, now);
         const stopping = stop.variables === run.id && (stop.isPending || stop.isSuccess);
+        const tooLate = stop.variables === run.id ? stopRefusal(stop.error) : null;
         const title = activeTitle(run, watchName);
         return (
           <li key={run.id} className="active-row" data-run={run.id} data-stalled={stalled ? 'true' : undefined}>
@@ -124,15 +125,16 @@ export function RunningList({ running, nameOf, watchName, compact = false }: Omi
               {stalled && silent !== null && (
                 <p className="active-note" data-runs="stalled">No word from this run for {elapsedWords(silent)}.</p>
               )}
-              {stop.variables === run.id && stop.error && (
+              {tooLate && <p className="active-note" role="status" data-runs="finishing">{tooLate}</p>}
+              {stop.variables === run.id && stop.error && !tooLate && (
                 <p className="field-error" role="alert">
                   {stop.error instanceof EngineError && stop.error.detail ? stop.error.detail : stop.error.message}
                 </p>
               )}
             </div>
-            <button type="button" className="btn sm" data-runs="stop" disabled={stopping}
+            <button type="button" className="btn sm" data-runs="stop" disabled={stopping || tooLate !== null}
               aria-label={`Stop ${title}`} onClick={() => stop.mutate(run.id)}>
-              <Icon name="stop" size={14} />{stopping ? 'Stopping' : 'Stop'}
+              <Icon name="stop" size={14} />{stopping ? 'Stopping' : tooLate !== null ? 'Finishing' : 'Stop'}
             </button>
           </li>
         );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { answer, engine, EngineError } from '../api/client';
+import { answer, engine, EngineError, stopRefusal } from '../api/client';
 import { Icon } from '../shell/Icon';
 import { useScrollerPlace } from '../shell/stageScroll';
 import { breakable } from '../shell/breakable';
@@ -324,7 +324,9 @@ export function Run() {
   // A stop is cooperative: the run ends at its next checkpoint, so the screen
   // says a stop was asked for until the run says it has ended.
   const stopping = running && stop.variables === id && (stop.isPending || stop.isSuccess);
-  const failure = (stop.variables === id ? stop.error : null) ?? restart.error ?? exporting.error
+  const stopError = stop.variables === id ? stop.error : null;
+  const tooLate = stopRefusal(stopError);
+  const failure = (tooLate ? null : stopError) ?? restart.error ?? exporting.error
     ?? (bundle.variables === id ? bundle.error : null) ?? (keep.variables?.runId === id ? keep.error : null);
   const title = runTitle(data, watch);
   // The dates this run asked for, as its own parameters record them: for a
@@ -347,8 +349,8 @@ export function Run() {
           <h1 className={watch ? 'run-name it' : 'run-name'}>{breakable(title)}</h1>
           <div className="run-actions">
             {running && (
-              <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping}>
-                <Icon name="stop" size={14} />{stopping ? 'Stopping…' : 'Stop'}
+              <button type="button" className="btn" onClick={() => stop.mutate(id)} disabled={stopping || tooLate !== null}>
+                <Icon name="stop" size={14} />{stopping ? 'Stopping…' : tooLate !== null ? 'Finishing…' : 'Stop'}
               </button>
             )}
             {RESTARTABLE.has(data.status) && (
@@ -462,6 +464,7 @@ export function Run() {
             Stopping. resmon has asked this run to stop, and it stops at its next checkpoint; until then it is still running.
           </p>
         )}
+        {tooLate && running && <p className="run-note" role="status" data-run="finishing">{tooLate}</p>}
         {data.status === 'interrupted' && <p className="run-note">{interruptedSentence(data)}</p>}
         {data.status === 'failed' && data.error_message && <p className="run-note">{data.error_message}</p>}
         {RESTARTABLE.has(data.status) && <RestartFacts run={data} setTo={events.isSuccess ? choice?.enabled ?? null : undefined} />}

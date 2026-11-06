@@ -3534,7 +3534,10 @@ def cancel_execution(exec_id: int):
         raise HTTPException(409, (
             f"Execution {exec_id} is {row.get('status')}; only a running "
             "execution can be cancelled."))
-    progress_store.request_cancel(exec_id)
+    if not progress_store.request_cancel(exec_id):
+        # Past the run's last cancellation check: it is recording its result.
+        raise HTTPException(409, (
+            f"Execution {exec_id} is finishing; it is too late to cancel it."))
     return {"status": "cancellation_requested"}
 
 
