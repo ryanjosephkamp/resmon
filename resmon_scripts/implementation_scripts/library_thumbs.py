@@ -6,9 +6,9 @@ opening the PDF again. The window may not keep it itself: Atlas keeps nothing in
 browser storage, and its content policy shows images from its own origin and
 ``data:`` only, so a picture reaches it as bytes it turns into a ``data:`` URL.
 
-A picture is keyed by the file's version id, which names one immutable set of
-bytes, so it never goes stale; it is checked against the catalog on every read
-and write, so no picture is served for a version the Library does not record.
+A picture is keyed by the file's version id and the drawing revision. Covers
+made before embedded fonts worked are drawn again. It is checked against the
+catalog on every read and write, so no picture is served for a version the Library does not record.
 The folder is ``<database>-library-pictures/`` beside the database, as the map's
 fit is beside it: derived data, cheap to draw again, and never inside the
 person's Library folder. Only the three image formats a canvas encodes are
@@ -52,7 +52,7 @@ def _paired(conn: sqlite3.Connection, expected: str, file_id: str, version_id: s
 
 
 def _named(version_id: str) -> str:
-    return str(uuid.UUID(version_id))
+    return str(uuid.UUID(version_id)) + '.fonts-1'
 
 
 def read(conn: sqlite3.Connection, expected: str, file_id: str, version_id: str) -> tuple[str, bytes]:
@@ -94,6 +94,10 @@ def write(conn: sqlite3.Connection, expected: str, file_id: str, version_id: str
         os.fsync(handle.fileno())
         staged = handle.name
     try:
+        # Earlier drawings may have substituted text faces for embedded math.
+        # They are derived images, and only this version's are replaced.
+        for extension in _EXTENSION.values():
+            (where / f'{uuid.UUID(version_id)}.{extension}').unlink(missing_ok=True)
         for other in _EXTENSION.values():
             if other != _EXTENSION[media]:
                 try:
@@ -117,7 +121,5 @@ def forget(conn: sqlite3.Connection, version_id: str) -> None:
     if where is None:
         return
     for extension in _EXTENSION.values():
-        try:
-            (where / f'{_named(version_id)}.{extension}').unlink()
-        except FileNotFoundError:
-            pass
+        for name in (_named(version_id), str(uuid.UUID(version_id))):
+            (where / f'{name}.{extension}').unlink(missing_ok=True)

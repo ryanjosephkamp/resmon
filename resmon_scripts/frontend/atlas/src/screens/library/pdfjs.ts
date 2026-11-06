@@ -90,6 +90,11 @@ export function pdfAsset(relative: string): string {
   return target.href;
 }
 
+/** The app's same-origin worker entry installs compatibility before the unmodified PDF.js. */
+export function pdfWorkerAsset(): string {
+  return new URL('./pdfjs-worker.js', document.baseURI).href;
+}
+
 let pending: Promise<PdfModule> | undefined;
 
 export function loadPdfJs(): Promise<PdfModule> {

@@ -215,10 +215,19 @@ def test_pictures_are_kept_by_version_and_forgotten_with_the_record(world, tmp_p
     with pytest.raises(lib.LibraryError) as none:
         library_thumbs.read(c, vid, file['file_id'], file['version_id'])
     assert none.value.reason == 'no_picture'
+    # A cover cached before embedded fonts worked must be drawn again.
+    pictures = tmp_path / 'catalog.db-library-pictures'
+    pictures.mkdir(exist_ok=True)
+    legacy = pictures / f"{file['version_id']}.webp"
+    legacy.write_bytes(webp)
+    with pytest.raises(lib.LibraryError) as stale:
+        library_thumbs.read(c, vid, file['file_id'], file['version_id'])
+    assert stale.value.reason == 'no_picture'
     kept = library_thumbs.write(c, vid, file['file_id'], file['version_id'], 'image/webp', webp)
     assert kept['byte_size'] == len(webp)
     assert library_thumbs.read(c, vid, file['file_id'], file['version_id']) == ('image/webp', webp)
-    assert (tmp_path / 'catalog.db-library-pictures' / f"{file['version_id']}.webp").read_bytes() == webp
+    assert (pictures / f"{file['version_id']}.fonts-1.webp").read_bytes() == webp
+    assert not legacy.exists()
     png = b'\x89PNG\r\n\x1a\n' + b'\x00' * 8
     library_thumbs.write(c, vid, file['file_id'], file['version_id'], 'image/png', png)
     assert library_thumbs.read(c, vid, file['file_id'], file['version_id']) == ('image/png', png)
@@ -232,6 +241,7 @@ def test_pictures_are_kept_by_version_and_forgotten_with_the_record(world, tmp_p
         library_thumbs.write(c, vid, text['file_id'], text['version_id'], 'image/png', png)
     with pytest.raises(lib.LibraryError):
         library_thumbs.read(c, vid, file['file_id'], text['version_id'])
+    legacy.write_bytes(webp)
     rm.remove(c, vid, file['file_id'], file['version_id'], cascade=False)
     path = Path(rm.release_request(c, vid, file['file_id'])['path'])
     os.unlink(path)
