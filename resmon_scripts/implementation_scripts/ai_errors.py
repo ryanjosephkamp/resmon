@@ -60,7 +60,7 @@ class AIErrorKind(str, Enum):
     # Document-local — this paper failed, the lane did not.
     CONTEXT = "context"           # input longer than the context window
     CONTENT = "content"           # provider declined the content
-    UNKNOWN = "unknown"           # unrecognised; recorded rather than guessed
+    UNKNOWN = "unknown"           # unrecognized; recorded rather than guessed
 
 
 LANE_FATAL_KINDS: frozenset[AIErrorKind] = frozenset({
@@ -169,7 +169,7 @@ class AIError(RuntimeError):
     detail: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        # Sanitising here rather than at call sites means a new caller cannot
+        # Sanitizing here rather than at call sites means a new caller cannot
         # forget. The shape patterns run even when no secret was passed.
         self.message = sanitize(self.message)
         super().__init__(self.message)

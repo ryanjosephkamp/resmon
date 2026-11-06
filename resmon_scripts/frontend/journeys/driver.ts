@@ -202,7 +202,7 @@ export interface ImportOutcome {
    *
    * Read because the dialog itself cannot be. Nothing automated can operate a
    * native file dialog, so the chooser is answered with the file instead — and
-   * a file the dialog would have greyed out is exactly the file a person could
+   * a file the dialog would have grayed out is exactly the file a person could
    * never have picked. This is the closest the suite can come to that dialog.
    */
   chooserAccepts: string;
@@ -327,7 +327,7 @@ export interface DaemonPanel {
   text: string;
 }
 
-/** One labelled figure on a screen — a tile, a bar, a row. */
+/** One labeled figure on a screen — a tile, a bar, a row. */
 export interface Figure {
   label: string;
   value: string;
@@ -994,7 +994,7 @@ export interface JourneyDriver {
    * protocol, a different double. What it replaces is the sign-in — the
    * discovery, the argv, the exit handling, the classification of the failure
    * and everything the lane then does about it are the app's own. What no
-   * double can see is a real CLI's own behaviour, and the spec says so.
+   * double can see is a real CLI's own behavior, and the spec says so.
    */
   useAnAuthoredSummarizerThatIsNotSignedIn(): Promise<void>;
   /** What Settings → AI says about the lane it would use. */

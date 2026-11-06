@@ -1,6 +1,6 @@
 """Actual selected ZIPs and SQL snapshots.
 
-Reduced limits and injected disk/cancellation/tamper arms are labelled. Downloads,
+Reduced limits and injected disk/cancellation/tamper arms are labeled. Downloads,
 native Save/Cancel, Markdown viewers and browser transport are separate checks.
 """
 from __future__ import annotations

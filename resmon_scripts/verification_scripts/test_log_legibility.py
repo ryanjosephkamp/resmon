@@ -3,7 +3,7 @@
 Every Backend log in this repository was silently cut in half, on passing runs
 as well as failing ones. ``gh run view --log`` reads with Go's ``bufio.Scanner``
 at its default 64 KiB limit and stops, unchecked, at the first longer line;
-``ci.yml`` runs ``pytest -v``; and one parametrised case carries a 256 KiB
+``ci.yml`` runs ``pytest -v``; and one parametrized case carries a 256 KiB
 ``bytes`` value, which pytest renders into the test id. Measured on three jobs
 including a passing one: 3,740 raw lines, 1,872 through ``gh``, the cut always
 at (first over-long line − 1).
@@ -23,7 +23,7 @@ Three properties hold the repair, and they are separate failures:
    over — pytest-timeout's ``thread`` method expires by calling ``os._exit(1)``
    and takes the summary with it.
 
-Nothing here proves anything about ``gh``'s own behaviour. The 64 KiB figure is
+Nothing here proves anything about ``gh``'s own behavior. The 64 KiB figure is
 Go's documented default and the cut was measured elsewhere; what this module
 asserts is the thing in this repository's control, which is that no line gets
 anywhere near it.
@@ -379,7 +379,7 @@ def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, cas
     # rather than assumed: `@timeout(300)` over `@timeout(2)` around a
     # five-second sleep expired at two seconds, and `@timeout(2)` over
     # `@timeout(300)` passed in 5.01 s. The decorator nearest the `def` --
-    # last in `decorator_list` -- is the one pytest honours, both ways round.
+    # last in `decorator_list` -- is the one pytest honors, both ways round.
     #
     # `max()` was here first and it is the same defect as the regex it
     # replaced, one level in: [300, 60] satisfied a gate whose whole job is
@@ -387,7 +387,7 @@ def test_the_cases_measured_near_the_limit_carry_their_own_timeout(filename, cas
     # 120-second default the gate exists to improve on.
     effective = marks[-1]
     assert effective > INI_TIMEOUT, (
-        f"{filename}::{case} declares {marks} and pytest honours the last of "
+        f"{filename}::{case} declares {marks} and pytest honors the last of "
         f"them, {effective}s, which is no more headroom than the "
         f"{INI_TIMEOUT}s default it already had"
     )
@@ -426,7 +426,7 @@ def test_a_timeout_mark_on_a_neighbouring_case_does_not_count(tmp_path):
 def test_the_last_stacked_mark_is_the_one_that_counts():
     """Stacked marks, measured rather than read.
 
-    pytest honours the decorator nearest the ``def``. Measured both ways
+    pytest honors the decorator nearest the ``def``. Measured both ways
     round against a five-second sleep under this repository's own
     ``timeout_method = thread``:
 

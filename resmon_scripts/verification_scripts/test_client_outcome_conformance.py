@@ -136,7 +136,7 @@ def _answer_everything_with(monkeypatch, status: int, body: bytes) -> None:
     """Every request, on either transport, gets this one reply.
 
     Both ``httpx.Client`` and ``httpx.AsyncClient`` are replaced: a client
-    that passes a ``deadline=`` goes through ``safe_request``'s cancellable
+    that passes a ``deadline=`` goes through ``safe_request``'s cancelable
     async scope and never touches the synchronous one.
     """
     def respond(_self, method, url, **_kwargs):

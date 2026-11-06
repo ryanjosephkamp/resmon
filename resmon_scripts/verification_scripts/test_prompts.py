@@ -26,7 +26,7 @@ def test_constitution_loaded_once():
     pt = _fresh_module()
     first = pt.load_constitution()
     second = pt.load_constitution()
-    # Identity check: memoised string should be the same object on second call.
+    # Identity check: memoized string should be the same object on second call.
     assert first is second
     assert first.startswith("<!-- version: 1.0 -->")
     assert len(first.encode("utf-8")) <= 16_384

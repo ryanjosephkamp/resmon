@@ -129,10 +129,10 @@ function activityOf(event: ProgressEvent): SourceActivity {
  * The error `sweep_engine` records for a source that was being asked when the
  * run was stopped (`cancel()`): the stop, not a failure of the source.
  */
-const CANCELLED_BY_USER = 'cancelled by user';
+const CANCELED_BY_USER = 'cancelled by user';
 
 /** The engine's sentence for such a source, as the run's recorded coverage words it. */
-const CANCELLED_NOTE = 'The run was cancelled while this source was being queried.';
+const CANCELED_NOTE = 'The run was canceled while this source was being queried.';
 
 /**
  * The short words for each zero reason, the same ones the recorded coverage
@@ -235,9 +235,9 @@ export function liveSources(selected: readonly string[], events: readonly Progre
           : 'Not queried: no API key is configured.';
         break;
       case 'repo_error':
-        if (event.error === CANCELLED_BY_USER) {
+        if (event.error === CANCELED_BY_USER) {
           source.state = 'cancelled';
-          source.note = CANCELLED_NOTE;
+          source.note = CANCELED_NOTE;
         } else {
           source.state = 'error';
           source.note = event.error ? String(event.error) : '';
@@ -289,7 +289,7 @@ export function liveLabel(source: LiveSource): string {
       return source.count === 0 && (!source.reason || source.reason === 'not_recorded')
         ? 'zero, reason not recorded' : 'outcome not recorded';
     case 'error': return 'error';
-    case 'cancelled': return 'cancelled';
+    case 'cancelled': return 'canceled';
     case 'not_reached': return 'not asked';
   }
 }

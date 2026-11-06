@@ -58,7 +58,7 @@ const run = spawnSync(
     env: {
       ...process.env,
       RESMON_E2E_SCREENSHOT_DIR: shotDir,
-      // Playwright colours its list reporter; the log is meant to be read as
+      // Playwright colors its list reporter; the log is meant to be read as
       // text, on a phone, by someone who did not run it.
       FORCE_COLOR: '0',
     },

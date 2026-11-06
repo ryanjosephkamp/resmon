@@ -23,7 +23,7 @@ journey.describe('J06 Watchdog', () => {
     const empty = await resmon.readWatchdog();
     console.log(`[J06] empty install verdict: ${JSON.stringify(empty.verdict)}`);
     // Compared without case throughout: the stylesheet upper-cases these
-    // headings, so pinning the capitalisation would be pinning a stylesheet.
+    // headings, so pinning the capitalization would be pinning a stylesheet.
     expect(empty.verdict.toLowerCase(), 'an install with no history claimed a clean bill')
       .not.toContain('nothing looks wrong');
     expect(empty.verdict.toLowerCase()).toContain('nothing to check yet');

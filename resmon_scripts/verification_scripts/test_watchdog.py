@@ -199,7 +199,7 @@ def test_a_paused_routine_is_never_reported_as_overdue(conn):
     assert _by_kind(watchdog.report(conn, now=NOW), "routine_overdue") == []
 
 
-def test_a_cancelled_run_is_not_held_against_a_source(conn):
+def test_a_canceled_run_is_not_held_against_a_source(conn):
     """The user stopped it; that says nothing about the source."""
     for i in range(6):
         _run(conn, days_ago=i, sources={
@@ -697,7 +697,7 @@ def test_missing_key_outranks_the_error_it_causes(conn):
     """A 401 caused by an absent key must be reported as the absent key.
 
     Reporting the symptom would send the user hunting for a fault that is not
-    there. Precedence is cancelled > skipped_missing_key > error > ok.
+    there. Precedence is `cancelled` > skipped_missing_key > error > ok.
     """
     records = sources_from_progress_events([
         {"type": "repo_skipped_missing_key", "repository": "core",

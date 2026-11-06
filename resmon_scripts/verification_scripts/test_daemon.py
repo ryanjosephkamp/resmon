@@ -224,7 +224,7 @@ def test_graceful_shutdown_idempotent(tmp_path: Path, monkeypatch):
 # State-dir platform sanity
 # ---------------------------------------------------------------------------
 
-def test_state_dir_honours_override(monkeypatch, tmp_path):
+def test_state_dir_honors_override(monkeypatch, tmp_path):
     monkeypatch.setenv("RESMON_STATE_DIR", str(tmp_path / "override"))
     assert daemon_mod.state_dir() == tmp_path / "override"
     assert daemon_mod.lock_path() == tmp_path / "override" / "daemon.lock"

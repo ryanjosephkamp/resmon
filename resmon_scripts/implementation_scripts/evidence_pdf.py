@@ -60,7 +60,7 @@ def extract(raw: bytes, page: int, *, cancel: threading.Event | None = None) -> 
     if not isinstance(raw, bytes) or not 1 <= len(raw) <= MAX_INPUT:
         evidence.refuse('pdf_limit', 'PDF reading is limited to 64 MiB.', 413)
     if cancel is not None and cancel.is_set():
-        evidence.refuse('cancelled', 'The selected PDF page was cancelled.')
+        evidence.refuse('cancelled', 'The selected PDF page was canceled.')
     if not _LEASE.acquire(blocking=False):
         evidence.refuse('reader_busy', 'Another bounded PDF page is being read. Try again when it finishes.', 409)
     start = time.monotonic()

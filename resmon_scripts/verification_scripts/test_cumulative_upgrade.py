@@ -36,7 +36,7 @@ What each test establishes is written on it. The short version:
     takes on its next launch, and every row of it has to come out the other
     side (P9).
 
-`FIXTURES` near the bottom is the list that last case is parametrised over. A
+`FIXTURES` near the bottom is the list that last case is parametrized over. A
 schema that ships adds one row to it and one directory under `fixtures/`; it
 does not add a test, and it never touches a fixture committed before it.
 
@@ -214,7 +214,7 @@ def _snapshot(conn: sqlite3.Connection) -> dict:
     return {"tables": tables, "rows": rows, "sequences": sequences}
 
 
-def _normalise(sql: str) -> str:
+def _normalize(sql: str) -> str:
     """Collapse whitespace so indentation differences are not schema differences."""
     return " ".join((sql or "").split())
 
@@ -228,7 +228,7 @@ def _objects(conn: sqlite3.Connection) -> dict[str, tuple[str, str, str]]:
     difference that is not one.
     """
     return {
-        r["name"]: (r["type"], r["tbl_name"], _normalise(r["sql"]))
+        r["name"]: (r["type"], r["tbl_name"], _normalize(r["sql"]))
         for r in conn.execute(
             "SELECT type, name, tbl_name, sql FROM sqlite_master WHERE sql IS NOT NULL")
         if r["name"] not in SHADOW
@@ -651,7 +651,7 @@ def _template(table: str, column: str, value) -> dict:
     row = dict(rows[table])
     row[column] = value
     # Two tables' compound CHECKs tie another column to the one under test.
-    # Honouring them keeps this test about the value set and not about them.
+    # Honoring them keeps this test about the value set and not about them.
     if table == "evidence_answers" and column == "state":
         row["finished_at_utc"] = (
             None if value in ("admitted", "running") else "2026-03-01T01:00:00Z")
@@ -1126,7 +1126,7 @@ def test_one_init_db_over_each_fixture_keeps_every_row(
         release, tmp_path_factory):
     """The walk a database at *each* committed schema takes on its next launch.
 
-    Parametrised over every row of `FIXTURES`, not only the newest: adding a
+    Parametrized over every row of `FIXTURES`, not only the newest: adding a
     newer fixture would otherwise move `NEWEST` and silently drop the 18 -> 21
     walk, which is the only walk in this file that crosses the `executions`
     rebuild with a fixture's rows in it.

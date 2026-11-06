@@ -149,7 +149,7 @@ class PermissionBroker:
     def cancel_session(self, session_id: int) -> int:
         """Deny everything still pending for a session that is going away.
 
-        Called when a turn is cancelled or its process dies. Without it the
+        Called when a turn is canceled or its process dies. Without it the
         blocked HTTP request from the permission server would sit until the
         timeout, and the panel would show a card for a conversation that has
         already ended.
@@ -158,7 +158,7 @@ class PermissionBroker:
         for request in list(self._pending.values()):
             if request.session_id == session_id and request.decision is None:
                 self.answer(request.id, allow=False,
-                            reason="The conversation was cancelled.")
+                            reason="The conversation was canceled.")
                 count += 1
         return count
 

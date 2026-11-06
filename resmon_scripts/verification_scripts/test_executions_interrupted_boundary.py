@@ -227,7 +227,7 @@ def test_a_sigkilled_backend_leaves_a_running_row_the_next_start_adopts(tmp_path
         assert body["progress_events"] in (None, "", []), (
             "nothing was resumed, so nothing may be claimed to have been seen")
         assert body["restarted_into"] == []
-        # And it is honestly uncancellable now, in a sentence.
+        # And it is honestly uncancelable now, in a sentence.
         cancel = second.post(f"/api/executions/{exec_id}/cancel")
         assert cancel.status_code == 409
         assert "interrupted" in cancel.json()["detail"]
@@ -266,7 +266,7 @@ def test_a_second_backend_leaves_a_row_whose_owner_is_still_alive_alone(tmp_path
 
         body = second.get(f"/api/executions/{exec_id}").json()
         assert body["status"] == "running", (
-            "a second backend relabelled a run whose owner is alive -- that is "
+            "a second backend relabeled a run whose owner is alive -- that is "
             "the overclaim this rule exists to prevent")
         assert body["interrupted_reason"] is None
         assert body["end_time"] is None
@@ -287,7 +287,7 @@ class StdioMCP:
 
     Not `mcp.call_tool(...)` in this interpreter: that skips the process
     boundary, the backend discovery through `RESMON_STATE_DIR`, the token file
-    and the JSON serialisation, and those are the four places a field quietly
+    and the JSON serialization, and those are the four places a field quietly
     fails to arrive. The server is handed nothing but the state directory, and
     finds the backend the way a harness on a user's machine does.
     """

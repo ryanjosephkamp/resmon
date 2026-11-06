@@ -71,7 +71,7 @@ describe('the live panel, folded from the run\'s events', () => {
     expect(live.map((s) => s.slug)).toEqual(['arxiv', 'hal']);
   });
 
-  test('a stopped run: the source being asked was cancelled, not an error, and one never begun was not asked', () => {
+  test('a stopped run: the source being asked was canceled, not an error, and one never begun was not asked', () => {
     const stopped: ProgressEvent[] = [
       { type: 'repo_start', repository: 'biorxiv' },
       { type: 'repo_error', repository: 'biorxiv', error: 'cancelled by user' },
@@ -80,10 +80,10 @@ describe('the live panel, folded from the run\'s events', () => {
     ];
     const live = liveSources(['biorxiv', 'zenodo'], stopped, true);
     expect(live.map((s) => [s.slug, s.state, liveLabel(s)])).toEqual([
-      ['biorxiv', 'cancelled', 'cancelled'],
+      ['biorxiv', 'cancelled', 'canceled'],
       ['zenodo', 'not_reached', 'not asked'],
     ]);
-    expect(live[0]?.note).toBe('The run was cancelled while this source was being queried.');
+    expect(live[0]?.note).toBe('The run was canceled while this source was being queried.');
     expect(live.map(liveLabel).join(' ')).not.toContain('error');
     // While the run is still going, the same events leave the unbegun source waiting.
     expect(liveSources(['biorxiv', 'zenodo'], stopped.slice(0, 2)).map((s) => s.state)).toEqual(['cancelled', 'pending']);
@@ -262,6 +262,9 @@ describe('the Runs tab\'s history', () => {
   test('a run\'s one line, from what the engine recorded', () => {
     expect(runSummary(row(1, null))).toBe('1 of 1 source answered · 3 found, 2 new');
     expect(runSummary(row(1, null, 'running'))).toBe('running');
+    const stopped = row(1, null, 'cancelled');
+    expect(runSummary(stopped)).toBe('canceled · 1 of 1 source answered');
+    expect(stopped.status).toBe('cancelled');
   });
 
   test('a waiting run\'s place in line', () => {

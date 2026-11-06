@@ -2,7 +2,7 @@ import { hexToRgb, rgbToHex } from '../theme/accent';
 
 /**
  * Hue (0–360), saturation and value (0–1): the picker's own coordinates. Kept
- * apart from the hex it produces, because a grey or a black has no hue of its
+ * apart from the hex it produces, because a gray or a black has no hue of its
  * own, and a picker that re-derived its hue from the hex would lose it the
  * moment the person dragged into a corner.
  */

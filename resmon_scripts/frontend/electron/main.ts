@@ -33,7 +33,7 @@ import * as path from 'path';
  * was doing — they had to click back, or wait for the window to close. That is
  * the only thing this flag is for.
  *
- * It is a *launch* flag, not a behaviour flag. The same windows open, at the
+ * It is a *launch* flag, not a behavior flag. The same windows open, at the
  * same size, with the same contents, in the same order; only the activation
  * changes. With the variable unset every branch it gates takes the path it took
  * before the flag existed, which is the same contract `isE2E()` carries.
@@ -75,7 +75,7 @@ function isBackgroundWindow(): boolean {
  * changed nothing (363 frames), so this flag does not touch `webPreferences`.
  * That is one machine and one Electron; see the pull request.
  *
- * Unlike `isBackgroundWindow()`, this *is* a behaviour flag and it is named as
+ * Unlike `isBackgroundWindow()`, this *is* a behavior flag and it is named as
  * one: a suite running under it cannot see anything that needs a window on a
  * screen. The one CI job whose subject is the window is held off it by
  * `e2e/background-window.ts`, which throws rather than letting that job quietly
@@ -198,7 +198,7 @@ const runOwners = new RunOwners();
 const tabsMode = new TabsMode();
 let backendProcess: ChildProcess | null = null;
 // Null until attach-or-spawn has settled which backend this app is using. It
-// was initialised to the daemon's port, which meant any read before that point
+// was initialized to the daemon's port, which meant any read before that point
 // — the backend-connection IPC is the one that matters — handed the renderer a
 // port nothing had chosen. The window is only created after this is set, so the
 // null is unreachable in a normal start; it is here so that a start which goes
@@ -928,11 +928,11 @@ function startRendererServer(rendererRoot: string): Promise<number> {
 /**
  * True when the app is being driven by the end-to-end suite.
  *
- * Everything this flag gates is *test determinism only* — never behaviour a
+ * Everything this flag gates is *test determinism only* — never behavior a
  * user could want, and never anything that changes what the app shows. With the
  * variable unset every branch below takes the path a person's launch takes;
- * `e2e/default-behaviour.spec.ts` is the check that says so by
- * launching the app without it and asserting the default behaviour.
+ * `e2e/default-behavior.spec.ts` is the check that says so by
+ * launching the app without it and asserting the default behavior.
  */
 function isE2E(): boolean {
   return process.env.RESMON_E2E === '1';
@@ -1356,7 +1356,7 @@ async function runCommandLineItem(action: 'install' | 'uninstall'): Promise<void
  * all — so there was no Back, no Forward, and no keyboard shortcut for either.
  * This adds a History menu carrying the shortcuts macOS users expect
  * (Cmd+[ / Cmd+]) alongside the Cmd+Left / Cmd+Right pair, and keeps the rest
- * of the standard menu so Copy, Paste, Minimise and the window list behave as
+ * of the standard menu so Copy, Paste, Minimize and the window list behave as
  * they always have.
  *
  * With the Atlas renderer, File also starts a new conversation, Deep Dive, or

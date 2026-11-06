@@ -17,7 +17,7 @@
  * **The runtime is the repository's own agent-CLI double.** It speaks the real
  * protocol, asks for permission over real HTTP against this app's own backend,
  * and makes its tool call through the real MCP server. What it replaces is the
- * model. What no double can see is a real CLI's own behaviour — a version
+ * model. What no double can see is a real CLI's own behavior — a version
  * change, a sign-in that has lapsed — and this journey does not claim to.
  */
 import { expect, journey } from './driver';

@@ -25,7 +25,7 @@ response reading. Each HTTPX request also has a 10-second phase timeout and at
 most one retry. The module-level rate limiter applies.</p>
 <p>HTTPX’s numeric timeout applies to individual network operations, including
 waiting for the next response chunk. It does not by itself limit a search that
-retries or keeps receiving small chunks. HAL therefore opts into a cancellable
+retries or keeps receiving small chunks. HAL therefore opts into a cancelable
 async request scope. Its synchronous API joins the owned request thread and
 finishes transport cleanup before returning. Other source clients use the
 synchronous request path and its defaults.</p>

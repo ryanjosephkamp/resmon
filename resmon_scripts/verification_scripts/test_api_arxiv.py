@@ -8,7 +8,7 @@ and a date window appended to it bound only the last word. The client sent
 `all:{query}`, so every multi-word search and watch over arXiv matched papers
 with any one of its words, from any year, while the catalog said all of them.
 The string the client sends is asserted here for every shape a query takes,
-and once more after travelling from a watch's stored keywords through the
+and once more after traveling from a watch's stored keywords through the
 engine. ``test_a_two_word_query_counts_what_the_and_counts`` is the live half.
 
 **A 429 is waited out.** arXiv asks for one request every three seconds and
@@ -570,8 +570,8 @@ def test_a_stand_in_for_arxiv_can_shorten_its_patience(monkeypatch):
     assert api_arxiv._patience_seconds() == 180.0
 
 
-def test_a_cancelled_runs_search_stops_waiting_and_asks_arxiv_nothing_more(arxiv, monkeypatch):
-    """A watch's scheduled run may wait minutes for arXiv; once the run is cancelled, the wait ends at once."""
+def test_a_canceled_runs_search_stops_waiting_and_asks_arxiv_nothing_more(arxiv, monkeypatch):
+    """A watch's scheduled run may wait minutes for arXiv; once the run is canceled, the wait ends at once."""
     monkeypatch.setattr(api_arxiv, "_wait", _REAL_WAIT)
     arxiv.script = [(429, {}, "")] * 10
     seen: dict = {}
@@ -590,7 +590,7 @@ def test_a_cancelled_runs_search_stops_waiting_and_asks_arxiv_nothing_more(arxiv
     while time.monotonic() < until and (seen.get("outcome") is None or seen["outcome"].waiting is None):
         time.sleep(0.01)
     assert seen["outcome"].waiting is not None, "the search never began its first wait"
-    seen["outcome"].stop.set()                 # what the engine does when the run is cancelled
+    seen["outcome"].stop.set()                 # what the engine does when the run is canceled
     thread.join(timeout=5)
 
     assert not thread.is_alive()

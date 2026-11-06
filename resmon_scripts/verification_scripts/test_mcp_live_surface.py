@@ -5,7 +5,7 @@ every input can sit beside tools that work, and fails the first time a person
 uses it.
 
 **A tool surface is verified when every tool has been called against a real
-backend, not when the suite is green and a sample works.** So this parametrises
+backend, not when the suite is green and a sample works.** So this parametrizes
 over ``mcp_server.TOOLS`` rather than a hand-written list: adding a tool without
 adding it here is impossible, because the list is the source.
 
@@ -165,7 +165,7 @@ def test_search_corpus_semantic_mode_reaches_the_backend_and_says_what_it_served
     This backend has an empty corpus and no embedding lane, so the honest answer
     is keyword order with the reason attached. The failure this rules out is the
     plausible one: semantic mode silently degrading to a date sort while still
-    labelling itself semantic, so a harness reports a relevance ranking that is
+    labeling itself semantic, so a harness reports a relevance ranking that is
     a chronology.
     """
     body = _payload(mcp.call_tool("search_corpus", {"query": "neural", "mode": "semantic"}))

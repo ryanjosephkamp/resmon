@@ -21,7 +21,7 @@ allow.
 
 **The tools are one list.** ``mcp_server.TOOLS`` converted per family; a tool
 added there is offered here with no edit, and
-``test_every_tool_converts_for_every_family`` parametrises over the list so it
+``test_every_tool_converts_for_every_family`` parametrizes over the list so it
 cannot be otherwise.
 
 **The write set is one list.** ``mcp_server.WRITE_TOOLS`` decides what waits for
@@ -683,7 +683,7 @@ class ApiKeyRuntime:
         except Exception as exc:
             # Raw exceptions can include key-bearing URLs and response bodies.
             event = {'type':'error','detail':type(exc).__name__,
-                     'message':'Selected API request failed or was cancelled; no retry was sent.'}
+                     'message':'Selected API request failed or was canceled; no retry was sent.'}
             emit(event); yield event
         finally:
             timer.cancel()

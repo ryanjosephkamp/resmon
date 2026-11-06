@@ -190,17 +190,17 @@ def test_wrong_pair_or_vault_never_returns_text(workspace: Workspace) -> None:
         assert sql_snapshot(workspace.conn) == before
 
 
-def test_pre_cancelled_text_read_and_passage_save_refuse_without_writes(workspace: Workspace) -> None:
+def test_pre_canceled_text_read_and_passage_save_refuse_without_writes(workspace: Workspace) -> None:
     item = workspace.files[0]
-    cancelled = threading.Event()
-    cancelled.set()
+    canceled = threading.Event()
+    canceled.set()
     before = sql_snapshot(workspace.conn)
     with pytest.raises(lib.LibraryError) as read_error:
-        read(workspace, item, cancel=cancelled)
+        read(workspace, item, cancel=canceled)
     assert read_error.value.reason == "cancelled"
     with pytest.raises(lib.LibraryError) as save_error:
         ev.create_note(workspace.conn, workspace.vault_id, workspace.project_id, revision(workspace),
-                        item["file_id"], item["version_id"], "passage", "", anchor_for(workspace, item), cancel=cancelled)
+                        item["file_id"], item["version_id"], "passage", "", anchor_for(workspace, item), cancel=canceled)
     assert save_error.value.reason == "cancelled"
     assert sql_snapshot(workspace.conn) == before
 

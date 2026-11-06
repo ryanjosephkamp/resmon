@@ -1,7 +1,7 @@
 /**
  * Reading the assistant's status again means a read that starts then. A read
  * already under way may have been answered from the settings as they stood
- * before a change, so it is cancelled and its answer dropped, even when it is
+ * before a change, so it is canceled and its answer dropped, even when it is
  * the window's first read and no answer is in hand yet.
  *
  * The engine is a double: each status read waits until the test answers it,

@@ -60,7 +60,7 @@ _NUMBER_WORDS = {
 def test_every_job_carries_the_repository_guard_and_a_timeout():
     """The rule, over the real files, with every violation named at once.
 
-    One assertion rather than a parametrised case per job: the useful output
+    One assertion rather than a parametrized case per job: the useful output
     when this goes red is the whole list, because the thing that breaks it is
     usually a new workflow with several jobs in it, not one job losing one key.
     """
@@ -134,7 +134,7 @@ def test_the_timeout_table_has_a_row_per_job_and_the_rows_are_the_real_limits():
     """The measured-history table against the workflow files.
 
     The table is the only record of *why* each limit is the number it is, and a
-    job with no row is a limit nobody chose. Rows are labelled
+    job with no row is a limit nobody chose. Rows are labeled
     ``` `<file>` <job> ``` — or just ``` `<file>` ``` where the workflow has a
     single job and the name would add nothing.
     """
@@ -289,7 +289,7 @@ def test_a_steps_level_condition_is_not_mistaken_for_the_jobs(tmp_path):
 def test_each_workflow_file_is_covered_by_this_module(name):
     """The denominator for everything above: every file was actually opened.
 
-    Parametrised from the directory listing rather than a list here, so a new
+    Parametrized from the directory listing rather than a list here, so a new
     workflow file is in this suite the moment it is committed.
     """
     jobs = parse_jobs((WORKFLOWS_DIR / name).read_text(encoding="utf-8"), name)

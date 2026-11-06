@@ -129,7 +129,7 @@ def assemble(conn: sqlite3.Connection, project_id: str, value: dict, settings: d
     assembly_cancel = AssemblyCancellation()
     def check() -> None:
         if cancel is not None and cancel.is_set():
-            se.fail('Preview assembly was cancelled.', 'cancelled', 409)
+            se.fail('Preview assembly was canceled.', 'cancelled', 409)
         if time.monotonic()-started >= MAX_ASSEMBLY_SECONDS:
             se.fail('Preview assembly exceeded 120 seconds.', 'preview_timeout', 413)
     binding = choices.resolve(settings, selection['choices'])

@@ -8,7 +8,7 @@ search and its results and returns them as the paper's summary. Valid JSON,
 populated ``result``, so the defensive extraction accepts it. The lane does not
 fail; it succeeds and is wrong.
 
-A test that asks whether the constitution *exists* — it loads, it memoises, it
+A test that asks whether the constitution *exists* — it loads, it memoizes, it
 stays under 16 KB — cannot see that, because what can break is whether it
 *arrives*. So these tests assert transmission at the
 boundary each lane actually crosses: argv for ``claude``, the working directory

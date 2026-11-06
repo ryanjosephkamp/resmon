@@ -129,7 +129,7 @@ def _fail_attempt(monkeypatch, which: int):
     with its defect restored, which is how this fixture got its second half.
 
     Both transports are replaced: a client that passes a ``deadline=`` goes
-    through the cancellable async scope and never touches ``httpx.Client``.
+    through the cancelable async scope and never touches ``httpx.Client``.
     """
     seen = {"n": 0}
 

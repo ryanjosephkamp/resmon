@@ -2,7 +2,7 @@
 
 **Not a test double for the client.** ``embeddings.py`` is exercised unchanged
 against this: a real socket, a real ``httpx`` request, real status codes, real
-JSON, and the retry and timeout behaviour of the actual HTTP stack. The only
+JSON, and the retry and timeout behavior of the actual HTTP stack. The only
 thing that is not real is the model on the far end, which returns a deterministic
 vector so a ranking can be asserted.
 
@@ -38,7 +38,7 @@ DEFAULT_DIMS = 8
 def deterministic_vector(text: str, dims: int = DEFAULT_DIMS) -> list[float]:
     """A stable unit vector derived from *text*.
 
-    Deterministic so a ranking is assertable, and normalised so distances are
+    Deterministic so a ranking is assertable, and normalized so distances are
     comparable. Similar strings do **not** get similar vectors — this is a hash,
     not a model — so a test that wants two documents close together builds them
     with the same text rather than with similar text.
@@ -52,7 +52,7 @@ def deterministic_vector(text: str, dims: int = DEFAULT_DIMS) -> list[float]:
 class EmbeddingServer:
     """A loopback server speaking Ollama's ``/api/embed`` and the OpenAI shape.
 
-    Behaviour is switchable at runtime so one server can play a cooperative
+    Behavior is switchable at runtime so one server can play a cooperative
     provider, a chat model that refuses, a provider with no such route, and a
     provider that returns the wrong number of vectors.
     """

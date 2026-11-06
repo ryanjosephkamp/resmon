@@ -1193,7 +1193,7 @@
    "Every cell is one source's recorded answer to one run. Nothing here is inferred: a run with no row for a source reads as not recorded.",
    "A source that answered and whose records resmon could not store reads as answered, because the source did reply with records. The cell's note carries how many were matched and how many were kept.",
    "Answered in part is resmon stopping, at its own time budget or the run's cap, not the source failing. The cell's note says which part of the window was read; the rest was not read and is counted neither way.",
-   "A cancelled run reads as not recorded for every source it was still querying: resmon observed its own cancellation, not an answer.",
+   "A canceled run reads as not recorded for every source it was still querying: resmon observed its own cancellation, not an answer.",
    "Not asked and not recorded are different marks. The first is a choice saved on the run; the second is a gap in what resmon observed."
   ]
  },

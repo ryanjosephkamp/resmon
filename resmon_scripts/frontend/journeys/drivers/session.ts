@@ -457,7 +457,7 @@ export async function startSession(options: { sourceReply: SourceReply }): Promi
      * case. Those two sockets are this process's read ends of the app's stdout
      * and stderr, and this process can simply destroy them. A destroyed socket
      * leaves the active-handle set no matter who else holds the pipe, so the
-     * worker's exit stops depending on the good behaviour of processes it did
+     * worker's exit stops depending on the good behavior of processes it did
      * not start.
      *
      * Only ever after the exit has been observed: these are the streams

@@ -29,7 +29,7 @@
  * default that replaced it.
  *
  * **What this row does not establish**, printed below: that a *real* `claude`
- * would honour `--model`. The double echoes the flag it is given, which is what
+ * would honor `--model`. The double echoes the flag it is given, which is what
  * makes "no substitution by resmon" measurable and says nothing about what a
  * runtime does with a model it does not have. That half is the live suite's.
  */
@@ -159,7 +159,7 @@ journey.describe('J33 Composer choices', () => {
         'an exported turn carries a model the person never chose for it').toBe(CHOSEN_MODEL);
     }
 
-    console.log('[J33] NOT VERIFIED: that a real `claude` honours `--model`. The runtime here is '
+    console.log('[J33] NOT VERIFIED: that a real `claude` honors `--model`. The runtime here is '
       + 'the repository\'s own double, which echoes the flag it is handed — which is what makes '
       + '"resmon substituted nothing" measurable and says nothing about what a real CLI does with '
       + 'a model an account does not have. That half belongs to the live suite.');

@@ -43,8 +43,8 @@ from implementation_scripts.api_base import (
 class _Server:
     """A loopback listener with a chosen way of being unhelpful."""
 
-    def __init__(self, behaviour: str) -> None:
-        self.behaviour = behaviour
+    def __init__(self, behavior: str) -> None:
+        self.behavior = behavior
         self._sock = socket.socket()
         self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self._sock.bind(("127.0.0.1", 0))
@@ -59,11 +59,11 @@ class _Server:
                 conn, _ = self._sock.accept()
             except OSError:
                 return
-            if self.behaviour == "close":
+            if self.behavior == "close":
                 # Accept, then hang up without a byte. httpx maps this to a
                 # ReadError or a RemoteProtocolError depending on timing.
                 conn.close()
-            elif self.behaviour == "garbage":
+            elif self.behavior == "garbage":
                 conn.sendall(b"not http at all\r\n\r\n")
                 conn.close()
             else:  # "ok"

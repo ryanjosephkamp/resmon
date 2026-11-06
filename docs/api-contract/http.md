@@ -110,7 +110,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 ## J08 — Author identity and entity search
 
-No route of its own. The capability is in the normaliser, the catalog's `entity_search` syntax and `api_base.search_entity`; it reaches a user through the routes of J01, J02 and J07.
+No route of its own. The capability is in the normalizer, the catalog's `entity_search` syntax and `api_base.search_entity`; it reaches a user through the routes of J01, J02 and J07.
 
 ## J09 — Semantic search
 

@@ -2,7 +2,7 @@
  * J20 Calendar — the upcoming fire matches the routine's cron, in the machine's
  * own timezone.
  *
- * This row had no behavioural test of any kind at the base commit: the calendar
+ * This row had no behavioral test of any kind at the base commit: the calendar
  * was covered by the route smoke test, which establishes that the screen loads
  * and nothing more. The register's invariant is "times are in the user's
  * timezone and schedule status is truthful", and a calendar that drew a daily

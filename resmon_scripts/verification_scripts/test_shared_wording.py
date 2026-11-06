@@ -566,7 +566,7 @@ def test_a_run_on_a_collection_never_scanned_compares_nothing(db):
     assert sw.load_state(db) is None
 
 
-def test_a_cancelled_scan_keeps_the_answer_before_it(db):
+def test_a_canceled_scan_keeps_the_answer_before_it(db):
     rng = random.Random(55)
     left, right = copied(db, rng, 30)
     stored = _full(db)

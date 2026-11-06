@@ -14,7 +14,7 @@ change must *not* move:
     errors, missing keys, task-log lines, stored papers and dedup figures as
     the same run asked one at a time -- only the order of the events differs;
   * cancellation: a source that had already answered is recorded as answered,
-    each search still in flight as cancelled, and a source never started gets
+    each search still in flight as canceled, and a source never started gets
     no row at all;
   * the heartbeat: a slow source still says so in the live log while others
     finish around it;
@@ -368,7 +368,7 @@ def test_a_run_answered_out_of_order_claims_what_a_one_at_a_time_run_claims(monk
 # ---------------------------------------------------------------------------
 
 
-def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_cancelled(
+def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_canceled(
         monkeypatch):
     monkeypatch.setattr(se, "_SOURCE_CONCURRENCY", 2)
     monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
@@ -409,20 +409,20 @@ def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_cance
         assert rows[slug]["status"] == "cancelled"
         assert rows[slug]["error_message"] == "cancelled by user"
     events = progress_store.get_events(out["exec_id"])
-    cancelled = sorted(e["repository"] for e in events
+    canceled = sorted(e["repository"] for e in events
                        if e.get("type") == "repo_error" and e.get("error") == "cancelled by user")
-    assert cancelled == ["crossref", "dblp"]
+    assert canceled == ["crossref", "dblp"]
     assert not any(e.get("repository") == "doaj" for e in events)
 
-    # The cancelled run leaves a report of what it had, stored where a finished
+    # The canceled run leaves a report of what it had, stored where a finished
     # run's is, accounting for every selected source.
     row = get_execution_by_id(connection, out["exec_id"])
     assert row["result_path"] == out["result"]["report_path"]
     assert row["log_path"] == out["result"]["log_path"]
     assert Path(row["log_path"]).exists()
     report = Path(row["result_path"]).read_text(encoding="utf-8")
-    assert report.startswith("# resmon Literature Report (cancelled)\n")
-    assert "**Status:** Cancelled before the run finished" in report
+    assert report.startswith("# resmon Literature Report (canceled)\n")
+    assert "**Status:** Canceled before the run finished" in report
     assert "**Total Results:**" not in report
     assert "**Collected before the cancel:** 1 result, not added to your collection" in report
     assert "still asking the sources" in report
@@ -430,7 +430,7 @@ def test_cancel_records_answered_sources_as_answered_and_in_flight_ones_as_cance
     assert _section(report, "## Sources that answered") == "\n\n- **arXiv**: returned 1 record.\n"
     interrupted = _section(report, "## Sources the cancellation interrupted")
     assert "**Crossref**" in interrupted and "**DBLP**" in interrupted
-    assert "**DOAJ**" in _section(report, "## Sources not asked before the run was cancelled")
+    assert "**DOAJ**" in _section(report, "## Sources not asked before the run was canceled")
     assert "## Sources that answered with nothing to keep" not in report
     connection.close()
 
@@ -442,7 +442,7 @@ def _section(text: str, heading: str) -> str:
     return text[start:min(ends)] if ends else text[start:]
 
 
-def test_a_cancelled_single_source_run_reports_its_source_as_interrupted(monkeypatch):
+def test_a_canceled_single_source_run_reports_its_source_as_interrupted(monkeypatch):
     monkeypatch.setattr(se, "_HEARTBEAT_SECONDS", 0.05)
     hold, asked = threading.Event(), threading.Event()
 
@@ -468,10 +468,10 @@ def test_a_cancelled_single_source_run_reports_its_source_as_interrupted(monkeyp
     assert out["result"]["status"] == "cancelled"
     row = get_execution_by_id(connection, out["exec_id"])
     report = Path(row["result_path"]).read_text(encoding="utf-8")
-    assert report.startswith("# resmon Literature Report (cancelled)\n")
+    assert report.startswith("# resmon Literature Report (canceled)\n")
     assert "**Collected before the cancel:** 0 results, not added to your collection" in report
     assert "## Sources that answered\n" not in report
-    assert "- **bioRxiv**: bioRxiv was still being asked when the run was cancelled" in _section(
+    assert "- **bioRxiv**: bioRxiv was still being asked when the run was canceled" in _section(
         report, "## Sources the cancellation interrupted")
     # A source the cancel interrupted is not a quiet source.
     assert "## Sources that answered with nothing to keep" not in report
@@ -507,11 +507,11 @@ def test_a_cancel_after_every_source_finished_says_nothing_was_stored(monkeypatc
     assert _section(report, "## Sources that answered") == "\n\n- **arXiv**: returned 2 records.\n"
     assert "**HAL**" in _section(report, "## Sources whose outcome was not recorded")
     assert "## Sources the cancellation interrupted" not in report
-    assert "## Sources not asked before the run was cancelled" not in report
+    assert "## Sources not asked before the run was canceled" not in report
     assert conn.execute("SELECT count(*) FROM documents").fetchone()[0] == 0
 
 
-def test_a_cancel_accepted_after_the_papers_were_stored_still_ends_the_run_cancelled(monkeypatch, conn):
+def test_a_cancel_accepted_after_the_papers_were_stored_still_ends_the_run_canceled(monkeypatch, conn):
     """A Stop the engine answered 200 is never followed by 'completed'.
 
     The flag is raised while the report is being built, past every checkpoint

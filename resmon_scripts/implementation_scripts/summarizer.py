@@ -246,7 +246,7 @@ class SummarizationPipeline:
 
         Two conditions, and both are necessary. The client has to expose
         ``summarize_many`` — only the subscription lane does, because it is the
-        only lane where a call has a fixed cost worth amortising — and every
+        only lane where a call has a fixed cost worth amortizing — and every
         document has to be small enough that batching does not push the prompt
         somewhere the chunking path exists to handle.
         """

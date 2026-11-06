@@ -132,7 +132,7 @@ export function runSummaries(
   if (labels.length && !rows.length) {
     if (running) note = 'Summaries are written once the run has its papers.';
     else if (run.status === 'completed' && run.result_count === 0) note = 'This run found no papers, so there was nothing to summarize.';
-    else if (run.status !== 'completed') note = `The run ended (${run.status}) before any paper was summarized.`;
+    else if (run.status !== 'completed') note = `The run ended (${run.status === 'cancelled' ? 'canceled' : run.status}) before any paper was summarized.`;
     else note = 'No connection recorded an attempt.';
   }
   return { on: true, head: `${head}${wording}`, lanes, note };

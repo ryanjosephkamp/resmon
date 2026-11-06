@@ -8,7 +8,7 @@
  * outside the offline boundary. They replace the *input* and nothing else: the
  * request is a real HTTP request over a real socket, made by the real client,
  * and every match, vector, link and rendered row downstream is computed by the
- * app. What they cannot see is a provider's own behaviour — a schema change or
+ * app. What they cannot see is a provider's own behavior — a schema change or
  * an outage at arXiv or OpenAlex is invisible to an authored reply, and this
  * suite does not claim otherwise.
  */

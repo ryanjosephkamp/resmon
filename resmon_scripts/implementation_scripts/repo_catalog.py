@@ -46,7 +46,7 @@ AttributionRequirement = Literal["none", "requested", "required"]
 # them was the temptation here. DBLP, ERIC and Open Library **refuse** a
 # window shorter than a calendar year, because a record they returned would
 # have unknowable in-window status. DataCite, DOAJ, NASA ADS and Semantic
-# Scholar answer the coarser window instead. Both behaviours are honest; only
+# Scholar answer the coarser window instead. Both behaviors are honest; only
 # the first produces a ``window_unanswerable`` zero, and ``window_rounding``
 # is the field that says which a source does.
 DateGranularity = Literal["day", "month", "year"]
@@ -279,7 +279,7 @@ KeywordSearch = Literal["upstream", "client_side", "none"]
 #
 # An enum rather than a pile of booleans, and separate from ``kind`` rather
 # than read off it: two of the thirteen window-scoped notices are record
-# filters rather than date-window notices, and relabelling them to get the
+# filters rather than date-window notices, and relabeling them to get the
 # display right would make ``kind`` lie about what they are. Both counts are
 # asserted in ``test_source_constraints.py``, because a number written into
 # a comment is a number nobody re-measures.
@@ -1881,7 +1881,7 @@ REPOSITORY_CATALOG: list[RepoCatalogEntry] = [
             "param", author_syntax="author={name}",
             established=(
                 f"{ENTITY_PROBED_ON}: `author=Ursula K. Le Guin` returned 5 and the nonsense author 0. A "
-                "book catalogue: no ORCID, no affiliation."),
+                "book catalog: no ORCID, no affiliation."),
         ),
     ),
     _entry(

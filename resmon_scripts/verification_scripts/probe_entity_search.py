@@ -20,7 +20,7 @@ famous name. So every author probe is run **three times**:
 | **B** | the same syntax with an author who does not exist |
 | **C** | the bare name as a plain keyword query, no syntax |
 
-The field or parameter is honoured when **A returns records whose author list
+The field or parameter is honored when **A returns records whose author list
 actually contains the person and B returns none**. If B returns as much as A,
 the syntax was ignored and the source was doing a keyword search — which is
 ``none``, however good A looked. If A and C are identical and B is empty, the
@@ -102,7 +102,7 @@ class Finding:
 
     @property
     def discriminates(self) -> bool:
-        """The syntax was honoured, not merely tolerated.
+        """The syntax was honored, not merely tolerated.
 
         A found the person, B found nobody, **and** the bare-keyword control did
         not return the same set. That last clause is the one that separates a
@@ -617,7 +617,7 @@ def _same_records(a: str, c: str) -> bool:
         # **XML sources, the half that would silently do nothing.** A
         # comparison that only read JSON keys would, for arXiv, NDL and
         # PubMed's efetch, run the controls, produce bodies, and compare them
-        # to nothing — the verdict would come out "honoured" on A and B alone,
+        # to nothing — the verdict would come out "honored" on A and B alone,
         # which is precisely the reasoning this probe exists to refuse.
         return set(re.findall(
             r"<(?:id|Id|dcterms:identifier|identifier|PMID)[^>]*>([^<]{6,})</", body))
@@ -637,7 +637,7 @@ def render(findings: list[Finding]) -> str:
         "",
         "Run by `verification_scripts/probe_entity_search.py`. Every author query is run "
         "twice: once with a real author (**A**) and once with an author who does not "
-        "exist (**B**). The syntax is honoured when A finds the person and B finds "
+        "exist (**B**). The syntax is honored when A finds the person and B finds "
         "nobody; a source that answers B as fully as A was doing a keyword search and "
         "the row says `none` however good A looked.",
         "",
@@ -655,7 +655,7 @@ def render(findings: list[Finding]) -> str:
         elif f.c_same:
             verdict = "**none** — the bare-keyword control returned the same records"
         elif f.discriminates:
-            verdict = "**honoured**"
+            verdict = "**honored**"
         else:
             verdict = "**not established**"
         lines.append(
@@ -745,7 +745,7 @@ def _dig(obj: Any, path: str) -> Any:
     return obj
 
 
-def analyse(raw_dir: Path) -> str:
+def analyze(raw_dir: Path) -> str:
     lines = [
         "## Populated, not merely present",
         "",
@@ -791,14 +791,14 @@ def main() -> int:                                   # pragma: no cover - entryp
         finding = probe_one(probe, keep)
         findings.append(finding)
         state = finding.error or (
-            "honoured" if finding.discriminates else "not established")
+            "honored" if finding.discriminates else "not established")
         print(f"{probe.slug:18} A={finding.a_count:<4} B={finding.b_count:<4} "
               f"orcid={finding.orcid_path or '-':<12} aff={finding.affiliation_path or '-':<22} "
               f"{state}", flush=True)
 
     report = render(findings)
     if keep:
-        report += "\n\n" + analyse(keep) + "\n"
+        report += "\n\n" + analyze(keep) + "\n"
     Path(args.out).write_text(report, encoding="utf-8")
     print(f"\nwrote {args.out}")
     return 0

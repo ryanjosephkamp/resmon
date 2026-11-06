@@ -284,7 +284,7 @@ describe('a backfill: priced first, then counted while it runs and after', () =>
     expect(progressWords({ ...run, total: 0 })).toBe('Starting: finding the papers with no vector from nomic-embed-text.');
     expect(outcomeWords(run)).toBeNull();
     const done = { ...run, running: false, finished_at: '2026-10-29T20:00:00Z' };
-    expect(outcomeWords({ ...done, cancelled: true, reason: 'Cancelled. The documents already embedded keep their vectors.' }))
+    expect(outcomeWords({ ...done, cancelled: true, reason: 'Canceled. The documents already embedded keep their vectors.' }))
       .toBe('Stopped after 64 of 3,000 papers, as asked. The vectors made are kept; embedding again starts from the papers still missing.');
     expect(outcomeWords({ ...done, reason: 'nomic-embed-text is not an embedding model.' }))
       .toBe('Stopped after 64 of 3,000 papers: nomic-embed-text is not an embedding model.');

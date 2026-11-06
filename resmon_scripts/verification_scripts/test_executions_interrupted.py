@@ -160,7 +160,7 @@ def test_the_18_to_19_step_keeps_every_row_link_and_sequence(tmp_path):
 def test_the_old_daemon_restart_rows_history_is_not_rewritten(tmp_path):
     """`failed` + `cancel_reason='daemon_restart'` is what happened, and stays.
 
-    Relabelling those rows `interrupted` now would be inventing an observation
+    Relabeling those rows `interrupted` now would be inventing an observation
     after the fact, which is the same mistake as the overclaim the new status
     exists to end -- only pointing backwards.
     """
@@ -280,7 +280,7 @@ def test_a_running_row_whose_owner_is_gone_becomes_interrupted(db_conn):
 
     live = db.get_execution_by_id(db_conn, mine)
     assert live["status"] == "running", (
-        "a row whose owning process is alive was relabelled; that is the "
+        "a row whose owning process is alive was relabeled; that is the "
         "overclaim this whole change exists to avoid")
     assert counts["interrupted"] == 1 and counts["left_running"] == 1
 
@@ -472,18 +472,19 @@ def test_run_again_repeats_a_completed_run_only_when_asked_to(client, monkeypatc
     assert refused.json()["detail"] == f"Execution {running} is running; only a run that has ended can be run again."
 
 
-def test_cancelling_an_interrupted_row_answers_with_its_state(client):
-    source = _row(client, "interrupted")
+@pytest.mark.parametrize("status,word", [("interrupted", "interrupted"), ("cancelled", "canceled")])
+def test_canceling_an_ended_row_answers_with_its_state(client, status, word):
+    source = _row(client, status)
     resp = client.post(f"/api/executions/{source}/cancel")
     assert resp.status_code == 409
     detail = resp.json()["detail"]
     assert isinstance(detail, str), "detail is rendered straight into the DOM"
-    assert "interrupted" in detail and str(source) in detail
+    assert detail.startswith(f"Execution {source} is {word};")
     # Anything that needs the state structurally reads it off the row.
-    assert client.get(f"/api/executions/{source}").json()["status"] == "interrupted"
+    assert client.get(f"/api/executions/{source}").json()["status"] == status
 
 
-def test_cancelling_an_id_that_never_existed_still_answers_409(client):
+def test_canceling_an_id_that_never_existed_still_answers_409(client):
     """The shipped contract, kept: 409, and a sentence that says why."""
     resp = client.post("/api/executions/99999/cancel")
     assert resp.status_code == 409
@@ -562,7 +563,7 @@ def test_restart_summarizes_as_the_run_was_set_to_not_as_far_as_it_got(client, m
 def test_the_terminal_state_list_the_progress_stream_reads_is_complete():
     """`stream_progress` branches on this tuple; it must hold every ended state.
 
-    Structural, and deliberately so. The behaviour — that an interrupted run
+    Structural, and deliberately so. The behavior — that an interrupted run
     takes the persisted-batch path rather than the live generator — cannot be
     checked through `TestClient`: an SSE endpoint that never yields blocks
     inside the in-process portal, so the regression hangs the worker instead of

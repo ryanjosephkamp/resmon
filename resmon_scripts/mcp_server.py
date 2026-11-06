@@ -1369,7 +1369,7 @@ def t_update_settings(args: dict) -> Any:
        file. ``GET /api/settings/<group>`` returns the group's keys, so a key
        renamed in the app cannot silently become a no-op here -- and an
        unknown key is refused rather than dropped. The backend's own PUT
-       ignores keys outside the group, which is the right behaviour for a
+       ignores keys outside the group, which is the right behavior for a
        form and the wrong one for a tool: a caller told "success" for a key
        that was discarded has been lied to.
     5. **The answer is a before/after diff.** Not "success": the exact keys
@@ -1545,7 +1545,7 @@ def t_list_watch_profiles(args: dict) -> Any:
 
 
 def t_get_watch_profile(args: dict) -> Any:
-    """One profile, in full, with its matches summarised by basis.
+    """One profile, in full, with its matches summarized by basis.
 
     The per-basis counts ride along rather than living behind a second call, for
     the same reason ``get_routine`` carries its coverage summary: the number a
@@ -1730,7 +1730,7 @@ TOOLS: list[dict] = [
          "routine_id": {"type": "integer"}}}},
 
     {"name": "list_executions", "fn": t_list_executions,
-     "description": "Past and running executions, newest first. status is one of running, completed, failed, cancelled, interrupted.",
+     "description": "Past and running executions, newest first. status is one of `running`, `completed`, `failed`, `cancelled`, `interrupted`.",
      "schema": {"type": "object", "properties": {
          "routine_id": {"type": "integer"}, "status": {"type": "string"},
          "limit": {"type": "integer", "default": DEFAULT_LIMIT},

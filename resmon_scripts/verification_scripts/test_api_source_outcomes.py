@@ -64,7 +64,7 @@ _ROWS = [
 ]
 
 
-def test_execution_route_summarises_which_sources_answered(client):
+def test_execution_route_summarizes_which_sources_answered(client):
     _seed(_ROWS)
 
     outcomes = client.get("/api/executions/1").json()["source_outcomes"]
@@ -91,7 +91,7 @@ def test_the_list_route_carries_the_same_summary(client):
     assert row["source_outcomes"]["answered"] == 2
 
 
-def test_an_execution_with_no_source_rows_summarises_to_zero(client):
+def test_an_execution_with_no_source_rows_summarizes_to_zero(client):
     _seed([])
 
     outcomes = client.get("/api/executions/1").json()["source_outcomes"]

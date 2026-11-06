@@ -300,7 +300,7 @@ CREATE INDEX IF NOT EXISTS idx_documents_first_seen
 --   error                the query raised; ``error_message`` holds the reason
 --   skipped_missing_key  the source needs a credential that is not configured,
 --                        so it was always going to return nothing
---   cancelled            the user cancelled while this source was in flight
+--   `cancelled`          the user canceled while this source was in flight
 --
 -- ``result_count`` is the raw count the source returned, before dedup. It is
 -- deliberately not the number of new papers: a source returning its usual 40
@@ -924,7 +924,7 @@ def index_document_facets(conn: sqlite3.Connection, document_id: int,
     which is the whole reason schema 13 exists — and because splitting it back
     apart is lossy for any name that contains a comma.
 
-    Without it the behaviour is exactly what it was: names only, from the
+    Without it the behavior is exactly what it was: names only, from the
     string. Every caller that does not know about authors-with-identifiers keeps
     working and keeps filling the name column.
     """
@@ -1137,7 +1137,7 @@ def sources_from_progress_events(events: list[dict]) -> list[dict]:
     ``repo_done`` with zero results or ``repo_error`` with an auth failure.
     Precedence resolves that to the most informative single answer:
 
-        cancelled > skipped_missing_key > error > ok
+        `cancelled` > skipped_missing_key > error > ok
 
     ``skipped_missing_key`` outranks ``error`` deliberately. When the key is
     absent, "no API key configured" is the cause and the 401 underneath it is
@@ -1706,11 +1706,11 @@ def _migrate_executions_interrupted(conn: sqlite3.Connection) -> None:
     table -- other tables' foreign keys need it to exist before this point --
     and this replaces it on the first launch, on an empty table, at a cost of
     nothing. One authoritative DDL string means the upgrade path and the fresh
-    path cannot drift apart, which two hand-synchronised copies eventually do.
+    path cannot drift apart, which two hand-synchronized copies eventually do.
 
     Nothing about the *rows* changes. A row that was already ``failed`` with
     ``cancel_reason='daemon_restart'`` -- what every graceful shutdown before
-    this schema wrote -- stays exactly that. Relabelling it now would be
+    this schema wrote -- stays exactly that. Relabeling it now would be
     inventing an observation after the fact, which is the same mistake in the
     opposite direction.
     """

@@ -23,7 +23,7 @@
  * settings are written through the app's own routes, the credential through the
  * app's own credential route into the same in-memory store every journey uses,
  * and it is the app's own code that reads the key back out when it builds the
- * request. What no authored provider can see is a real provider's behaviour —
+ * request. What no authored provider can see is a real provider's behavior —
  * a rate limit, a model that was withdrawn — and this journey does not claim to.
  */
 import { expect, journey } from './driver';
@@ -82,7 +82,7 @@ journey.describe('J14 The assistant on a key', () => {
     expect(exported, 'the key is in the exported conversation').not.toContain(KEY);
     console.log(`[J14] the saved conversation and its ${exported.length}-byte export carry no key`);
 
-    console.log('[J14] NOT VERIFIED: a real provider\'s own behaviour — a rate limit, a model '
+    console.log('[J14] NOT VERIFIED: a real provider\'s own behavior — a rate limit, a model '
       + 'that was withdrawn, an account whose billing lapsed. What this row replaces is the '
       + 'model; that stays with the live suite.');
 

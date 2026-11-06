@@ -43,7 +43,7 @@ class _Document:
         self.cancel = cancel
 
     def add(self, authored: str) -> None:
-        evidence_export.cancelled(self.cancel)
+        evidence_export.canceled(self.cancel)
         raw = authored.encode('utf-8')
         if self.size + len(raw) > MAX_BYTES:
             se.fail('The escaped HTML exceeds the 4 MiB portable limit.', 'export_limit', 413)
@@ -190,5 +190,5 @@ def render(answer: dict, *, cancel: threading.Event | None = None) -> bytes:
           'exclude source_id and source_sha256; the request hash covers the payload. '
           'This document contains selected excerpts, not full originals or embedded PDFs.</p></details></section>'
           '<p><a href="#top">Return to top</a></p></main></body></html>')
-    evidence_export.cancelled(cancel)
+    evidence_export.canceled(cancel)
     return b''.join(d.parts)

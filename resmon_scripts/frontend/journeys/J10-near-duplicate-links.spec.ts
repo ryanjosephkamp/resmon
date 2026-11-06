@@ -25,7 +25,7 @@ import { expect, journey } from './driver';
 journey.use({ sourceReply: 'duplicates' });
 
 journey.describe('J10 Near-duplicate links', () => {
-  journey('the pair is labelled, the count does not move, and both copies are still there', async ({ resmon }) => {
+  journey('the pair is labeled, the count does not move, and both copies are still there', async ({ resmon }) => {
     const health = await resmon.backend.health();
     if (!health.embeddings?.extension) {
       // The scan is a vector scan. A machine that cannot load the extension
@@ -52,12 +52,12 @@ journey.describe('J10 Near-duplicate links', () => {
 
     const before = await resmon.readExplorerList();
     console.log(`[J10] before collapse: ${JSON.stringify(before.countSentence)}; ${before.rows.length} rows`);
-    const labelled = before.rows.filter((row) => row.alsoAppearsAs.length > 0);
-    console.log(`[J10] labels: ${JSON.stringify(labelled.map((row) => row.alsoAppearsAs))}`);
+    const labeled = before.rows.filter((row) => row.alsoAppearsAs.length > 0);
+    console.log(`[J10] labels: ${JSON.stringify(labeled.map((row) => row.alsoAppearsAs))}`);
     // Both halves of the pair carry it: the link is symmetric, and a person who
     // finds either copy must be told about the other.
-    expect(labelled.length, 'no paper says it also appears somewhere else').toBeGreaterThanOrEqual(2);
-    for (const row of labelled) {
+    expect(labeled.length, 'no paper says it also appears somewhere else').toBeGreaterThanOrEqual(2);
+    for (const row of labeled) {
       for (const label of row.alsoAppearsAs) {
         expect(label, `"${label}" is not an "also appears in" sentence`).toMatch(/^also appears in /);
       }

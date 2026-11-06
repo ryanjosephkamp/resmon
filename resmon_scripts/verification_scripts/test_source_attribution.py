@@ -59,7 +59,7 @@ def test_plos_wording_is_verbatim():
     assert _BY_SLUG["plos"].attribution == "Data Provided by PLOS"
 
 
-def test_requested_attribution_is_not_labelled_required():
+def test_requested_attribution_is_not_labeled_required():
     """arXiv asks; it does not require. Conflating the two overclaims its terms."""
     arxiv = _BY_SLUG["arxiv"]
     assert arxiv.attribution_requirement == "requested"

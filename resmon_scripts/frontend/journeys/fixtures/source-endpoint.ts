@@ -6,14 +6,14 @@
  * not the same code: that fixture launches the app out of *this* checkout, with
  * `cwd: FRONTEND_ROOT` written into it and a pile of assertions about its own
  * cleanup. A journey has to be launchable against another build, so the piece
- * that redirects arXiv is here, parameterised by the repository root of the
+ * that redirects arXiv is here, parameterized by the repository root of the
  * build under test, and everything else stays over there.
  *
  * What it replaces is the **input** and nothing else. The request is a real
  * HTTP request over a real socket, made by the shipped arXiv client through
  * `safe_request`; every outcome, zero reason, SQLite write and rendered row
  * downstream is the app's own. What no authored reply can see is arXiv's own
- * behaviour — a schema change or an outage upstream is invisible here, and this
+ * behavior — a schema change or an outage upstream is invisible here, and this
  * suite does not claim otherwise.
  *
  * **The guard is not optional.** The `sitecustomize.py` this writes refuses any
@@ -21,7 +21,7 @@
  * address carries a live launchd daemon over somebody's real corpus. Every
  * journey launch gets it, including the rows that never query a source, so
  * "this suite did not reach the internet" is a property of the suite rather
- * than of each spec's good behaviour.
+ * than of each spec's good behavior.
  */
 import * as fs from 'fs';
 import * as http from 'http';

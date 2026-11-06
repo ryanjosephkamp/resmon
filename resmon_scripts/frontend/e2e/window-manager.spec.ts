@@ -2,7 +2,7 @@
  * The window itself — the part of `main.ts` a bare-X runner cannot see.
  *
  * `xvfb-run` starts an X server with **no window manager**, and
- * `BrowserWindow.maximize()` is a request a window manager honours. With none present the call is a silent
+ * `BrowserWindow.maximize()` is a request a window manager honors. With none present the call is a silent
  * no-op. So a green CI run under xvfb verifies the *renderer* thoroughly and
  * the *window* barely — and `electron/main.ts`'s window handling is the part
  * only a real window manager can test, which is why this file exists.
@@ -14,7 +14,7 @@
  *
  * The swipe test is the exception and runs everywhere: it drives the handler
  * `main.ts` binds, not the trackpad. That distinction is stated in the test
- * rather than papered over — an OS gesture cannot be synthesised, and macOS
+ * rather than papered over — an OS gesture cannot be synthesized, and macOS
  * only delivers `swipe` at all when the user has set a two-finger gesture in
  * System Settings, which is why the History menu exists alongside it.
  */
@@ -45,7 +45,7 @@ async function windowFacts(app: ElectronApplication): Promise<WindowFacts> {
 }
 
 /**
- * True when something honoured a maximize request.
+ * True when something honored a maximize request.
  *
  * Not `isMaximized()` alone: on a bare X server the flag stays false *and* the
  * window keeps the constructor's size, which is the signature of no window
@@ -56,9 +56,9 @@ function hasWindowManager(facts: WindowFacts): boolean {
     || facts.bounds.width >= facts.workArea.width - 2;
 }
 
-test('the app opens maximized, where a window manager exists to honour it', async () => {
+test('the app opens maximized, where a window manager exists to honor it', async () => {
   test.setTimeout(240_000);
-  // `RESMON_E2E` unset: this is the behaviour a user gets, and the E2E flag
+  // `RESMON_E2E` unset: this is the behavior a user gets, and the E2E flag
   // exists precisely to suppress it so screenshots have a written-down size.
   const { app, stateDir } = await launchResmon(false);
   try {
@@ -79,7 +79,7 @@ test('the app opens maximized, where a window manager exists to honour it', asyn
       test.skip(true, 'no window manager on this display');
     }
     expect(facts.maximized || facts.bounds.width >= facts.workArea.width - 2).toBe(true);
-    console.log('WM MAXIMIZE ON OPEN — verified: a window manager honoured it');
+    console.log('WM MAXIMIZE ON OPEN — verified: a window manager honored it');
   } finally {
     await app.close().catch(() => { /* already gone */ });
     removeStateDir(stateDir);
@@ -109,27 +109,27 @@ test('the in-app link window is a child of the main window and comes to the fron
     const interception = await app.evaluateHandle(({ session }, target) => {
       const facts = {
         installed: false,
-        cancelled: [] as string[],
+        canceled: [] as string[],
         errors: [] as { url: string; error: string }[],
       };
       session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
         facts.errors.push({ url: details.url, error: details.error });
       });
       session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
-        facts.cancelled.push(details.url);
+        facts.canceled.push(details.url);
         callback({ cancel: true });
       });
       facts.installed = true;
       return facts;
     }, href!);
     try {
-      expect(await interception.jsonValue()).toEqual({ installed: true, cancelled: [], errors: [] });
+      expect(await interception.jsonValue()).toEqual({ installed: true, canceled: [], errors: [] });
       await link.click();
-      await expect.poll(() => interception.evaluate((facts) => facts.cancelled)).toEqual([href]);
+      await expect.poll(() => interception.evaluate((facts) => facts.canceled)).toEqual([href]);
       await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
         { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
       ]);
-      console.log('ATTRIBUTION CANCELLED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
+      console.log('ATTRIBUTION CANCELED BEFORE TRANSPORT', JSON.stringify(await interception.jsonValue()));
 
       await expect.poll(() => app.windows().length, { timeout: 20_000 }).toBe(2);
       await new Promise((r) => setTimeout(r, 1500));
@@ -193,7 +193,7 @@ test('the swipe handler moves history back and forward', async () => {
   // **What this is and is not.** `main.ts` binds `mainWindow.on('swipe')`, and
   // this emits that event on the real window in the real main process, so the
   // binding and `navigateHistory` are genuinely exercised. It is not the
-  // trackpad: an OS gesture cannot be synthesised, and macOS only delivers
+  // trackpad: an OS gesture cannot be synthesized, and macOS only delivers
   // `swipe` when the user has chosen a two-finger gesture in System Settings —
   // undetectable from the app, which is exactly why the History menu exists
   // alongside it. `main-window.spec.ts` P4 drives that menu.

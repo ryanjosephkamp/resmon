@@ -22,7 +22,7 @@ def current_runtime_id() -> str:
 
 
 def process_is_alive(pid: object) -> bool:
-    """Whether ``pid`` names a live process, erring towards alive.
+    """Whether ``pid`` names a live process, erring toward alive.
 
     The one implementation of a rule three call sites share: startup
     reconciliation in ``resmon``, ``delivery.requeue_orphaned`` and

@@ -134,7 +134,7 @@ def test_codex_effort_levels_are_per_model(tmp_path):
 
 
 @pytest.mark.parametrize("stdout", ["not json", "{}", '{"models": "nope"}', ""])
-def test_an_unrecognised_catalog_shape_costs_the_dropdown_not_the_lane(tmp_path, stdout):
+def test_an_unrecognized_catalog_shape_costs_the_dropdown_not_the_lane(tmp_path, stdout):
     """``debug`` is not a stable interface, so its output is not trusted blindly."""
     catalog = list_subscription_catalog(
         "codex", str(fake_codex(tmp_path, stdout=stdout)),
@@ -230,7 +230,7 @@ def test_the_models_endpoint_answers_a_subscription_provider_without_a_key():
     assert body["provenance"]
 
 
-def test_the_models_endpoint_honours_a_configured_codex_path(tmp_path):
+def test_the_models_endpoint_honors_a_configured_codex_path(tmp_path):
     resp = _client().post("/api/ai/models", json={
         "provider": "codex", "binary_path": str(fake_codex(tmp_path)),
     })

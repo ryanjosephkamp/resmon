@@ -747,7 +747,7 @@ class SearchOutcome:
     # with a busy source depends on it (arXiv's 429 and 503 ladder). Not part
     # of the record.
     unattended: bool = False
-    # Set by the engine when the run this search belongs to is cancelled. The
+    # Set by the engine when the run this search belongs to is canceled. The
     # run stops reading the search at once, but the search's thread runs on
     # until its client returns; a client in a long wait (arXiv's, up to five
     # minutes at a time for a watch's scheduled run) ends the wait on this and

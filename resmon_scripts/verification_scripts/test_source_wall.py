@@ -414,10 +414,10 @@ def test_each_last_outcome_gets_its_own_sentence(conn):
 
 
 def test_a_trailing_silence_does_not_change_what_the_last_outcome_was(conn):
-    """A cancelled run after HAL's unreadable reply is resmon's own stop, not a new fact about HAL."""
+    """A canceled run after HAL's unreadable reply is resmon's own stop, not a new fact about HAL."""
     _answered_then(conn, "hal", {"count": 0, "reason": "parse_failure", "detail": {"detail": "parse_error"}})
-    cancelled = make_run(conn, started="2026-10-04T09:00:00", repositories=["hal"], status="cancelled")
-    record(conn, cancelled, "hal", status="cancelled")
+    canceled = make_run(conn, started="2026-10-04T09:00:00", repositories=["hal"], status="cancelled")
+    record(conn, canceled, "hal", status="cancelled")
     make_run(conn, started="2026-10-05T09:00:00", repositories=["arxiv"])
 
     assert source_wall.build(conn)["verdict"]["headline"] == "HAL's last reply could not be read."

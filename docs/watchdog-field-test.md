@@ -84,7 +84,7 @@ real corpus's shape rather than a fixture's. What actually happened on those
 
 ```
 $ python fieldtest-bound.py resmon.db upstream_failure
-labelled 182 ok/0 rows as upstream_failure
+labeled 182 ok/0 rows as upstream_failure
 findings: 12
 ```
 
@@ -110,7 +110,7 @@ successfully 7 days ago.
 
 ```
 $ python fieldtest-bound.py resmon.db parse_failure
-labelled 182 ok/0 rows as parse_failure
+labeled 182 ok/0 rows as parse_failure
 findings: 12
 ```
 
@@ -125,11 +125,11 @@ could not read the reply*.
 
 ```
 $ python fieldtest-bound.py resmon.db answered_empty
-labelled 182 ok/0 rows as answered_empty
+labeled 182 ok/0 rows as answered_empty
 findings: 9
 ```
 
-Identical to the report without the rules, which is the other half of the check: labelling a
+Identical to the report without the rules, which is the other half of the check: labeling a
 zero as a genuine answer must change nothing.
 
 ### What the corpus does not demonstrate

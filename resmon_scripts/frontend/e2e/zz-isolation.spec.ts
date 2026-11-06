@@ -183,7 +183,7 @@ test('P14: a full run leaves no modified or untracked file under e2e/', () => {
   console.log('P14 GIT STATUS UNDER e2e/', JSON.stringify(status));
 
   // What a *run* can leave behind: a modified tracked file, or an untracked
-  // artefact — a screenshot, a trace, an image. A hand-added spec file that is
+  // artifact — a screenshot, a trace, an image. A hand-added spec file that is
   // not committed yet is not something the run did, and failing on it would
   // make this red for every work in progress.
   const leftBehind = status.filter((line) => {

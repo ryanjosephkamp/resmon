@@ -162,7 +162,7 @@ def embed_documents(
     for start in range(0, len(document_ids), batch_size):
         if should_cancel is not None and should_cancel():
             result["cancelled"] = True
-            result["reason"] = "Cancelled. The documents already embedded keep their vectors."
+            result["reason"] = "Canceled. The documents already embedded keep their vectors."
             return result
 
         chunk = document_ids[start : start + batch_size]
@@ -231,7 +231,7 @@ def embed_documents(
 
 
 class BackfillJob:
-    """One backfill at a time, cancellable, resumable, with a readable status.
+    """One backfill at a time, cancelable, resumable, with a readable status.
 
     A module-level singleton (:data:`backfill_job`) rather than a per-request
     object: two concurrent backfills over the same corpus would embed the same
@@ -364,7 +364,7 @@ class BackfillJob:
                     cancelled=outcome["cancelled"],
                     reason=outcome["reason"],
                 )
-        except Exception as exc:  # pragma: no cover - defence around a daemon thread
+        except Exception as exc:  # pragma: no cover - defense around a daemon thread
             logger.exception("embedding backfill failed")
             with self._lock:
                 self._state["reason"] = f"The backfill stopped: {type(exc).__name__}: {exc}"
@@ -375,7 +375,7 @@ class BackfillJob:
             if conn is not None and close_connection:
                 # This thread opened it and this thread closes it. ``close_db``
                 # refuses a close another live thread owns, and for good reason:
-                # connections are check_same_thread=False and nothing serialises
+                # connections are check_same_thread=False and nothing serializes
                 # a close against another thread's query.
                 try:
                     conn.close()

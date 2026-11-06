@@ -165,7 +165,7 @@ def test_a_document_this_run_returned_that_predates_the_lane_is_picked_up(
 ):
     """Self-healing rather than merely correct for new rows.
 
-    A corpus embedded halfway — a cancelled backfill, a lane configured after the
+    A corpus embedded halfway — a canceled backfill, a lane configured after the
     fact — is completed by the runs that touch it, without the user having to
     know to press Backfill.
     """

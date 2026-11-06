@@ -118,7 +118,7 @@ def _nothing_sent(source: dict | None) -> str:
         return "Nothing was sent."
     outcome = source_coverage.outcome(source)
     if source.get("status") == "cancelled":
-        return "Nothing was sent before the run was cancelled."
+        return "Nothing was sent before the run was canceled."
     if source.get("status") == "skipped_missing_key" or source.get("zero_reason") == "missing_key":
         return "Nothing was sent: no API key is configured for it."
     if outcome["category"] == "non_answer":
@@ -181,7 +181,7 @@ def _query_as_sent(params: dict) -> str | None:
     if not isinstance(sent, dict):
         return None
     if not sent:
-        # Every source declined to be asked, or the run was cancelled before a
+        # Every source declined to be asked, or the run was canceled before a
         # search that had been sent came back with its record.
         return "No person query was recorded as sent on this run."
     selected = params.get("repositories")
@@ -360,15 +360,15 @@ def _source_note(source: dict) -> str | None:
             "not contribute to the search."
         )
     if status == "cancelled":
-        return "The run was cancelled while this source was being queried."
+        return "The run was canceled while this source was being queried."
     return None
 
 
 # Why a run's deduplication figure can be absent besides its age: it stopped
-# before that step. A cancelled run must not be described as "older than the
+# before that step. A canceled run must not be described as "older than the
 # version that stored this figure".
 _STOPPED_BEFORE_DEDUP = {
-    "cancelled": "The run was cancelled before deduplication, so this figure was never computed.",
+    "cancelled": "The run was canceled before deduplication, so this figure was never computed.",
     "failed": "The run failed before deduplication, so this figure was never computed.",
     "interrupted": "The run was interrupted before deduplication, so this figure was never computed.",
 }
@@ -399,7 +399,7 @@ def _dedup_block(execution: dict) -> dict:
         },
         "already_held": {
             "count": execution.get("dedup_duplicates"),
-            # No PRISMA box: this is an artefact of monitoring over time, not a
+            # No PRISMA box: this is an artifact of monitoring over time, not a
             # step in a one-shot systematic search.
             "prisma": None,
             "meaning": (
@@ -484,10 +484,10 @@ def _caveats(dedup: dict, sources: list[dict]) -> list[str]:
             f"records but may be incomplete ({names}). Their notes below say why."
         )
 
-    # Only a source that answered is unexplained by its status. A cancelled,
+    # Only a source that answered is unexplained by its status. A canceled,
     # failed or key-less source carries no zero reason because its status is the
     # reason, and its own note says so; counting it here put "resmon did not
-    # record why" beside "the run was cancelled while this source was being
+    # record why" beside "the run was canceled while this source was being
     # queried" for the same source.
     unrecorded = [
         s for s in sources if s["zero_reason"] == "not_recorded" and s["status"] == "ok"
@@ -599,7 +599,8 @@ def to_markdown(record: dict) -> str:
     lines.append("|---|---|")
     lines.append(f"| Run at | {search['run_at']} |")
     lines.append(f"| Completed | {search.get('completed_at') or '—'} |")
-    lines.append(f"| Status | {search['status']} |")
+    status = "canceled" if search["status"] == "cancelled" else search["status"]
+    lines.append(f"| Status | {status} |")
     keywords = search["keywords"]
     lines.append(
         f"| Search terms | {', '.join(f'`{k}`' for k in keywords) if keywords else '—'} |"

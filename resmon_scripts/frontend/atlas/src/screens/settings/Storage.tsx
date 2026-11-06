@@ -196,7 +196,7 @@ function Restore({ last }: { last: Last }) {
   };
   const cancel = useMutation({
     mutationFn: () => call(engine().POST('/api/restore/cancel')),
-    onSuccess: () => { setSaid('The staged restore was cancelled. Nothing had been changed.'); return refresh(); },
+    onSuccess: () => { setSaid('The staged restore was canceled. Nothing had been changed.'); return refresh(); },
   });
   const removeUndo = useMutation({
     mutationFn: () => call(engine().POST('/api/restore/undo-copy/delete', { body: { confirm: 'CONFIRM' } })),

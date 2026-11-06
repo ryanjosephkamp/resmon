@@ -91,7 +91,7 @@ BACKOFF = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=25))
 MAX_ATTEMPTS = len(BACKOFF)
 
 #: How long the drain sleeps when it has nothing due. A backoff of one minute
-#: is the shortest wait it has to honour, so half of that is the longest it may
+#: is the shortest wait it has to honor, so half of that is the longest it may
 #: sleep without making that minute mean something longer.
 IDLE_POLL_SECONDS = 30.0
 
@@ -613,7 +613,7 @@ def retry(conn: sqlite3.Connection, delivery_id: int) -> bool:
 
 
 # The shared one-sided rule; ``runtime_identity`` imports nothing of ours, so
-# taking it from there costs no cycle. Here the cost of being wrong towards
+# taking it from there costs no cycle. Here the cost of being wrong toward
 # alive is a delivery that waits for the next restart; the cost in the other
 # direction is sending a report twice.
 _owner_process_is_alive = runtime_identity.process_is_alive

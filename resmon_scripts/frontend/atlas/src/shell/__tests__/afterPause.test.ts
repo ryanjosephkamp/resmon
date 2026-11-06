@@ -28,7 +28,7 @@ describe('a pause that ends by writing the address', () => {
     expect(settle).not.toHaveBeenCalled();
   });
 
-  test('does not settle once it is cancelled', () => {
+  test('does not settle once it is canceled', () => {
     const settle = jest.fn();
     afterPause(350, settle)();
     jest.advanceTimersByTime(350);

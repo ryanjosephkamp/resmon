@@ -140,7 +140,7 @@ test('Settings and Today: first run, sources and keys, backup and restore, the d
     await expect(win.locator('[data-sources="contact-said"]')).toHaveText('Removed. No address is sent.');
     expect((await engine<{ contact_email: string | null }>(win, '/api/settings/sources')).body.contact_email).toBeNull();
 
-    // — Backup: a chosen folder, a bundle, a check, a staged restore, cancelled ----------
+    // — Backup: a chosen folder, a bundle, a check, a staged restore, canceled ----------
     await app.evaluate(({ dialog }, chosen) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [chosen] });
     }, backups);

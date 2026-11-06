@@ -73,7 +73,7 @@ _FIELD_LABELS = {
     "authors": "the author list",
 }
 
-# Uppercase boolean tokens some upstreams honour inside a single keyword chip.
+# Uppercase boolean tokens some upstreams honor inside a single keyword chip.
 _OPERATOR_RE = re.compile(r"(?:^|\s)(AND|OR|NOT)(?:\s|$)")
 
 # Minimum papers before a keyword's unique-contribution share is reported as a

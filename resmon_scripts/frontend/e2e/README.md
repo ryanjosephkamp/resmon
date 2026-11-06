@@ -34,7 +34,7 @@ under `release/` it skips, and says so.
 | `smoke.spec.ts` | One test per Atlas screen: it loads and stays at its own address, resmon logged no error of its own, a screenshot lands in `screenshots/`. |
 | `observability.spec.ts` | That the console-error and failed-request collectors actually catch something, in Atlas. |
 | `ipc-stubs.spec.ts` | Replacing every IPC handler from the main process, with counters proving nothing reached the OS, over every Atlas screen. |
-| `default-behaviour.spec.ts` | The app behaves as it always did with `RESMON_E2E` unset. |
+| `default-behavior.spec.ts` | The app behaves as it always did with `RESMON_E2E` unset. |
 | `atlas-zero-reasons.spec.ts` | `upstream_failure` (a source that closes the connection, or answers 503), `answered_empty` (an authored empty feed), `parse_failure` (an unreadable reply), `window_unanswerable` (a window ERIC cannot express) and `not_recorded`, really produced and read on Atlas's run page and run log, plus which of the reasons a real browser has seen. |
 | `window-manager.spec.ts` | The window itself, in Atlas — maximize on open, the link window's parentage and focus, the swipe binding. Says which arms a bare-X display could not verify. |
 | `zz-isolation.spec.ts` | The launch uses its own Chromium profile, the installed app's is untouched, and a run leaves the tree clean. Named `zz-` so it runs last. |
@@ -75,10 +75,10 @@ embed on the stage), so the boundary is a guard rather than a filter now.
 ## `RESMON_E2E`
 
 Three branches in `electron/main.ts`, all test determinism, none of them
-behaviour a user could want: a fixed window size (hunks 1 and 2, so a screenshot
+behavior a user could want: a fixed window size (hunks 1 and 2, so a screenshot
 is taken at a size that is written down) and skipping the auto-updater (hunk 3,
 so the packaged run neither calls GitHub nor pops a dialog over a screenshot).
-`default-behaviour.spec.ts` launches the app twice — with and without — and
+`default-behavior.spec.ts` launches the app twice — with and without — and
 asserts the unset path still maximizes.
 
 ## `RESMON_BACKGROUND_WINDOW`
@@ -111,7 +111,7 @@ both suites build the app's environment by copying the ambient one, so the
 drivers needed no change. Set `RESMON_BACKGROUND_WINDOW=0` yourself to get the
 old behavior back for one run.
 
-**One job must not have it.** `ui-smoke.yml`'s *Window behaviour (Electron on
+**One job must not have it.** `ui-smoke.yml`'s *Window behavior (Electron on
 macOS)* job exists to watch maximize, focus and stacking, and a run with this
 flag has none of those to watch — no window ever reports focus, so the job would
 keep passing while testing something nobody ships. That job sets

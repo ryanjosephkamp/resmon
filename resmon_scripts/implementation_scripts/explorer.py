@@ -63,7 +63,7 @@ That exception was bought with a measurement. The text filter is an ``AND`` over
 every word typed, so a plain-English query matches no paper and the sort has
 nothing to re-order. On the real 15,707-paper corpus, **eleven of twenty natural
 queries returned an empty page** while the same vectors, unfiltered, found a
-relevant paper for almost every one. A control labelled "Closest to" that
+relevant paper for almost every one. A control labeled "Closest to" that
 answers from a keyword slice is not doing what it says.
 
 Four consequences follow, and all are deliberate.
@@ -526,7 +526,7 @@ def _search_by_similarity(
     if not query_vector or not model:
         # A similarity sort with nothing to be similar to. Rather than silently
         # falling back to newest -- which would leave a user looking at a list
-        # labelled by a sort it is not in -- the response says the ranking did
+        # labeled by a sort it is not in -- the response says the ranking did
         # not happen and carries the filtered set in the default order.
         page = search(
             conn, query=query, sources=sources, authors=authors,

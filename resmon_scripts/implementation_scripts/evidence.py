@@ -324,10 +324,10 @@ def create_note(conn: sqlite3.Connection, expected: str, project_id: str, revisi
                 or basis['text'][row['start_codepoint']:row['end_codepoint']] != row['quote']):
             refuse('quote_mismatch', 'The exact page, text hash, offsets and quote must match the retained version.')
     if cancel is not None and cancel.is_set():
-        refuse('cancelled', 'Saving the selected evidence was cancelled.')
+        refuse('cancelled', 'Saving the selected evidence was canceled.')
     with write(conn, expected, project_id, revision):
         if cancel is not None and cancel.is_set():
-            refuse('cancelled', 'Saving the selected evidence was cancelled.')
+            refuse('cancelled', 'Saving the selected evidence was canceled.')
         member(conn, expected, project_id, file_id, version_id)
         if conn.execute('SELECT count(*) FROM evidence_notes WHERE project_id=?', (project_id,)).fetchone()[0] >= MAX_NOTES:
             refuse('note_limit', 'This project has reached 5,000 saved notes.', 413)

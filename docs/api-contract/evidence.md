@@ -149,7 +149,7 @@ latest-version fallback.
 Select 1–20 distinct current file versions in one project. Metadata-only is the
 default and explicitly says retained bytes were not checked. Optional file mode
 rehashes every included retained descriptor against the captured identity while
-streaming into an owned spool. Missing, corrupt, over-limit or cancelled input
+streaming into an owned spool. Missing, corrupt, over-limit or canceled input
 cannot become a completed partial archive. A consistent SQLite read snapshot
 captures project revision, membership, file metadata and all notes for exactly
 the selected versions. Removed or unselected members are excluded.
@@ -174,7 +174,7 @@ judgment. Review selected files, original names and notes before sharing.
 ## Verification and distribution
 
 `test_evidence*.py` uses authored SQLite/filesystem/parser/socket fixtures and
-labelled failure injection. `e2e/evidence.spec.ts` exercises the actual desktop
+labeled failure injection. `e2e/evidence.spec.ts` exercises the actual desktop
 journey with isolated source/state/profile and scripted native destinations.
 The five ordinary local gates and e2e typecheck remain required. A requirements
 change also triggers the existing four-target sqlite-vec packaging probe; its

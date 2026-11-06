@@ -1,5 +1,5 @@
 /**
- * J19 Live monitoring — cancelling from the Monitor keeps the work done so far
+ * J19 Live monitoring — canceling from the Monitor keeps the work done so far
  * visible, and invents no completion.
  *
  * The authored source holds its reply, so the run is genuinely in flight when
@@ -32,7 +32,7 @@ import { expect, journey } from './driver';
 journey.use({ sourceReply: 'held' });
 
 journey.describe('J19 Live monitoring', () => {
-  journey('a run cancelled from the Monitor keeps what it had, and claims nothing it did not', async ({ resmon }) => {
+  journey('a run canceled from the Monitor keeps what it had, and claims nothing it did not', async ({ resmon }) => {
     const run = await resmon.runSweep({ sources: ['arxiv', 'springer'], query: 'perovskite', cap: 10 });
 
     // While it is happening: the Monitor knows about it and shows both sources.
@@ -45,14 +45,14 @@ journey.describe('J19 Live monitoring', () => {
     resmon.releaseTheSource();
 
     const facts = await resmon.waitForRunToSettle(run);
-    expect(facts.status, `a cancelled run settled as "${facts.status}"`).toBe('cancelled');
+    expect(facts.status, `a canceled run settled as "${facts.status}"`).toBe('cancelled');
 
     // No fabricated completion: the run does not report itself as finished, and
     // its account says so rather than quietly presenting partial coverage as
     // the whole picture.
     const outcomes = await resmon.readReportOutcomes(run);
     const sentence = await resmon.readCoverageSentence(run);
-    expect(sentence, 'the cancelled run lost its denominator').toContain('2 selected sources');
+    expect(sentence, 'the canceled run lost its denominator').toContain('2 selected sources');
     expect(outcomes.map((o) => o.source).sort()).toEqual(['arxiv', 'springer']);
     for (const outcome of outcomes) {
       expect(
@@ -80,17 +80,17 @@ journey.describe('J19 Live monitoring', () => {
     // says; the row prints whether this one did.
     const hasReport = await resmon.reportExists(run);
     const row = await resmon.backend.execution(run);
-    console.log(`[J19] cancelled run: report document ${hasReport ? 'present' : 'ABSENT'}; `
+    console.log(`[J19] canceled run: report document ${hasReport ? 'present' : 'ABSENT'}; `
       + `result_path=${row.result_path}; log_path=${row.log_path}; `
       + `execution result_count=${row.result_count}; `
       + `coverage says ${JSON.stringify(outcomes.map((o) => [o.source, o.label]))}`);
     if (!hasReport) {
-      console.log('[J19] NOT VERIFIED: "the cancelled run has a partial report" — '
+      console.log('[J19] NOT VERIFIED: "the canceled run has a partial report" — '
         + 'no report document was written for this sweep, canceled during the query stage. '
         + 'The read-time coverage account is what survives, and it is asserted above.');
     }
 
-    await resmon.takePicture('J19-live-monitoring-cancelled');
+    await resmon.takePicture('J19-live-monitoring-canceled');
     expect(resmon.refusedConnections()).toEqual([]);
   });
 });

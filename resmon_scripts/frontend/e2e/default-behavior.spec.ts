@@ -4,7 +4,7 @@
  * A diff of the code shows three `isE2E()` branches; it does not show that the
  * unset path still does what it did. This launches the same app twice, with
  * environments differing in **nothing but** `RESMON_E2E` (`launchEnv()` in the
- * fixture builds both, so the two cannot drift), and compares the behaviour
+ * fixture builds both, so the two cannot drift), and compares the behavior
  * each branch controls:
  *
  *   - hunk 1+2, the window: set ⇒ exactly the requested 1440x900, not
@@ -99,11 +99,11 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   console.log('P6 RESMON_E2E UNSET', JSON.stringify(plainObs));
   console.log('P6 RESMON_E2E SET  ', JSON.stringify(e2eObs));
 
-  // The pre-flag behaviour, unchanged — stated in the one way that is true on
+  // The pre-flag behavior, unchanged — stated in the one way that is true on
   // both a desktop and a CI runner.
   //
   // `xvfb-run` starts a bare X server with **no window manager**, and
-  // `BrowserWindow.maximize()` is a request a window manager honours. With
+  // `BrowserWindow.maximize()` is a request a window manager honors. With
   // none, the call is a no-op: the first CI run of this spec came back
   // `{"bounds":{"width":1280,"height":820},"maximized":false,
   //   "workArea":{"width":1600,"height":1000}}` — the constructor's own size,
@@ -116,7 +116,7 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   // the work area where a window manager exists, the constructor's 1280x820
   // where one does not. Which arm held is logged, because the difference is
   // exactly the limitation worth knowing about: *the maximize-on-open
-  // behaviour cannot be verified on a bare-X runner at all.*
+  // behavior cannot be verified on a bare-X runner at all.*
   const DEFAULT_WIDTH = 1280;
   const DEFAULT_HEIGHT = 820;
   const maximizedAsRequested =
@@ -131,10 +131,10 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   console.log(
     'P6 UNSET WINDOW OUTCOME',
     maximizedAsRequested
-      ? 'maximized to the work area (a window manager honoured it)'
+      ? 'maximized to the work area (a window manager honored it)'
       : leftAtConstructorSize
         ? 'left at the 1280x820 default (no window manager — bare X, e.g. xvfb); '
-          + 'the maximize-on-open behaviour is NOT verified by this run'
+          + 'the maximize-on-open behavior is NOT verified by this run'
         : 'neither — see the observations above',
   );
 
@@ -146,7 +146,7 @@ test('P6: RESMON_E2E unset keeps the pre-flag window; set gives a fixed 1440x900
   // Whatever it did, it did not take the size the flag asks for.
   expect(plainObs.bounds.width).not.toBe(WINDOW_WIDTH);
 
-  // The flag's behaviour, measured against what the display allows.
+  // The flag's behavior, measured against what the display allows.
   //
   // A work area smaller than the requested window is the case this originally
   // got wrong: the macOS CI runner is 1024x684, macOS clamps the window to it

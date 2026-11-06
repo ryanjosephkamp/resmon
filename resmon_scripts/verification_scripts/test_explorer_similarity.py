@@ -114,7 +114,7 @@ _FILTER_CASES: dict[str, dict] = {
 #
 # The invariant that remains is about the **structured** filters, and it is the
 # one that protects a user: switching sort never changes which sources, authors,
-# categories or dates are in scope. ``query``'s own behaviour is asserted
+# categories or dates are in scope. ``query``'s own behavior is asserted
 # positively below, in
 # ``test_the_phrase_ranks_rather_than_filters_in_similarity_mode`` — so the field
 # is covered by a stronger claim than the one it was removed from, not by none.
@@ -279,7 +279,7 @@ def test_a_keyset_cursor_handed_to_a_similarity_sort_starts_over_rather_than_err
 
 
 def test_a_similarity_sort_with_nothing_to_rank_against_says_so(conn, mixed_corpus):
-    """Never a silent fallback: the list is labelled by the sort it is actually in."""
+    """Never a silent fallback: the list is labeled by the sort it is actually in."""
     page = explorer.search(conn, limit=200, sort="similarity")
     assert page["sort"] == "newest"
     assert "needs a search phrase and an embedding model" in page["similarity_unavailable"]

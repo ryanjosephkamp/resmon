@@ -332,11 +332,11 @@ def test_cancel_after_canonical_read_prevents_note_transaction(selected, monkeyp
     assert cancel.is_set() and _snapshot(ctx['record']['database']) == before
 
 
-def test_parser_pre_cancelled_request_never_spawns(monkeypatch):
+def test_parser_pre_canceled_request_never_spawns(monkeypatch):
     from implementation_scripts import evidence, evidence_pdf as supervisor
     cancel = threading.Event(); cancel.set()
     def must_not_spawn(*args, **kwargs):
-        raise AssertionError('A pre-cancelled parser request launched a child')
+        raise AssertionError('A pre-canceled parser request launched a child')
     monkeypatch.setattr(supervisor.subprocess, 'Popen', must_not_spawn)
     with pytest.raises(evidence.EvidenceError) as refused:
         supervisor.extract(two_pages(), 1, cancel=cancel)

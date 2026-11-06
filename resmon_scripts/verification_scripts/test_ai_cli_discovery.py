@@ -245,7 +245,7 @@ def test_describe_never_claims_the_cli_is_logged_in(tmp_path, no_path):
     assert "signed in" not in text
 
 
-def test_to_dict_is_serialisable_and_complete(tmp_path, no_path):
+def test_to_dict_is_serializable_and_complete(tmp_path, no_path):
     payload = discover_cli("codex", _make_executable(tmp_path / "codex")).to_dict()
     assert payload["found"] is True
     assert set(payload) == {"provider", "path", "how", "found", "tried", "detail"}

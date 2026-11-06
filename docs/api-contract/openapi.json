@@ -1477,7 +1477,7 @@
       },
       "AssistantPermissionDecision": {
         "additionalProperties": true,
-        "description": "``POST /api/assistant/permissions``: the answer the permission server hands the CLI.\n\nCalled by ``assistant_permission_server.py``, not the renderer, and held\nopen until the person answers or five minutes pass. ``decision`` is\n``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a\ncancelled conversation all deny, and ``message`` says which.",
+        "description": "``POST /api/assistant/permissions``: the answer the permission server hands the CLI.\n\nCalled by ``assistant_permission_server.py``, not the renderer, and held\nopen until the person answers or five minutes pass. ``decision`` is\n``allow`` or ``deny``; a timeout, a panel that was not open to ask, and a\ncanceled conversation all deny, and ``message`` says which.",
         "properties": {
           "decision": {
             "title": "Decision",
@@ -25127,7 +25127,7 @@
     },
     "/api/embeddings/backfill": {
       "post": {
-        "description": "Embed every document lacking a vector for the active model.\n\nReturns immediately; poll ``GET /api/embeddings/status``. Resumable by\nconstruction — the work remaining is a query, not a stored cursor — so a\ncancelled run restarts where the corpus is, not where the last run thought\nit was.",
+        "description": "Embed every document lacking a vector for the active model.\n\nReturns immediately; poll ``GET /api/embeddings/status``. Resumable by\nconstruction — the work remaining is a query, not a stored cursor — so a\ncanceled run restarts where the corpus is, not where the last run thought\nit was.",
         "operationId": "start_embedding_backfill_api_embeddings_backfill_post",
         "responses": {
           "200": {
@@ -26463,7 +26463,7 @@
     },
     "/api/executions/{exec_id}/cancel": {
       "post": {
-        "description": "Request cooperative cancellation of a running execution.\n\nA row that is not in the in-memory ``ProgressStore`` is not cancellable,\nand saying only \"Execution not running\" would read, on an\ninterrupted row, as if resmon had lost track of something. The row's own\nstate belongs in the sentence.\n\n``detail`` stays a **string**. FastAPI will serialise a dict there happily,\nand a renderer that renders ``detail`` directly -- which several of\nresmon's do -- would then show ``[object Object]``. Anything that needs the\nstate structurally reads ``status`` off the row it already has.",
+        "description": "Request cooperative cancellation of a running execution.\n\nA row that is not in the in-memory ``ProgressStore`` is not cancelable,\nand saying only \"Execution not running\" would read, on an\ninterrupted row, as if resmon had lost track of something. The row's own\nstate belongs in the sentence.\n\n``detail`` stays a **string**. FastAPI will serialize a dict there happily,\nand a renderer that renders ``detail`` directly -- which several of\nresmon's do -- would then show ``[object Object]``. Anything that needs the\nstate structurally reads ``status`` off the row it already has.",
         "operationId": "cancel_execution_api_executions__exec_id__cancel_post",
         "parameters": [
           {
@@ -26991,7 +26991,7 @@
     },
     "/api/executions/{exec_id}/restart": {
       "post": {
-        "description": "Start a fresh execution with the source's parameters, linked back to it.\n\nRestart is not resume. ``progress_events`` is persisted once, at the end,\nso an interrupted run has nothing to resume *from* -- there is no durable\nrecord of which sources it had already asked. What resmon can honestly\noffer is the same search again, and a link saying where it came from.\n\nThe source row is never touched. Its history is what happened, and a\nrestart is a second thing that happened, not a correction of the first.\n\n``again`` asks for a completed run's search once more (Run again, on the\nRuns tab); without it only an interrupted, failed or cancelled run is\nrestarted. At the run limit the new run waits in the queue\n(``_start_or_queue``) and its row is written only when it starts: the\nanswer then carries no execution id, ``queued``, and its place.\n\n**A watch's run is never run alongside its watch.** Restart or Run again\non a watch's run is that watch's Run now (``run_routine_now``): the\nwatch's claim, its queue, a paused watch run once, and delivery as it is\nset, with the watch's current settings rather than the old run's copy,\nand refused with the run that holds the watch when it is already running,\nsince two runs of one watch would both deliver and email. The new run is\nthe watch's, so it is not linked back (``restarted_from`` is null). A Deep\nDive's or Deep Sweep's run is copied, as below.",
+        "description": "Start a fresh execution with the source's parameters, linked back to it.\n\nRestart is not resume. ``progress_events`` is persisted once, at the end,\nso an interrupted run has nothing to resume *from* -- there is no durable\nrecord of which sources it had already asked. What resmon can honestly\noffer is the same search again, and a link saying where it came from.\n\nThe source row is never touched. Its history is what happened, and a\nrestart is a second thing that happened, not a correction of the first.\n\n``again`` asks for a completed run's search once more (Run again, on the\nRuns tab); without it only an interrupted, failed or canceled run is\nrestarted. At the run limit the new run waits in the queue\n(``_start_or_queue``) and its row is written only when it starts: the\nanswer then carries no execution id, ``queued``, and its place.\n\n**A watch's run is never run alongside its watch.** Restart or Run again\non a watch's run is that watch's Run now (``run_routine_now``): the\nwatch's claim, its queue, a paused watch run once, and delivery as it is\nset, with the watch's current settings rather than the old run's copy,\nand refused with the run that holds the watch when it is already running,\nsince two runs of one watch would both deliver and email. The new run is\nthe watch's, so it is not linked back (``restarted_from`` is null). A Deep\nDive's or Deep Sweep's run is copied, as below.",
         "operationId": "restart_execution_api_executions__exec_id__restart_post",
         "parameters": [
           {

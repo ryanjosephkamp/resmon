@@ -152,7 +152,7 @@ def test_claude_code_auth_failure_is_lane_fatal(runs):
     assert error.lane_fatal is True
 
 
-def test_is_error_is_honoured_even_though_subtype_says_success(runs):
+def test_is_error_is_honored_even_though_subtype_says_success(runs):
     """The trap: subtype reads 'success' on a failed authentication."""
     payload = dict(_CLAUDE_AUTH_FAILURE)
     assert payload["subtype"] == "success"

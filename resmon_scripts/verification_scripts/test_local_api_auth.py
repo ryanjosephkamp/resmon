@@ -700,7 +700,7 @@ def test_every_mcp_tool_reaches_the_guarded_backend_over_stdio(backend):
 
 
 def test_every_mcp_tool_sends_the_token_through_the_one_transport(monkeypatch):
-    """Every request every tool makes carries the header — parametrised over TOOLS, not read off the code."""
+    """Every request every tool makes carries the header — parametrized over TOOLS, not read off the code."""
     token = api_auth.mint_token()
     seen: list[tuple[str, str, dict]] = []
 

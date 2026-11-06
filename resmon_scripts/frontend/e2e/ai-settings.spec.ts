@@ -328,7 +328,7 @@ test('P5b: the picker asks for the two things both CLIs need it to ask for', asy
       (window as unknown as {
         resmonAPI: { chooseFile(d?: string): Promise<string | null> };
       }).resmonAPI.chooseFile('/tmp/somewhere'));
-    // A cancelled dialog answers null, and the field is left alone.
+    // A canceled dialog answers null, and the field is left alone.
     expect(returned).toBeNull();
 
     const seen = await app.evaluate(async () =>

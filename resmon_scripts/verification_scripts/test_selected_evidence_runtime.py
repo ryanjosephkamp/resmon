@@ -124,7 +124,7 @@ def test_owned_cancellation_publication_order(workspace: Workspace, tmp_path: Pa
         try:
             if scenario != 'already_running':
                 assert release_worker.wait(5), 'worker barrier was not released'
-            trace.record('worker_released', cancelled=job.cancelled.is_set())
+            trace.record('worker_released', canceled=job.canceled.is_set())
             original_run(self, job)
         except BaseException as error:
             worker_errors.append(repr(error))
@@ -133,7 +133,7 @@ def test_owned_cancellation_publication_order(workspace: Workspace, tmp_path: Pa
 
     def scheduled_finish(conn: object, answer_id: str, owner: str, state: str, **kwargs: object) -> bool:
         if state == 'cancelled' and scenario == 'overlap':
-            trace.record('cancel_before_terminal_sql', cancelled=value.job.cancelled.is_set())
+            trace.record('cancel_before_terminal_sql', canceled=value.job.canceled.is_set())
             finish_entered.set()
             assert release_finish.wait(5), 'terminal barrier was not released'
         changed = original_finish(conn, answer_id, owner, state, **kwargs)
@@ -190,8 +190,8 @@ def test_owned_cancellation_publication_order(workspace: Workspace, tmp_path: Pa
                 assert captured and cli.is_running(-job.id)
                 trace.write('captured-cli.json', captured)
                 trace.record('running_observed', pid=captured['pid'], process_start=captured['process_start'])
-            cancelled = value.cancel(job.answer_id, job.vault_id, job.project_id, job.owner)
-            trace.record('cancel_returned', state=cancelled['state'], cleanup=cancelled['cleanup_state'])
+            canceled = value.cancel(job.answer_id, job.vault_id, job.project_id, job.owner)
+            trace.record('cancel_returned', state=canceled['state'], cleanup=canceled['cleanup_state'])
             release_worker.set()
         job.thread.join(5)
         assert not job.thread.is_alive() and job.completed.is_set()

@@ -266,7 +266,7 @@ def test_a_reordered_openai_response_is_put_back_in_index_order(server):
 
     Every vector would still be a valid vector and every paper would still have
     one; they would simply be each other's. Sorting on ``index`` is the whole
-    defence, and this is the test that holds it.
+    defense, and this is the test that holds it.
     """
     server.mode = "reordered"
     # ``custom`` reads the custom key slot. The server does not check it, but the
@@ -474,7 +474,7 @@ def test_a_lane_that_cannot_embed_stops_the_run_rather_than_failing_per_document
     assert len(server.calls) == 1
 
 
-def test_backfill_cancelled_mid_run_and_restarted_finishes_with_exactly_m_rows(
+def test_backfill_canceled_mid_run_and_restarted_finishes_with_exactly_m_rows(
     conn, server, tmp_path
 ):
     """P3, and the mutation is the cancel itself.
@@ -482,7 +482,7 @@ def test_backfill_cancelled_mid_run_and_restarted_finishes_with_exactly_m_rows(
     Cancel is checked *between* batches, so a run stopped part-way must leave a
     consistent prefix — every document it reports as embedded actually embedded,
     and none embedded twice. Restarting is then a plain re-run: the work left is
-    a query against the database, not a cursor the cancelled run had to save.
+    a query against the database, not a cursor the canceled run had to save.
     """
     total = 20
     _documents(conn, total)
@@ -496,7 +496,7 @@ def test_backfill_cancelled_mid_run_and_restarted_finishes_with_exactly_m_rows(
     # The cancel is landed **deterministically**, not raced against a clock.
     #
     # The first version let batches through and polled the coverage until four
-    # papers were in, then cancelled. On a fast runner all twenty finished
+    # papers were in, then canceled. On a fast runner all twenty finished
     # between two polls, and CI went red on the guard below -- which is the
     # guard doing its job, but a flaky test is not evidence of anything.
     #
