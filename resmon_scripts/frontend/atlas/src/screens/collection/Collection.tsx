@@ -19,10 +19,11 @@ import { exportCollection } from './collectionExport';
 import { FacetMenus, type Menu } from './FacetMenus';
 import {
   chips, countSentence, engineFilters, exportedWords, exportWords, filterCount, narrowingWords, readFilters,
-  toggled, withDate, withoutFilters, type EngineFilters, type Facets,
+  toggled, withDate, withoutFilters, type EngineFilters, type Facets, type Ranking,
 } from './filters';
 import { foldedAway } from './fold';
 import { jumpWords, monthEnd, readJump, withJump } from './jump';
+import { readOrder, withOrder } from './order';
 import { ResultList, type Marks, type Picking } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
@@ -37,7 +38,6 @@ type ExplorerPaper = components['schemas']['ExplorerPaper'];
 const NONE_MARKED: readonly number[] = [];
 /** What each search page carries for its papers (`include`). */
 const MARKS = ['links', 'matches', 'lifecycle'] as const;
-type Sort = 'newest' | 'similarity';
 
 /** How long typing pauses before the collection is searched again. */
 const SETTLE_MS = 350;
@@ -112,7 +112,9 @@ export function Collection() {
       return next;
     }, { replace: true });
   }, [asked, query, setParams]);
-  const [sort, setSort] = useState<Sort>('newest');
+  // The order asked for is in the address, so Back returns to it.
+  const sort = readOrder(params);
+  const setSort = (order: Ranking) => setParams((now) => withOrder(now, order), { replace: true });
   const scroller = useRef<HTMLDivElement>(null);
   // The results' box, once it is in the page, for the list drawn in it.
   const [resultsBox, setResultsBox] = useState<HTMLDivElement | null>(null);
@@ -141,7 +143,7 @@ export function Collection() {
   });
   const canRank = status.data?.capability.available === true;
   const rank = status.data ? rankingWords(status.data, words) : null;
-  const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
+  const ranking: Ranking = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
   // A month jumped to, in the newest order only: a ranking by meaning is not in date order.
   const at = readJump(params);
   const jump = ranking === 'newest' && at ? monthEnd(at) : null;
