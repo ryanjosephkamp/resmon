@@ -123,7 +123,8 @@ of the clause, so the grading can be re-checked rather than trusted.</p>
 <ul>
 <li><code>search()</code> returns <code>list[NormalizedResult]</code>, honors <code>date_from</code> / <code>date_to</code> /
 <code>max_results</code>, and returns <strong><code>[]</code> on upstream failure</strong> — logged, never raised. A source
-being down degrades a sweep; it does not fail it.</li>
+being down does not abort the other sources’ searches. The run’s status is a separate
+decision: a run whose every selected source was asked and recorded a non-answer is failed.</li>
 <li>Every HTTP call goes through <code>safe_request()</code> with a <strong>module-level</strong> <code>RateLimiter</code>, shared
 by every instance of that client, so concurrent sweeps contend on one object. The same
 limiter carries a valid upstream <code>Retry-After</code> cooldown across retries and client
@@ -138,8 +139,8 @@ figure; do not carry over a number from another source.</li>
 <li>A malformed record is skipped and logged, never allowed to abort the batch.</li>
 </ul>
 <h3 id="fields-the-user-reads-as-claims">Fields the user reads as claims</h3>
-<p><code>rate_limit</code>, <code>upstream_policy</code> and <code>keyword_combination</code> are rendered on the Repositories
-page and are read as statements of fact about someone else’s service.</p>
+<p><code>rate_limit</code>, <code>upstream_policy</code>, and <code>keyword_combination</code> are rendered in Settings › Sources
+and the source pickers and are read as statements of fact about someone else’s service.</p>
 <p><code>keyword_combination</code> in particular describes how the <strong>upstream</strong> combines space-separated
 terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes resmon lie about
 another organization’s search engine.</p>
@@ -168,8 +169,9 @@ query to this source can express</strong>, read from your client’s date-filter
 about the upstream’s index. It is rendered on the Sources page, and the
 <code>window_unanswerable</code> sentence is derived from it rather than from the free-text note.</p>
 <p>The field deliberately does not say what your client <em>does</em> about a window it cannot express,
-because those are two different facts. ERIC and Open Library <strong>refuse</strong>; DataCite, DBLP, NASA
-ADS and Semantic Scholar answer the coarser window. Both are honest. Only the first calls
+because those are two different facts. DBLP, ERIC, and Open Library <strong>refuse</strong> a window
+containing no complete calendar year; DataCite asks for the years touched and filters locally,
+while DOAJ, NASA ADS, and Semantic Scholar answer the coarser window. Only a refusal calls
 <code>note_unanswerable</code>.</p>
 <h3 id="saying-why-a-search-came-back-empty">Saying why a search came back empty</h3>
 <p>A client returning <code>[]</code> is the normal way a source fails, and by the time the engine sees it a
@@ -204,7 +206,7 @@ that already returns <code>[]</code>:</p>
 <code>except</code> catches “the source never answered”, and calling that an unreadable reply tells the
 user the source answered when it did not.</p>
 <p><strong>Never invent a reason.</strong> A zero is a recorded fact with a named source of truth, or it is
-<code>not_recorded</code>. There is no third state, and there is no backfill.</p>
+<code>not_recorded</code>. An earlier unexplained zero is not filled in with a guessed reason.</p>
 <h3 id="local-filtering-and-what-it-licenses-you-to-claim">Local filtering, and what it licenses you to claim</h3>
 <p><code>match_explain._LOCALLY_FILTERED_SOURCES</code> lists the sources whose keyword matching <strong>resmon
 performs itself</strong>, and can therefore speak about with certainty. A source belongs there only
@@ -258,7 +260,23 @@ would be an overclaim.</p>
 
 
 
-<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>implementation_scripts/api_&#x3C;slug>.py</code></td><td><strong>new</strong> — subclass <code>BaseAPIClient</code>, implement <code>search()</code> and <code>get_name()</code>, call <code>register_client()</code> at module scope</td></tr><tr><td><code>implementation_scripts/api_registry.py</code></td><td>add <code>"api_&#x3C;slug>"</code> to <code>_CLIENT_MODULES</code>, alphabetically</td></tr><tr><td><code>implementation_scripts/repo_catalog.py</code></td><td>add an <code>_entry(...)</code>, alphabetically by slug, including <code>date_granularity</code> when it is not <code>"day"</code></td></tr><tr><td><code>implementation_scripts/match_explain.py</code></td><td><code>_LOCALLY_FILTERED_SOURCES</code> — only if resmon does the filtering</td></tr><tr><td><code>verification_scripts/test_repo_catalog.py</code></td><td>the slug set and the two length assertions</td></tr><tr><td><code>verification_scripts/test_api_repositories_catalog.py</code></td><td>the catalog-length assertion</td></tr><tr><td><code>verification_scripts/test_api_tier*.py</code></td><td>registration, instantiation, and a <code>live_network</code> search test</td></tr><tr><td><code>verification_scripts/test_source_outcomes.py</code></td><td>nothing to add — <code>test_every_client_records_an_attempt</code> parametrises over the registry, so a new source is covered the moment it registers, and fails if its <code>search()</code> makes no recorded HTTP attempt</td></tr><tr><td><code>README.md</code>, <code>site/src/content/guide/sources.md</code></td><td>the source count, and one row on the guide’s Sources page</td></tr></tbody></table>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<table><thead><tr><th>File</th><th>Change</th></tr></thead><tbody><tr><td><code>implementation_scripts/api_&#x3C;slug>.py</code></td><td><strong>new</strong> — subclass <code>BaseAPIClient</code>, implement <code>search()</code> and <code>get_name()</code>, call <code>register_client()</code> at module scope</td></tr><tr><td><code>implementation_scripts/api_registry.py</code></td><td>add <code>"api_&#x3C;slug>"</code> to <code>_CLIENT_MODULES</code>, alphabetically</td></tr><tr><td><code>implementation_scripts/repo_catalog.py</code></td><td>add an <code>_entry(...)</code>, alphabetically by slug, including <code>date_granularity</code> when it is not <code>"day"</code></td></tr><tr><td><code>implementation_scripts/match_explain.py</code></td><td><code>_LOCALLY_FILTERED_SOURCES</code> — only if resmon does the filtering</td></tr><tr><td><code>verification_scripts/test_repo_catalog.py</code></td><td>the slug set and the two length assertions</td></tr><tr><td><code>verification_scripts/test_api_repositories_catalog.py</code></td><td>the catalog-length assertion</td></tr><tr><td><code>verification_scripts/test_api_tier*.py</code></td><td>registration, instantiation, and a <code>live_network</code> search test</td></tr><tr><td><code>verification_scripts/test_source_outcomes.py</code></td><td><code>test_every_client_records_an_attempt</code> parametrizes over the registry, so a new source is covered when it registers and fails if its <code>search()</code> makes no recorded HTTP attempt</td></tr><tr><td><code>verification_scripts/probe_entity_search.py</code>, <code>verification_scripts/probe_paper_lookup.py</code></td><td>the live probes for author queries and one-paper lookups described below</td></tr><tr><td><code>verification_scripts/test_paper_find.py</code></td><td>an authored request and reply in <code>CASES</code> for each supported lookup kind</td></tr><tr><td><code>site/src/data/sources.json</code></td><td>regenerate the catalog copy with <code>.venv/bin/python site/scripts/export_sources.py</code> from the root; <code>test_site_sources.py</code> guards it</td></tr><tr><td><code>README.md</code>, <code>site/src/content/guide/*.md</code></td><td>every written source count, the Sources tables, author-search counts where changed, and an acknowledgment</td></tr><tr><td><code>docs/</code> site output</td><td>rebuild with <code>npm run build</code> in <code>site/</code>, and verify with <code>npm run verify</code> and <code>node scripts/check-tokens.mjs</code></td></tr></tbody></table>
 <p>Do <strong>not</strong> touch <code>resmon.py</code>, <code>implementation_scripts/database.py</code>,
 <code>implementation_scripts/api_base.py</code>, or <code>.github/workflows/*</code>.</p>
 <hr>
@@ -354,7 +372,8 @@ so a routine saved before the retirement reports the actual cause instead of
 <p>Before opening a pull request:</p>
 <pre class="astro-code astro-code-themes github-light github-dark" style="background-color:#fff;--shiki-dark-bg:#24292e;color:#24292e;--shiki-dark:#e1e4e8; overflow-x: auto; white-space: pre-wrap; word-wrap: break-word;" tabindex="0" data-language="bash"><code><span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">                    # hermetic suite</span></span>
 <span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">.venv/bin/python</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> pytest</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -m</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> live_network</span><span style="color:#005CC5;--shiki-dark:#79B8FF"> -q</span><span style="color:#6A737D;--shiki-dark:#6A737D">    # real APIs; a weekly CI job runs these</span></span>
-<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> test</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span></code></pre>
+<span class="line"><span style="color:#005CC5;--shiki-dark:#79B8FF">cd</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> resmon_scripts/frontend</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> typecheck</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> test</span><span style="color:#24292E;--shiki-dark:#E1E4E8"> &#x26;&#x26; </span><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> build</span></span>
+<span class="line"><span style="color:#6F42C1;--shiki-dark:#B392F0">npm</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> run</span><span style="color:#032F62;--shiki-dark:#9ECBFF"> e2e</span></span></code></pre>
 <p>The hermeticity guard blocks any non-loopback socket from a test that is not marked
 <code>live_network</code>. A new test that needs the network carries the marker — and a source’s
 live search test is then run every Monday by <code>.github/workflows/live-network.yml</code>,

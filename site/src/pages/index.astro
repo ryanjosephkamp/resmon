@@ -39,9 +39,9 @@ const description =
 const parts = [
   {
     name: 'Today',
-    line: 'What is new since you last looked, on a map of everything you have collected.',
+    line: 'What arrived since you last marked all read, on a map of the collection.',
     detail:
-      'Papers sit by the wording they share, brighter the newer they are. The new ones are ringed and numbered, and each number is one entry in the list beside the map.',
+      'The map says whether it places papers by shared wording or by your embedding model. New papers are ringed and numbered, with the same numbers in the list beside it.',
   },
   {
     name: 'Watches',
@@ -51,15 +51,21 @@ const parts = [
   },
   {
     name: 'Search',
-    line: 'Ask the sources, or search what you already hold.',
+    line: 'Search a collection, ask the sources, or find one paper.',
     detail:
-      'A Deep Dive asks one source in depth and a Deep Sweep asks several at once. Before you ask, resmon lists each source’s limits: how it combines your terms, how finely it dates a paper, and whether it needs a key.',
+      'A Deep Dive asks one source in depth and a Deep Sweep asks several at once, with each source’s limits stated first. Find a paper looks up a DOI, arXiv id, PMID, or title and says how each copy matched. Export every collection match as BibTeX, RIS, or CSV.',
+  },
+  {
+    name: 'Runs',
+    line: 'Running now, waiting for a free slot, and the history.',
+    detail:
+      'Watch each source’s progress, see why a run failed, and select runs to export or run again. The monitor in the top bar keeps progress and unseen failures in view.',
   },
   {
     name: 'Library',
-    line: 'A reading queue, your own files, and the passages you keep.',
+    line: 'One gallery for your reading queue, files, and projects.',
     detail:
-      'Keep PDF, TXT, and MD files as unchanging copies in a folder you choose, read them in the app, and pin exact passages in Evidence projects. The Library is not yet available on Windows.',
+      'Keep PDF, TXT, MD, and TeX files, read them in the app, and pin exact passages in Evidence. Get the PDF downloads copies only under a stated open license and the source and host rules. The reading queue works on Windows; kept files and Evidence do not.',
   },
   {
     name: 'Ask',
@@ -94,7 +100,7 @@ const tourVideo = url('/media/resmon-tour.mp4');
 const platforms = [
   { name: 'macOS, Apple Silicon', file: 'DMG', status: 'Used daily.' },
   { name: 'macOS, Intel', file: 'DMG', status: 'Built and opened by the release check on every release; not used daily.' },
-  { name: 'Windows (x64)', file: 'Installer (.exe)', status: 'Built and opened by the release check; not used daily. The Library is not yet available.' },
+  { name: 'Windows (x64)', file: 'Installer (.exe)', status: 'Built and opened by the release check; not used daily. Library files and Evidence are unavailable.' },
   { name: 'Linux (x64)', file: 'AppImage', status: 'Built and opened by the release check; not used daily.' },
 ];
 ---
@@ -248,8 +254,9 @@ const platforms = [
       }
     </dl>
     <p class="band-note">
-      Settings › Tutorials walks through each screen in the app, and the <a href={url('/guide/')}>guide</a> goes
-      further.
+      Keep several collections in one database, open them in separate windows or macOS tabs, and arrange the sections
+      in Settings › Top bar. The <a href={url('/guide/')}>guide</a> covers each screen, and Settings › Tutorials has
+      short recordings.
     </p>
   </section>
 
@@ -264,7 +271,7 @@ const platforms = [
       </div>
       <div>
         <dt>Your collection</dt>
-        <dd>A database and a folder of reports on your own disk, with your watches, runs, and reading.</dd>
+        <dd>One database for your collections, watches, runs, and reading, with reports and Library files on your own disk.</dd>
       </div>
       <div>
         <dt>Your keys</dt>
@@ -273,8 +280,8 @@ const platforms = [
       <div>
         <dt>No telemetry</dt>
         <dd>
-          resmon sends no usage data. A search sends its terms only to the sources it asks; summaries, delivery, and
-          backup send only what you switch on, to where you point them.
+          resmon sends no usage data. Searches go to the sources they ask; Ask, summaries, embeddings, PDF downloads,
+          and delivery use the connections you choose. Backups are written to a folder you keep.
         </dd>
       </div>
     </dl>

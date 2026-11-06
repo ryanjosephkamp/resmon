@@ -53,7 +53,7 @@ It is a client of the running resmon, reaching it over `127.0.0.1`, and it never
 
 The server needs Python with the packages in `requirements.txt`. From a clone, that is the virtual environment's interpreter. The installed app carries its own: on macOS, inside the app, the interpreter is `resmon.app/Contents/Resources/backend/python/bin/python3` and the server is `resmon.app/Contents/Resources/backend/resmon_scripts/mcp_server.py`.
 
-**Naming the resmon to talk to is required.** The server uses `RESMON_PORT`, or the port file a running resmon writes, and nothing else. It never guesses, and it never widens: a port you named that does not answer is reported as unavailable, because otherwise a program could attach to a different resmon installation and answer truthfully about the wrong collection. **Health › This engine** and **Settings › In the background** show the address the window is using. A typical entry for a program that reads an `mcpServers` list is:
+**Naming the resmon to talk to is required.** The server tries `RESMON_PORT` first, then the port file a running resmon writes. It has no default-port candidate and does not read the service's lock file. To keep it on one instance, make the environment port and `RESMON_PORT_FILE` name that same instance: an unanswered environment port does not prevent trying the file's port. **Health › This engine** and **Settings › In the background** show the address the window is using. A typical entry for a program that reads an `mcpServers` list is:
 
 ```json
 {
@@ -69,7 +69,7 @@ The server needs Python with the packages in `requirements.txt`. From a clone, t
 
 Replace `8742` with the port the window shows. The backend asks every caller for its local API token, and the server reads it from the owner-only file `api-token-<port>` in resmon's state directory, so nothing needs configuring for an installed app. For an instance with its own state directory, set `RESMON_STATE_DIR` for the server too. See [`docs/local-api-security.md`](docs/local-api-security.md).
 
-**Every tool says whether it needs a person.** `tools/list` carries `requires_confirmation` on all 25: true on the seven that change something, false on the eighteen reads. A program that does not enforce it is running writes the contract says a person approves first; the server itself applies no gate.
+**Every tool says whether it needs a person.** `tools/list` carries `requires_confirmation` on all 26: true on the seven that change something, false on the nineteen reads. A program that does not enforce it is running writes the contract says a person approves first; the server itself applies no gate.
 
 - **Nothing destructive is exposed.** No delete, no erase, no factory reset, and no tool that reads or writes an API key.
 - **A watch created through a tool is created inactive.** Putting something on the schedule on your machine is not a side effect a tool call gets to have, so turning one on is its own confirmed tool.

@@ -44,7 +44,7 @@ CI runs the backend suite on Python 3.10, 3.11, and 3.12, and the interface chec
 3. Match the surrounding code. Python needs type hints on new code and nothing newer than 3.10. TypeScript has no `any` in new code.
 4. Run the checks above for what you changed.
 5. Update the guide page that covers a user-visible change, in the same pull request. The site is built from `site/` and published out of `docs/`.
-6. If you add a route, regenerate the contract with `python -m implementation_scripts.api_contract --write` from `resmon_scripts/` and Atlas's types with `npm run gen:atlas-api` from `resmon_scripts/frontend/`, and commit both.
+6. If a route changes, regenerate the contract with `python -m implementation_scripts.api_contract --write` from `resmon_scripts/` and Atlas's types with `npm run gen:atlas-api` from `resmon_scripts/frontend/`, and commit both. A new route needs a `ROUTE_JOURNEYS` entry; adding or removing one also changes the count in the guide's API reference. Run `npm run build`, `npm run verify`, and `node scripts/check-tokens.mjs` in `site/`, and commit the rebuilt pages. See the [contract instructions](docs/api-contract/README.md).
 7. Open the pull request against `main`. The description says what changed and why, how it was verified (the exact commands and their output counts), what it deliberately does not do, and any file outside the obvious set, with the reason.
 
 A change that implies more certainty than the code earns is rejected even when the code is correct. A field extracted from a document, a field matched against the collection, and a field guessed by a model are different kinds of fact, and resmon labels which is which.

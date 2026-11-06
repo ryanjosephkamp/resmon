@@ -9,9 +9,9 @@ order: 17
 
 The engine serves HTTP on `127.0.0.1` only. The background service uses port 8742 unless you set `RESMON_DAEMON_PORT`; the engine a window starts for itself uses a free port chosen at start. **Health › This engine** shows the address the window is using, and the port file a running engine writes beside its database names it for a program.
 
-Every request needs the engine's local API token in `Authorization: Bearer <token>` and a loopback `Host`. A request from a browser must also carry the exact origin of resmon's own renderer. The token is in an owner-only file named `api-token-<port>` in resmon's state directory. Refusals are `401 token_missing`, `401 token_invalid`, `403 host_refused`, and `403 origin_refused`. See [`docs/local-api-security.md`](docs/local-api-security.md).
+Requests need the engine's local API token in `Authorization: Bearer <token>` and a loopback `Host`. A request carrying an `Origin` must name resmon's own renderer. The one token exception is the delivery-bundle route below, which checks its signed link instead. The token is in an owner-only file named `api-token-<port>` in resmon's state directory. Refusals are `401 token_missing`, `401 token_invalid`, `403 host_refused`, and `403 origin_refused`. See [`docs/local-api-security.md`](docs/local-api-security.md).
 
-Requests and responses are JSON unless a route says otherwise. An error response is FastAPI's standard `{"detail": "..."}`. A search asked for while the engine runs as many runs as it allows waits its turn: the answer is `202` with no run id yet, `queued: true`, its place, and a ticket. Only when as many more are waiting as the engine queues is it refused, with `429` and a `Retry-After: 5` header. Most routes declare a response model, and `http.md` says which. Three kinds of route stream: a run's progress, a selected-evidence answer's events, and a message to the assistant.
+Requests and responses are JSON unless a route says otherwise. An error response is FastAPI's standard `{"detail": "..."}`. A search asked for while the engine runs as many runs as it allows waits its turn: the answer is `202` with no run id yet, `queued: true`, its place, and a ticket. Only when as many more are waiting as the engine queues is it refused, with `429` and a `Retry-After: 5` header. Most routes declare a response model, and `http.md` says which. Three routes use server-sent events: a run's progress, a selected-evidence answer's events, and a message to the assistant. Reference exports stream bytes in their chosen format.
 
 Credentials never travel back: a route reports whether one is stored, as `present`, `absent`, or `unreadable`, and never its value.
 
@@ -21,7 +21,7 @@ Who the engine is, and whether this window may talk to it.
 
 | Method | Path | What it does |
 |---|---|---|
-| `GET` | `/api/health` | Liveness, process identity (the runtime id, process id, and start time), the version, the database schema, and whether the similarity index loaded. |
+| `GET` | `/api/health` | Liveness, process identity (the runtime id, process id, and start time), the version and build, the database schema, and whether the similarity index loaded. |
 | `POST` | `/api/renderer/heartbeat` | A ping from the window, so the engine knows one is present. |
 | `POST` | `/api/auth/renderer-origin` | Allow one more exact renderer origin on this engine. |
 
@@ -59,11 +59,11 @@ Every run, whether you started it or a watch fired it. A run's progress is read 
 | `GET` | `/api/executions/{exec_id}` | One run: its kind, status, parameters, times, counts, coverage, and the summary connections it tried. |
 | `DELETE` | `/api/executions/{exec_id}` | Delete a run's record. Its report and log files stay where they were written, and its papers stay in the collection. |
 | `POST` | `/api/executions/{exec_id}/cancel` | Ask a running run to stop at its next checkpoint. |
-| `POST` | `/api/executions/{exec_id}/restart` | Start a fresh run with this one's parameters, linked back to it. It is not a resume. With `again: true` a completed run's search runs once more. At the run limit it waits in the queue. |
+| `POST` | `/api/executions/{exec_id}/restart` | Repeat the search, never resume it. A watch still saved uses its current settings and delivery, without a restart link, and refuses while already running; another run copies its saved search and links back to this one. With `again: true` a completed run can run again. At the run limit it waits in the queue. |
 | `GET` | `/api/executions/{exec_id}/report` | The run's Markdown report. |
 | `GET` | `/api/executions/{exec_id}/log` | The run's log text. |
 | `GET` | `/api/executions/{exec_id}/search-record` | The complete, dated account of one search, as JSON or Markdown. |
-| `GET` | `/api/executions/{exec_id}/documents` | One page of the papers the run stored, each with its stored id and its place in the reading queue. |
+| `GET` | `/api/executions/{exec_id}/documents` | One page of the papers the run found, each with its stored id and its place in the reading queue. `only_new=true` keeps those it was the first to store in the database. |
 | `GET` | `/api/executions/{exec_id}/document-ids` | Every paper the run stored that is in the collection named (`?collection=`, the default one when none is), by id. |
 | `GET` | `/api/executions/{exec_id}/references` | Export one run's papers as BibTeX, RIS, CSV, or JSON. JSON can include stored ids with `include_ids=true`. |
 | `GET` | `/api/executions/{exec_id}/progress/events` | The run's events so far, live or as saved after it ended; `since` skips the ones already read. |
@@ -82,7 +82,7 @@ A watch is called a routine in the API. Deactivating one keeps it and stops its 
 | `GET` | `/api/routines` | Every watch. |
 | `POST` | `/api/routines` | Make a watch. The answer includes `entity_warning` when it follows a person through sources that cannot be asked about one. |
 | `GET` | `/api/routines/{routine_id}` | One watch, with its next computed dates and its record of missed fires. |
-| `PUT` | `/api/routines/{routine_id}` | Change a watch: its name, schedule, parameters, switches, summaries, intent, or collection. Papers its earlier runs filed stay where they are. |
+| `PUT` | `/api/routines/{routine_id}` | Change a watch: its name, schedule, parameters, switches (including `download_full_text`, off by default), summaries, intent, or collection. Papers its earlier runs filed stay where they are. |
 | `DELETE` | `/api/routines/{routine_id}` | Delete a watch and its schedule. Its runs and papers stay. |
 | `POST` | `/api/routines/{routine_id}/activate` | Put the watch on the schedule. |
 | `POST` | `/api/routines/{routine_id}/deactivate` | Take the watch off the schedule without deleting it. |
@@ -256,7 +256,7 @@ Ranking by meaning and placing papers on the map by meaning.
 
 ## The Library
 
-Every Library route needs the header `X-Resmon-Library: 1`, and a vault id the caller expects. Unavailable on Windows.
+Every Library route needs the header `X-Resmon-Library: 1`; operations on an existing vault also name its expected id. File storage and Evidence are unavailable on Windows; the reading-queue routes above still work.
 
 | Method | Path | What it does |
 |---|---|---|
@@ -366,7 +366,7 @@ A credential's value is never returned. The engine reports only whether one is s
 | `PUT` | `/api/settings/storage` | Store it. |
 | `GET` | `/api/settings/sources` | The contact address resmon gives Crossref and OpenAlex, if you set one, and the sources it goes to. |
 | `PUT` | `/api/settings/sources` | Store it, or clear it with `null`; with none, nothing is sent. |
-| `GET` | `/api/settings/execution` | How many runs go at once, and how many watch runs may wait. |
+| `GET` | `/api/settings/execution` | How many runs go at once, and how many manual searches and watch runs may wait in their shared queue. |
 | `PUT` | `/api/settings/execution` | Store them. |
 | `GET` | `/api/credentials` | Per credential name: `present`, `absent`, or `unreadable`. |
 | `PUT` | `/api/credentials/{key_name}` | Store a credential in the system keychain. |
@@ -380,7 +380,7 @@ A restore is staged and runs the next time an engine starts.
 | Method | Path | What it does |
 |---|---|---|
 | `POST` | `/api/backup` | Write one bundle: the snapshotted database, the Library's bytes, and optionally the reports. |
-| `GET` | `/api/backup/last` | The last bundle, the last restore's outcome, a staged restore, and whether an undo copy exists. |
+| `GET` | `/api/backup/last` | The last bundle, the last restore's outcome, a staged restore, whether a restore's undo copy exists, and `pre_upgrade_copy`, the database copy kept before a schema upgrade, or `null`. |
 | `POST` | `/api/backup/verify` | Recompute every hash in a bundle and report what a restore would and would not do. |
 | `POST` | `/api/backup/drive-upload-notice/acknowledge` | Dismiss the Backup page's one-time notice about Google Drive. |
 | `POST` | `/api/restore` | Verify a bundle and stage it. |

@@ -9,4 +9,4 @@ In short, the MIT License permits use, copying, modification, merging, publicati
 
 ## Third-party notices
 
-resmon's installers redistribute one component whose published package carries no license file of its own: **sqlite-vec 0.1.9**, the loadable SQLite extension behind search by meaning. Its MIT and Apache-2.0 texts are reproduced verbatim in **[docs/third-party-notices.md](docs/third-party-notices.md)**, because a wheel that ships a native binary and no notice would otherwise be redistributed without one. Every other dependency ships its own license inside its own distribution, and the installer copies it along with the package.
+**[docs/third-party-notices.md](docs/third-party-notices.md)** carries the MIT and Apache-2.0 texts for **sqlite-vec 0.1.9**, whose wheel lacks its own license files. It also identifies the notices shipped with **PDF.js 6.3.289**, its CMaps and fonts, and the **pypdf** reader. The browser PDF assets and their notices are kept together in the app.
