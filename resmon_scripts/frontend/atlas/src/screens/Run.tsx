@@ -3,6 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
 import { Icon } from '../shell/Icon';
+import { useScrollerPlace } from '../shell/stageScroll';
 import { breakable } from '../shell/breakable';
 import { SAVED_KEY, savedFromRun } from './collection/savedSearches';
 import { duration, when } from './today/format';
@@ -146,6 +147,9 @@ export function Run() {
   // The run's small map is the shown collection's, so it reads the run's papers in that collection.
   const { id: collection } = useCollection();
   const [tab, setTab] = useState<Tab>('Papers');
+  // The page scrolls in its own box: Back and Forward put it where it was left, by the paper at its top, on the
+  // tab it was left on.
+  const page = useRef<HTMLDivElement>(null);
   const recordedTips = useChartTip();
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
   const openMap = () => {
@@ -162,6 +166,7 @@ export function Run() {
     refetchInterval: (query) => (query.state.data?.status === 'running' ? 1_000 : false),
   });
   const running = run.data?.status === 'running';
+  useScrollerPlace(page, { name: 'run', under: tab, drawn: run.isSuccess });
   useRunEnding(running ? id : null);
   // Keyed on how the run ended, so the events are read once more when it
   // settles: the last poll while running can land before the final events.
@@ -327,7 +332,7 @@ export function Run() {
   };
 
   return (
-    <div className="run" data-run={data.id} data-status={data.status}>
+    <div className="run" ref={page} data-run={data.id} data-status={data.status}>
       <header className="run-head">
         <Link to="/runs" className="back"><Icon name="back" size={14} />Runs</Link>
         <div className="run-headline">

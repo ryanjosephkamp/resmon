@@ -411,3 +411,45 @@ class RendererCORSMiddleware(CORSMiddleware):
                 del response.headers["access-control-allow-private-network"]
         return response
 
+
+
+class FailureAnswer:
+    """Raw ASGI, registered just inside the CORS layer: a request whose route
+    raised is answered here, as a JSON 500 with a sentence, so CORS marks it as
+    it marks every other answer and the renderer reads it.
+
+    Without this, an exception no route handled went past CORS to Starlette's
+    outermost error layer, which answered "Internal Server Error" with no
+    ``Access-Control-Allow-Origin``: the renderer saw a request blocked by CORS
+    rather than an engine that failed. The exception is raised again after the
+    answer, so the server still logs it with its traceback. A route that had
+    already begun its answer (a stream) is left to end as it would have.
+
+    The guard's own refusals stay unmarked, as ``test_local_api_auth.py``
+    holds them: they are made outside CORS, before any route runs.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def watched(message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, watched)
+        except Exception as exc:
+            if not started:
+                answer = JSONResponse(
+                    {"detail": f"The engine failed while answering this request ({type(exc).__name__})."},
+                    status_code=500, headers={"Cache-Control": "no-store"})
+                await answer(scope, receive, send)
+            raise

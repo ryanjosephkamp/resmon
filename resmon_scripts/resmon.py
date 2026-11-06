@@ -233,6 +233,11 @@ app = FastAPI(title=APP_NAME, version=APP_VERSION, lifespan=_lifespan)
 # renderer. The authoritative checks (Host, Origin, token) are ``LocalApiGuard``,
 # registered below the Library guard so that it runs outermost; see
 # ``implementation_scripts/api_auth.py``.
+#
+# ``FailureAnswer`` is added first, so it runs inside CORS: a route that raises
+# is answered with a sentence CORS marks for the renderer, not with the
+# outermost layer's unmarked "Internal Server Error".
+app.add_middleware(api_auth.FailureAnswer)
 app.add_middleware(
     api_auth.RendererCORSMiddleware,
     allow_origins=(),

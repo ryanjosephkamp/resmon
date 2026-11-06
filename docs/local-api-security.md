@@ -41,7 +41,11 @@ A CORS preflight (`OPTIONS` with `Access-Control-Request-Method`) carries no cre
 specification, so it is answered without the token — but only for the renderer's origin.
 `Access-Control-Allow-Private-Network: true` is sent only on such a preflight that asked for it.
 
-Refusals use the app's usual shape: `{"detail": {"reason": "...", "message": "..."}}`.
+Refusals use the app's usual shape: `{"detail": {"reason": "...", "message": "..."}}`. They carry
+no `Access-Control-Allow-Origin`, whatever the origin. An answer from a route does, for the
+renderer's origin only, errors included: a route that raises is answered `500` with a sentence in
+`detail`, inside the CORS layer, so the window reads the engine's failure rather than a request
+blocked by CORS.
 
 ## Where the token lives
 

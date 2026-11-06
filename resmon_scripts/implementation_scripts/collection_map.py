@@ -791,16 +791,16 @@ def _layout(centers: np.ndarray, radii: np.ndarray, rng: np.random.Generator
     """A fresh layout of the regions: t-SNE of their centers, discs pushed
     apart, the whole fitted to the plate."""
     k = len(centers)
-    if k >= 5:
-        similarity = np.clip(centers @ centers.T, -1, 1)
-        distances = 2.0 - 2.0 * similarity
+    if k > 1:
         centered = centers - centers.mean(0)
         _u, _s, vt = np.linalg.svd(centered, full_matrices=False)
-        layout = _tsne(distances, centered @ vt[:2].T, rng)
-    elif k > 1:
-        centered = centers - centers.mean(0)
-        _u, _s, vt = np.linalg.svd(centered, full_matrices=False)
+        # Two coordinates each, though the centers may span only one: papers
+        # whose words differ only by a number leave a single dimension, and the
+        # regions are then laid out along a line.
         layout = centered @ vt[:2].T if vt.shape[0] >= 2 else np.c_[centered @ vt[0], np.zeros(k)]
+        if k >= 5:
+            similarity = np.clip(centers @ centers.T, -1, 1)
+            layout = _tsne(2.0 - 2.0 * similarity, layout, rng)
     else:
         layout = np.zeros((1, 2))
     spread = float(np.ptp(layout, axis=0).max()) if k > 1 else 1.0
