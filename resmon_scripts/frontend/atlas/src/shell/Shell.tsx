@@ -16,7 +16,7 @@ import { NewSearch } from './NewSearch';
 import { CollectionSwitcher } from '../collections/CollectionSwitcher';
 import { ShortcutsSheet } from './ShortcutsSheet';
 import { ShowShortcutsContext } from './shortcutsSheetContext';
-import { StageScroll } from './stageScroll';
+import { ScrollPlaces, StageScroll } from './stageScroll';
 import { SwipeNavigation } from './SwipeNavigation';
 import { pageName } from './topBar';
 import { useTopBar } from './useTopBar';
@@ -213,13 +213,15 @@ export function Shell() {
       </header>
       <EngineNotice />
       <main className="stage" ref={stage}>
-        {/* First, so a screen that opens at its own place does so after this has put the stage at its top. */}
-        <StageScroll stage={stage} />
-        <ShowShortcutsContext value={showSheet}>
-          <Fallback resetKey={`${location.pathname}?${location.search}`} fallback={(error) => <PageFailed error={error} />}>
-            <Outlet />
-          </Fallback>
-        </ShowShortcutsContext>
+        <ScrollPlaces>
+          {/* First, so a screen that opens at its own place does so after this has put the stage at its top. */}
+          <StageScroll stage={stage} />
+          <ShowShortcutsContext value={showSheet}>
+            <Fallback resetKey={`${location.pathname}?${location.search}`} fallback={(error) => <PageFailed error={error} />}>
+              <Outlet />
+            </Fallback>
+          </ShowShortcutsContext>
+        </ScrollPlaces>
       </main>
       <CommandPalette open={paletteOpen} onClose={closePalette} onRun={run} dialog={palette} mac={mac} />
       <ShortcutsSheet open={sheetOpen} onClose={closeSheet} dialog={sheet} mac={mac} />
