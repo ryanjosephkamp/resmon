@@ -9,8 +9,8 @@ import {
   type Notice, type NoticeListener,
 } from './host';
 import {
-  START_WAIT_MS, disabledIn, ensureService, pidFromPrint, temporaryPlace, unitFromPlist,
-  type Facts, type Running, type Unit, type World,
+  START_WAIT_MS, disabledIn, ensureService, pidFromPrint, replaceHolder, temporaryPlace, unitFromPlist,
+  type Facts, type HolderOutcome, type HolderWorld, type Running, type Unit, type World,
 } from './service';
 import {
   RELAYED, RunOwners, TabsMode, WindowSet, cascade, cleanRoute, noticeWindow, relayToOtherWindows, routeOf, tabStripHeight,
@@ -184,6 +184,9 @@ if (!SOLE_INSTANCE && !CHECKS_SERVICE) {
   // lock: the app's normal quit path, which exits 0.
   app.quit();
 }
+// Electron gives a launch that did not get the lock no `ready`, so the check
+// in `whenReady` never runs for it: this one runs once the module has loaded.
+if (!SOLE_INSTANCE && CHECKS_SERVICE) setImmediate(() => { void launchWithoutLock(); });
 
 
 /**
@@ -1798,15 +1801,48 @@ async function checkServiceAtLaunch(): Promise<boolean> {
   console.log(`[service] At launch: ${JSON.stringify(outcome)}`);
   holdBackStartingWindow();
   if (outcome.done === 'started') return handOver();
-  // Another resmon holds the profile, and opened the window when this launch asked for it.
-  if (!SOLE_INSTANCE) {
-    app.quit();
-    return true;
-  }
   // The lock was let go for a service that did not come up: taken back, or, if
   // something took it meanwhile, handed over to that.
   if (!app.hasSingleInstanceLock()) return handOver();
   return false;
+}
+
+/**
+ * A launch that did not get the profile's lock. Electron gives it no `ready`:
+ * it can open no window and ask nothing, and the resmon holding the profile
+ * opened the window when this launch asked for the lock. An older build of this
+ * copy's idle service is replaced with this build's (`replaceHolder`), which
+ * then gets the window when this launch asks again; anything else is left as it
+ * is. Then this launch exits.
+ */
+async function launchWithoutLock(): Promise<void> {
+  let outcome: HolderOutcome;
+  try {
+    const world: HolderWorld = { ...serviceWorld(), alive: processAlive };
+    outcome = await replaceHolder(world, {
+      exe: process.execPath, build: BUILD_ID, temporary: temporaryPlace(process.execPath),
+    });
+  } catch (err) {
+    outcome = { done: 'failed', why: err instanceof Error ? err.message : String(err) };
+  }
+  console.log(`[service] Another resmon holds the profile: ${JSON.stringify(outcome)}`);
+  if ((outcome.done === 'replaced' || outcome.done === 'starting') && app.requestSingleInstanceLock()) {
+    // Nothing holds the profile yet: the relaunch gets `ready`, and opens on
+    // the service or waits for it with the starting window.
+    app.releaseSingleInstanceLock();
+    app.relaunch();
+  }
+  app.exit(0);
+}
+
+/** Whether a process is still running. */
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
 }
 
 function initAutoUpdater(): void {
