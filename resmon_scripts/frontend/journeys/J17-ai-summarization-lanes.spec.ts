@@ -19,11 +19,9 @@
  * own behavior — a version change, a flag that stopped being accepted — and
  * this journey does not claim to.
  *
- * **The tokenizer.** The packaged app includes punkt_tab. A source install
- * without that data uses a simple sentence splitter and makes no tokenizer
- * download when the summarizer loads. This suite supplies the English data in
- * the session's own state directory to exercise punkt's sentence boundaries;
- * this row does not observe the fallback used when the data is absent.
+ * **The tokenizer.** The summarizer splits text into sentences with its own
+ * splitter, which needs no data file and makes no request, so this row runs it
+ * exactly as every install does.
  *
  * **A disagreement this row reports rather than decides.** The run's log is
  * careful: it names the lane, its outcome, the reason and `0 / 2 documents`.
@@ -102,9 +100,8 @@ journey.describe('J17 AI summarization lanes', () => {
         + 'in which that lane produced 0 of 2 summaries. The run log is exact about this and the '
         + 'report header is not. Reported, not asserted either way: a journey observes.');
     }
-    console.log('[J17] TOKENIZER: the suite supplies English punkt_tab data in the session\'s '
-      + 'own state directory. This run exercises punkt, not the offline sentence-splitter fallback '
-      + 'used when the data is absent. Loading the summarizer does not download tokenizer data.');
+    console.log('[J17] TOKENIZER: sentences come from the summarizer\'s own splitter, which needs '
+      + 'no data file and makes no request.');
     console.log('[J17] NOT VERIFIED: a real agent CLI\'s own behavior. What this row replaces '
       + 'is the sign-in, by way of the envelope a lapsed CLI sends; a version change or a flag '
       + 'the real command stopped accepting is invisible here. That stays with the live suite.');

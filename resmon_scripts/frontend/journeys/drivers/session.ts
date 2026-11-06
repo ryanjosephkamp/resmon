@@ -243,25 +243,6 @@ export interface Session {
 }
 
 /**
- * Give the launched app English punkt_tab data inside its own state directory.
- *
- * The packaged runtime includes this data from its build step. A source install
- * without it uses the summarizer's sentence-splitter fallback without fetching
- * anything. J17 uses the fixture to exercise punkt's sentence boundaries, so it
- * does not observe that fallback.
- *
- * The data is committed under `fixtures/nltk-data/` with its provenance, copied
- * here, and found through `NLTK_DATA`. The copy dies with the session rather
- * than warming the machine for the next run, and the network guard stays intact.
- */
-function seedTheTokenizer(stateDir: string): string {
-  const source = path.join(__dirname, '..', 'fixtures', 'nltk-data');
-  const target = path.join(stateDir, 'nltk-data');
-  fs.cpSync(source, target, { recursive: true });
-  return target;
-}
-
-/**
  * The element that means Atlas has drawn its frame: the top bar's sections,
  * drawn once the stored appearance has been read and the app has rendered,
  * which is the moment a person can use it.
@@ -271,7 +252,6 @@ const LANDMARK = 'nav[aria-label="Sections"]';
 function envFor(stateDir: string, root: AppRoot, source: SourceEndpoint): Record<string, string> {
   // Held to the screen a run is held to (RESMON_E2E_SCREEN), as the e2e suite's windows are.
   const env = atlasEnv(launchEnv(stateDir, true));
-  env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl: source.url, fullText: source.fullText });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';

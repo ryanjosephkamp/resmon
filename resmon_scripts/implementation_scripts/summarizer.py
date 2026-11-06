@@ -4,7 +4,6 @@
 import logging
 import re
 
-import nltk
 import tiktoken
 
 from .prompt_templates import (
@@ -16,32 +15,16 @@ from .prompt_templates import (
 
 logger = logging.getLogger(__name__)
 
-# The packaged runtime includes punkt_tab from the build step. A source
-# install may have no tokenizer data; loading this module never fetches it.
-# ``_sent_tokenize`` uses the sentence splitter below when the data is absent.
-# Fallback sentence splitter: break after ., ! or ? followed by whitespace.
-# Cruder than punkt - it will split "et al. 2019" - but chunking only needs
-# roughly sentence-sized pieces, and a slightly wrong boundary is immeasurably
-# better than a failed execution.
-_SENTENCE_FALLBACK_RE = re.compile(r"(?<=[.!?])\s+")
-_punkt_warning_emitted = False
+# Sentence splitter: break after ., ! or ? followed by whitespace. It is
+# cruder than a trained model (it splits "et al. 2019"), but chunking only needs
+# roughly sentence-sized pieces, and it needs no data file, so it behaves the
+# same in every install and never reaches the network.
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+")
 
 
 def _sent_tokenize(text: str) -> list[str]:
-    """Split *text* into sentences, degrading if punkt data is unavailable."""
-    global _punkt_warning_emitted
-    try:
-        return nltk.sent_tokenize(text)
-    except LookupError:
-        if not _punkt_warning_emitted:
-            logger.warning(
-                "NLTK punkt_tab data is not installed, so summarization is "
-                "using a simple regex sentence "
-                "splitter. Chunk boundaries will be slightly less accurate. To "
-                "install it, run: python -m nltk.downloader punkt_tab",
-            )
-            _punkt_warning_emitted = True
-        return [s for s in _SENTENCE_FALLBACK_RE.split(text) if s.strip()]
+    """Split *text* into sentences."""
+    return [s for s in _SENTENCE_RE.split(text) if s.strip()]
 
 # ---------------------------------------------------------------------------
 # Defaults

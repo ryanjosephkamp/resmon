@@ -38,7 +38,7 @@ Where a provider's license requires a credit, **Settings › Sources** shows it.
 
 ## Open-source projects
 
-resmon depends on, and is grateful for, these projects, among many others: **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **Beautiful Soup**, **SQLAlchemy**, **APScheduler**, **SQLite** and **sqlite-vec**, **NumPy**, **pypdf**, **cryptography**, **keyring**, **NLTK**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TanStack Query** and **TanStack Virtual**, **TypeScript**, **Vite**, **Playwright**, **PDF.js**, **KaTeX**, **electron-builder**, and **python-build-standalone**. The interface is set in the **Geist**, **Geist Mono**, and **Spectral** typefaces. **Ollama** makes it possible to run models on your own computer.
+resmon depends on, and is grateful for, these projects, among many others: **Python**, **FastAPI**, **Starlette**, **Uvicorn**, **Pydantic**, **httpx**, **lxml**, **Beautiful Soup**, **SQLAlchemy**, **APScheduler**, **SQLite** and **sqlite-vec**, **NumPy**, **pypdf**, **cryptography**, **keyring**, **tiktoken**, **pytest**, **Electron**, **Node.js**, **React**, **React Router**, **TanStack Query** and **TanStack Virtual**, **TypeScript**, **Vite**, **Playwright**, **PDF.js**, **KaTeX**, **electron-builder**, and **python-build-standalone**. The interface is set in the **Geist**, **Geist Mono**, and **Spectral** typefaces. **Ollama** makes it possible to run models on your own computer.
 
 ## Standards and identifiers
 

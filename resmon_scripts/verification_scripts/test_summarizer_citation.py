@@ -44,41 +44,26 @@ def test_empty_input_handled():
 
 
 # ---------------------------------------------------------------------------
-# NLTK punkt fallback
+# Sentence splitting
 # ---------------------------------------------------------------------------
 
-def test_sentence_split_falls_back_without_punkt_data(monkeypatch):
-    """Summarization must degrade, not fail, when NLTK's punkt data is absent.
-
-    A source install may have no tokenizer data. The sentence splitter keeps
-    summaries usable offline without fetching data during a run.
-    """
+def test_sentences_come_from_the_summarizers_own_splitter():
+    """Sentences are split by the summarizer itself, with no data file to find."""
     from implementation_scripts import summarizer
 
-    def _raise(*_a, **_k):
-        raise LookupError("Resource 'punkt_tab' not found.")
-
-    monkeypatch.setattr(summarizer.nltk, "sent_tokenize", _raise)
-    monkeypatch.setattr(summarizer, "_punkt_warning_emitted", False)
-
-    sentences = summarizer._sent_tokenize(
+    assert summarizer._sent_tokenize(
         "First sentence here. Second one follows! And a third?"
-    )
-    assert sentences == [
+    ) == [
         "First sentence here.",
         "Second one follows!",
         "And a third?",
     ]
+    assert summarizer._sent_tokenize("   ") == []
 
 
-def test_chunk_text_survives_missing_punkt_data(monkeypatch):
-    """chunk_text is the real caller; it must not raise either."""
+def test_chunk_text_splits_without_any_data_file():
+    """chunk_text is the splitter's real caller, and it needs nothing installed."""
     from implementation_scripts import summarizer
-
-    def _raise(*_a, **_k):
-        raise LookupError("Resource 'punkt_tab' not found.")
-
-    monkeypatch.setattr(summarizer.nltk, "sent_tokenize", _raise)
 
     class _StubLLM:
         provider = "anthropic"
@@ -90,23 +75,19 @@ def test_chunk_text_survives_missing_punkt_data(monkeypatch):
     assert all(c.strip() for c in chunks)
 
 
-def test_loading_and_summarizing_without_data_never_requests_a_download(monkeypatch, tmp_path):
-    """A cold tokenizer lookup must stay offline and split usable sentences."""
+def test_loading_and_summarizing_needs_no_nltk_and_no_network(monkeypatch):
+    """The summarizer loads and summarizes with NLTK unimportable and every connection refused."""
     import importlib.util
-    import nltk
-    import nltk.downloader
+    import socket
 
-    requests: list[str] = []
+    connections: list[object] = []
 
-    def refuse(url, *args, **kwargs):
-        requests.append(str(url))
+    def refuse(self, address, *args, **kwargs):
+        connections.append(address)
         raise OSError("network refused")
 
-    monkeypatch.setattr(nltk.data, "path", [str(tmp_path)])
-    monkeypatch.setattr(nltk.downloader, "urlopen", refuse)
-    monkeypatch.setattr(nltk.downloader._downloader, "_index", None)
-    monkeypatch.setattr(nltk.downloader._downloader, "_download_dir", str(tmp_path))
-    nltk.tokenize._get_punkt_tokenizer.cache_clear()
+    monkeypatch.setitem(sys.modules, "nltk", None)
+    monkeypatch.setattr(socket.socket, "connect", refuse)
     spec = importlib.util.spec_from_file_location(
         "implementation_scripts.offline_summarizer",
         PROJECT_ROOT / "resmon_scripts/implementation_scripts/summarizer.py",
@@ -122,11 +103,8 @@ def test_loading_and_summarizing_without_data_never_requests_a_download(monkeypa
 
     pipeline = module.SummarizationPipeline(EchoClient(), {"_show_audit_prefix": False})
     text = "First sentence here. Second one follows! And a third?"
-    assert module._sent_tokenize(text) == [
-        "First sentence here.", "Second one follows!", "And a third?",
-    ]
     assert pipeline.chunk_text(text, max_tokens=6, overlap_tokens=0) == [
         "First sentence here.", "Second one follows!", "And a third?",
     ]
     assert pipeline.summarize_document(text) == text
-    assert requests == []
+    assert connections == []

@@ -163,12 +163,9 @@ sys.path.insert(0, ${JSON.stringify(path.join(REPO_ROOT, 'resmon_scripts'))})
 from implementation_scripts import api_arxiv
 api_arxiv._ARXIV_API_URL = ${JSON.stringify(`http://127.0.0.1:${sourcePort}/api/query`)}
 `);
-  // The sentence tokenizer a summary run imports, from the journeys' committed copy, so nothing is downloaded.
-  const nltk = path.join(stateDir, 'nltk-data');
-  fs.cpSync(path.join(FRONTEND_ROOT, 'journeys', 'fixtures', 'nltk-data'), nltk, { recursive: true });
   const base = launchEnv(stateDir, true);
   const env: Record<string, string> = {
-    ...base, PYTHON_KEYRING_BACKEND: 'summaries_keyring.Keyring', NLTK_DATA: nltk,
+    ...base, PYTHON_KEYRING_BACKEND: 'summaries_keyring.Keyring',
     PYTHONPATH: [hookDir, base.PYTHONPATH].filter(Boolean).join(path.delimiter),
   };
   env.NO_PROXY = env.no_proxy = '127.0.0.1,localhost';

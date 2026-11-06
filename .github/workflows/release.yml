@@ -156,7 +156,7 @@ jobs:
           PY="${{ matrix.runtime }}"
           test -x "$PY"
           "$PY" -c "import sys; print('bundled runtime:', sys.version)"
-          "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, nltk, keyring, sqlite3; print('imports OK')"
+          "$PY" -c "import fastapi, uvicorn, lxml, cryptography, tiktoken, keyring, sqlite3; print('imports OK')"
           if [ "${{ runner.os }}" = "macOS" ]; then
             # Anchored: a user-level /Library/Frameworks at the start of the
             # path is a dependency on the build machine; /System/Library/Frameworks
