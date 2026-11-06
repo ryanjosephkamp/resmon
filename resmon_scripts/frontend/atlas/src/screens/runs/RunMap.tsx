@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { answer, engine } from '../../api/client';
+import { answer, engine, EngineError } from '../../api/client';
 import type { components } from '../../api/schema';
 import { useAppearance } from '../../theme/appearance';
 import { Tip, findPosition, paperTip } from '../Today';
@@ -107,7 +107,13 @@ export function RunMap({ runId, running, settledAt, endedAt, names }: Props) {
     return <p className="record-cap">The run&rsquo;s map is drawn when it has finished storing its papers.</p>;
   }
   if (map.isError || ids.isError) {
-    return <p className="record-cap" role="alert">The map could not be read: {(map.error ?? ids.error)?.message}.</p>;
+    const failure = map.error ?? ids.error;
+    return (
+      <p className="record-cap" role="alert">
+        {failure instanceof EngineError && failure.detail
+          ? `The map could not be read. ${failure.detail}` : `The map could not be read: ${failure?.message}.`}
+      </p>
+    );
   }
   const total = ids.data?.ids.length ?? null;
   const placed = built?.sky.count ?? null;
