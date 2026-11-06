@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { answer, engine, EngineError } from '../api/client';
@@ -154,12 +154,18 @@ export function Run() {
   const page = useRef<HTMLDivElement>(null);
   const recordedTips = useChartTip();
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
+  const scrollToMap = useRef(false);
   const openMap = () => {
+    scrollToMap.current = true;
     void navigate(runPath(id, 'Map'));
+  };
+  useEffect(() => {
+    if (tab !== 'Map' || !scrollToMap.current) return;
+    scrollToMap.current = false;
     requestAnimationFrame(() => document.getElementById('run-record')?.scrollIntoView({
       block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     }));
-  };
+  }, [tab]);
 
   const run = useQuery({
     queryKey: ['run', id],
