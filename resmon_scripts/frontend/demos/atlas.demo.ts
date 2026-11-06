@@ -11,7 +11,10 @@
  */
 import { expect, test } from '@playwright/test';
 import type { Locator, Page } from '@playwright/test';
+import { readFileSync } from 'fs';
+import * as path from 'path';
 import { Demo } from './recorder';
+import { collectionDir } from './paths';
 import { DEMOS, type DemoTitle } from './titles';
 
 const demo = (slug: string): DemoTitle => {
@@ -67,14 +70,14 @@ async function quietPaper(win: Page, canvas: Locator, near: { x: number; y: numb
 }
 
 /**
- * Wait on the run with the pointer resting on its Map tab, then open the tab
- * as the run finishes: opening it reads the map again, which places the
- * papers the run has just stored.
+ * Wait on the run with its sources in view, then open its Map tab. Only the
+ * network wait is sped up; the pointer and the scroll to the tab keep their
+ * own pace. Opening the tab reads the map again and places the new papers.
  */
-async function finishOnTheMap(d: Demo): Promise<void> {
+async function finishOnTheMap(d: Demo, speed: number): Promise<void> {
   await expect(d.win.locator('.run[data-run]')).toBeVisible({ timeout: 30_000 });
-  await d.hover(d.win.getByRole('tab', { name: 'Map' }));
-  await completed(d.win);
+  await d.hover(d.win.getByRole('region', { name: 'Sources' }));
+  await d.faster(speed, () => completed(d.win));
   await mapTab(d);
 }
 
@@ -147,9 +150,22 @@ async function ask(d: Demo, terms: string[], sources: string[]): Promise<void> {
     await d.hold(300);
   }
   for (const source of sources) {
-    await d.click(win.locator(`.source[data-source="${source}"] input`));
+    // Filtering keeps a source above the fixed form footer, which otherwise
+    // covers the lower rows of the full-height catalog while scrolling.
+    const filter = win.getByRole('searchbox', { name: 'Filter the sources by name' });
+    await d.click(filter);
+    await win.keyboard.press('Meta+A');
+    await d.type(source);
+    const choice = win.locator(`.source[data-source="${source}"] input`);
+    await d.click(choice);
+    await expect(choice).toBeChecked();
     await d.hold(100);
   }
+  const filter = win.getByRole('searchbox', { name: 'Filter the sources by name' });
+  await d.click(filter);
+  await win.keyboard.press('Meta+A');
+  await win.keyboard.press('Backspace');
+  await expect(win.locator('.source input:checked')).toHaveCount(sources.length);
 }
 
 /**
@@ -177,7 +193,7 @@ test('A Deep Dive', async () => {
     await ask(d, ['hypergraph'], ['arxiv']);
     await d.click(win.locator('.ask-go button[type="submit"]'));
     // The run as it goes; then, as it finishes, its own map.
-    await d.faster(3, () => finishOnTheMap(d));
+    await finishOnTheMap(d, 3);
     const plate = win.locator('.run-panel canvas').first();
     await expect(plate).toBeVisible({ timeout: 30_000 });
     await d.reveal(plate);
@@ -212,7 +228,7 @@ test('A Deep Sweep', async () => {
     await ask(d, ['AlphaFold'], ['arxiv', 'biorxiv', 'europepmc', 'openalex']);
     await d.click(win.locator('.ask-go button[type="submit"]'));
     // Each source's line changes as its answer arrives.
-    await d.faster(8, () => finishOnTheMap(d));
+    await finishOnTheMap(d, 8);
     // How each source answered, then the report.
     await d.hover(win.getByRole('region', { name: 'Sources' }));
     await d.hold(1000);
@@ -249,7 +265,9 @@ test('Watches', async () => {
     await win.keyboard.press('Enter');
     await d.hold(300);
     await d.click(win.locator('.source[data-source="arxiv"] input'));
+    await expect(win.locator('.source[data-source="arxiv"] input')).toBeChecked();
     await d.click(win.locator('.source[data-source="biorxiv"] input'));
+    await expect(win.locator('.source[data-source="biorxiv"] input')).toBeChecked();
     // What it will do, said beside the form, then saved.
     await d.hover(win.locator('[data-will="asks"]'));
     await d.hold(1500);
@@ -273,14 +291,20 @@ test('Library', async () => {
   const d = await Demo.open(demo('library'));
   try {
     const { win } = d;
-    await go(win, '/library/evidence');
-    const file = win.getByRole('region', { name: 'Files in this project' }).locator('button.library-file').first();
+    await go(win, '/library?show=files');
+    // The first licensed paper is checked for the pages the reader films;
+    // the gallery's order need not be the order the files were imported.
+    const [paper] = JSON.parse(readFileSync(path.join(collectionDir(), 'library.json'), 'utf8')) as { arxiv_id: string }[];
+    if (!paper) throw new Error('The collection has no licensed Library paper');
+    const file = win.locator('article[data-file]').filter({ has: win.getByRole('heading', { name: `${paper.arxiv_id}.pdf`, exact: true }) });
     await expect(file).toBeVisible({ timeout: 30_000 });
     await d.roll();
     await d.titleCard();
     await d.hold(300);
-    await d.click(file);
-    const reader = win.getByRole('region', { name: 'Evidence reader' });
+    await d.hover(file);
+    await d.hold(900);
+    await d.click(file.getByRole('button', { name: 'Read', exact: true }));
+    const reader = win.getByRole('region', { name: 'PDF reader' });
     await expect(reader.locator('.ev-sheet[data-page="1"][data-drawn="true"]')).toBeVisible({ timeout: 60_000 });
     await d.hold(700);
     await d.click(reader.getByRole('button', { name: 'Focus' }));
@@ -308,6 +332,7 @@ test('Library', async () => {
       await d.hold(26);
     }
     await win.mouse.up();
+    await expect.poll(() => win.evaluate(() => window.getSelection()?.toString().trim() ?? '')).not.toBe('');
     await d.hold(2600);
     await d.cut();
   } finally {
@@ -367,9 +392,9 @@ test('Getting around', async () => {
     await d.hold(1500);
     d.still();
     await d.hold(800);
-    await d.press('Meta+3', ['⌘', '3'], 'Search');
+    await d.press('Meta+4', ['⌘', '4'], 'Runs');
     await expect(sheet).toBeHidden();
-    await expect.poll(() => win.evaluate(() => window.location.hash)).toBe('#/search');
+    await expect.poll(() => win.evaluate(() => window.location.hash)).toBe('#/runs');
     await d.hold(1100);
     // Back with two fingers, as a trackpad sends it, and back again with ⌘[. The
     // pointer rests beside the page's title, clear of anything that scrolls sideways.
