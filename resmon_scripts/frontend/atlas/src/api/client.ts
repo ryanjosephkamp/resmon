@@ -138,6 +138,16 @@ export function engineReason(error: unknown): string | null {
 }
 
 /**
+ * The engine's sentence when it refused a Stop because the run was already
+ * finishing (or had ended): HTTP 409 with a string `detail`. That is not a
+ * failure of the Stop control, so a screen says the sentence plainly and
+ * leaves the run to be read again, rather than showing an error.
+ */
+export function stopRefusal(error: unknown): string | null {
+  return error instanceof EngineError && error.status === 409 ? error.detail : null;
+}
+
+/**
  * The body of a successful answer, or a thrown `EngineError` naming the route
  * and status. For TanStack Query, which shows a thrown read as a failure and
  * never as an empty result.
