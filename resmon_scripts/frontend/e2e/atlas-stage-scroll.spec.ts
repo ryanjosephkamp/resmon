@@ -22,11 +22,18 @@
  * `RESMON_E2E_CPU_SLOWDOWN` runs the page that many times slower, through the
  * DevTools protocol.
  *
+ * Last, what the address holds: Search's order and a run's tab. Ranked by
+ * meaning, a paper opened, and Back, the results are in that order and the row
+ * is where it was left; a run's tab is in its path, and Back returns to it.
+ *
  * Nothing leaves this machine: the runs and the papers are written into the
  * spec's own database before the app starts, and no search of a source is run.
  */
 import { execFileSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as http from 'http';
+import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
@@ -350,3 +357,141 @@ for (const size of SIZES) {
     }
   });
 }
+
+const MODEL = 'e2e-embed';
+const DIMS = 8;
+
+/** A vector for a text, made from its hash: the same text always has the same one. */
+function vectorFor(text: string): number[] {
+  const digest = crypto.createHash('sha256').update(text, 'utf8').digest();
+  const raw: number[] = [];
+  for (let i = 0; i < DIMS; i += 1) raw.push(digest[i % digest.length]! / 255 - 0.5);
+  const norm = Math.sqrt(raw.reduce((a, v) => a + v * v, 0)) || 1;
+  return raw.map((v) => v / norm);
+}
+
+/** Ollama's `/api/embed` on loopback, answering with a vector made from each text. */
+async function startEmbedder(): Promise<{ url: string; close: () => Promise<void> }> {
+  const sockets = new Set<net.Socket>();
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      let input: string[] = [];
+      try {
+        const parsed = JSON.parse(body || '{}');
+        input = Array.isArray(parsed.input) ? parsed.input : [parsed.input].filter(Boolean);
+      } catch { /* no vectors, which the client refuses */ }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ embeddings: input.map((t) => vectorFor(String(t))) }));
+    });
+  });
+  server.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as net.AddressInfo;
+  return {
+    url: `http://127.0.0.1:${port}`,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+async function api<T>(win: Page, method: string, route: string, body?: unknown): Promise<{ status: number; body: T }> {
+  return win.evaluate(async ([m, r, b]) => {
+    const port = (window as unknown as { resmonAPI: { getBackendPort(): string } }).resmonAPI.getBackendPort();
+    const res = await e2eFetch(`http://127.0.0.1:${port}${r}`, {
+      method: m, headers: { 'Content-Type': 'application/json' },
+      body: b === undefined ? undefined : JSON.stringify(b),
+    });
+    return { status: res.status, body: await res.json() as unknown };
+  }, [method, route, body] as const) as Promise<{ status: number; body: T }>;
+}
+
+test("Search's order and a run's tab are in the address: Back returns to both, and the row", async () => {
+  test.setTimeout(420_000);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-stage-')));
+  const embedder = await startEmbedder();
+  const { app, win, problems, found } = await launch(stateDir, null);
+  try {
+    // Every paper embedded by a model on loopback, so the collection can be ranked by meaning.
+    expect((await api(win, 'PUT', '/api/settings/embeddings', { settings: {
+      embedding_enabled: 'true', embedding_provider: 'local', embedding_model: MODEL, embedding_endpoint: embedder.url,
+    } })).status).toBe(200);
+    expect((await api(win, 'POST', '/api/embeddings/backfill')).status).toBe(200);
+    await expect.poll(async () => {
+      const status = (await api<{ run: { running: boolean }; coverage: { embedded: number; total: number } }>(win, 'GET', '/api/embeddings/status')).body;
+      return !status.run.running && status.coverage.embedded > 0;
+    }, { timeout: 120_000, intervals: [1_000] }).toBe(true);
+
+    // — Search, ranked by meaning ----------------------------------------------------------
+    const results = '.collection .index-scroll';
+    const listed = `${results} .result[data-document]`;
+    const order = win.getByRole('group', { name: 'Order' });
+    await tab(win, 'Search').click();
+    await expect(win.locator('section.results')).toHaveAttribute('data-capability', 'available', { timeout: 60_000 });
+    await win.locator('#collection-query').fill('orbital');
+    await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
+    await expect(win.locator(listed).first()).toBeVisible({ timeout: 60_000 });
+    await order.getByRole('button', { name: 'Closest in meaning' }).click();
+    // The order is in the address, replacing the entry; the default order leaves no trace.
+    await expect.poll(() => hash(win)).toBe('#/search?q=orbital&order=similarity');
+    await expect(order.getByRole('button', { name: 'Closest in meaning' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(win.locator('.rank-note').first()).toContainText('Closest to: orbital', { timeout: 30_000 });
+    await expect(win.locator(listed).first()).toBeVisible({ timeout: 30_000 });
+    await scrollFar(win, 5_000, results);
+    const ranked = await lastSeen(win, listed, 'data-document', results);
+    expect(ranked.selector).toMatch(/^\[data-document="\d+"\]$/);
+    await win.locator(`${results} ${ranked.selector}`).locator('.result-title').click();
+    await expect.poll(() => hash(win)).toMatch(/^#\/papers\/\d+$/);
+    await expect(win.locator('.paper-name')).toBeVisible({ timeout: 30_000 });
+    await expect(win.locator(results)).toHaveCount(0);
+    await backTo(win, '#/search?q=orbital&order=similarity', `${results} ${ranked.selector}`, ranked.at, 'the paper at the bottom of the ranked results', results);
+    await expect(order.getByRole('button', { name: 'Closest in meaning' })).toHaveAttribute('aria-pressed', 'true');
+    await expect(order.getByRole('button', { name: 'Newest' })).toHaveAttribute('aria-pressed', 'false');
+    await shoot(win, 'stage-search-ranked-restored.png');
+    // Back to the newest order takes the parameter off.
+    await order.getByRole('button', { name: 'Newest' }).click();
+    await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
+
+    // — A run's tab in its path ------------------------------------------------------------
+    const page = '.run';
+    const papers = `${page} .paper-row[data-document]`;
+    const runTab = (name: string) => win.getByRole('tab', { name, exact: true });
+    await win.evaluate((id) => { window.location.hash = `#/runs/${id}`; }, found);
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}`);
+    await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true', { timeout: 60_000 });
+    await runTab('Log').click();
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/log`);
+    await expect(runTab('Log')).toHaveAttribute('aria-selected', 'true');
+    await runTab('Search record').click();
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/search-record`);
+    await runTab('Papers').click();
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/papers`);
+    await expect(win.locator(papers).nth(199)).toBeAttached({ timeout: 60_000 });
+    await scrollFar(win, 5_000, page);
+    const paper = await lastSeen(win, papers, 'data-document', page);
+    await win.locator(`${page} ${paper.selector}`).locator('.paper-title').click();
+    await expect.poll(() => hash(win)).toMatch(/^#\/papers\/\d+$/);
+    await expect(win.locator('.paper-name')).toBeVisible({ timeout: 30_000 });
+    await backTo(win, `#/runs/${found}/papers`, `${page} ${paper.selector}`, paper.at, "the paper at the bottom of the run's Papers tab", page);
+    await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true');
+    // Back through the tabs: the Search record, then the Log, each as it was left.
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/search-record`);
+    await expect(runTab('Search record')).toHaveAttribute('aria-selected', 'true');
+    await win.keyboard.press(`${MOD}+BracketLeft`);
+    await expect.poll(() => hash(win)).toBe(`#/runs/${found}/log`);
+    await expect(runTab('Log')).toHaveAttribute('aria-selected', 'true');
+    // A path that names no tab opens the default one, without a redirect.
+    await win.evaluate((id) => { window.location.hash = `#/runs/${id}/nonsense`; }, found);
+    await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true');
+    expect(await hash(win)).toBe(`#/runs/${found}/nonsense`);
+    expect(problems).toEqual([]);
+  } finally {
+    await app.close().catch(() => { /* gone */ });
+    await embedder.close();
+    fs.rmSync(stateDir, { recursive: true, force: true });
+  }
+});
