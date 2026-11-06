@@ -108,7 +108,7 @@ cd resmon_scripts/frontend && npm install && npm start
 
 `npm start` builds the renderer and the Electron main process, then opens the app. Start it with the virtual environment active, or set `RESMON_PYTHON` to the environment's interpreter; the app uses `python3` from your `PATH` otherwise.
 
-A source run keeps its database in `resmon.db` and its reports in `resmon_reports/` at the root of the clone. An installed app keeps both in resmon's state directory: `~/Library/Application Support/resmon` on macOS, `%LOCALAPPDATA%\resmon` on Windows, and `$XDG_STATE_HOME/resmon` (or `~/.local/state/resmon`) on Linux. Summaries optionally use NLTK's sentence data. resmon tries to download it, and falls back to a simpler splitter if it cannot; to fetch it yourself, run `python -m nltk.downloader punkt_tab`.
+A source run keeps its database in `resmon.db` and its reports in `resmon_reports/` at the root of the clone. An installed app keeps both in resmon's state directory: `~/Library/Application Support/resmon` on macOS, `%LOCALAPPDATA%\resmon` on Windows, and `$XDG_STATE_HOME/resmon` (or `~/.local/state/resmon`) on Linux.
 
 To build an installer for the platform you are on, run `npm run dist` in `resmon_scripts/frontend`. The result is in `release/`. Add `CSC_IDENTITY_AUTO_DISCOVERY=false` (or run `npm run dist:unsigned`) to build without signing.
 

@@ -243,37 +243,6 @@ export interface Session {
 }
 
 /**
- * Give the launched app the one NLTK tokenizer it looks for at import, inside
- * its own state directory.
- *
- * `summarizer.py` does `nltk.data.find("tokenizers/punkt_tab")` at **import
- * time** and, on a miss, `nltk.download("punkt_tab", quiet=True)` — which
- * fetches from `raw.githubusercontent.com`. That module is imported inside the
- * backend as soon as a run has AI summarization on, which in this suite is J17.
- *
- * On a warm laptop nothing happens and the row is green. On a CI runner there
- * is no cache, the app reaches the internet during a user's run, the launch
- * guard refuses it, and J17's own "nothing left this machine" assertion fires —
- * which is exactly what it is for, and which is how this was found.
- *
- * The answer is not a permitted exception inside the guard: a guard with one
- * hole in it is a guard nobody can quote. It is to make the app's own lookup
- * succeed. The data is committed under `fixtures/nltk-data/` with its
- * provenance, copied in here, and `NLTK_DATA` points at the copy — so nothing
- * is downloaded, in CI or anywhere, and the copy dies with the session rather
- * than warming the machine for the next run.
- *
- * **The app's behaviour is the finding, not the fixture.** J17 prints it every
- * time: a local-first desktop app downloads at import when this data is absent.
- */
-function seedTheTokenizer(stateDir: string): string {
-  const source = path.join(__dirname, '..', 'fixtures', 'nltk-data');
-  const target = path.join(stateDir, 'nltk-data');
-  fs.cpSync(source, target, { recursive: true });
-  return target;
-}
-
-/**
  * The element that means Atlas has drawn its frame: the top bar's sections,
  * drawn once the stored appearance has been read and the app has rendered,
  * which is the moment a person can use it.
@@ -283,7 +252,6 @@ const LANDMARK = 'nav[aria-label="Sections"]';
 function envFor(stateDir: string, root: AppRoot, source: SourceEndpoint): Record<string, string> {
   // Held to the screen a run is held to (RESMON_E2E_SCREEN), as the e2e suite's windows are.
   const env = atlasEnv(launchEnv(stateDir, true));
-  env.NLTK_DATA = seedTheTokenizer(stateDir);
   const hookDir = writeStartupHook({ stateDir, repoRoot: root.repo, sourceUrl: source.url, fullText: source.fullText });
   env.PYTHONPATH = [hookDir, env.PYTHONPATH].filter(Boolean).join(path.delimiter);
   env.PYTHONDONTWRITEBYTECODE = '1';

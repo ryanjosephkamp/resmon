@@ -65,7 +65,7 @@ The `resmon` command and the MCP server are clients of the HTTP API. Neither ope
 | Engine | Python 3.10 or later (3.10, 3.11, and 3.12 are tested; builds bundle 3.11), FastAPI, Starlette, Uvicorn, Pydantic, httpx |
 | Data | SQLite in WAL mode with one connection per thread, SQLAlchemy and APScheduler for the job store, `sqlite-vec` for similarity, NumPy for the collection map |
 | Parsing | lxml, Beautiful Soup, pypdf for Evidence |
-| Summaries and Ask | The `openai` and `anthropic` clients, httpx clients for the other providers, an Ollama client, tiktoken and NLTK for chunking, and the `claude` and `codex` commands run as child processes |
+| Summaries and Ask | The `openai` and `anthropic` clients, httpx clients for the other providers, an Ollama client, tiktoken for chunking, and the `claude` and `codex` commands run as child processes |
 | Secrets | `keyring` for the operating system's keychain |
 | Shell | Electron 41, Node.js 22.13 or later |
 | Interface | React 19, TypeScript, Vite, React Router (hash routes), TanStack Query and Virtual, `openapi-fetch`, PDF.js for drawing PDF pages, and KaTeX for math in Markdown and TeX files |

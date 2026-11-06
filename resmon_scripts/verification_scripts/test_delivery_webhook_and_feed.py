@@ -443,20 +443,25 @@ def _parse_strict(path: Path):
 ATOM = "{http://www.w3.org/2005/Atom}"
 
 
-def test_the_feed_is_valid_atom_and_links_to_the_folder_bundle(corpus, tmp_path):
+@pytest.mark.parametrize("separate_folders", [False, True])
+def test_the_feed_is_valid_atom_and_links_to_the_folder_bundle(corpus, tmp_path, separate_folders):
     """Real files, a strict parser, and a link that resolves to a directory
     that is actually on disk."""
     conn = corpus["conn"]
-    outbox = tmp_path / "outbox"
-    outbox.mkdir()
+    from urllib.parse import unquote, urlsplit
+
+    outbox = tmp_path / "private home" / "outbox"
+    outbox.mkdir(parents=True)
+    feedbox = tmp_path / "shared feed" if separate_folders else outbox
+    feedbox.mkdir(exist_ok=True)
     delivery.add_target(conn, corpus["routine_id"], channel="folder",
                         target=str(outbox))
     delivery.add_target(conn, corpus["routine_id"], channel="feed",
-                        target=str(outbox))
+                        target=str(feedbox))
     _enqueue(corpus)
     assert _queue().drain(conn) == 2
 
-    feed_path = outbox / "resmon" / "diffusion-watch" / "feed.xml"
+    feed_path = feedbox / "resmon" / "diffusion-watch" / "feed.xml"
     assert feed_path.is_file()
     tree = _parse_strict(feed_path)
     root = tree.getroot()
@@ -470,10 +475,18 @@ def test_the_feed_is_valid_atom_and_links_to_the_folder_bundle(corpus, tmp_path)
     assert str(corpus["exec_id"]) in entry.findtext(f"{ATOM}id")
     assert entry.findtext(f"{ATOM}summary")
     link = entry.find(f"{ATOM}link").get("href")
-    assert link.startswith("file://")
-    assert Path(link[len("file://"):]).is_dir()
+    assert not urlsplit(link).scheme
+    assert not urlsplit(link).netloc
+    assert not Path(unquote(link)).is_absolute()
+    bundle = (feed_path.parent / unquote(link)).resolve()
+    assert bundle.is_dir()
+    assert bundle.parent == (outbox / "resmon" / "diffusion-watch").resolve()
+    assert bundle.name.startswith(f"{corpus['exec_id']}-")
     # No script, no tracker, no secret-bearing link (PRODUCT-VISION.md:199).
     text = feed_path.read_text(encoding="utf-8")
+    assert "file://" not in text
+    assert str(tmp_path) not in text
+    assert str(Path.home()) not in text
     assert "<script" not in text.lower()
     assert "sig=" not in text
     without_namespace = text.replace("http://www.w3.org/2005/Atom", "")
