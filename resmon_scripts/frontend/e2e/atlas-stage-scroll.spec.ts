@@ -10,8 +10,8 @@
  * Search › Your collection's results, which a virtualizer draws a window of,
  * and a run's Papers tab. Each is scrolled far down, a paper on it is opened,
  * and Back puts the same paper at the same height in the list's box. A new
- * search opens the results at their top, and Back to the last one returns its
- * place.
+ * search opens the results at their top, and stays there, also when its
+ * papers were read before and are drawn at once.
  *
  * All four lists are walked in the window's default size and in 960 by 640,
  * the smallest the app allows, where the rows are drawn at other heights and
@@ -287,6 +287,11 @@ for (const size of SIZES) {
       await tab(win, 'Search').click();
       await expect.poll(() => hash(win)).toBe('#/search');
       await expect(win.locator(listed).first()).toBeVisible({ timeout: 60_000 });
+      // A search read once at its top, for later: its first page is kept, and its papers further down
+      // have never been drawn.
+      await win.locator('#collection-query').fill('tidal');
+      await expect.poll(() => hash(win)).toBe('#/search?q=tidal');
+      await expect(win.locator('.count-sentence')).toContainText('180', { timeout: 30_000 });
       await win.locator('#collection-query').fill('orbital');
       await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
       await expect(win.locator('.count-sentence')).toContainText('420', { timeout: 30_000 });
@@ -305,13 +310,21 @@ for (const size of SIZES) {
       await backTo(win, '#/search?q=orbital', `${results} ${result.selector}`, result.at, 'the paper at the bottom of the results', results);
       expect(await stageTop(win)).toBe(0);
       await shoot(win, `stage-search-restored${shot}.png`);
-      // A new search opens at its top; Back to the last one puts it where it was.
+      // A new search opens at its top, and so does the last one, typed again.
       await win.locator('#collection-query').fill('orbital decay');
       await expect.poll(() => hash(win)).toBe('#/search?q=orbital+decay');
       await expect.poll(() => stageTop(win, results), { timeout: 5_000 }).toBe(0);
       await win.locator('#collection-query').fill('orbital');
       await expect.poll(() => hash(win)).toBe('#/search?q=orbital');
       await expect.poll(() => stageTop(win, results), { timeout: 5_000 }).toBe(0);
+      // Far down again, and the search read at the start: drawn at once from its kept first page, shorter
+      // than the place it leaves, and still at its top a second later, as its papers are drawn and read on.
+      await scrollFar(win, 5_000, results);
+      await win.locator('#collection-query').fill('tidal');
+      await expect.poll(() => hash(win)).toBe('#/search?q=tidal');
+      await expect.poll(() => stageTop(win, results), { timeout: 5_000 }).toBe(0);
+      await win.waitForTimeout(1_000);
+      expect(await stageTop(win, results), 'the new search went back to the last one\'s place').toBe(0);
 
       // — A run's Papers tab: a page that scrolls in its own box ---------------------------
       const page = '.run';

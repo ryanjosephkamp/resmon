@@ -36,6 +36,9 @@ test('a row measured above the view moves the stage by what it grew, except whil
   // Held, the stage puts the row it names back itself, and the gallery leaves the stage where it is.
   expect(movesStageAsItMeasures({ ...row, held: true, first: true })).toBe(false);
   expect(movesStageAsItMeasures({ ...row, held: true, first: false, end: 3880 })).toBe(false);
+  // Nor while the list reads its box as somewhere the box no longer is.
+  expect(movesStageAsItMeasures({ ...row, held: false, apart: true, first: true })).toBe(false);
+  expect(movesStageAsItMeasures({ ...row, held: false, apart: true, first: false, end: 3880 })).toBe(false);
 });
 
 test('a paper says the run that first found it and the day it was saved, and never where it was saved from', () => {

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { authors, count, publishedWords } from '../today/format';
@@ -53,6 +53,29 @@ export interface Picking {
 const NO_PICKING = { onRange: () => undefined, onAll: () => undefined };
 
 /**
+ * Whether the list moves its box by what a row grew when it measures it, so
+ * that what is at the top stays put, as the Library's gallery moves the stage
+ * (`movesStageAsItMeasures`). Not while Back's place is held on the box: the
+ * hold puts the paper it names where it was left. Nor while the list reads the
+ * box as further down than it is: a new search opens at the top, drawn at once
+ * from the pages read before, before the box's scroll event has told the list
+ * so, and a move from the last search's place would take the new one back
+ * there.
+ */
+export function movesBoxAsItMeasures(box: HTMLElement | null): (item: { key: string | number | bigint; start: number; end: number }, delta: number,
+  instance: Virtualizer<HTMLElement, Element>) => boolean {
+  return (item, _delta, instance) => movesStageAsItMeasures({
+    held: box !== null && holdsPlace(box),
+    apart: box !== null && Math.abs((instance.scrollOffset ?? 0) - box.scrollTop) > 1,
+    first: !instance.itemSizeCache.has(item.key),
+    start: item.start,
+    end: item.end,
+    offset: instance.scrollOffset ?? 0,
+    backward: instance.scrollDirection === 'backward',
+  });
+}
+
+/**
  * The collection's results, as many as have been read, drawn as a window: only
  * the rows in view and a few either side are in the page, each measured once
  * drawn, so ten thousand rows read cost what fifty did. Rows stay in the page
@@ -78,17 +101,8 @@ export function ResultList({ rows, total, marks, folded, showFolded, ranking, so
     overscan: OVERSCAN,
     getItemKey: (index) => rows[index]?.id ?? index,
   });
-  // A row measured above the view moves the box by what it grew, as the Library's gallery moves the stage, but
-  // not while Back's place is held on it: the hold puts the paper it names where it was left.
   useLayoutEffect(() => {
-    virtual.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => movesStageAsItMeasures({
-      held: scroller !== null && holdsPlace(scroller),
-      first: !instance.itemSizeCache.has(item.key),
-      start: item.start,
-      end: item.end,
-      offset: instance.scrollOffset ?? 0,
-      backward: instance.scrollDirection === 'backward',
-    });
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = movesBoxAsItMeasures(scroller);
   }, [virtual, scroller]);
   const items = virtual.getVirtualItems();
   // Until it knows its box the list draws no rows, and is the height its rows are estimated at, so a place
