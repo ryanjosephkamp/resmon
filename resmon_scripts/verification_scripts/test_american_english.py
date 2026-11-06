@@ -46,7 +46,10 @@ TOKEN_ALLOWLIST = [
     ("*", r"[\"'`]cancelled[\"'`]|``cancelled``|[\"'`]cancelling[\"'`]",
      "Stored statuses, HTTP fields, and progress event values retain their wire spelling."),
     ("*", r"[\"']cancelled by user[\"']", "Persisted source-outcome sentinel is read by the engine and renderer."),
-    ("*", r"^\s*cancelled(?=\s*:)|(?<=[{,])\s*cancelled(?=\s*:)|\.cancelled\b", "Published HTTP boolean fields and their accesses keep their names."),
+    ("resmon_scripts/frontend/atlas/*", r"^\s*cancelled(?=\s*:)|(?<=[{,])\s*cancelled(?=\s*:)|\.cancelled\b",
+     "Atlas reads the published HTTP boolean fields and mirrors them in fixtures."),
+    ("resmon_scripts/implementation_scripts/response_models.py", r"^\s*cancelled(?=\s*:\s*bool)",
+     "Published HTTP boolean field declarations keep their names."),
     ("*", r"[\"']\(uncategorised\)[\"']", "Existing analytics response group key is part of the HTTP output."),
     ("resmon_scripts/implementation_scripts/*.py", r"\bcancelled(?==)",
      "Keyword arguments to dict.update write the published cancellation field."),
@@ -127,5 +130,13 @@ def test_compatibility_exceptions_do_not_hide_neighboring_prose() -> None:
     assert ": cancelled:" in result[0]
     assert not violations("source.py", 'if run.status == "cancelled": pass')
     assert not violations("source.py", "raise asyncio.CancelledError()")
-    assert not violations("source.ts", "run.cancelled || { cancelled: false }")
+    assert not violations("resmon_scripts/frontend/atlas/src/example.ts", "run.cancelled || { cancelled: false }")
     assert not violations("source.py", 'word = "optimistic organism premise"')
+
+
+def test_internal_cancellation_arrays_are_not_transport_fields() -> None:
+    path = "resmon_scripts/frontend/e2e/example.spec.ts"
+    found = violations(path, "const facts = { cancelled: [] };\nfacts.cancelled.push(url);")
+    assert len(found) == 2
+    assert found[0].startswith(path + ":1:")
+    assert found[1].startswith(path + ":2:")

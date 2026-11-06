@@ -53,14 +53,14 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   const interception = await app.evaluateHandle(({ session }, target) => {
     const facts = {
       installed: false,
-      cancelled: [] as string[],
+      canceled: [] as string[],
       errors: [] as { url: string; error: string }[],
     };
     session.defaultSession.webRequest.onErrorOccurred({ urls: [target] }, (details) => {
       facts.errors.push({ url: details.url, error: details.error });
     });
     session.defaultSession.webRequest.onBeforeRequest({ urls: [target] }, (details, callback) => {
-      facts.cancelled.push(details.url);
+      facts.canceled.push(details.url);
       callback({ cancel: true });
     });
     facts.installed = true;
@@ -68,9 +68,9 @@ test('P3: an external link opens in-app, titled with its URL, and never reaches 
   }, href!);
   const before = app.windows().length;
   try {
-    expect(await interception.jsonValue()).toEqual({ installed: true, cancelled: [], errors: [] });
+    expect(await interception.jsonValue()).toEqual({ installed: true, canceled: [], errors: [] });
     await link.click();
-    await expect.poll(() => interception.evaluate((facts) => facts.cancelled)).toEqual([href]);
+    await expect.poll(() => interception.evaluate((facts) => facts.canceled)).toEqual([href]);
     await expect.poll(() => interception.evaluate((facts) => facts.errors)).toEqual([
       { url: href, error: 'net::ERR_BLOCKED_BY_CLIENT' },
     ]);

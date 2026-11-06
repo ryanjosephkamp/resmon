@@ -144,7 +144,7 @@ const PANEL_WORDS: Record<string, string> = {
   not_queried: 'not queried',
   not_recorded: 'reason not recorded',
   error: 'error',
-  cancelled: 'cancelled',
+  'cancelled': 'cancelled',
   not_reached: 'not asked',
 };
 
