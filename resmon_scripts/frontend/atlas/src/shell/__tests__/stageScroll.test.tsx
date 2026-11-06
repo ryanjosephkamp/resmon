@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from 'react';
 import { act, render } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
 import {
   HOLD_MS, SCROLL_LIMIT, SETTLE_MS, ScrollMemory, ScrollPlaces, StageScroll, anchorAt, holdsPlace, landing, placeStage, useScrollerPlace, type Place,
 } from '../stageScroll';
@@ -688,6 +688,39 @@ describe('a box a screen scrolls on its own, as Search\'s results and a run\'s p
     scrollTo(960);
     act(() => { void go!('/search?q=binaries', { replace: true }); });
     expect(box().scrollTop).toBe(960);
+    view.unmount();
+  });
+
+  test('a run\'s tabs, each with a path, are one screen: another tab leaves the page where it is, and another run opens at its top', () => {
+    function RunPage() {
+      const box = useRef<HTMLDivElement>(null);
+      const { id, tab = 'papers' } = useParams();
+      useScrollerPlace(box, { name: 'run', under: tab, screen: `/runs/${id}` });
+      return <div ref={box} data-testid="box"><article data-document="7">a paper</article></div>;
+    }
+    function RunFrame() {
+      const stage = useRef<HTMLElement>(null);
+      return (
+        <ScrollPlaces>
+          <main ref={stage} data-testid="stage">
+            <StageScroll stage={stage} />
+            <Navigator />
+            <Routes><Route path="/runs/:id/:tab?" element={<RunPage />} /></Routes>
+          </main>
+        </ScrollPlaces>
+      );
+    }
+    const view = render(<MemoryRouter initialEntries={['/runs/12/papers']}><RunFrame /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { void go!('/runs/12/log'); });
+    expect(box().scrollTop).toBe(960);
+    // Back to the tab it was left on, where it was left.
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!(-1); });
+    expect(box().scrollTop).toBe(960);
+    // Another run opens at its top.
+    act(() => { void go!('/runs/13/papers'); });
+    expect(box().scrollTop).toBe(0);
     view.unmount();
   });
 

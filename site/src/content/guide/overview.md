@@ -70,7 +70,7 @@ The shortcuts use ⌘ on macOS and Ctrl elsewhere. All of them work while you ty
 | ⌘Enter | Save or send what you wrote, in a field that offers it |
 | ? | The full list, outside a text field |
 
-On a trackpad, a two-finger swipe goes back and forward. Back and forward return the Runs tab, the Library, the results of a search in Search › Your collection, and a run's **Papers** to where you left them; a page you open anew, and a new search, start at their top.
+On a trackpad, a two-finger swipe goes back and forward. Back and forward return the Runs tab, the Library, the results of a search in Search › Your collection (in the order you chose), and a run's page (on the tab you were on, with **Papers** where you left it) to where you left them; a page you open anew, and a new search, start at their top.
 
 ## What stays on your computer
 
