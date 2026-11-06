@@ -103,7 +103,8 @@ Every part of this is pinned by a test. Break one and the suite tells you.
 
 - `search()` returns `list[NormalizedResult]`, honors `date_from` / `date_to` /
   `max_results`, and returns **`[]` on upstream failure** — logged, never raised. A source
-  being down degrades a sweep; it does not fail it.
+  being down does not abort the other sources' searches. The run's status is a separate
+  decision: a run whose every selected source was asked and recorded a non-answer is failed.
 - Every HTTP call goes through `safe_request()` with a **module-level** `RateLimiter`, shared
   by every instance of that client, so concurrent sweeps contend on one object. The same
   limiter carries a valid upstream `Retry-After` cooldown across retries and client
@@ -119,8 +120,8 @@ Every part of this is pinned by a test. Break one and the suite tells you.
 
 ### Fields the user reads as claims
 
-`rate_limit`, `upstream_policy` and `keyword_combination` are rendered on the Repositories
-page and are read as statements of fact about someone else's service.
+`rate_limit`, `upstream_policy`, and `keyword_combination` are rendered in Settings › Sources
+and the source pickers and are read as statements of fact about someone else's service.
 
 `keyword_combination` in particular describes how the **upstream** combines space-separated
 terms — implicit AND, explicit OR, relevance-ranked. Getting it wrong makes resmon lie about
@@ -154,8 +155,9 @@ about the upstream's index. It is rendered on the Sources page, and the
 `window_unanswerable` sentence is derived from it rather than from the free-text note.
 
 The field deliberately does not say what your client *does* about a window it cannot express,
-because those are two different facts. ERIC and Open Library **refuse**; DataCite, DBLP, NASA
-ADS and Semantic Scholar answer the coarser window. Both are honest. Only the first calls
+because those are two different facts. DBLP, ERIC, and Open Library **refuse** a window
+containing no complete calendar year; DataCite asks for the years touched and filters locally,
+while DOAJ, NASA ADS, and Semantic Scholar answer the coarser window. Only a refusal calls
 `note_unanswerable`.
 
 ### Saying why a search came back empty
@@ -178,7 +180,7 @@ If your request and your `response.json()` share one `try`, use
 user the source answered when it did not.
 
 **Never invent a reason.** A zero is a recorded fact with a named source of truth, or it is
-`not_recorded`. There is no third state, and there is no backfill.
+`not_recorded`. An earlier unexplained zero is not filled in with a guessed reason.
 
 ### Local filtering, and what it licenses you to claim
 
@@ -202,8 +204,12 @@ A new source `<slug>` touches these and no others.
 | `verification_scripts/test_repo_catalog.py` | the slug set and the two length assertions |
 | `verification_scripts/test_api_repositories_catalog.py` | the catalog-length assertion |
 | `verification_scripts/test_api_tier*.py` | registration, instantiation, and a `live_network` search test |
-| `verification_scripts/test_source_outcomes.py` | nothing to add — `test_every_client_records_an_attempt` parametrises over the registry, so a new source is covered the moment it registers, and fails if its `search()` makes no recorded HTTP attempt |
-| `README.md`, `site/src/content/guide/sources.md` | the source count, and one row on the guide's Sources page |
+| `verification_scripts/test_source_outcomes.py` | `test_every_client_records_an_attempt` parametrizes over the registry, so a new source is covered when it registers and fails if its `search()` makes no recorded HTTP attempt |
+| `verification_scripts/probe_entity_search.py`, `verification_scripts/probe_paper_lookup.py` | the live probes for author queries and one-paper lookups described below |
+| `verification_scripts/test_paper_find.py` | an authored request and reply in `CASES` for each supported lookup kind |
+| `site/src/data/sources.json` | regenerate the catalog copy with `.venv/bin/python site/scripts/export_sources.py` from the root; `test_site_sources.py` guards it |
+| `README.md`, `site/src/content/guide/*.md` | every written source count, the Sources tables, author-search counts where changed, and an acknowledgment |
+| `docs/` site output | rebuild with `npm run build` in `site/`, and verify with `npm run verify` and `node scripts/check-tokens.mjs` |
 
 Do **not** touch `resmon.py`, `implementation_scripts/database.py`,
 `implementation_scripts/api_base.py`, or `.github/workflows/*`.
@@ -303,6 +309,7 @@ Before opening a pull request:
 .venv/bin/python -m pytest -q                    # hermetic suite
 .venv/bin/python -m pytest -m live_network -q    # real APIs; a weekly CI job runs these
 cd resmon_scripts/frontend && npm run typecheck && npm test && npm run build
+npm run e2e
 ```
 
 The hermeticity guard blocks any non-loopback socket from a test that is not marked
