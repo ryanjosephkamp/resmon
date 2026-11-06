@@ -11,7 +11,7 @@ import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
 import { useFocusOnArrival } from '../arrival';
 import { MapPaper } from '../sky/MapPaper';
-import { basisWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
+import { basisWords, leftOffWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
 import { stoppedWords } from './countCap';
@@ -272,7 +272,7 @@ export function Collection() {
         onChoose={setOpened}
         sourceName={nameOf}
         label="Where the matches sit in the collection"
-        caption={({ placed, ready, basis }) => {
+        caption={({ placed, ready, basis, unplaced }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
           if (!query && !filtered) return `Every paper in ${words.name}, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
@@ -280,7 +280,7 @@ export function Collection() {
             ? `the first ${number(ids.length)} of ${first?.total_is_exact === false ? 'at least ' : ''}${number(total)} matches`
             : count(ids.length, 'match', 'matches');
           if (placed === ids.length) return `Marked: ${listed}, ${basisWords(basis)}.`;
-          return `Marked: ${number(placed ?? 0)} of ${listed}; the map has not placed the rest yet.`;
+          return `Marked: ${number(placed ?? 0)} of ${listed}. ${leftOffWords(ids.length - (placed ?? 0), { basis, unplaced })}`;
         }}
       />
       {opened && (
