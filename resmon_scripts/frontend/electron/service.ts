@@ -236,6 +236,99 @@ async function settle(world: World, within: number, until: (facts: Facts) => boo
   return facts;
 }
 
+// ---------------------------------------------------------------------------
+// A launch that did not get the profile's lock
+// ---------------------------------------------------------------------------
+
+/**
+ * How long a launch without the lock waits for this build's service to answer
+ * after replacing an older one. A start that takes longer (a migration) is left
+ * starting, never stopped: the launch relaunches, and the relaunch waits for it
+ * with the starting window.
+ */
+export const HOLDER_WAIT_MS = 30_000;
+/** How long the replaced service's process is given to exit, so that this build's can take the profile. */
+export const HOLDER_EXIT_MS = 45_000;
+
+export type HolderDecision =
+  | { act: 'leave'; why: 'no-unit' | 'blocked' | 'another-copy' | 'not-app' | 'not-loaded' | 'unknown' | 'ours' | 'busy' }
+  | { act: 'replace' };
+
+/**
+ * What a launch that did not get the profile's lock does about the resmon that
+ * holds it. Electron gives such a launch no `ready`, so it can open no window
+ * and ask nothing; the holder opened the window when this launch asked for the
+ * lock. It replaces only an older build of this copy's service that says it
+ * runs no runs. A service running runs is left: asking first needs a window, so
+ * it is replaced at the first launch after its runs have finished.
+ */
+export function decideWithoutLock(facts: Facts, me: Me): HolderDecision {
+  const { unit, job, running } = facts;
+  if (!unit) return { act: 'leave', why: 'no-unit' };
+  if (job.disabled) return { act: 'leave', why: 'blocked' };
+  if (unit.program !== me.exe) return { act: 'leave', why: 'another-copy' };
+  if (!unit.runsApp) return { act: 'leave', why: 'not-app' };
+  if (!job.loaded || job.pid === null) return { act: 'leave', why: 'not-loaded' };
+  if (!running || running.active === null) return { act: 'leave', why: 'unknown' };
+  if (running.build === me.build) return { act: 'leave', why: 'ours' };
+  if (running.active > 0) return { act: 'leave', why: 'busy' };
+  return { act: 'replace' };
+}
+
+export type HolderOutcome =
+  | { done: 'left'; why: Extract<HolderDecision, { act: 'leave' }>['why'] }
+  /** This build's service answers. */
+  | { done: 'replaced' }
+  /** This build's service was started and has not answered yet; it is left starting. */
+  | { done: 'starting' }
+  | { done: 'failed'; why: string };
+
+/** What `replaceHolder` needs beyond `World`: whether the replaced service's process has exited. */
+export interface HolderWorld extends World {
+  alive(pid: number): boolean;
+}
+
+/**
+ * Replace an older build of this copy's idle service with this build's, for a
+ * launch that did not get the profile's lock (`decideWithoutLock`). The job is
+ * never left unloaded: a start that fails is tried once more, and a job found
+ * unloaded after the wait is loaded again, so the person's watches go on.
+ */
+export async function replaceHolder(
+  world: HolderWorld, me: Me, wait = HOLDER_WAIT_MS, exitWait = HOLDER_EXIT_MS,
+): Promise<HolderOutcome> {
+  const facts = await world.facts();
+  const decision = decideWithoutLock(facts, me);
+  if (decision.act === 'leave') return { done: 'left', why: decision.why };
+  const old = facts.job.pid as number;
+  world.log('Another build of this copy\'s service holds the profile and runs no runs; replacing it with this build.');
+  if (!(await world.bootout())) return { done: 'failed', why: 'launchd did not stop the service' };
+  let waited = 0;
+  while (world.alive(old) && waited < exitWait) {
+    await world.sleep(POLL_MS);
+    waited += POLL_MS;
+  }
+  if (world.alive(old)) world.log(`The replaced service (pid ${old}) has not exited; this build's is started anyway.`);
+  const begun = await world.bootstrap();
+  if (!begun.ok) {
+    world.log(`launchctl bootstrap failed (${begun.said}); trying once more.`);
+    const again = await world.bootstrap();
+    if (!again.ok) return { done: 'failed', why: `launchctl bootstrap failed: ${again.said}` };
+  }
+  const after = await settle(world, wait, (f) => f.running?.build === me.build);
+  if (after.running?.build === me.build) {
+    world.log('The background service runs this build.');
+    return { done: 'replaced' };
+  }
+  if (!after.job.loaded) {
+    const back = await world.bootstrap();
+    if (!back.ok) return { done: 'failed', why: `the service was unloaded and could not be loaded again: ${back.said}` };
+    world.log('The service was found unloaded after the replacement; it was loaded again.');
+  }
+  world.log('This build\'s service has not answered yet; it is left starting.');
+  return { done: 'starting' };
+}
+
 /** The unit's program and port, from its ProgramArguments as `plutil -convert json` gives them. */
 export function unitFromPlist(plist: unknown): Unit | null {
   if (!plist || typeof plist !== 'object') return null;

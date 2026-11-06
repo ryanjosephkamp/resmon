@@ -21,7 +21,7 @@ import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
 import * as path from 'path';
-import { execFileSync, type ChildProcess } from 'child_process';
+import { execFileSync, spawn, type ChildProcess } from 'child_process';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
 import { ATLAS_LANDMARK, FRONTEND_ROOT, SCREENSHOT_DIR, atlasEnv, launchEnv } from './fixtures/resmon-app';
 import { removeStateDir } from './fixtures/cleanup';
@@ -337,6 +337,62 @@ test('closing the starting window stops waiting, and leaves the service starting
     if (!passed) {
       if (fromWaiting) tellWrote('SERVICE STARTING', 'THE WAITING LAUNCH', fromWaiting.all());
       tellState(stateDir, profileDir, port, launchd.calls);
+    }
+    say('putting away what the test started');
+    await putAway(apps, profileDir, port);
+    removeStateDir(stateDir);
+  }
+});
+
+test('a launch while this build\'s service holds the profile asks it for the window and exits', async () => {
+  test.setTimeout(240_000);
+  const { say, step } = stepsWithin('SERVICE STARTING', 240_000, TEARDOWN_MS);
+  const stateDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-service-starting-')));
+  const port = await freePort();
+  expect(port).not.toBe(8742);
+  const env = atlasEnv(launchEnv(stateDir, true));
+  env.RESMON_SERVICE_AT_LAUNCH = '1';
+  env.RESMON_DAEMON_PORT = String(port);
+  delete env.RESMON_DISABLE_SCHEDULER;
+  const launchd = startingService(stateDir, env, port);
+  const profileDir = path.join(stateDir, 'electron-user-data');
+  const profile = `--user-data-dir=${profileDir}`;
+
+  const apps: Launched[] = [];
+  let launch: ChildProcess | null = null;
+  let launchWrote = '';
+  let passed = false;
+  try {
+    const serviceEnv = { ...env };
+    delete serviceEnv.RESMON_SERVICE_AT_LAUNCH;
+    const service = await step(`the service starts, on port ${port} and ${stateDir}`, 90_000,
+      (ms) => electron.launch({ args: ['.', '--service', `--port=${port}`, profile], cwd: FRONTEND_ROOT, env: serviceEnv, timeout: ms }));
+    apps.push({ app: service, child: service.process() });
+    const fromService = capture(service);
+    await step('the service\'s engine answers', 120_000,
+      (ms) => expect.poll(() => fromService.out(), { timeout: ms }).toContain('[main] The service is running'));
+    // A plain process, as the Dock starts one: Electron gives a process that
+    // does not get the profile's lock no `ready`, so nothing here may wait for it.
+    const exe = path.join(FRONTEND_ROOT, 'node_modules', 'electron', 'dist', 'Electron.app', 'Contents', 'MacOS', 'Electron');
+    launch = spawn(exe, ['.', profile], { cwd: FRONTEND_ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
+    launch.stdout?.on('data', (chunk: Buffer) => { launchWrote += chunk.toString(); });
+    launch.stderr?.on('data', (chunk: Buffer) => { launchWrote += chunk.toString(); });
+    say(`the launch is up, pid ${launch.pid}`);
+    const opened = await step('the service opens its window', 60_000, (ms) => service.firstWindow({ timeout: ms }));
+    await step('the service\'s window draws Atlas', 60_000, (ms) => opened.locator(ATLAS_LANDMARK).waitFor({ timeout: ms }));
+    expect(await step('the launch exits', 30_000, () => exited(launch!))).toBe(0);
+    expect(launchWrote).toContain('[service] Another resmon holds the profile');
+    // The service is this build's, so launchd was only asked about it.
+    expect(onlyAsked(launchd.calls())).toBe(true);
+    say('done');
+    passed = true;
+  } finally {
+    if (!passed) {
+      tellWrote('SERVICE STARTING', 'THE LAUNCH', launchWrote);
+      tellState(stateDir, profileDir, port, launchd.calls);
+    }
+    if (launch && launch.exitCode === null && launch.signalCode === null && launch.pid) {
+      try { process.kill(launch.pid, 'SIGKILL'); } catch { /* gone */ }
     }
     say('putting away what the test started');
     await putAway(apps, profileDir, port);
