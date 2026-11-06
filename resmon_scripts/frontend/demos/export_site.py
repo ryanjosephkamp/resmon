@@ -32,8 +32,9 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -53,8 +54,11 @@ def say(message: str) -> None:
 
 
 def spoken_day(iso: str) -> str:
-    """"2026-11-03T16:20:00Z" -> "November 3, 2026"."""
+    """The saved run's day in New York, the Source wall's displayed time zone."""
     moment = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    moment = moment.astimezone(ZoneInfo('America/New_York'))
     return f"{moment:%B} {moment.day}, {moment.year}"
 
 
@@ -129,7 +133,9 @@ def main() -> None:
         finally:
             engine.stop()
 
-    day = spoken_day(today["now"])
+    # An export can happen days after collection. Date the collection from
+    # its saved runs, in the same zone the site's Source wall uses.
+    day = spoken_day(wall["runs"][0]["started_at"])
     write("plate.json", {
         "provenance": (
             f"Drawn from the engine's own map and Today, exported unedited from a collection built on {day}: "
