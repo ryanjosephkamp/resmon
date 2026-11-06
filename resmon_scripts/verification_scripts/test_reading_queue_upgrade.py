@@ -484,7 +484,18 @@ SCHEMA_14_TO_18_OBJECTS = {"reading_queue", "idx_reading_queue_status_saved",
                             "idx_collection_documents_added",
                             "collection_documents_revise_in",
                             "collection_documents_revise_out",
-                            "documents_file_in_default"}
+                            "documents_file_in_default",
+                            # Schema 27: where open copies are, a paper's
+                            # other identifiers, Find a paper's record, and
+                            # every PDF asked for.
+                            "document_open_access", "idx_document_open_access_document",
+                            "document_identifiers", "idx_document_identifiers_value",
+                            "execution_find_results", "full_text_downloads",
+                            "idx_full_text_downloads_document",
+                            "idx_full_text_downloads_state",
+                            "idx_full_text_downloads_execution",
+                            "idx_full_text_downloads_requested",
+                            "idx_full_text_downloads_one_pending"}
 
 
 def test_the_fixture_holds_every_object_the_application_owns(legacy, tmp_path):

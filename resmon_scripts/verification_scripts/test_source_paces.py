@@ -74,6 +74,24 @@ def test_the_arxiv_lookup_is_paced(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen.get("rate_limiter") is api_arxiv._RATE_LIMITER
 
 
+def test_the_arxiv_license_read_is_paced_with_arxivs_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    from implementation_scripts import full_text  # noqa: PLC0415
+
+    seen: dict = {}
+
+    class Answer:
+        status_code = 200
+        text = "<OAI-PMH/>"
+
+    def safe_request(method, url, **kwargs):
+        seen.update(kwargs)
+        return Answer()
+
+    monkeypatch.setattr(full_text, "safe_request", safe_request)
+    assert full_text.arxiv_license("2601.00001") is None
+    assert seen.get("rate_limiter") is api_arxiv._RATE_LIMITER
+
+
 def test_only_a_source_client_makes_a_limiter_and_it_makes_one() -> None:
     """One pace per source: a limiter is made once, at the top of its source's client, and nowhere else."""
     for path in sorted(ENGINE.glob("*.py")):
@@ -82,6 +100,15 @@ def test_only_a_source_client_makes_a_limiter_and_it_makes_one() -> None:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         made = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
                 and getattr(node.func, "id", getattr(node.func, "attr", None)) == "RateLimiter"]
+        if path.name == "full_text.py":
+            # A download host is not a source: Get the PDF paces each host it
+            # fetches from, one limiter per host, made in one place
+            # (``Worker.limiter``). arXiv's license read goes to arXiv's API and
+            # waits on api_arxiv's limiter, which the next test checks.
+            owners = {node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                      and any(call in ast.walk(node) for call in made)}
+            assert len(made) == 1 and owners == {"limiter"}, "full_text.py makes a limiter outside Worker.limiter"
+            continue
         if not path.name.startswith("api_"):
             assert not made, f"{path.name} makes a limiter of its own; it should wait on the source client's"
             continue

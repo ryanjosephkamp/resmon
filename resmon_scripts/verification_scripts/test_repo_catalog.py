@@ -94,6 +94,7 @@ def test_catalog_as_dicts_shape():
         "result_order", "result_order_established",
         "entity_search",
         "constraints",
+        "paper_lookup",
     }
     for d in dicts:
         assert set(d.keys()) == expected_keys

@@ -3,7 +3,7 @@
 
 import logging
 from typing import Mapping
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from .api_base import (Author, BaseAPIClient, NormalizedResult, RateLimiter,
                        bare_orcid, read_json_body, safe_request)
@@ -39,7 +39,7 @@ def _describe_request(url: str, params: Mapping | None, body: Mapping | None) ->
     """A DOAJ search carries its query in the request path, not in a parameter."""
     if not url.startswith(_DOAJ_API_URL + "/"):
         return None
-    return "path " + urlsplit(url).path
+    return "path " + unquote(urlsplit(url).path)
 
 
 class DoajClient(BaseAPIClient):
@@ -81,7 +81,11 @@ class DoajClient(BaseAPIClient):
         page_size = min(max_results, 100)
 
         while len(results) < max_results:
-            url = f"{_DOAJ_API_URL}/{search_query}"
+            # Percent-encoded, slashes included: DOAJ reads the query from one
+            # path segment, and an unencoded slash (every DOI has one) split it
+            # into two, so a DOI query reached DOAJ as a path it had no route
+            # for.
+            url = f"{_DOAJ_API_URL}/{quote(search_query, safe=':()[]*')}"
             # A page number is an offset *over the page size*, so the size is
             # held for the whole search. Shrinking it on the last request
             # moves the window back over records already held and never asks

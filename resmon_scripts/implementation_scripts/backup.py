@@ -934,8 +934,10 @@ def _restore_vault(bundle: Path, manifest: dict, target_root: Path,
         os.chmod(target_root, 0o700)
     except OSError:
         logger.debug("Could not set 0700 on the restored vault root")
-    # ``.import.lock`` has no automatic stale-lock recovery, so a bundle that
-    # somehow carried one would leave the restored vault permanently busy.
+    # A lock a bundle carried names an engine on the machine and at the time
+    # the bundle was made; here its pid may answer for an unrelated process,
+    # which the start's recovery (``library.recover_stale_import_lock``) takes
+    # as alive, and the restored vault would read busy. So it goes now.
     lock = target_root / ".import.lock"
     if lock.exists():
         lock.unlink()

@@ -231,6 +231,9 @@ def test_run_returns_false_on_filenotfound():
         ("deep_dive", False, "all", False, False),
         ("deep_sweep", True, "none", False, True),
         ("deep_sweep", False, "all", False, False),
+        # Find a paper is a search started by hand too.
+        ("find_paper", True, "none", False, True),
+        ("find_paper", False, "all", True, False),
         # Automated runs: per-routine flag wins.
         ("automated_sweep", False, "none", True, True),
         ("automated_sweep", False, "selected", True, True),
@@ -424,6 +427,87 @@ def test_notification_failure_does_not_fail_execution(mock_notify):
     final = database.get_execution_by_id(conn, exec_id)
     assert final["status"] == "completed"
     assert mock_notify.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Find a paper: a search started by hand, so it notifies as one does, and says
+# whether the sources it asked hold the paper.
+# ---------------------------------------------------------------------------
+
+_FIND_DOI = "10.1000/find.1"
+
+
+def _find_run_prepared(outcomes: list[tuple[str, str]]):
+    """A find's ``run_prepared`` that leaves what each source said, as a real find records it."""
+
+    def _run(self, exec_id: int) -> dict:
+        for position, (slug, outcome) in enumerate(outcomes):
+            self.db.execute(
+                "INSERT INTO execution_find_results (execution_id, source, position, outcome, matched_by) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (exec_id, slug, position, outcome, "doi" if outcome == "found" else None))
+        found = sum(1 for _, outcome in outcomes if outcome == "found")
+        database.update_execution_status(self.db, exec_id, "completed", result_count=found, new_result_count=found)
+        progress_store.mark_complete(exec_id)
+        return {"execution_id": exec_id, "status": "completed"}
+
+    return _run
+
+
+def _finish_a_find(outcomes: list[tuple[str, str]], *, notify_manual: bool = True):
+    """Run a find to its end through the completion hook; the notifier's calls, and the run's id."""
+    _reset_state()
+    _set_notify_settings(notify_manual=notify_manual, mode="none")
+    conn = resmon_mod._get_db()
+    from implementation_scripts.sweep_engine import SweepEngine
+
+    engine = SweepEngine(db_conn=conn, config={"ai_enabled": False, "ai_settings": None})
+    asked = [slug for slug, outcome in outcomes if outcome != "not_asked"]
+    exec_id = engine.prepare_execution("find_paper", asked, {
+        "query": _FIND_DOI, "find": {"kind": "doi", "value": _FIND_DOI, "typed": _FIND_DOI}})
+    with patch("resmon.SweepEngine.run_prepared", _find_run_prepared(outcomes)), \
+         patch("implementation_scripts.desktop_notifier.notify", return_value=True) as mock_notify:
+        progress_store.register(exec_id)
+        resmon_mod._launch_execution(engine, exec_id, conn)
+        _wait_for_completion(exec_id)
+        deadline = time.monotonic() + 5
+        while notify_manual and not mock_notify.call_count and time.monotonic() < deadline:
+            time.sleep(0.05)
+    return mock_notify, exec_id
+
+
+def test_a_finished_find_notifies_how_many_of_the_sources_asked_hold_the_paper():
+    notify, exec_id = _finish_a_find([
+        ("crossref", "found"), ("openalex", "found"), ("europepmc", "not_found"),
+        ("semantic_scholar", "did_not_answer"), ("arxiv", "not_asked"),
+    ])
+    assert notify.call_count == 1, notify.call_args_list
+    title, body = notify.call_args.args
+    assert title == "resmon: Find a paper finished"
+    # As the Find a paper page says it; a source not asked is not counted.
+    assert body == f"2 of 4 sources asked hold the DOI {_FIND_DOI}; 1 did not answer."
+    # The run it is about, so a click opens it in the window that started it.
+    assert notify.call_args.kwargs == {"execution_id": exec_id}
+
+
+def test_a_find_no_source_holds_says_so():
+    notify, _ = _finish_a_find([("crossref", "not_found")])
+    assert notify.call_args.args == (
+        "resmon: Find a paper finished", f"None of the 1 source asked holds the DOI {_FIND_DOI}.")
+
+
+def test_a_find_is_quiet_when_searches_i_start_do_not_notify():
+    notify, _ = _finish_a_find([("crossref", "found")], notify_manual=False)
+    assert notify.call_count == 0
+
+
+def test_a_find_names_what_it_asked_for_by_kind():
+    from implementation_scripts import paper_find
+
+    assert paper_find.asked_words("doi", "10.1000/x") == "the DOI 10.1000/x"
+    assert paper_find.asked_words("arxiv", "1706.03762") == "the arXiv id 1706.03762"
+    assert paper_find.asked_words("pmid", "123") == "the PMID 123"
+    assert paper_find.asked_words("title", "A paper") == "the title \u201cA paper\u201d"
 
 
 # ---------------------------------------------------------------------------

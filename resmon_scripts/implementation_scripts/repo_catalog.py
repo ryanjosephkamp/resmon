@@ -413,6 +413,175 @@ def _notice(
     )
 
 
+# ---------------------------------------------------------------------------
+# paper_lookup — whether a source can be asked for one paper, and by what
+# ---------------------------------------------------------------------------
+#
+# Find a paper asks a source for one paper by a DOI, an arXiv id, a PMID or a
+# title, and only by a kind this capability names. A kind with a field syntax
+# is asked through the client's ordinary ``search()`` with the syntax filled in
+# (``BaseAPIClient.lookup``, as ``entity_search`` asks about a person); a kind
+# with none is asked through the client's own lookup endpoint (Crossref's
+# ``/works/{doi}``), which the client implements.
+#
+# What comes back is never taken on trust: ``paper_find.best_match`` keeps a
+# record only when it carries the identifier asked for, or when its title is
+# the title asked for or close to it. So a field a source ignores costs a
+# search, not a false match; ``established`` says what was seen when the
+# capability was checked, and a source that could not be checked (its key is
+# not on this machine) can be asked by nothing.
+LookupKind = Literal["doi", "arxiv", "pmid", "title"]
+
+
+@dataclass(frozen=True)
+class PaperLookup:
+    """The kinds of query a source can be asked for one paper by, and how."""
+
+    kinds: tuple[str, ...] = ()
+    #: ``(kind, syntax)``, with ``{value}`` where the DOI, id or title goes.
+    syntax: tuple[tuple[str, str], ...] = ()
+    #: What was run and what came back, or why the source is asked by nothing.
+    established: str = ""
+    #: For a source asked by nothing: why, in the words Find a paper shows a
+    #: person under "not asked, and why". ``established`` is the record of the
+    #: check, with its dates and queries; this is the sentence.
+    why_not: str = ""
+
+    def syntax_for(self, kind: str) -> str:
+        return next((text for k, text in self.syntax if k == kind), "")
+
+    @property
+    def supported(self) -> bool:
+        return bool(self.kinds)
+
+
+LOOKUP_PROBED_ON = "2026-11-05"
+
+
+def _lookup(*kinds: str, syntax: dict[str, str] | None = None, established: str = "",
+            why_not: str = "") -> PaperLookup:
+    return PaperLookup(kinds=tuple(kinds), syntax=tuple((syntax or {}).items()), established=established,
+                       why_not=why_not)
+
+
+_KEYED = "not established: {name} requires a key and this machine holds none, so resmon does not ask it for one paper."
+_KEYED_WHY = "resmon has not checked how {name} looks up one paper, because that needs an API key, so it is not asked."
+
+PAPER_LOOKUP: dict[str, PaperLookup] = {
+    "arxiv": _lookup("arxiv", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `id_list=1706.03762` returned that paper and `id_list=2401.99999` none. "
+        "`ti:\"Attention Is All You Need\"` in relevance order returned it, exactly by title, among 5; "
+        "a title of no paper returned none. In the newest-first order `search()` asks for, later "
+        "papers echoing the title left it outside the first 5, so a title is asked in relevance order.")),
+    "biorxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/biorxiv/10.1101/2023.12.28.573564` returned that preprint, "
+        "and a 10.1101 DOI that does not exist returned none. Only DOIs beginning 10.1101/ are asked.")),
+    "core": _lookup(established=_KEYED.format(name="CORE"), why_not=_KEYED_WHY.format(name="CORE")),
+    "crossref": _lookup("doi", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/10.1371/journal.pone.0000308` returned that paper, and a DOI "
+        "Crossref does not hold answered 404, which resmon records as an answer. "
+        "`query.bibliographic` with its title ranked it first of 5, exactly by title; a title of no "
+        "paper returned 5 records, none of them the paper, so none was kept.")),
+    "datacite": _lookup("doi", "title", syntax={"title": 'titles.title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `/dois/10.5281/zenodo.17397357` returned that record, and an "
+        "unregistered DOI answered 404. `titles.title:\"...\"` with its title returned it, exactly "
+        "by title, among 2; a title of no paper returned none.")),
+    "dblp": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} DBLP answered resmon's title query with its "
+        "access-challenge page, so resmon does not ask it for one paper."),
+        why_not="DBLP answered resmon's check with an access-challenge page rather than records, so it is not asked."),
+    "doaj": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'bibjson.title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.1371/journal.pone.0000308\"`, percent-encoded into DOAJ's "
+        "one path segment, returned that article, and an unregistered DOI none; "
+        "`bibjson.title:\"...\"` with its title returned it, exactly by title, and a title of no "
+        "paper none. Sent unencoded, as `search()` once sent every query, a DOI's slash split the "
+        "segment in two.")),
+    "dryad": _lookup(established=(
+        "Dryad holds datasets, not papers, so resmon does not ask it for one paper."),
+        why_not='Dryad holds datasets, not papers.'),
+    "eric": _lookup("title", syntax={"title": 'title:"{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `title:\"The Science of Reading Comprehension Instruction\"` returned "
+        "that record, exactly by title; a title of no paper returned none. ERIC's records rarely "
+        "carry a DOI, and resmon asks it by title only.")),
+    "europepmc": _lookup("doi", "pmid", "title", syntax={
+        "doi": 'DOI:"{value}"', "pmid": "EXT_ID:{value} AND SRC:MED", "title": 'TITLE:"{value}"'},
+        established=(
+        f"{LOOKUP_PROBED_ON}: `DOI:\"10.1371/journal.pone.0000308\"` returned that paper, "
+        "`EXT_ID:17375194 AND SRC:MED` the same paper by its PMID, and `TITLE:\"...\"` the same "
+        "paper exactly by title; an unregistered DOI, the PMID 999999999 and a title of no paper "
+        "each returned none.")),
+    "govinfo": _lookup(established=(
+        "GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs, so resmon "
+        "does not ask it for one paper."),
+        why_not='GovInfo holds U.S. government documents, not scholarly papers with DOIs or PMIDs.'),
+    "hal": _lookup("doi", "title", syntax={"doi": 'doiId_s:"{value}"', "title": 'title_t:"{value}"'},
+                   established=(
+        f"{LOOKUP_PROBED_ON}: `doiId_s:\"10.48550/arXiv.2605.03663\"` returned that record, and "
+        "`title_t:\"...\"` with its title the same record exactly by title; an unregistered DOI "
+        "and a title of no paper each returned none.")),
+    "inspire_hep": _lookup("doi", "arxiv", "title", syntax={
+        "doi": "doi {value}", "arxiv": "arxiv {value}", "title": 't "{value}"'}, established=(
+        f"{LOOKUP_PROBED_ON}: `doi 10.1016/j.physletb.2012.08.020`, `arxiv 1207.7214` and "
+        "`t \"Observation of a new particle in the search for the Standard Model Higgs boson with "
+        "the ATLAS detector at the LHC\"` each returned that paper (by DOI, by arXiv id, and "
+        "exactly by title); an unregistered DOI, the id 2401.99999 and a title of no paper each "
+        "returned none.")),
+    "medrxiv": _lookup("doi", established=(
+        f"{LOOKUP_PROBED_ON}: `/details/medrxiv/10.1101/2024.01.02.24300691` returned that "
+        "preprint, and a 10.1101 DOI that does not exist returned none.")),
+    "nasa_ads": _lookup(established=_KEYED.format(name="NASA ADS"), why_not=_KEYED_WHY.format(name="NASA ADS")),
+    "ndl_search": _lookup(established=(
+        "NDL Search keeps only records under its open-data terms and matches a title through CQL "
+        "with no DOI field, which resmon has not checked for one paper; it is not asked."),
+        why_not=(
+            'resmon has not checked how NDL Search looks up one paper, and it has no DOI field, so it '
+            'is not asked.')),
+    "openaire": _lookup(established=(
+        "OpenAIRE has announced that this API is discontinued, so resmon does not add new uses of it."),
+        why_not='OpenAIRE has announced that this API is discontinued, so resmon adds no new uses of it.'),
+    "openalex": _lookup("doi", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/works/doi:10.1371/journal.pone.0000308` returned that work and "
+        "`/works/pmid:17375194` the same work; an unregistered DOI and the PMID 999999999 answered "
+        "404, recorded as answers. `filter=title.search:` with its title returned it, exactly by "
+        "title, among 3; two later tries that day, and the control with a title of no paper, were "
+        "answered 429 (OpenAlex's rate limit, with no contact address set).")),
+    "openlibrary": _lookup(established=(
+        "Open Library holds books by ISBN, not papers, so resmon does not ask it for one paper."),
+        why_not='Open Library holds books, not papers.'),
+    "osti": _lookup(established=(
+        "not established: resmon asks OSTI through its `q` parameter, whose DOI and title fields "
+        "resmon has not checked, so it is not asked for one paper."),
+        why_not=(
+            'resmon has not checked how OSTI.GOV looks up one paper by DOI or title, so it is not '
+            'asked.')),
+    "plos": _lookup("doi", "title", syntax={"doi": 'id:"{value}"', "title": 'title:"{value}"'},
+                    established=(
+        f"{LOOKUP_PROBED_ON}: `id:\"10.1371/journal.pone.0000308\"` (PLOS's id is the DOI) "
+        "returned that article, and `title:\"...\"` with its title the same article exactly by "
+        "title; an unregistered DOI and a title of no paper each returned none.")),
+    "pubmed": _lookup(established=(
+        f"not established: on {LOOKUP_PROBED_ON} E-utilities' esearch answered HTTP 500 to every "
+        "request, resmon's and a plain one alike, so resmon does not ask PubMed for one paper yet. "
+        "Europe PMC answers by PMID."),
+        why_not=(
+            "PubMed's search answered with errors on every request when resmon checked it "
+            "on November 5, 2026, so it is not asked yet. Europe PMC is asked by PMID.")),
+    "semantic_scholar": _lookup("doi", "arxiv", "pmid", "title", established=(
+        f"{LOOKUP_PROBED_ON}: `/paper/DOI:10.1371/journal.pone.0000308`, `/paper/PMID:17375194` "
+        "and `/paper/ARXIV:1706.03762` each returned that paper, and `/paper/search/match` with a "
+        "title returned it exactly by title; an unregistered DOI, the PMID 999999999 and a title of "
+        "no paper returned none. Without a key Semantic Scholar answered many of these requests 429 "
+        "before answering, and the arXiv control was answered 429 on every try.")),
+    "springer": _lookup(established=_KEYED.format(name="Springer"), why_not=_KEYED_WHY.format(name="Springer")),
+    "zenodo": _lookup("doi", "title", syntax={"doi": 'doi:"{value}"', "title": 'title:"{value}"'},
+                      established=(
+        f"{LOOKUP_PROBED_ON}: `doi:\"10.5281/zenodo.17397357\"` returned that record and "
+        "`title:\"...\"` with its title the same record exactly by title; an unregistered DOI and "
+        "a title of no paper each returned none.")),
+}
+
+
 @dataclass(frozen=True)
 class RepoCatalogEntry:
     """Public, non-secret metadata for a single active repository."""
@@ -446,9 +615,16 @@ class RepoCatalogEntry:
     result_order_established: str
     entity_search: EntitySearch
     constraints: SourceConstraints
+    paper_lookup: PaperLookup
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        data = asdict(self)
+        # As the routes serve it: the syntax as a mapping from kind to syntax.
+        data["paper_lookup"]["syntax"] = dict(self.paper_lookup.syntax)
+        # Find a paper's own words for a source it does not ask; the catalog
+        # row states the check itself (``established``).
+        data["paper_lookup"].pop("why_not")
+        return data
 
 
 def _placeholder_for(requirement: ApiKeyRequirement) -> str:
@@ -533,6 +709,10 @@ def _entry(
         # than the publication date, which is a sentence worth one line to
         # somebody filtering by date and worth none to anybody else.
         constraints=constraints or _constraints(),
+        # Read when the entry is built, from the table below the catalog,
+        # where each source's answer is cited. A source absent from it fails
+        # ``test_every_entry_states_its_paper_lookup``.
+        paper_lookup=PAPER_LOOKUP.get(slug) or _lookup(),
     )
 
 
@@ -2026,3 +2206,8 @@ def constraints_for(slug: str) -> SourceConstraints | None:
         if e.slug == slug:
             return e.constraints
     return None
+
+
+def catalog_names() -> dict[str, str]:
+    """Each source's display name, by slug."""
+    return {entry.slug: entry.name for entry in REPOSITORY_CATALOG}

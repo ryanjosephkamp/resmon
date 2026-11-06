@@ -32,6 +32,8 @@ import {
 import { CountField } from '../../shell/CountField';
 import { useDraft } from '../../shell/drafts';
 import { useCollection } from '../../collections/current';
+import { LIBRARY, LIBRARY_KEY } from '../library/libraryApi';
+import { orWords } from '../fulltext/fullText';
 
 /** What the watch page and the list say after the editor leaves them. */
 export interface EditorSaid { said: string }
@@ -41,6 +43,9 @@ const FOLLOWS: readonly { follows: Follows; label: string }[] = [
   { follows: 'new_papers', label: 'A person: their new papers' },
   { follows: 'retractions', label: 'A person: retractions and corrections on their papers' },
 ];
+
+/** Who the PDFs switch never downloads from, until the engine's rules (`/api/full-text/rules`) say it. */
+const NEVER_FROM = ['NASA ADS', 'Springer', 'CORE', 'BMC', 'nature.com'];
 
 function errorWords(error: Error): string {
   return error instanceof EngineError && error.detail ? error.detail : error.message;
@@ -148,6 +153,9 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
     keepDraft({ basis, form, terms: terms.terms, termDraft: terms.draft, summaries });
   }, [keepDraft, basis, form, terms.terms, terms.draft, summaries]);
   const ai = useQuery({ queryKey: AI_KEY, queryFn: () => answer(engine().GET('/api/settings/ai')) });
+  // The limits the PDFs switch states, and whether the Library has a folder to put them in.
+  const rules = useQuery({ queryKey: ['full-text-rules'], staleTime: Infinity, queryFn: () => answer(engine().GET('/api/full-text/rules')) });
+  const library = useQuery({ queryKey: LIBRARY_KEY, queryFn: () => answer(engine().GET('/api/library', LIBRARY)) });
   const set = (patch: Partial<WatchForm>) => setForm((f) => ({ ...f, ...patch }));
   const setSchedule = (patch: Partial<ScheduleChoice>) => setForm((f) => ({ ...f, schedule: { ...f.schedule, ...patch } }));
   /** Whether the stored schedule is one the choices cannot state, so "As it is" is offered. */
@@ -404,6 +412,22 @@ function EditorForm({ existing, seed }: { existing: Routine | null; seed: WatchS
             <EditorSwitch label="Start watching when saved" on={form.start} name="is_active" onFlip={(start) => set({ start })} />
           )}
         </fieldset>
+
+        {form.follows !== 'retractions' && (
+          <fieldset className="choices editor-switches" data-editor="pdfs">
+            <legend className="field-title">PDFs</legend>
+            <EditorSwitch label="Get its new papers’ open-access PDFs" on={form.pdfs} name="download_full_text"
+              onFlip={(pdfs) => set({ pdfs })} />
+            <p className="form-hint">
+              After each run, resmon downloads into the Library the PDF of each new paper a source states an open license
+              for (Creative Commons, public domain, or arXiv’s own), never from{' '}
+              {orWords(rules.data?.refused_sources.map((source) => source.name) ?? NEVER_FROM)}. At most{' '}
+              {rules.data?.per_run_cap ?? 20} a run and {rules.data?.daily_cap ?? 100} in any 24 hours, one at a time from
+              each site. The run’s page says what it got, skipped, and why.
+              {!library.data?.vault && <> The Library needs its folder first: <Link to="/library">Library</Link>.</>}
+            </p>
+          </fieldset>
+        )}
 
         <fieldset className="choices editor-summaries" data-editor="summaries">
           <legend className="field-title">Summaries</legend>
@@ -682,6 +706,12 @@ function WillDo({ form, existing, picked, unknown, person, keyMissing, words, cr
           <h3>When a run finishes</h3>
           {!sends && <p>Nothing is sent. Its runs and reports are kept here.</p>}
           {form.notify && <p>A notification, if {systemName()} lets resmon post them. Clicking it opens the run.</p>}
+          {form.pdfs && form.follows !== 'retractions' && (
+            <p data-will="pdfs">
+              The open-access PDF of each new paper a source states an open license for goes into the Library, within the
+              limits under PDFs; the run’s page says what it got and skipped.
+            </p>
+          )}
           {form.email && !emailOff && (
             <p>
               An email with the report{form.attach ? ', and its results attached' : ''}, to{' '}

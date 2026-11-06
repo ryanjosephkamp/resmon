@@ -56,6 +56,29 @@ def _profile_query_name(profile) -> str:
     return str(profile or "").strip()
 
 
+def _lookup_capability(slug: str):
+    """The catalog's ``paper_lookup`` for *slug*, or None."""
+    if not slug:
+        return None
+    from .repo_catalog import PAPER_LOOKUP  # noqa: PLC0415
+
+    return PAPER_LOOKUP.get(slug)
+
+
+def lookup_value(value: str) -> str:
+    """A DOI, id or title made safe to put inside a quoted field: quotes and backslashes become spaces."""
+    return re.sub(r'\s+', " ", re.sub(r'["\\]', " ", str(value or ""))).strip()
+
+
+class LookupUnsupported(RuntimeError):
+    """This source cannot be asked for one paper by that kind of identifier.
+
+    An ordinary outcome: Find a paper asks a source only by a kind its
+    ``paper_lookup`` capability names, and records every other source as not
+    asked, with the reason.
+    """
+
+
 class EntityUnsupported(RuntimeError):
     """This source has no way to be asked about a person.
 
@@ -171,6 +194,13 @@ class NormalizedResult:
     publication_date: str | None
     url: str
     categories: list[str] = field(default_factory=list)
+    # Where this source says an open copy of the paper is
+    # (``open_access.OpenAccessLocation``), and the identifiers it sends that
+    # ``documents`` has no column for, as ``(scheme, value)``: ``arxiv``,
+    # ``pmcid``, ``pmid``. Empty for a source that says nothing, which is most
+    # of them; empty is "the source did not say", never "there is none".
+    open_access: list = field(default_factory=list)
+    identifiers: list = field(default_factory=list)
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "authors", as_authors(self.authors))
@@ -265,6 +295,36 @@ class BaseAPIClient(ABC):
         query = capability.author_syntax.format(name=name)
         note_author_query("query", query)
         return self.search(query, date_from, date_to, max_results, **kwargs)
+
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """Ask this source for one paper: by ``doi``, ``arxiv`` id, ``pmid`` or ``title``.
+
+        **The default asks through ``search()``** with the field syntax the
+        catalog's ``paper_lookup`` capability records for *kind*
+        (``repo_catalog.PAPER_LOOKUP``), as ``search_entity`` does for a
+        person, and raises ``LookupUnsupported`` where it records none. A
+        client whose source looks a paper up through its own endpoint (a
+        ``/works/{doi}``) overrides this.
+
+        What comes back is a list of candidates. Which of them, if any, is the
+        paper asked for is decided locally (``paper_find.best_match``): a
+        source's title search ranks by relevance, and a DOI field can match a
+        record that only cites it.
+        """
+        capability = _lookup_capability(self._own_slug())
+        syntax = capability.syntax_for(kind) if capability is not None else ""
+        if not syntax:
+            raise LookupUnsupported(f"{self.get_name()} cannot be asked for a paper by {kind}.")
+        return self.search(syntax.format(value=lookup_value(value)), max_results=max_results)
+
+    def _own_slug(self) -> str:
+        """This client's slug: its own class's registration, never a parent's (medRxiv is bioRxiv's)."""
+        from .api_registry import _REGISTRY  # noqa: PLC0415
+
+        for slug, cls in _REGISTRY.items():
+            if type(self) is cls:
+                return slug
+        return getattr(self, "_slug", "") or self._catalog_slug()
 
     def _catalog_slug(self) -> str:
         """This client's catalog slug, from the registry rather than a constant.
@@ -790,6 +850,24 @@ class SearchOutcome:
         if not already_in_history:
             self._remember_failure(self.last_detail)
 
+    def note_not_found(self) -> None:
+        """The call that just finished was a 404 for one record asked for by its identifier: an answer.
+
+        A lookup endpoint (Crossref's ``/works/{doi}``) says "no such record"
+        with HTTP 404, which ``safe_request`` recorded as a failure. For that
+        request it is the source answering that it holds nothing by that
+        identifier, so the failure is taken back and the search reads as
+        answered and empty. Only a client asking for one record calls this, and
+        only for a 404.
+        """
+        if self.last_call_failed and self.last_status == 404:
+            self.failures = max(0, self.failures - 1)
+            self.last_call_failed = False
+            self.last_status = None
+            self.last_detail = None
+            if self.failure_history and self.failure_history[-1] == "http_404":
+                self.failure_history.pop()
+
     def note_retried_failure(self, status_or_exc) -> None:
         """Record an attempt that failed and is about to be retried.
 
@@ -919,6 +997,11 @@ def note_entity_unsupported(why: str = "no_author_query") -> None:
     search_outcome().note_unanswerable_entity(why)
 
 
+def note_not_found() -> None:
+    """A 404 for one record asked for by its identifier is the source's answer (``SearchOutcome.note_not_found``)."""
+    search_outcome().note_not_found()
+
+
 def note_author_query(kind: str, value: str) -> None:
     """Record what this search's person query put into the request.
 
@@ -958,6 +1041,29 @@ def sent_params(*keys: str, url: str | None = None):
             if isinstance(source.get(key), (str, int, float)) and str(source[key]) != ""
         ]
         return " & ".join(parts) or None
+    return describe
+
+
+def path_after(prefix: str):
+    """A ``describe_request`` for a lookup that carries its identifier in the path: ``path /works/10.1/x``."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        base = request_url.split("?", 1)[0]
+        if not base.startswith(prefix.rstrip("/") + "/"):
+            return None
+        from urllib.parse import unquote, urlsplit  # noqa: PLC0415
+
+        return "path " + unquote(urlsplit(base).path)
+    return describe
+
+
+def either(*describers):
+    """The first of several ``describe_request`` functions that names the request."""
+    def describe(request_url: str, params: Mapping | None, body: Mapping | None) -> str | None:
+        for describer in describers:
+            text = describer(request_url, params, body)
+            if text:
+                return text
+        return None
     return describe
 
 

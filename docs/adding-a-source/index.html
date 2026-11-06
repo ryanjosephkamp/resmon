@@ -311,6 +311,28 @@ affiliation from it.</p>
 <p><strong><code>unknown</code> is a real answer.</strong> A source whose key this machine does not hold, or whose
 endpoint is down, gets <code>unknown</code> and a sentence saying which. An entry is <code>unknown</code> only
 for those two reasons.</p>
+<h3 id="paper_lookup--what-the-source-can-be-asked-for-one-paper"><code>paper_lookup</code> — what the source can be asked for one paper</h3>
+<p><strong>Required, like <code>entity_search</code>: a source without an entry in <code>repo_catalog.PAPER_LOOKUP</code>
+fails the suite.</strong> Find a paper asks a source only by the kinds this names (<code>doi</code>, <code>arxiv</code>,
+<code>pmid</code>, <code>title</code>). A kind with a field syntax (<code>{"doi": 'DOI:"{value}"'}</code>) is asked through
+<code>search()</code> with the syntax filled in, so the same rule holds as for an author: a client that
+rewrites its query string loses the field. A kind with no syntax is asked through the client’s
+own <code>lookup()</code>, for a source with a record endpoint (<code>/works/{doi}</code>); a 404 there is the
+source’s answer, recorded with <code>note_not_found()</code>, not a failure.</p>
+<p>Establish it with <code>verification_scripts/probe_paper_lookup.py</code>: a real paper in the source’s
+coverage must be found by that kind, and an identifier or title that does not exist must find
+nothing. What came back goes in <code>established=</code>, dated. Where it could not be checked (no key,
+or the endpoint was down), the source is asked by nothing and the entry says why. Add the
+source’s request and an authored reply in its shape to <code>test_paper_find.py</code>’s <code>CASES</code>.</p>
+<h3 id="open-copies-and-identifiers">Open copies and identifiers</h3>
+<p>If the source’s record says where an open copy of the paper is, or names an identifier the
+documents table has no column for (an arXiv id, a PMCID, or a PMID), put it on the result:
+<code>open_access=[open_access.location(...)]</code> with the license <strong>the record states for that
+copy</strong>, never one inferred, and <code>identifiers=[("arxiv", "...")]</code>. A copy with no stated
+license is still recorded; it is just never downloaded. Do not record a link the source’s terms
+keep from being downloaded or stored (a text-mining link, a key-gated full-text URL); and
+where a source’s own links may not be downloaded at all, add it to
+<code>open_access.REFUSED_REPORTERS</code> (and its hosts to <code>REFUSED_HOSTS</code>) with the reason.</p>
 <h2 id="retiring-a-source">Retiring a source</h2>
 <p>Removing a module from <code>_CLIENT_MODULES</code> does <strong>not</strong> retire a source.</p>
 <p>Every <code>api_*.py</code> calls <code>register_client()</code> at import scope, so anything that imports the

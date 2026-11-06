@@ -246,6 +246,33 @@ affiliation from it.
 endpoint is down, gets `unknown` and a sentence saying which. An entry is `unknown` only
 for those two reasons.
 
+### `paper_lookup` — what the source can be asked for one paper
+
+**Required, like `entity_search`: a source without an entry in `repo_catalog.PAPER_LOOKUP`
+fails the suite.** Find a paper asks a source only by the kinds this names (`doi`, `arxiv`,
+`pmid`, `title`). A kind with a field syntax (`{"doi": 'DOI:"{value}"'}`) is asked through
+`search()` with the syntax filled in, so the same rule holds as for an author: a client that
+rewrites its query string loses the field. A kind with no syntax is asked through the client's
+own `lookup()`, for a source with a record endpoint (`/works/{doi}`); a 404 there is the
+source's answer, recorded with `note_not_found()`, not a failure.
+
+Establish it with `verification_scripts/probe_paper_lookup.py`: a real paper in the source's
+coverage must be found by that kind, and an identifier or title that does not exist must find
+nothing. What came back goes in `established=`, dated. Where it could not be checked (no key,
+or the endpoint was down), the source is asked by nothing and the entry says why. Add the
+source's request and an authored reply in its shape to `test_paper_find.py`'s `CASES`.
+
+### Open copies and identifiers
+
+If the source's record says where an open copy of the paper is, or names an identifier the
+documents table has no column for (an arXiv id, a PMCID, or a PMID), put it on the result:
+`open_access=[open_access.location(...)]` with the license **the record states for that
+copy**, never one inferred, and `identifiers=[("arxiv", "...")]`. A copy with no stated
+license is still recorded; it is just never downloaded. Do not record a link the source's terms
+keep from being downloaded or stored (a text-mining link, a key-gated full-text URL); and
+where a source's own links may not be downloaded at all, add it to
+`open_access.REFUSED_REPORTERS` (and its hosts to `REFUSED_HOSTS`) with the reason.
+
 ## Retiring a source
 
 Removing a module from `_CLIENT_MODULES` does **not** retire a source.

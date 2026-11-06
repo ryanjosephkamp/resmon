@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { Ask } from './screens/ask/Ask';
 import { Collection } from './screens/collection/Collection';
+import { FindPaper } from './screens/collection/FindPaper';
 import { Analytics } from './screens/health/Analytics';
 import { Engine } from './screens/health/Engine';
 import { SourceWall } from './screens/health/SourceWall';
@@ -68,6 +69,7 @@ export const SETTINGS: Section = {
  */
 export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/search/ask', element: <Search /> },
+  { path: '/search/find', element: <FindPaper /> },
   { path: '/search/saved', element: <Saved /> },
   { path: '/search/wording', element: <SharedWording /> },
   { path: '/settings/:group', element: <Settings /> },
@@ -94,6 +96,7 @@ export const PLACES: readonly Omit<Section, 'element'>[] = [
     path: '/settings/top-bar', label: 'Arrange the top bar',
     keywords: 'tabs sections order reorder move hide show start page launch opens home lockup resmon name run monitor',
   },
+  { path: '/search/find', label: 'Find a paper', keywords: 'doi arxiv pmid title look up one paper pdf open access full text download' },
 ];
 
 export const HOME = '/today';

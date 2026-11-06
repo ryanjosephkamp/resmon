@@ -1192,6 +1192,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/{doc_id}/full-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Get The Pdf
+         * @description Get the PDF: ask for this paper's open-access PDF into the Library.
+         *
+         *     Recorded before anything is fetched. A request that cannot go ahead (no
+         *     open copy with a stated license, a refused source, no Library folder, the
+         *     day's cap) comes back ``skipped`` with its reason and sends nothing.
+         */
+        post: operations["get_the_pdf_api_documents__doc_id__full_text_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{doc_id}/lifecycle": {
         parameters: {
             query?: never;
@@ -1677,7 +1701,7 @@ export interface paths {
          * @description The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
          *
          *     ``type`` and ``status`` each take one value or several, comma-separated
-         *     (``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``
+         *     (``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``
          *     matches a run's terms, its sources, its watch's or saved search's name,
          *     or its number. ``omit_events`` leaves each row's stored
          *     ``progress_events`` out (null): the Runs tab lists runs and reads a run's
@@ -1980,6 +2004,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/executions/{exec_id}/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Result
+         * @description A find's question and what each source it named said: found or not, how it matched, what differs, its open copy.
+         */
+        get: operations["find_result_api_executions__exec_id__find_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/executions/{exec_id}/full-text": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Run Full Text
+         * @description Every PDF a run asked for (a watch with its opt-in on), and what came of each.
+         */
+        get: operations["run_full_text_api_executions__exec_id__full_text_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/executions/{exec_id}/log": {
         parameters: {
             query?: never;
@@ -2235,6 +2299,91 @@ export interface paths {
          *     allocated once for the complete file. This never merges corpus records.
          */
         post: operations["export_selected_references_api_export_references_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/find": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Find A Paper
+         * @description Find a paper across the sources that can look it up: a run, or queued like one (202).
+         *
+         *     Each source is asked by the kind it can be asked by; the copy that is the
+         *     paper is kept in the collection, every source's answer is recorded
+         *     (``GET /api/executions/{id}/find``), and the copies that share a DOI are
+         *     linked. A query no named source can look up is refused (400) with why.
+         */
+        post: operations["find_a_paper_api_find_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/find/plan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find Plan
+         * @description What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask.
+         */
+        get: operations["find_plan_api_find_plan_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/full-text/for-documents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Full Text For Documents
+         * @description For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF.
+         */
+        post: operations["full_text_for_documents_api_full_text_for_documents_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/full-text/rules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Full Text Rules
+         * @description The limits on downloads, the license rule, and the sources and sites never downloaded from.
+         */
+        get: operations["full_text_rules_api_full_text_rules_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -6901,14 +7050,6 @@ export interface components {
             /** Ids */
             ids: number[];
         };
-        /** DocumentIdsBody */
-        DocumentIdsBody: {
-            /**
-             * Document Ids
-             * @default []
-             */
-            document_ids: number[];
-        };
         /**
          * DriveUploadNoticeAcknowledged
          * @description ``POST /api/backup/drive-upload-notice/acknowledge``: the notice that the upload to Google Drive is gone, dismissed.
@@ -7845,6 +7986,164 @@ export interface components {
             [key: string]: unknown;
         };
         /**
+         * FindDifference
+         * @description One field where a copy differs from the reference copy: ``title``, ``year``,
+         *     ``doi``, ``first_author`` or ``author_count``.
+         */
+        FindDifference: {
+            /** Field */
+            field: string;
+            /** Reference */
+            reference: unknown;
+            /** This */
+            this: unknown;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindOpenCopy
+         * @description The open copy of a found record resmon would get, or the first one a source named.
+         *
+         *     ``downloadable`` is resmon's rule (a stated open license, never NASA ADS,
+         *     Springer or CORE). ``license_to_be_read`` is an arXiv copy whose license
+         *     is read from arXiv when its PDF is asked for.
+         */
+        FindOpenCopy: {
+            /** Downloadable */
+            downloadable: boolean;
+            /** Host */
+            host: string | null;
+            /** License */
+            license: string | null;
+            /** License To Be Read */
+            license_to_be_read: boolean;
+            /** License Words */
+            license_words: string | null;
+            /** Pdf Url */
+            pdf_url: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindPlan
+         * @description ``GET /api/find/plan``: what a typed query reads as, and which sources it would ask.
+         *
+         *     ``kind`` is ``doi``, ``arxiv``, ``pmid`` or ``title``; ``value`` is the
+         *     identifier as resmon will send it (a DOI lowercased, an arXiv id without
+         *     its version). ``asked`` keeps the order the sources were named in.
+         */
+        FindPlan: {
+            /** Asked */
+            asked: string[];
+            /** Kind */
+            kind: string;
+            /** Not Asked */
+            not_asked: components["schemas"]["FindPlanSource"][];
+            /** Typed */
+            typed: string;
+            /** Value */
+            value: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindPlanSource
+         * @description One source a find would not ask, and why, in a sentence.
+         */
+        FindPlanSource: {
+            /** Source */
+            source: string;
+            /** Why */
+            why: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FindQuery */
+        FindQuery: {
+            /** Kind */
+            kind: string | null;
+            /** Typed */
+            typed: string | null;
+            /** Value */
+            value: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindRequest
+         * @description Find a paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once.
+         */
+        FindRequest: {
+            /** Collection */
+            collection?: number | string | null;
+            /** Query */
+            query: string;
+            /** Repositories */
+            repositories?: string[] | null;
+            /** Request Id */
+            request_id?: string | null;
+        };
+        /**
+         * FindResult
+         * @description ``GET /api/executions/{exec_id}/find``: a find's question and every source's answer.
+         *
+         *     Empty ``sources`` while the run is going: each row is written when every
+         *     source has answered. ``counts`` totals the outcomes.
+         */
+        FindResult: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Execution Id */
+            execution_id: number;
+            query: components["schemas"]["FindQuery"];
+            /** Reference Document Id */
+            reference_document_id: number | null;
+            /** Sources */
+            sources: components["schemas"]["FindSourceResult"][];
+            /** Status */
+            status: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FindSourceResult
+         * @description What one source said to a find.
+         *
+         *     ``outcome`` is ``found``, ``not_found`` (it answered, and no record was the
+         *     paper), ``did_not_answer``, or ``not_asked`` (with ``why_not_asked``).
+         *     ``matched_by`` says how the copy kept was matched: ``doi``, ``arxiv``,
+         *     ``pmid``, ``exact_title`` or ``close_title``, with ``title_similarity``
+         *     for a title. ``candidates`` is how many records the source returned.
+         *     ``reference`` marks the copy the others are compared with.
+         */
+        FindSourceResult: {
+            /** Candidates */
+            candidates: number | null;
+            /** Differences */
+            differences: components["schemas"]["FindDifference"][];
+            /** Document Id */
+            document_id: number | null;
+            /** Matched By */
+            matched_by: string | null;
+            /** Name */
+            name: string;
+            open_copy: components["schemas"]["FindOpenCopy"] | null;
+            /** Outcome */
+            outcome: string;
+            /** Reference */
+            reference: boolean;
+            /** Source */
+            source: string;
+            /** Title Similarity */
+            title_similarity: number | null;
+            /** Why Not Asked */
+            why_not_asked: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * ForeignKeyViolation
          * @description One reference ``PRAGMA foreign_key_check`` found to a parent row that is not there.
          *
@@ -7861,6 +8160,170 @@ export interface components {
             rowid: number | null;
             /** Table */
             table: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextCopy
+         * @description One open copy a source reported, as stored.
+         */
+        FullTextCopy: {
+            /** Host */
+            host: string | null;
+            /** Landing Url */
+            landing_url: string | null;
+            /** License */
+            license: string | null;
+            /** License Basis */
+            license_basis: string | null;
+            /** License To Be Read */
+            license_to_be_read: boolean;
+            /** License Words */
+            license_words: string | null;
+            /** Pdf Url */
+            pdf_url: string | null;
+            /** Reported By */
+            reported_by: string;
+            /** Version */
+            version: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FullTextLibraryFile */
+        FullTextLibraryFile: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Id */
+            file_id: string;
+            /** Vault Id */
+            vault_id: string;
+            /** Version Id */
+            version_id: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** FullTextLicense */
+        FullTextLicense: {
+            /** License */
+            license: string;
+            /** Words */
+            words: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRefusedSource
+         * @description A provider resmon never downloads from: a source it asks, or a site other sources link to.
+         */
+        FullTextRefusedSource: {
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /** Why */
+            why: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRequest
+         * @description One PDF asked for, and what came of it.
+         *
+         *     ``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with
+         *     the ``reason`` no request was sent) or ``failed`` (with why). ``words`` is
+         *     the reason in a sentence. A stored request carries the Library ``file_id``,
+         *     ``final_url`` (where the PDF came from after every redirect), its
+         *     ``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null
+         *     only for the answer that the Library already holds the paper's PDF, which
+         *     records nothing new. ``file_held``, on a run's list only, says for a stored
+         *     request whether the Library holds its file still: false once it was removed.
+         */
+        FullTextRequest: {
+            /** Byte Size */
+            byte_size: number | null;
+            /** Document Id */
+            document_id: number;
+            /** Execution Id */
+            execution_id: number | null;
+            /** File Held */
+            file_held?: boolean | null;
+            /** File Id */
+            file_id: string | null;
+            /** Final Url */
+            final_url: string | null;
+            /** Finished At Utc */
+            finished_at_utc: string | null;
+            /** Host */
+            host: string | null;
+            /** Id */
+            id: number | null;
+            /** License */
+            license: string | null;
+            /** License Words */
+            license_words: string | null;
+            /** Reason */
+            reason: string | null;
+            /** Reported By */
+            reported_by: string | null;
+            /** Requested At Utc */
+            requested_at_utc: string;
+            /** Requested By */
+            requested_by: string;
+            /** State */
+            state: string;
+            /** Url */
+            url: string | null;
+            /** Version */
+            version: string | null;
+            /** Words */
+            words: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextRules
+         * @description ``GET /api/full-text/rules``: the limits and the license rule, as Settings states them.
+         */
+        FullTextRules: {
+            /** Daily Cap */
+            daily_cap: number;
+            /** Host Interval Seconds */
+            host_interval_seconds: number;
+            /** Https Only */
+            https_only: boolean;
+            /** Max Bytes */
+            max_bytes: number;
+            /** One At A Time Per Host */
+            one_at_a_time_per_host: boolean;
+            /** Open Licenses */
+            open_licenses: components["schemas"]["FullTextLicense"][];
+            /** Per Run Cap */
+            per_run_cap: number;
+            /** Refused Sources */
+            refused_sources: components["schemas"]["FullTextRefusedSource"][];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * FullTextStatus
+         * @description A paper's full text: its open copies (its own and its stored copies'), the
+         *     one resmon would get, why there is none to get, its latest request, and the
+         *     PDF the Library holds for it.
+         */
+        FullTextStatus: {
+            best: components["schemas"]["FullTextCopy"] | null;
+            /** Copies */
+            copies: components["schemas"]["FullTextCopy"][];
+            /** Document Id */
+            document_id: number;
+            download: components["schemas"]["FullTextRequest"] | null;
+            /** Downloadable */
+            downloadable: boolean;
+            in_library: components["schemas"]["FullTextLibraryFile"] | null;
+            /** Why Not */
+            why_not: string | null;
+            /** Why Not Words */
+            why_not_words: string | null;
         } & {
             [key: string]: unknown;
         };
@@ -9771,6 +10234,7 @@ export interface components {
             name: string;
             /** Notes */
             notes: string;
+            paper_lookup: components["schemas"]["RepositoryPaperLookup"];
             /** Parallel Safe */
             parallel_safe: string;
             /** Placeholder */
@@ -9877,6 +10341,29 @@ export interface components {
             repo_keys_removed: number;
             /** Success */
             success: boolean;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RepositoryPaperLookup
+         * @description Whether a source can be asked for one paper (Find a paper), and by what.
+         *
+         *     ``kinds`` are the queries it can be asked by: ``doi``, ``arxiv``, ``pmid``,
+         *     ``title``. ``syntax`` maps a kind to the field syntax put into the
+         *     source's ordinary search (``{value}`` where the query goes); a kind with no
+         *     syntax is asked through the client's own lookup endpoint. ``established``
+         *     is the dated observation behind the row, or why the source is asked by
+         *     nothing.
+         */
+        RepositoryPaperLookup: {
+            /** Established */
+            established: string;
+            /** Kinds */
+            kinds: string[];
+            /** Syntax */
+            syntax: {
+                [key: string]: string;
+            };
         } & {
             [key: string]: unknown;
         };
@@ -10204,6 +10691,8 @@ export interface components {
             /** Created At */
             created_at: string;
             date_window_next?: components["schemas"]["DateWindowComputed"] | null;
+            /** Download Full Text */
+            download_full_text: boolean;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled: boolean;
             /** Email Enabled */
@@ -10318,6 +10807,11 @@ export interface components {
             } | null;
             /** Collection */
             collection?: number | string | null;
+            /**
+             * Download Full Text
+             * @default false
+             */
+            download_full_text: boolean;
             /**
              * Email Ai Summary Enabled
              * @default false
@@ -10528,6 +11022,8 @@ export interface components {
             collection_id: number | null;
             /** Created At */
             created_at: string;
+            /** Download Full Text */
+            download_full_text: number;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled: number;
             /** Email Enabled */
@@ -10602,6 +11098,8 @@ export interface components {
             } | null;
             /** Collection */
             collection?: number | string | null;
+            /** Download Full Text */
+            download_full_text?: boolean | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: boolean | null;
             /** Email Enabled */
@@ -10639,6 +11137,8 @@ export interface components {
             ai_settings?: string | null;
             /** Collection Id */
             collection_id?: number | null;
+            /** Download Full Text */
+            download_full_text?: number | null;
             /** Email Ai Summary Enabled */
             email_ai_summary_enabled?: number | null;
             /** Email Enabled */
@@ -10952,6 +11452,24 @@ export interface components {
         RunDocumentIds: {
             /** Ids */
             ids: number[];
+        } & {
+            [key: string]: unknown;
+        };
+        /**
+         * RunFullText
+         * @description ``GET /api/executions/{exec_id}/full-text``: every PDF a run asked for, and the counts.
+         */
+        RunFullText: {
+            /** Counts */
+            counts: {
+                [key: string]: number;
+            };
+            /** Execution Id */
+            execution_id: number;
+            /** Per Run Cap */
+            per_run_cap: number;
+            /** Requests */
+            requests: components["schemas"]["FullTextRequest"][];
         } & {
             [key: string]: unknown;
         };
@@ -13575,6 +14093,19 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
+        /** DocumentIdsBody */
+        resmon__DocumentIdsBody__1: {
+            /** Document Ids */
+            document_ids: number[];
+        };
+        /** DocumentIdsBody */
+        resmon__DocumentIdsBody__2: {
+            /**
+             * Document Ids
+             * @default []
+             */
+            document_ids: number[];
+        };
     };
     responses: never;
     parameters: never;
@@ -15595,6 +16126,37 @@ export interface operations {
             };
         };
     };
+    get_the_pdf_api_documents__doc_id__full_text_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                doc_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextRequest"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     document_lifecycle_api_documents__doc_id__lifecycle_get: {
         parameters: {
             query?: never;
@@ -16844,6 +17406,68 @@ export interface operations {
             };
         };
     };
+    find_result_api_executions__exec_id__find_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    run_full_text_api_executions__exec_id__full_text_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                exec_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunFullText"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_execution_log_api_executions__exec_id__log_get: {
         parameters: {
             query?: never;
@@ -17203,6 +17827,124 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    find_a_paper_api_find_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FindRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunStarted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    find_plan_api_find_plan_get: {
+        parameters: {
+            query: {
+                q: string;
+                repositories?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FindPlan"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    full_text_for_documents_api_full_text_for_documents_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__1"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextStatus"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    full_text_rules_api_full_text_rules_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FullTextRules"];
                 };
             };
         };
@@ -18088,7 +18830,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DocumentIdsBody"];
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__2"];
             };
         };
         responses: {
@@ -18121,7 +18863,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["DocumentIdsBody"];
+                "application/json": components["schemas"]["resmon__DocumentIdsBody__2"];
             };
         };
         responses: {

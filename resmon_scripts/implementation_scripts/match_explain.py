@@ -18,9 +18,10 @@ The honesty problem, and why it is the feature
 resmon cannot know why an upstream source returned a paper. Most of the fifteen
 sources are relevance-ranked -- their backends score documents against the query
 and return the best matches, so a paper can legitimately come back without
-containing any of the terms literally. resmon also stores only title, abstract,
-authors and categories: the match may be in the full text, in publisher
-keywords, or in a MeSH term, none of which it holds.
+containing any of the terms literally. resmon also checks keywords only against
+title, abstract, authors, and categories: the match may be in the full text (even
+of a PDF it keeps), in publisher keywords, or in a MeSH term, none of which it
+reads for a match.
 
 So this module never claims to explain the upstream's decision. It reports what
 is **locally verifiable** and states plainly where its knowledge stops, using
@@ -148,6 +149,10 @@ def keywords_for_execution(execution: dict) -> list[str]:
             raw = None
     if not isinstance(raw, dict):
         return []
+    # A find looked one paper up by its DOI, id or title: what was typed is an
+    # identifier, not keywords, and checking a paper for it says nothing.
+    if raw.get("find"):
+        return []
 
     keywords = raw.get("keywords")
     if isinstance(keywords, list):
@@ -190,10 +195,10 @@ def _limits(source: dict | None, slug: str) -> list[str]:
     reasoning, and the difference matters to anyone defending a search strategy.
     """
     limits = [
-        "resmon stores each paper's title, abstract, authors and categories — "
-        "not its full text. A keyword could appear in the body of the paper, in "
-        "publisher-supplied keywords, or in an indexing term such as MeSH, and "
-        "resmon would have no way to see it.",
+        "resmon checks keywords against each paper's title, abstract, authors, and "
+        "categories, never its full text, even when it keeps the PDF. A keyword could "
+        "appear in the body of the paper, in publisher-supplied keywords, or in an "
+        "indexing term such as MeSH, and resmon would not see it there.",
     ]
     combination = (source or {}).get("keyword_combination") or ""
     notes = (source or {}).get("keyword_combination_notes") or ""
@@ -306,6 +311,16 @@ def explain_document(
 
     matched = [m for m in matches if m["matched"]]
     verdict, headline = _verdict(slug, source, matches, matched)
+    finds = [run for run in runs if run["execution_type"] == "find_paper"]
+    if finds and not matches:
+        how = conn.execute(
+            "SELECT matched_by FROM execution_find_results WHERE document_id = ? AND outcome = 'found' "
+            "ORDER BY execution_id DESC LIMIT 1", (int(document_id),)).fetchone()
+        verdict = "found_by_find"
+        headline = (
+            f"Find a paper looked it up, and {(source or {}).get('name') or slug} answered with this "
+            f"record{_FIND_MATCH_WORDS.get(how[0] if how else '', '')}. A find is not a keyword search, so "
+            "there are no keywords to check it against.")
 
     return {
         "document": {
@@ -343,6 +358,16 @@ def _describe_fields(fields: list[str]) -> str:
     if len(labels) == 2:
         return f"{labels[0]} and {labels[1]}"
     return ", ".join(labels[:-1]) + ", and " + labels[-1]
+
+
+#: How a find matched the record it kept, as the paper's account says it.
+_FIND_MATCH_WORDS = {
+    "doi": ", which carries the DOI asked for",
+    "arxiv": ", which carries the arXiv id asked for",
+    "pmid": ", which carries the PMID asked for",
+    "exact_title": ", whose title is the title asked for",
+    "close_title": ", whose title is close to the title asked for",
+}
 
 
 def _verdict(

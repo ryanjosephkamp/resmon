@@ -241,7 +241,7 @@ describe('the Runs tab\'s history', () => {
 
   test('asks the engine for searches, watches\' runs, or failed runs', () => {
     expect(filterQuery('all')).toEqual({});
-    expect(filterQuery('searches')).toEqual({ type: 'deep_dive,deep_sweep' });
+    expect(filterQuery('searches')).toEqual({ type: 'deep_dive,deep_sweep,find_paper' });
     expect(filterQuery('watches')).toEqual({ type: 'automated_sweep' });
     expect(filterQuery('failed')).toEqual({ status: 'failed' });
   });

@@ -25,6 +25,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -766,7 +767,9 @@ def test_no_askable_client_rewrites_the_query_it_is_handed():
             # rather than in a query string, and a recorder that read only
             # `params` would have reported it as dropping the syntax.
             payload = {**(kwargs.get("params") or {}), **(kwargs.get("json") or {})}
-            seen.append(str(url))
+            # Decoded: DOAJ percent-encodes its one path segment so a DOI's
+            # slash stays inside it, and what reaches DOAJ is the decoded text.
+            seen.append(unquote(str(url)))
             seen.extend(str(v) for v in payload.values())
             return _Recorded()
 

@@ -37,6 +37,7 @@ from implementation_scripts import api_auth, runtime_identity, library, library_
 from implementation_scripts import library_folder, library_removal, library_thumbs
 from implementation_scripts import selected_evidence, selected_evidence_runtime, selected_evidence_export
 from implementation_scripts import delivery, upgrade_copy
+from implementation_scripts import full_text, paper_find
 from implementation_scripts.config import (
     APP_NAME, APP_VERSION, DEFAULT_DB_PATH, PORT_FILE, REPORTS_DIR,
 )
@@ -156,6 +157,28 @@ def _ensure_clients_loaded_on_startup() -> None:
         logging.getLogger(__name__).exception("Could not load the source clients at startup")
 
 
+def _recover_library_on_startup(started_at: float) -> None:
+    """Remove an import lock, and its unpublished bytes, that an import a stopped engine was in left behind."""
+    try:
+        library.recover_stale_import_lock(_get_db(), started_at)
+    except Exception:
+        logging.getLogger(__name__).exception("Could not check the Library's import lock at startup")
+
+
+def _init_full_text_on_startup() -> None:
+    """Give the PDF worker its connections, record downloads a stopped engine left as interrupted,
+    remove the staging folders it left, and start the worker if requests are waiting from before."""
+    try:
+        full_text.worker.configure(_open_connection)
+        conn = _get_db()
+        full_text.adopt_interrupted(conn)
+        full_text.clear_stale_staging()
+        if conn.execute("SELECT 1 FROM full_text_downloads WHERE state = 'waiting' LIMIT 1").fetchone():
+            full_text.worker.wake()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not start the PDF worker at startup")
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
     """Startup/shutdown hooks.
@@ -166,6 +189,9 @@ async def _lifespan(_app: FastAPI):
     reads routines and therefore needs the database ready). The handlers stay as
     ordinary module-level functions so tests can still call them directly.
     """
+    # This engine's start: a Library lock that names no owner and is older than
+    # it was left by an import that stopped (``_recover_library_on_startup``).
+    started_at = time.time()
     # First, before anything opens the database: a staged restore replaces the
     # file every later hook is about to read.
     _apply_pending_restore_on_startup()
@@ -181,11 +207,15 @@ async def _lifespan(_app: FastAPI):
     # After the scheduler, because a routine that fires the moment it starts
     # should find a drain already running rather than wait for the idle poll.
     _init_delivery_on_startup()
+    # Before the PDF worker, which imports into the Library.
+    _recover_library_on_startup(started_at)
+    _init_full_text_on_startup()
     _selected_startup()
     try:
         yield
     finally:
         _selected_shutdown()
+        full_text.worker.shutdown()
         _shutdown_delivery()
         _shutdown_scheduler()
 
@@ -416,6 +446,21 @@ class DiveRequest(BaseModel):
     # collection it was started from. Absent, the default collection.
     collection: CollectionRef = None
 
+class FindRequest(BaseModel):
+    """Find a paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once."""
+
+    query: str
+    # The sources to ask. Absent, every source that can look up this kind.
+    repositories: Optional[list[str]] = None
+    request_id: Optional[str] = None
+    # The collection the paper lands in, by id or name. Absent, the default one.
+    collection: CollectionRef = None
+
+
+class DocumentIdsBody(BaseModel):
+    document_ids: list[int]
+
+
 class SweepRequest(BaseModel):
     repositories: list[str]
     query: str
@@ -489,6 +534,9 @@ class RoutineCreate(BaseModel):
     notify_on_complete: bool = False
     # Where the watch's papers land, by id or name. Absent, the default collection.
     collection: CollectionRef = None
+    # Whether each run gets its new papers' open-access PDFs into the Library
+    # (``full_text.for_watch_run``). Off unless asked for.
+    download_full_text: bool = False
 
 class RoutineUpdate(BaseModel):
     name: Optional[str] = None
@@ -505,6 +553,7 @@ class RoutineUpdate(BaseModel):
     # Point the watch's later runs at another collection, by id or name. Papers
     # its earlier runs filed stay where they are.
     collection: CollectionRef = None
+    download_full_text: Optional[bool] = None
 
 class ConfigCreate(BaseModel):
     name: str
@@ -1022,14 +1071,15 @@ def _should_dispatch_desktop_notification(
     Mirrors the in-renderer logic in
     ``ExecutionContext.maybeNotifyCompletion``:
 
-    * Manual runs (``deep_dive`` / ``deep_sweep``) honor ``notify_manual``.
+    * Manual runs (``deep_dive`` / ``deep_sweep``, and ``find_paper``, Find a
+      paper) honor ``notify_manual``.
     * Automated runs (``automated_sweep``) honor the per-routine
       ``notify_on_complete`` flag first; otherwise fall back to the
       global ``notify_automatic_mode`` (``all`` fires for every routine,
       ``none`` and ``selected`` suppress when the per-routine flag is
       false).
     """
-    if execution_type in ("deep_dive", "deep_sweep"):
+    if execution_type in ("deep_dive", "deep_sweep", "find_paper"):
         return bool(notify_manual)
     if execution_type == "automated_sweep":
         if routine_notify_on_complete:
@@ -1125,6 +1175,8 @@ def _desktop_notification_words(
     renderer's names for them made every notification say "0 results (0
     new)". A count the row does not hold is said to be unrecorded, never
     printed as zero: a quiet run and an unmeasured one must not read the same.
+    A finished find says instead how many of the sources it asked hold the
+    paper (``paper_find.notice_words``).
     """
     execution_type = str(execution_row.get("execution_type") or "").strip()
     if routine_name:
@@ -1134,6 +1186,7 @@ def _desktop_notification_words(
             "deep_dive": "Deep Dive",
             "deep_sweep": "Deep Sweep",
             "automated_sweep": "Watch run",
+            "find_paper": "Find a paper",
         }.get(execution_type, "Run")
 
     try:
@@ -1157,6 +1210,16 @@ def _desktop_notification_words(
     title = f"resmon: {subject} {verb}"
     if status != "completed":
         return title, _sentence(coverage_phrase)
+    if execution_type == "find_paper":
+        # A find says whether the sources hold the paper, as its page does,
+        # rather than how many new papers it stored.
+        try:
+            found_words = paper_find.notice_words(conn, int(execution_row["id"]))
+        except Exception:
+            logging.getLogger(__name__).debug("A find's answers could not be read", exc_info=True)
+            found_words = None
+        if found_words:
+            return title, found_words
     total = execution_row.get("result_count")
     new = execution_row.get("new_result_count")
 
@@ -1200,7 +1263,7 @@ def _dispatch_desktop_notification(conn, execution_row: dict) -> None:
         return
 
     execution_type = str(execution_row.get("execution_type") or "").strip()
-    if execution_type not in ("deep_dive", "deep_sweep", "automated_sweep"):
+    if execution_type not in ("deep_dive", "deep_sweep", "find_paper", "automated_sweep"):
         return
 
     raw = _get_settings_group(conn, "notifications")
@@ -1416,6 +1479,25 @@ def _launch_execution(
             except Exception:
                 logging.getLogger(__name__).exception(
                     "Routine delivery hook raised for exec_id=%s", exec_id,
+                )
+            # A watch with its opt-in on: its new papers' open-access PDFs,
+            # asked for now, up to the run's cap. Only asks; the worker
+            # fetches, on its own threads, and nothing here waits for it.
+            try:
+                row = get_execution_by_id(conn, exec_id)
+                if (
+                    row
+                    and row.get("execution_type") == "automated_sweep"
+                    and row.get("status") == "completed"
+                    and row.get("routine_id")
+                ):
+                    routine = get_routine_by_id(conn, row["routine_id"])
+                    if routine and routine.get("download_full_text"):
+                        full_text.worker.configure(_open_connection)
+                        full_text.for_watch_run(conn, exec_id)
+            except Exception:
+                logging.getLogger(__name__).exception(
+                    "Full-text hook raised for exec_id=%s", exec_id,
                 )
             # Desktop notification dispatch.
             # Fires from the backend so notifications work even under the
@@ -1713,6 +1795,134 @@ def search_sweep(body: SweepRequest, response: Response):
 
 
 # ---------------------------------------------------------------------------
+# Find a paper (F2)
+# ---------------------------------------------------------------------------
+
+
+def _find_plan(query: str, repositories: Optional[list[str]]) -> tuple[paper_find.PaperQuery, list[str], list[dict]]:
+    """The find asked for: every source in the catalog accounted for, asked or not, and why not.
+
+    *repositories*, when given, are the sources to ask; one that could have
+    been asked and was not named is recorded as left out of this find.
+    """
+    try:
+        parsed = paper_find.parse(query)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from None
+    every = [entry["slug"] for entry in catalog_as_dicts()]
+    named = list(repositories) if repositories else every
+    asked, not_asked = paper_find.plan(parsed, list(dict.fromkeys(named + every)))
+    if repositories:
+        left = [slug for slug in asked if slug not in named]
+        asked = [slug for slug in asked if slug in named]
+        not_asked = [{"source": slug, "why": "Left out of this find."} for slug in left] + not_asked
+    return parsed, asked, not_asked
+
+
+@app.get("/api/find/plan", response_model=response_models.FindPlan,
+         response_model_exclude_unset=True)
+def find_plan(q: str = Query(..., max_length=500), repositories: Optional[str] = None):
+    """What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask."""
+    named = [s for s in (repositories or "").split(",") if s] or None
+    parsed, asked, not_asked = _find_plan(q, named)
+    return {**parsed.as_params(), "asked": asked, "not_asked": not_asked}
+
+
+@app.post("/api/find", response_model=response_models.RunStarted, response_model_exclude_unset=True)
+def find_a_paper(body: FindRequest, response: Response):
+    """Find a paper across the sources that can look it up: a run, or queued like one (202).
+
+    Each source is asked by the kind it can be asked by; the copy that is the
+    paper is kept in the collection, every source's answer is recorded
+    (``GET /api/executions/{id}/find``), and the copies that share a DOI are
+    linked. A query no named source can look up is refused (400) with why.
+    """
+    conn = _get_db()
+    existing = _duplicate_execution_for(conn, body.request_id)
+    if existing is not None:
+        return {"execution_id": existing["id"], "duplicate": True}
+    parsed, asked, not_asked = _find_plan(body.query, body.repositories)
+    if not asked:
+        kind = paper_find.KIND_WORDS[parsed.kind]
+        # Why the sources named cannot, not that the others were left out.
+        named = set(body.repositories or [])
+        reasons = " ".join([item["why"] for item in not_asked if not named or item["source"] in named][:3])
+        raise HTTPException(400, f"No source named can look up {'an' if kind[0] in 'aeiou' else 'a'} {kind}. {reasons}")
+    query_params = {
+        "query": parsed.typed,
+        "find": {**parsed.as_params(), "not_asked": not_asked},
+        "max_results": paper_find.CANDIDATES,
+        "collection_id": _collection_id(conn, body.collection),
+    }
+    return _start_or_queue(
+        request_id=body.request_id, what="find",
+        info=_search_info("find_paper", asked, query_params),
+        launch=_launch_search(
+            "find_paper", asked, query_params, ai_enabled=False, ai_settings=None,
+            ephemeral_credentials=None, saved_configuration_id=None),
+        response=response,
+    )
+
+
+@app.get("/api/executions/{exec_id}/find", response_model=response_models.FindResult,
+         response_model_exclude_unset=True)
+def find_result(exec_id: int):
+    """A find's question and what each source it named said: found or not, how it matched, what differs, its open copy."""
+    conn = _get_db()
+    result = paper_find.result(conn, exec_id)
+    if result is None:
+        raise HTTPException(404, "That run is not a find.")
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Get the PDF (F1, L4)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/full-text/rules", response_model=response_models.FullTextRules,
+         response_model_exclude_unset=True)
+def full_text_rules():
+    """The limits on downloads, the license rule, and the sources and sites never downloaded from."""
+    return full_text.rules()
+
+
+@app.post("/api/full-text/for-documents", response_model=list[response_models.FullTextStatus],
+         response_model_exclude_unset=True)
+def full_text_for_documents(body: DocumentIdsBody):
+    """For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF."""
+    if len(body.document_ids) > 200:
+        raise HTTPException(400, "Ask about at most 200 papers at once.")
+    return full_text.status_for(_get_db(), list(dict.fromkeys(body.document_ids)))
+
+
+@app.post("/api/documents/{doc_id}/full-text", response_model=response_models.FullTextRequest,
+         response_model_exclude_unset=True)
+def get_the_pdf(doc_id: int):
+    """Get the PDF: ask for this paper's open-access PDF into the Library.
+
+    Recorded before anything is fetched. A request that cannot go ahead (no
+    open copy with a stated license, a refused source, no Library folder, the
+    day's cap) comes back ``skipped`` with its reason and sends nothing.
+    """
+    conn = _get_db()
+    try:
+        return full_text.request(conn, doc_id, requested_by="person")
+    except LookupError:
+        raise HTTPException(404, "That paper is not in this database.") from None
+
+
+@app.get("/api/executions/{exec_id}/full-text", response_model=response_models.RunFullText,
+         response_model_exclude_unset=True)
+def run_full_text(exec_id: int):
+    """Every PDF a run asked for (a watch with its opt-in on), and what came of each."""
+    conn = _get_db()
+    if get_execution_by_id(conn, exec_id) is None:
+        raise HTTPException(404, "Run not found")
+    return full_text.for_execution(conn, exec_id)
+
+
+# ---------------------------------------------------------------------------
 # Routines CRUD
 # ---------------------------------------------------------------------------
 
@@ -1938,6 +2148,7 @@ def get_routine(routine_id: int):
             "email_ai_summary_enabled",
             "ai_enabled",
             "notify_on_complete",
+            "download_full_text",
         ):
             if col in routine:
                 routine[col] = bool(routine[col])
@@ -2116,6 +2327,7 @@ def create_routine(body: RoutineCreate):
             "notify_on_complete": int(body.notify_on_complete),
             "execution_location": "local",
             "collection_id": _collection_id(conn, body.collection),
+            "download_full_text": int(body.download_full_text),
         }
         rid = insert_routine(conn, routine_dict)
         _sync_routine_config(conn, rid)
@@ -2178,6 +2390,8 @@ def update_routine_endpoint(routine_id: int, body: RoutineUpdate):
             updates["notify_on_complete"] = int(body.notify_on_complete)
         if body.collection is not None:
             updates["collection_id"] = _collection_id(conn, body.collection)
+        if body.download_full_text is not None:
+            updates["download_full_text"] = int(body.download_full_text)
         update_routine(conn, routine_id, updates)
         _sync_routine_config(conn, routine_id)
         _sched_update_routine(routine_id)
@@ -2786,7 +3000,7 @@ def list_executions(
     """The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.
 
     ``type`` and ``status`` each take one value or several, comma-separated
-    (``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``
+    (``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``
     matches a run's terms, its sources, its watch's or saved search's name,
     or its number. ``omit_events`` leaves each row's stored
     ``progress_events`` out (null): the Runs tab lists runs and reads a run's

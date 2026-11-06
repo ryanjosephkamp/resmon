@@ -1,9 +1,9 @@
 ---
 title: "Search"
-summary: "Searching what you hold, asking the sources for more, runs, saved searches, and shared wording."
+summary: "Searching what you hold, asking the sources for more, finding one paper, runs, saved searches, and shared wording."
 order: 5
 ---
-**Search** has four tabs: **Your collection**, **Ask the sources**, **Saved**, and **Shared wording**. The two buttons at the top of Your collection, **Deep Dive** and **Deep Sweep**, open Ask the sources with that kind chosen.
+**Search** has five tabs: **Your collection**, **Ask the sources**, **Find a paper**, **Saved**, and **Shared wording**. The two buttons at the top of Your collection, **Deep Dive** and **Deep Sweep**, open Ask the sources with that kind chosen.
 
 ## Your collection
 
@@ -52,12 +52,13 @@ In **Settings › Collections** you make, rename, show, and delete collections. 
 A paper's page shows the record as resmon holds it, and in this order:
 
 1. **Save to read**, or its place in the reading queue with **Mark read** and **Remove**.
-2. Any retraction, concern, correction, newer version, or journal publication recorded against it, with the notice's link.
-3. The **Abstract**, labeled "as (source) gave it".
-4. **Why it is here**: which of the keywords from the runs that found it appear in it, and in which field (title, abstract, subject categories, or author list). Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. Beneath it, **What resmon cannot see** states the limits. resmon stores no full text, and most sources rank by relevance rather than filtering by keyword, so a paper that contains none of your keywords is expected, not a fault.
-5. The collections it is in, how it arrived in each (found by a run, moved, copied, or there since before collections), and **Move to** and **Copy to**. A paper not in the collection the window shows can be copied there.
-6. **Shared wording** with other abstracts, and **The same work elsewhere**, where there are any.
-7. Beside it, the paper and its eight nearest neighbors on the map.
+2. Its PDF: **Read the PDF** when the Library holds one linked to it; **Get the PDF** when a source states an open license for a copy of it (see [the Library](/resmon/guide/library/#get-the-pdf)); otherwise **Open at** its source, with the reason there is nothing to get.
+3. Any retraction, concern, correction, newer version, or journal publication recorded against it, with the notice's link.
+4. The **Abstract**, labeled "as (source) gave it".
+5. **Why it is here**: which of the keywords from the runs that found it appear in it (a paper only a find holds says that Find a paper looked it up, and how the record matched), and in which field (title, abstract, subject categories, or author list). Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. Beneath it, **What resmon cannot see** states the limits. resmon stores no full text, and most sources rank by relevance rather than filtering by keyword, so a paper that contains none of your keywords is expected, not a fault.
+6. The collections it is in, how it arrived in each (found by a run, moved, copied, or there since before collections), and **Move to** and **Copy to**. A paper not in the collection the window shows can be copied there.
+7. **Shared wording** with other abstracts, and **The same work elsewhere**, where there are any.
+8. Beside it, the paper and its eight nearest neighbors on the map.
 
 The paper's number, such as "Paper 12", is its number in this resmon, the same in every collection it is in. It is what a file in the Library is linked with.
 
@@ -81,13 +82,26 @@ If resmon is already running as many runs as **Settings › In the background** 
 
 Beside the form are the five newest runs, with a link to the **Runs** tab.
 
+## Find a paper
+
+One paper, asked of every source that can look it up. Type or paste a DOI (with or without `https://doi.org/`), an arXiv id (`arXiv:1706.03762`, `1706.03762v5`, or its address), a PMID, or a title. Under the field resmon says what it reads it as, which sources can look it up, and why each other source is not asked: some can be asked only by some kinds (arXiv by its id or a title, never a DOI), bioRxiv and medRxiv hold only DOIs that begin `10.1101/`, and a few have not been checked (CORE, NASA ADS, and Springer Nature need a key, DBLP answered with a challenge page, and PubMed's search answered errors when it was checked). Click a source to leave it out of this find, and again to put it back. Each source's capability, and the live check it rests on, is in its row of the catalog.
+
+**Find** asks them all at once. A find is a run: the **Runs** tab lists it as **Find a paper**, **Health** counts each source's answer, a copy it keeps lands in the collection the window shows, and when it finishes it posts a notification if **When a search I start finishes** is on ([Notifications](/resmon/guide/email-notifications/#notifications)). While it goes, each source is drawn as being asked or answered. Then the page shows the paper as its reference copy has it (a registration agency's record first: Crossref, then DataCite, PubMed, arXiv, and the rest), **Get the PDF** where an open copy exists, and a row for every source:
+
+- **Found**, and how: by its DOI, arXiv id, or PMID, by its exact title, or by a close title, with the share of words the titles share. A source's answer is a list of candidates, and resmon keeps a record only when it carries the identifier asked for, or when its title is the title asked for or close to it (85 percent of the meaningful words, and never for a title of fewer than three). Every other record is counted and dropped.
+- **What differs** from the reference copy: the title, the year, the DOI, the first author, or the number of authors.
+- **Its open copy**: where, and under what license, or that no source reported one.
+- **Not found** (it answered, and none of its records is this paper), **Did not answer**, or **Not asked**, with why.
+
+Copies that carry the same DOI are linked as one paper, and each one's page lists the others under **The same work elsewhere**. **Open the run** opens the find's run page, and a find's run page links back to its answers. Earlier finds are listed under the form.
+
 ## Runs
 
 The **Runs** tab (⌘4, in the top bar's first order) holds every run.
 
 - **Running now.** Each run going now, with each of its sources in the Source wall's marks, how long it has run, what it is doing (how many sources have finished and which it is asking, or the stage after that), and **Stop**. A run the engine has said nothing about for 15 seconds says so. Pointing at a source's mark, or reaching it from the keyboard (the marks are one stop, the arrow keys between them), says what that source has done so far, and choosing it opens the run.
 - **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't run**; a watch's run is stopped by pausing the watch.
-- **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches**, **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
+- **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches** (Deep Dives, Deep Sweeps, and finds), **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
 
 A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, or **Watch run**, and one line of what happened: how many of its sources answered, and how many papers it found and how many of those were new.
 

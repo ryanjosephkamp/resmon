@@ -22,7 +22,7 @@ from resmon_cli.engine import NOT_RUNNING, CliError, Engine, display_path, find
 from resmon_cli.text import (NOT_RECORDED, Out, authors, count, duration, join, link,
                              plural, publication_date, when)
 
-EXECUTION_KINDS = {"dive": "deep_dive", "sweep": "deep_sweep", "watch": "automated_sweep"}
+EXECUTION_KINDS = {"dive": "deep_dive", "sweep": "deep_sweep", "watch": "automated_sweep", "find": "find_paper"}
 
 # The app's own phrasing for why a run was interrupted (``ResultsList.tsx``).
 INTERRUPTED_REASON_TEXT = {
@@ -240,7 +240,7 @@ def run_title(row: Mapping[str, Any], routines: Mapping[int, str], names: Mappin
         if rid is None:
             return "Watch (no longer saved)"
         return f'Watch "{routines[int(rid)]}"' if int(rid) in routines else f"Watch #{rid}"
-    label = {"deep_dive": "Deep Dive", "deep_sweep": "Deep Sweep"}.get(str(kind), str(kind))
+    label = {"deep_dive": "Deep Dive", "deep_sweep": "Deep Sweep", "find_paper": "Find a paper"}.get(str(kind), str(kind))
     title = f"{label} {asked}" if asked else label
     if kind == "deep_dive" and row.get("repositories"):
         title += f" on {names.get(row['repositories'][0], row['repositories'][0])}"

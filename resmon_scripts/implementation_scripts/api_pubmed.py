@@ -34,6 +34,28 @@ class PubmedClient(BaseAPIClient):
     def get_name(self) -> str:
         return "PubMed"
 
+    def lookup(self, kind: str, value: str, max_results: int = 5) -> list[NormalizedResult]:
+        """A PMID, a DOI or a title found with ``esearch``'s own field tags, then read with ``efetch``.
+
+        ``[pmid]``, ``[doi]`` and ``[Title]`` are E-utilities' search field
+        tags, so the search record names what was asked as it does for any
+        search. An id PubMed does not hold finds nothing.
+        """
+        if kind == "pmid":
+            if not value.strip().isdigit():
+                return []
+            term = f"{value.strip()}[pmid]"
+        elif kind == "doi":
+            term = f"{value.strip()}[doi]"
+        elif kind == "title":
+            term = f'"{value}"[Title]'
+        else:
+            from .api_base import LookupUnsupported  # noqa: PLC0415
+
+            raise LookupUnsupported(f"PubMed cannot be asked for a paper by {kind}.")
+        pmids = self._esearch(term, None, None, max_results)
+        return self._efetch(pmids) if pmids else []
+
     def search(
         self,
         query: str,
@@ -169,14 +191,19 @@ class PubmedClient(BaseAPIClient):
             if not title:
                 continue
 
-            # DOI
+            # DOI, and the PMC id: PubMed names the paper's copy in PubMed
+            # Central, and states no license for it, so it is an identifier
+            # and not an open copy.
             doi = None
+            pmcid = None
             article_data = article_el.find("PubmedData")
             if article_data is not None:
-                for id_el in article_data.findall(".//ArticleId"):
-                    if id_el.get("IdType") == "doi" and id_el.text:
+                for id_el in article_data.findall("ArticleIdList/ArticleId"):
+                    kind = id_el.get("IdType")
+                    if kind == "doi" and id_el.text and doi is None:
                         doi = id_el.text.strip()
-                        break
+                    elif kind == "pmc" and id_el.text and pmcid is None:
+                        pmcid = id_el.text.strip()
 
             # Authors
             # 2.1 — PubMed is the best of the sources for affiliation and among
@@ -236,6 +263,9 @@ class PubmedClient(BaseAPIClient):
                     if mesh.text:
                         categories.append(mesh.text.strip())
 
+            identifiers = [("pmid", pmid)] if pmid.isdigit() else []
+            if pmcid:
+                identifiers.append(("pmcid", pmcid))
             results.append(NormalizedResult(
                 source_repository="pubmed",
                 external_id=pmid,
@@ -246,6 +276,7 @@ class PubmedClient(BaseAPIClient):
                 publication_date=publication_date,
                 url=url,
                 categories=categories[:10],
+                identifiers=identifiers,
             ))
 
         return results

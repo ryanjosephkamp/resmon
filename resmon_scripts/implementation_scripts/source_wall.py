@@ -221,6 +221,7 @@ def _run_label(row: dict, routine_names: dict[int, str]) -> str:
         "deep_dive": "Deep Dive",
         "deep_sweep": "Deep Sweep",
         "automated_sweep": "Watch",
+        "find_paper": "Find a paper",
     }.get(str(row.get("execution_type")), str(row.get("execution_type") or "Run"))
     routine = routine_names.get(row.get("routine_id")) if row.get("routine_id") else None
     return f"{kind} — {routine}" if routine else kind

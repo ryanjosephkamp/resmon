@@ -212,6 +212,8 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
         ("GET", "/api/executions/{exec_id}/document-ids"),
         ("DELETE", "/api/executions/waiting/{ticket}"),
         ("POST", "/api/executions/seen"),
+        ("GET", "/api/executions/{exec_id}/find"),
+        ("GET", "/api/executions/{exec_id}/full-text"),
     ),
     "the Explorer": (
         ("POST", "/api/explorer/search"),
@@ -229,6 +231,7 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     "a paper's account": (
         ("GET", "/api/documents/{doc_id}"),
         ("GET", "/api/documents/{doc_id}/why"),
+        ("POST", "/api/documents/{doc_id}/full-text"),
     ),
     "the same work twice": (
         ("POST", "/api/links/for-documents"),
@@ -286,6 +289,17 @@ THE_MODELED_SURFACE: dict[str, tuple[tuple[str, str], ...]] = {
     ),
     "the source wall": (
         ("GET", "/api/coverage/source-wall"),
+    ),
+    # Find a paper and Get the PDF (schema 27). A find's record and a run's
+    # PDFs are read under the run, in "runs"; Get the PDF is a paper's, in
+    # "a paper's account".
+    "finding a paper": (
+        ("GET", "/api/find/plan"),
+        ("POST", "/api/find"),
+    ),
+    "full text": (
+        ("GET", "/api/full-text/rules"),
+        ("POST", "/api/full-text/for-documents"),
     ),
     "the owned library": (
         ("GET", "/api/library"),
@@ -684,6 +698,7 @@ def driven() -> Drive:
         _drive_shared_wording(drive, kept[0])
         _drive_assistant(drive)
         _drive_backup_and_restore(drive)
+        _drive_full_text(drive, doc_ids)
         # Last, because it erases what every slice above made: the corpus, the
         # runs, the configurations, the settings and the keyring's keys.
         _drive_danger_zone(drive)
@@ -1718,6 +1733,59 @@ def _drive_collection(drive: Drive) -> None:
         refused = drive("POST", "/api/explorer/search", json={"query": "", "sort": "similarity", "limit": 50})
         assert "similarity_unavailable" in refused, refused
         drive.client.put("/api/settings/embeddings", json={"settings": {"embedding_enabled": "false"}})
+
+
+def _drive_full_text(drive: Drive, doc_ids: list[int]) -> None:
+    """Find a paper and Get the PDF: a plan, a find over one source, its record, and two PDFs asked for.
+
+    The find asks Crossref, whose module's ``safe_request`` answers here with
+    an authored record carrying the first paper's DOI, so the find stores a
+    second copy and links the two. The first paper is given an open copy with
+    a stated license, so its request waits (the suite's engine runs no PDF
+    worker); the second has none, so its request is skipped with the reason.
+    """
+    import httpx  # noqa: PLC0415
+    from implementation_scripts import api_crossref, open_access  # noqa: PLC0415
+
+    conn = resmon_mod._get_db()
+    try:
+        open_access.record(conn, doc_ids[0], "openalex", [open_access.location(
+            "openalex", pdf_url="https://pdf.resmon.test/0.pdf", license="cc-by",
+            version="publishedVersion")], [("pmid", "99900000")])
+        conn.commit()
+    finally:
+        resmon_mod._close_db(conn)
+    drive("GET", "/api/full-text/rules")
+    waiting = drive("POST", f"/api/documents/{doc_ids[0]}/full-text")
+    skipped = drive("POST", f"/api/documents/{doc_ids[1]}/full-text")
+    assert waiting["state"] == "waiting" and skipped["reason"] == "no_open_copy"
+    statuses = drive("POST", "/api/full-text/for-documents", json={"document_ids": doc_ids})
+    assert statuses[0]["best"]["license"] == "cc-by" and statuses[1]["downloadable"] is False
+
+    plan = drive("GET", "/api/find/plan", params={"q": "https://doi.org/10.1000/0"})
+    assert plan["kind"] == "doi" and "crossref" in plan["asked"] and plan["not_asked"]
+
+    def crossref(method, url, **kwargs):
+        from implementation_scripts.api_base import search_outcome  # noqa: PLC0415
+
+        search_outcome().note_attempt()
+        item = {"DOI": "10.1000/0", "title": ["Paper 0"], "URL": "https://doi.org/10.1000/0"}
+        return httpx.Response(200, json={"message": item}, request=httpx.Request(method, url))
+
+    original = api_crossref.safe_request
+    api_crossref.safe_request = crossref
+    try:
+        started = drive("POST", "/api/find", json={
+            "query": "10.1000/0", "repositories": ["crossref", "arxiv"], "request_id": "find-slice-1"})
+        _wait_until_settled(drive, started["execution_id"])
+    finally:
+        api_crossref.safe_request = original
+    found = drive("GET", f"/api/executions/{started['execution_id']}/find")
+    outcomes = {s["source"]: s["outcome"] for s in found["sources"]}
+    # Crossref holds it; arXiv cannot look up a DOI; every other source was left out.
+    assert outcomes.pop("crossref") == "found" and outcomes.pop("arxiv") == "not_asked"
+    assert set(outcomes.values()) == {"not_asked"}
+    drive("GET", f"/api/executions/{started['execution_id']}/full-text")
 
 
 def _wait_until_settled(drive: Drive, exec_id: int, timeout: float = 30.0) -> dict:

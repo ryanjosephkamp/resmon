@@ -14,6 +14,7 @@ import {
 import { saveBundle } from './runs/downloads';
 import { useDeleteRuns } from './runs/remove';
 import { RestartFacts } from './runs/RestartFacts';
+import { RunPdfs } from './fulltext/RunPdfs';
 import { exportReferences, FORMATS, type ReferenceFormat } from './runs/references';
 import { RUNS_KEY } from './runs/model';
 import type { RunsNotice } from './runs/Runs';
@@ -451,6 +452,13 @@ export function Run() {
         {data.status === 'interrupted' && <p className="run-note">{interruptedSentence(data)}</p>}
         {data.status === 'failed' && data.error_message && <p className="run-note">{data.error_message}</p>}
         {RESTARTABLE.has(data.status) && <RestartFacts run={data} setTo={events.isSuccess ? choice?.enabled ?? null : undefined} />}
+        {data.execution_type === 'find_paper' && !running && (
+          <p className="run-note" data-run="find">
+            A find. <Link to={`/search/find?run=${data.id}`}>See what each source said</Link>: whether it holds the paper,
+            how its copy matched, what differs, and its open copy.
+          </p>
+        )}
+        {data.execution_type === 'automated_sweep' && !running && <RunPdfs runId={data.id} />}
         {!running && (
           <p id="run-bundle-what" className="sr-only">
             The run&rsquo;s bundle: its report, with a PDF and LaTeX where they could be made, the log, the metadata, and the

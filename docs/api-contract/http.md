@@ -2,7 +2,7 @@
 
 **Generated. Do not edit by hand.** `implementation_scripts/api_contract.py` writes this file from the running FastAPI application; `verification_scripts/test_api_contract.py` regenerates it and fails on any difference. Regenerate with `python -m implementation_scripts.api_contract --write`.
 
-237 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
+244 routes, over 49 register rows: 44 rows are carried by at least one route and 5 are not. Every route appears in at least one table — the guard fails when one does not.
 
 ## How to read a row
 
@@ -10,9 +10,9 @@
 
 **SSE.** `yes` means the handler answers with `text/event-stream`. The response is a sequence of events, not a JSON body, and a client that reads it with an ordinary fetch-and-parse will hang.
 
-**Purpose.** The first line of the endpoint's docstring, for the 148 of 237 routes that have one. The remaining 89 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
+**Purpose.** The first line of the endpoint's docstring, for the 155 of 244 routes that have one. The remaining 89 show FastAPI's generated summary instead, *in italics*: it is the function's own name with the underscores taken out, and it is here because an invented sentence would read like documentation without being any.
 
-**Response.** The `response_model` the route declares, for the 199 of 237 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
+**Response.** The `response_model` the route declares, for the 206 of 244 routes that declare one — `openapi.json` carries its schema under that name, and a typed client can be generated from it. The remaining 38 show `—`: they declare no model, so `openapi.json` describes their 200 body as the empty schema `{}` and what they answer with is described in prose in [README.md](../../README.md) and in the five feature contracts beside this file. Nothing here guesses at a response shape.
 
 A declared model is a **lower bound** on the body, not an exact description. Every one of them is an `additionalProperties: true` schema, because FastAPI filters a response against its model and a key nobody declared would otherwise be dropped from the reply silently; `implementation_scripts/response_models.py` sets that out in full and `verification_scripts/test_response_models.py` holds every model to it by comparing each route's body with what its handler returned on the same request. So a client may rely on a declared field being there, and may not rely on there being nothing else.
 
@@ -31,8 +31,11 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/executions/{exec_id}/find` | token | — | `FindResult` | A find's question and what each source it named said: found or not, how it matched, what differs, its open copy. |
 | `GET` | `/api/executions/{exec_id}/progress/events` | token | — | — | The run's progress events, from the `since`-th on (0, every one). |
 | `GET` | `/api/executions/{exec_id}/progress/stream` | token | yes | — | *Stream Progress* |
+| `POST` | `/api/find` | token | — | `RunStarted` | Find a paper across the sources that can look it up: a run, or queued like one (202). |
+| `GET` | `/api/find/plan` | token | — | `FindPlan` | What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask. |
 | `GET` | `/api/search/repositories` | token | — | `list` | *Search Repositories* |
 | `POST` | `/api/search/sweep` | token | — | `RunStarted` | Start a Deep Sweep, or queue it when resmon runs as many as it allows (202). |
 
@@ -40,6 +43,7 @@ What survives is the **key**. An undeclared value is re-serialized by pydantic r
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/api/executions/{exec_id}/full-text` | token | — | `RunFullText` | Every PDF a run asked for (a watch with its opt-in on), and what came of each. |
 | `GET` | `/api/routines` | token | — | `list` | *List Routines* |
 | `POST` | `/api/routines` | token | — | `RoutineCreated` | *Create Routine* |
 | `DELETE` | `/api/routines/{routine_id}` | token | — | — | *Delete Routine Endpoint* |
@@ -326,6 +330,7 @@ No route. Recorded in the register as not carried forward.
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/api/coverage/source-wall` | token | — | `SourceWall` | Every source's recorded answer to each of the last `limit` runs. |
 | `GET` | `/api/executions/{exec_id}` | token | — | `Run` | *Get Execution* |
+| `GET` | `/api/executions/{exec_id}/find` | token | — | `FindResult` | A find's question and what each source it named said: found or not, how it matched, what differs, its open copy. |
 | `GET` | `/api/executions/{exec_id}/search-record` | token | — | — | The complete, dated account of one search. |
 
 ## J30 — Runtime identity
@@ -361,6 +366,10 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `POST` | `/api/documents/{doc_id}/full-text` | token | — | `FullTextRequest` | Get the PDF: ask for this paper's open-access PDF into the Library. |
+| `GET` | `/api/executions/{exec_id}/full-text` | token | — | `RunFullText` | Every PDF a run asked for (a watch with its opt-in on), and what came of each. |
+| `POST` | `/api/full-text/for-documents` | token | — | `list` | For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF. |
+| `GET` | `/api/full-text/rules` | token | — | `FullTextRules` | The limits on downloads, the license rule, and the sources and sites never downloaded from. |
 | `GET` | `/api/library` | token | — | `LibraryStatus` | *Library Status* |
 | `GET` | `/api/library/export` | token | — | `LibraryInventory` | *Library Inventory* |
 | `GET` | `/api/library/files` | token | — | `LibraryFiles` | *Library List* |
@@ -431,6 +440,7 @@ No route. Recorded in the register as not carried forward.
 
 | Method | Path | Auth | SSE | Response | Purpose |
 | --- | --- | --- | --- | --- | --- |
+| `POST` | `/api/find` | token | — | `RunStarted` | Find a paper across the sources that can look it up: a run, or queued like one (202). |
 | `GET` | `/api/routines/{routine_id}` | token | — | `Routine` | Fetch a single routine by ID. |
 | `POST` | `/api/routines/{routine_id}/run` | token | — | `RoutineRunStarted` | Run a routine immediately, outside its schedule. |
 | `POST` | `/api/search/dive` | token | — | `RunStarted` | Start a Deep Dive, or queue it when resmon runs as many as it allows (202). |
@@ -474,7 +484,7 @@ No route. Recorded in the register as not carried forward.
 | `POST` | `/api/auth/renderer-origin` | token | — | — | Allow one more exact renderer origin on this backend. |
 | `GET` | `/api/deliveries/{delivery_id}/bundle` | signed link | — | — | The report bundle a webhook envelope linked to, for whoever holds the link. |
 
-The guard is in front of all 237 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
+The guard is in front of all 244 routes, not only the two listed here: `AUTH_EXEMPT_PATHS` is an explicitly empty constant and a test fails if it grows. The two rows above are the routes that are *about* the guard — the one that registers a renderer origin (and refuses to do so for a request carrying an `Origin`, because a browser must not be able to widen the allowlist), and the one route that proves itself with a signature instead of the token.
 
 ## J43 — Upgrade in place
 

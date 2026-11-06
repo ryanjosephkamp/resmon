@@ -5459,20 +5459,6 @@
         "title": "DocumentBriefsBody",
         "type": "object"
       },
-      "DocumentIdsBody": {
-        "properties": {
-          "document_ids": {
-            "default": [],
-            "items": {
-              "type": "integer"
-            },
-            "title": "Document Ids",
-            "type": "array"
-          }
-        },
-        "title": "DocumentIdsBody",
-        "type": "object"
-      },
       "DriveUploadNoticeAcknowledged": {
         "additionalProperties": true,
         "description": "``POST /api/backup/drive-upload-notice/acknowledge``: the notice that the upload to Google Drive is gone, dismissed.\n\nThe removed upload's two settings are deleted, so ``GET\n/api/backup/last`` answers ``drive_upload_retired: false`` from then on.\n``acknowledged`` is whether the upload was switched on when this was\nasked; ``success`` is true either way.",
@@ -7672,6 +7658,417 @@
         "title": "FactoryReset",
         "type": "object"
       },
+      "FindDifference": {
+        "additionalProperties": true,
+        "description": "One field where a copy differs from the reference copy: ``title``, ``year``,\n``doi``, ``first_author`` or ``author_count``.",
+        "properties": {
+          "field": {
+            "title": "Field",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference"
+          },
+          "this": {
+            "title": "This"
+          }
+        },
+        "required": [
+          "field",
+          "this",
+          "reference"
+        ],
+        "title": "FindDifference",
+        "type": "object"
+      },
+      "FindOpenCopy": {
+        "additionalProperties": true,
+        "description": "The open copy of a found record resmon would get, or the first one a source named.\n\n``downloadable`` is resmon's rule (a stated open license, never NASA ADS,\nSpringer or CORE). ``license_to_be_read`` is an arXiv copy whose license\nis read from arXiv when its PDF is asked for.",
+        "properties": {
+          "downloadable": {
+            "title": "Downloadable",
+            "type": "boolean"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "license_to_be_read": {
+            "title": "License To Be Read",
+            "type": "boolean"
+          },
+          "license_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Words"
+          },
+          "pdf_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Url"
+          }
+        },
+        "required": [
+          "downloadable",
+          "license",
+          "license_words",
+          "host",
+          "pdf_url",
+          "license_to_be_read"
+        ],
+        "title": "FindOpenCopy",
+        "type": "object"
+      },
+      "FindPlan": {
+        "additionalProperties": true,
+        "description": "``GET /api/find/plan``: what a typed query reads as, and which sources it would ask.\n\n``kind`` is ``doi``, ``arxiv``, ``pmid`` or ``title``; ``value`` is the\nidentifier as resmon will send it (a DOI lowercased, an arXiv id without\nits version). ``asked`` keeps the order the sources were named in.",
+        "properties": {
+          "asked": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Asked",
+            "type": "array"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "not_asked": {
+            "items": {
+              "$ref": "#/components/schemas/FindPlanSource"
+            },
+            "title": "Not Asked",
+            "type": "array"
+          },
+          "typed": {
+            "title": "Typed",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "value",
+          "typed",
+          "asked",
+          "not_asked"
+        ],
+        "title": "FindPlan",
+        "type": "object"
+      },
+      "FindPlanSource": {
+        "additionalProperties": true,
+        "description": "One source a find would not ask, and why, in a sentence.",
+        "properties": {
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "why"
+        ],
+        "title": "FindPlanSource",
+        "type": "object"
+      },
+      "FindQuery": {
+        "additionalProperties": true,
+        "properties": {
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "typed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Typed"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "kind",
+          "value",
+          "typed"
+        ],
+        "title": "FindQuery",
+        "type": "object"
+      },
+      "FindRequest": {
+        "description": "Find a paper: a DOI, an arXiv id, a PMID or a title, asked of many sources at once.",
+        "properties": {
+          "collection": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Collection"
+          },
+          "query": {
+            "title": "Query",
+            "type": "string"
+          },
+          "repositories": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Repositories"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "title": "FindRequest",
+        "type": "object"
+      },
+      "FindResult": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/find``: a find's question and every source's answer.\n\nEmpty ``sources`` while the run is going: each row is written when every\nsource has answered. ``counts`` totals the outcomes.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "query": {
+            "$ref": "#/components/schemas/FindQuery"
+          },
+          "reference_document_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reference Document Id"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FindSourceResult"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "execution_id",
+          "status",
+          "query",
+          "reference_document_id",
+          "sources",
+          "counts"
+        ],
+        "title": "FindResult",
+        "type": "object"
+      },
+      "FindSourceResult": {
+        "additionalProperties": true,
+        "description": "What one source said to a find.\n\n``outcome`` is ``found``, ``not_found`` (it answered, and no record was the\npaper), ``did_not_answer``, or ``not_asked`` (with ``why_not_asked``).\n``matched_by`` says how the copy kept was matched: ``doi``, ``arxiv``,\n``pmid``, ``exact_title`` or ``close_title``, with ``title_similarity``\nfor a title. ``candidates`` is how many records the source returned.\n``reference`` marks the copy the others are compared with.",
+        "properties": {
+          "candidates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidates"
+          },
+          "differences": {
+            "items": {
+              "$ref": "#/components/schemas/FindDifference"
+            },
+            "title": "Differences",
+            "type": "array"
+          },
+          "document_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Id"
+          },
+          "matched_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched By"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "open_copy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FindOpenCopy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "boolean"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "title_similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title Similarity"
+          },
+          "why_not_asked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Not Asked"
+          }
+        },
+        "required": [
+          "source",
+          "name",
+          "outcome",
+          "matched_by",
+          "title_similarity",
+          "document_id",
+          "candidates",
+          "differences",
+          "reference",
+          "why_not_asked",
+          "open_copy"
+        ],
+        "title": "FindSourceResult",
+        "type": "object"
+      },
       "ForeignKeyViolation": {
         "additionalProperties": true,
         "description": "One reference ``PRAGMA foreign_key_check`` found to a parent row that is not there.\n\n``rowid`` is ``None`` for a table without rowids, where two references\ncannot be told apart. ``fkid`` is the foreign key's index on its table, as\nSQLite numbers it.",
@@ -7707,6 +8104,533 @@
           "fkid"
         ],
         "title": "ForeignKeyViolation",
+        "type": "object"
+      },
+      "FullTextCopy": {
+        "additionalProperties": true,
+        "description": "One open copy a source reported, as stored.",
+        "properties": {
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "landing_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Landing Url"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "license_basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Basis"
+          },
+          "license_to_be_read": {
+            "title": "License To Be Read",
+            "type": "boolean"
+          },
+          "license_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Words"
+          },
+          "pdf_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Url"
+          },
+          "reported_by": {
+            "title": "Reported By",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          }
+        },
+        "required": [
+          "reported_by",
+          "pdf_url",
+          "landing_url",
+          "host",
+          "license",
+          "license_words",
+          "license_basis",
+          "version",
+          "license_to_be_read"
+        ],
+        "title": "FullTextCopy",
+        "type": "object"
+      },
+      "FullTextLibraryFile": {
+        "additionalProperties": true,
+        "properties": {
+          "byte_size": {
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "file_id": {
+            "title": "File Id",
+            "type": "string"
+          },
+          "vault_id": {
+            "title": "Vault Id",
+            "type": "string"
+          },
+          "version_id": {
+            "title": "Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_id",
+          "version_id",
+          "vault_id",
+          "byte_size"
+        ],
+        "title": "FullTextLibraryFile",
+        "type": "object"
+      },
+      "FullTextLicense": {
+        "additionalProperties": true,
+        "properties": {
+          "license": {
+            "title": "License",
+            "type": "string"
+          },
+          "words": {
+            "title": "Words",
+            "type": "string"
+          }
+        },
+        "required": [
+          "license",
+          "words"
+        ],
+        "title": "FullTextLicense",
+        "type": "object"
+      },
+      "FullTextRefusedSource": {
+        "additionalProperties": true,
+        "description": "A provider resmon never downloads from: a source it asks, or a site other sources link to.",
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "name",
+          "why"
+        ],
+        "title": "FullTextRefusedSource",
+        "type": "object"
+      },
+      "FullTextRequest": {
+        "additionalProperties": true,
+        "description": "One PDF asked for, and what came of it.\n\n``state`` is ``waiting``, ``downloading``, ``stored``, ``skipped`` (with\nthe ``reason`` no request was sent) or ``failed`` (with why). ``words`` is\nthe reason in a sentence. A stored request carries the Library ``file_id``,\n``final_url`` (where the PDF came from after every redirect), its\n``license``, and ``finished_at_utc``, when it was retrieved. ``id`` is null\nonly for the answer that the Library already holds the paper's PDF, which\nrecords nothing new. ``file_held``, on a run's list only, says for a stored\nrequest whether the Library holds its file still: false once it was removed.",
+        "properties": {
+          "byte_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Byte Size"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "file_held": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Held"
+          },
+          "file_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Id"
+          },
+          "final_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Final Url"
+          },
+          "finished_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At Utc"
+          },
+          "host": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Host"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "license": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License"
+          },
+          "license_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Words"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "reported_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reported By"
+          },
+          "requested_at_utc": {
+            "title": "Requested At Utc",
+            "type": "string"
+          },
+          "requested_by": {
+            "title": "Requested By",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version"
+          },
+          "words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Words"
+          }
+        },
+        "required": [
+          "id",
+          "document_id",
+          "execution_id",
+          "requested_by",
+          "state",
+          "reason",
+          "words",
+          "url",
+          "final_url",
+          "host",
+          "license",
+          "license_words",
+          "version",
+          "reported_by",
+          "file_id",
+          "byte_size",
+          "requested_at_utc",
+          "finished_at_utc"
+        ],
+        "title": "FullTextRequest",
+        "type": "object"
+      },
+      "FullTextRules": {
+        "additionalProperties": true,
+        "description": "``GET /api/full-text/rules``: the limits and the license rule, as Settings states them.",
+        "properties": {
+          "daily_cap": {
+            "title": "Daily Cap",
+            "type": "integer"
+          },
+          "host_interval_seconds": {
+            "title": "Host Interval Seconds",
+            "type": "number"
+          },
+          "https_only": {
+            "title": "Https Only",
+            "type": "boolean"
+          },
+          "max_bytes": {
+            "title": "Max Bytes",
+            "type": "integer"
+          },
+          "one_at_a_time_per_host": {
+            "title": "One At A Time Per Host",
+            "type": "boolean"
+          },
+          "open_licenses": {
+            "items": {
+              "$ref": "#/components/schemas/FullTextLicense"
+            },
+            "title": "Open Licenses",
+            "type": "array"
+          },
+          "per_run_cap": {
+            "title": "Per Run Cap",
+            "type": "integer"
+          },
+          "refused_sources": {
+            "items": {
+              "$ref": "#/components/schemas/FullTextRefusedSource"
+            },
+            "title": "Refused Sources",
+            "type": "array"
+          }
+        },
+        "required": [
+          "per_run_cap",
+          "daily_cap",
+          "host_interval_seconds",
+          "one_at_a_time_per_host",
+          "max_bytes",
+          "https_only",
+          "open_licenses",
+          "refused_sources"
+        ],
+        "title": "FullTextRules",
+        "type": "object"
+      },
+      "FullTextStatus": {
+        "additionalProperties": true,
+        "description": "A paper's full text: its open copies (its own and its stored copies'), the\none resmon would get, why there is none to get, its latest request, and the\nPDF the Library holds for it.",
+        "properties": {
+          "best": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FullTextCopy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "copies": {
+            "items": {
+              "$ref": "#/components/schemas/FullTextCopy"
+            },
+            "title": "Copies",
+            "type": "array"
+          },
+          "document_id": {
+            "title": "Document Id",
+            "type": "integer"
+          },
+          "download": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FullTextRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "downloadable": {
+            "title": "Downloadable",
+            "type": "boolean"
+          },
+          "in_library": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FullTextLibraryFile"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "why_not": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Not"
+          },
+          "why_not_words": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Why Not Words"
+          }
+        },
+        "required": [
+          "document_id",
+          "downloadable",
+          "why_not",
+          "why_not_words",
+          "best",
+          "copies",
+          "download",
+          "in_library"
+        ],
+        "title": "FullTextStatus",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -12008,6 +12932,9 @@
             "title": "Notes",
             "type": "string"
           },
+          "paper_lookup": {
+            "$ref": "#/components/schemas/RepositoryPaperLookup"
+          },
           "parallel_safe": {
             "title": "Parallel Safe",
             "type": "string"
@@ -12096,7 +13023,8 @@
           "result_order",
           "result_order_established",
           "entity_search",
-          "constraints"
+          "constraints",
+          "paper_lookup"
         ],
         "title": "RepositoryCatalogEntry",
         "type": "object"
@@ -12231,6 +13159,37 @@
           "repo_keys_removed"
         ],
         "title": "RepositoryKeysErased",
+        "type": "object"
+      },
+      "RepositoryPaperLookup": {
+        "additionalProperties": true,
+        "description": "Whether a source can be asked for one paper (Find a paper), and by what.\n\n``kinds`` are the queries it can be asked by: ``doi``, ``arxiv``, ``pmid``,\n``title``. ``syntax`` maps a kind to the field syntax put into the\nsource's ordinary search (``{value}`` where the query goes); a kind with no\nsyntax is asked through the client's own lookup endpoint. ``established``\nis the dated observation behind the row, or why the source is asked by\nnothing.",
+        "properties": {
+          "established": {
+            "title": "Established",
+            "type": "string"
+          },
+          "kinds": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Kinds",
+            "type": "array"
+          },
+          "syntax": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Syntax",
+            "type": "object"
+          }
+        },
+        "required": [
+          "kinds",
+          "syntax",
+          "established"
+        ],
+        "title": "RepositoryPaperLookup",
         "type": "object"
       },
       "RepositorySourceNotice": {
@@ -12754,6 +13713,10 @@
               }
             ]
           },
+          "download_full_text": {
+            "title": "Download Full Text",
+            "type": "boolean"
+          },
           "email_ai_summary_enabled": {
             "title": "Email Ai Summary Enabled",
             "type": "boolean"
@@ -12863,6 +13826,7 @@
           "updated_at",
           "last_executed_at",
           "collection_id",
+          "download_full_text",
           "missed_fires",
           "missed_fire_details"
         ],
@@ -13072,6 +14036,11 @@
               }
             ],
             "title": "Collection"
+          },
+          "download_full_text": {
+            "default": false,
+            "title": "Download Full Text",
+            "type": "boolean"
           },
           "email_ai_summary_enabled": {
             "default": false,
@@ -13523,6 +14492,10 @@
             "title": "Created At",
             "type": "string"
           },
+          "download_full_text": {
+            "title": "Download Full Text",
+            "type": "integer"
+          },
           "email_ai_summary_enabled": {
             "title": "Email Ai Summary Enabled",
             "type": "integer"
@@ -13647,6 +14620,7 @@
           "updated_at",
           "last_executed_at",
           "collection_id",
+          "download_full_text",
           "last_execution",
           "last_status",
           "missed_fires"
@@ -13756,6 +14730,17 @@
               }
             ],
             "title": "Collection"
+          },
+          "download_full_text": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Full Text"
           },
           "email_ai_summary_enabled": {
             "anyOf": [
@@ -13898,6 +14883,17 @@
               }
             ],
             "title": "Collection Id"
+          },
+          "download_full_text": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Download Full Text"
           },
           "email_ai_summary_enabled": {
             "anyOf": [
@@ -14877,6 +15873,42 @@
           "ids"
         ],
         "title": "RunDocumentIds",
+        "type": "object"
+      },
+      "RunFullText": {
+        "additionalProperties": true,
+        "description": "``GET /api/executions/{exec_id}/full-text``: every PDF a run asked for, and the counts.",
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "execution_id": {
+            "title": "Execution Id",
+            "type": "integer"
+          },
+          "per_run_cap": {
+            "title": "Per Run Cap",
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/FullTextRequest"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "execution_id",
+          "requests",
+          "counts",
+          "per_run_cap"
+        ],
+        "title": "RunFullText",
         "type": "object"
       },
       "RunLog": {
@@ -21170,6 +22202,36 @@
         ],
         "title": "WatchdogWatching",
         "type": "object"
+      },
+      "resmon__DocumentIdsBody__1": {
+        "properties": {
+          "document_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "document_ids"
+        ],
+        "title": "DocumentIdsBody",
+        "type": "object"
+      },
+      "resmon__DocumentIdsBody__2": {
+        "properties": {
+          "document_ids": {
+            "default": [],
+            "items": {
+              "type": "integer"
+            },
+            "title": "Document Ids",
+            "type": "array"
+          }
+        },
+        "title": "DocumentIdsBody",
+        "type": "object"
       }
     }
   },
@@ -23843,6 +24905,46 @@
         "summary": "Get Document"
       }
     },
+    "/api/documents/{doc_id}/full-text": {
+      "post": {
+        "description": "Get the PDF: ask for this paper's open-access PDF into the Library.\n\nRecorded before anything is fetched. A request that cannot go ahead (no\nopen copy with a stated license, a refused source, no Library folder, the\nday's cap) comes back ``skipped`` with its reason and sends nothing.",
+        "operationId": "get_the_pdf_api_documents__doc_id__full_text_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "doc_id",
+            "required": true,
+            "schema": {
+              "title": "Doc Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FullTextRequest"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get The Pdf"
+      }
+    },
     "/api/documents/{doc_id}/lifecycle": {
       "get": {
         "description": "Lifecycle events recorded against one paper.",
@@ -24933,7 +26035,7 @@
     },
     "/api/executions": {
       "get": {
-        "description": "The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.\n\n``type`` and ``status`` each take one value or several, comma-separated\n(``type=deep_dive,deep_sweep`` is every search asked by hand). ``q``\nmatches a run's terms, its sources, its watch's or saved search's name,\nor its number. ``omit_events`` leaves each row's stored\n``progress_events`` out (null): the Runs tab lists runs and reads a run's\nevents only on its own page. The total is a header, so the body stays\nthe list every reader of this route already reads.",
+        "description": "The runs, newest first, a page at a time; how many match is the ``X-Resmon-Total`` header.\n\n``type`` and ``status`` each take one value or several, comma-separated\n(``type=deep_dive,deep_sweep,find_paper`` is every search asked by hand). ``q``\nmatches a run's terms, its sources, its watch's or saved search's name,\nor its number. ``omit_events`` leaves each row's stored\n``progress_events`` out (null): the Runs tab lists runs and reads a run's\nevents only on its own page. The total is a header, so the body stays\nthe list every reader of this route already reads.",
         "operationId": "list_executions_api_executions_get",
         "parameters": [
           {
@@ -25565,6 +26667,86 @@
         "summary": "Get Execution Papers"
       }
     },
+    "/api/executions/{exec_id}/find": {
+      "get": {
+        "description": "A find's question and what each source it named said: found or not, how it matched, what differs, its open copy.",
+        "operationId": "find_result_api_executions__exec_id__find_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exec_id",
+            "required": true,
+            "schema": {
+              "title": "Exec Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Find Result"
+      }
+    },
+    "/api/executions/{exec_id}/full-text": {
+      "get": {
+        "description": "Every PDF a run asked for (a watch with its opt-in on), and what came of each.",
+        "operationId": "run_full_text_api_executions__exec_id__full_text_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "exec_id",
+            "required": true,
+            "schema": {
+              "title": "Exec Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFullText"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Full Text"
+      }
+    },
     "/api/executions/{exec_id}/log": {
       "get": {
         "operationId": "get_execution_log_api_executions__exec_id__log_get",
@@ -26060,6 +27242,164 @@
           }
         },
         "summary": "Export Selected References"
+      }
+    },
+    "/api/find": {
+      "post": {
+        "description": "Find a paper across the sources that can look it up: a run, or queued like one (202).\n\nEach source is asked by the kind it can be asked by; the copy that is the\npaper is kept in the collection, every source's answer is recorded\n(``GET /api/executions/{id}/find``), and the copies that share a DOI are\nlinked. A query no named source can look up is refused (400) with why.",
+        "operationId": "find_a_paper_api_find_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FindRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Find A Paper"
+      }
+    },
+    "/api/find/plan": {
+      "get": {
+        "description": "What a typed query reads as (a DOI, an arXiv id, a PMID, or a title), and which sources it would ask.",
+        "operationId": "find_plan_api_find_plan_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": true,
+            "schema": {
+              "maxLength": 500,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "repositories",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Repositories"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FindPlan"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Find Plan"
+      }
+    },
+    "/api/full-text/for-documents": {
+      "post": {
+        "description": "For each paper: its open copies, the one resmon would get or why none, its latest request, its Library PDF.",
+        "operationId": "full_text_for_documents_api_full_text_for_documents_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/resmon__DocumentIdsBody__1"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/FullTextStatus"
+                  },
+                  "title": "Response Full Text For Documents Api Full Text For Documents Post",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Full Text For Documents"
+      }
+    },
+    "/api/full-text/rules": {
+      "get": {
+        "description": "The limits on downloads, the license rule, and the sources and sites never downloaded from.",
+        "operationId": "full_text_rules_api_full_text_rules_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FullTextRules"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Full Text Rules"
       }
     },
     "/api/health": {
@@ -27378,7 +28718,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DocumentIdsBody"
+                "$ref": "#/components/schemas/resmon__DocumentIdsBody__2"
               }
             }
           },
@@ -27417,7 +28757,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DocumentIdsBody"
+                "$ref": "#/components/schemas/resmon__DocumentIdsBody__2"
               }
             }
           },

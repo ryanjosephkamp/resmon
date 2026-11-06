@@ -39,7 +39,7 @@ journey.describe('J12 Explorer', () => {
 
     // And the limit is stated, in the panel, not in documentation somewhere.
     expect(why.cannotSee.length, 'the panel claimed a match with no stated limit').toBeGreaterThan(0);
-    expect(why.cannotSee.join(' ')).toContain('not its full text');
+    expect(why.cannotSee.join(' ')).toContain('never its full text, even when it keeps the PDF');
     // Case-insensitively: the heading is upper-cased by the stylesheet, and
     // what is under test is that the limits block is on screen, not its casing.
     expect(why.text.toLowerCase()).toContain('what resmon cannot see');

@@ -32,8 +32,16 @@ exist. A digest match requires full byte-for-byte comparison and the same media
 interpretation; reuse preserves the first basename/file/version. A digest collision
 or media conflict refuses. Different bytes receive different UUIDs. Caught failures
 clean only this operation's unpublished bytes; prior retained copies and originals
-are never deleted, moved or overwritten. A crash can leave a lock or orphan bytes;
-these block further import and are neither adopted nor automatically repaired.
+are never deleted, moved or overwritten. The lock names its holder
+(`<pid>:<runtime id>`, written by `library.take_lock` for an import, a removal and
+a folder move), and staging bytes are named `.staging-<pid>-<uuid>`. A crash can
+leave either in the vault root; an engine's start removes a lock whose holder's
+pid no longer answers (one written by an earlier build, which names none, when it
+is older than that start and its own process is not importing), and staging bytes
+whose pid no longer answers, or, named with no pid, with a lock judged stale
+(`library.recover_stale_import_lock`). A pid that answers keeps its lock and bytes:
+another engine may be using the same Library folder. Other orphan bytes block
+further import and are neither adopted nor automatically repaired.
 A retained size that differs from its catalog also blocks import, so quota checks
 cannot silently use an outdated size. Status still does not hash every retained file.
 
