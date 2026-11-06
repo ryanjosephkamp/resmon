@@ -13,7 +13,7 @@
  * nearest the view first, and dropped when its card leaves the page before it
  * starts. The worker is let go when nothing has been drawn for half a minute.
  */
-import { MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, canvasScale, loadPdfJs, pdfAsset, type PdfWorker } from './pdfjs';
+import { MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, canvasScale, loadPdfJs, pdfAsset, pdfWorkerAsset, type PdfWorker } from './pdfjs';
 import { keepPicture, keptPicture, pdfBytes, dataUrl, type Version } from './libraryApi';
 
 /** The picture's width in pixels: a cover at its widest on a 2x display. */
@@ -37,7 +37,7 @@ async function worker(): Promise<PdfWorker> {
   window.clearTimeout(idleTimer);
   if (shared) return shared.worker;
   const api = await loadPdfJs();
-  const native = new Worker(pdfAsset('build/pdf.worker.min.js'), { type: 'module', name: `resmon-pdf-${PDF_VERSION}-pictures` });
+  const native = new Worker(pdfWorkerAsset(), { type: 'module', name: `resmon-pdf-${PDF_VERSION}-pictures` });
   const made = new api.PDFWorker({ port: native, name: `resmon-pdf-${PDF_VERSION}-pictures` });
   await made.promise;
   shared = { native, worker: made };

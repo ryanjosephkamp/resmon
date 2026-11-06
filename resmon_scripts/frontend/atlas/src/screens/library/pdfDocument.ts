@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { evidence } from './evidenceApi';
 import { pdfBytes } from './libraryApi';
 import {
-  MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, loadPdfJs, pdfAsset,
+  MAX_DRAWN_PAGES, PDF_VERSION, RENDER_TIMEOUT, loadPdfJs, pdfAsset, pdfWorkerAsset,
   type PdfDocument, type PdfLoadingTask, type PdfModule, type PdfWorker,
 } from './pdfjs';
 import type { Size } from './readerModel';
@@ -172,7 +172,7 @@ export function usePdfSession(drawn: Drawn | null, attempt: number): SessionStat
         if (!live) return;
         const api = await loadPdfJs();
         if (!live) return;
-        native = new Worker(pdfAsset('build/pdf.worker.min.js'), { type: 'module', name: `resmon-pdf-${PDF_VERSION}` });
+        native = new Worker(pdfWorkerAsset(), { type: 'module', name: `resmon-pdf-${PDF_VERSION}` });
         native.onerror = () => fail('The PDF.js worker failed, and nothing draws the pages in its place.');
         worker = new api.PDFWorker({ port: native, name: `resmon-pdf-${PDF_VERSION}` });
         await worker.promise;
