@@ -281,12 +281,18 @@ export function readsMore({ has, reading, failed, last, rows, ahead }: {
  * again wholly above it while the view is not moving up. Never while Back's
  * place is held on the stage (`holdsPlace`): the hold puts the row it names
  * where it was left as the rows above it are measured, and moving the stage
- * too, from where the gallery last read it, would move it against that.
+ * too, from where the gallery last read it, would move it against that. Nor
+ * while the list's reading of where its box is (`offset`) is not where the box
+ * is (`apart`), which it learns only from the box's next scroll event: a new
+ * search drawn at once from what was read before pushes the box back, and a
+ * move from the old reading carries the last search's place into the new
+ * list. Clamped to a list that is shorter for now, virtual-core 3.19.5 makes
+ * the move again once the list has grown.
  */
-export function movesStageAsItMeasures({ held, first, start, end, offset, backward }: {
-  held: boolean; first: boolean; start: number; end: number; offset: number; backward: boolean;
+export function movesStageAsItMeasures({ held, apart = false, first, start, end, offset, backward }: {
+  held: boolean; apart?: boolean; first: boolean; start: number; end: number; offset: number; backward: boolean;
 }): boolean {
-  if (held) return false;
+  if (held || apart) return false;
   return first ? start < offset : end <= offset && !backward;
 }
 

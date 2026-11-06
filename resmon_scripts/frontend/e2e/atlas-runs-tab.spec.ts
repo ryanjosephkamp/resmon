@@ -18,22 +18,26 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fixtures/resmon-app';
+import { FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, atlasEnv, heldScreen, launchEnv, registerStateDir } from './fixtures/resmon-app';
 import { removeStateDir } from './fixtures/cleanup';
 import { showTheme } from './fixtures/theme';
 
 const RUNS = 1_000;
 
-/** A window this many CSS pixels wide: the window itself where the display allows, zoomed out where it does not. */
+/**
+ * A window this many CSS pixels wide: the window itself where the display allows, zoomed out where it does
+ * not. A screen `RESMON_E2E_SCREEN` names counts as the display, as on CI's macOS runner.
+ */
 async function widen(app: ElectronApplication, win: Page, width: number, theme: 'light' | 'dark'): Promise<void> {
   await app.evaluate(({ BrowserWindow, screen }, x) => {
-    const area = screen.getPrimaryDisplay().workAreaSize;
+    const display = screen.getPrimaryDisplay().workAreaSize;
+    const area = x.held ? { width: Math.min(display.width, x.held[0]), height: Math.min(display.height, x.held[1]) } : display;
     const w = BrowserWindow.getAllWindows()[0]!;
     const fits = x.width <= area.width;
     const zoom = fits ? 1 : area.width / x.width;
     w.setSize(fits ? x.width : area.width, Math.min(area.height, Math.round(900 * zoom)));
     w.webContents.setZoomFactor(zoom);
-  }, { width });
+  }, { width, held: heldScreen() });
   await expect.poll(() => win.evaluate(() => window.innerWidth), { timeout: 10_000 }).toBeGreaterThanOrEqual(width - 2);
   await showTheme(app, win, theme);
 }
@@ -41,7 +45,8 @@ async function widen(app: ElectronApplication, win: Page, width: number, theme: 
 test('the Runs tab over a thousand runs: pages, counts, filters, search, and a smooth scroll', async () => {
   test.setTimeout(400_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-runs-tab-'));
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
+  // Held to the screen `RESMON_E2E_SCREEN` names, as CI's macOS runner holds the window to its own.
+  const env: Record<string, string> = atlasEnv(launchEnv(stateDir, true));
   // A thousand finished runs a person might have after a year: every seventh a watch's run, every
   // eleventh failed, three sources each, and a few dozen stored events each.
   execFileSync(env.RESMON_PYTHON, ['-c', `

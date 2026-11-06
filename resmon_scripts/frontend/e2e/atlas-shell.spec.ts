@@ -19,7 +19,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
-import { launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
+import { atlasEnv, launchEnv, FRONTEND_ROOT, REPO_ROOT, SCREENSHOT_DIR, registerStateDir } from './fixtures/resmon-app';
 import { SCREEN_PATHS } from '../atlas/src/screenPaths';
 import { removeStateDir } from './fixtures/cleanup';
 
@@ -52,8 +52,10 @@ async function launchAtlas(name: string, width?: number): Promise<{ app: Electro
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), `resmon-e2e-atlas-${name}-`)));
   const stateDir = path.join(root, 'state');
   fs.mkdirSync(stateDir);
-  const env: Record<string, string> = { ...launchEnv(stateDir, true) };
-  if (width) env.RESMON_E2E_WIDTH = String(width);
+  const base: Record<string, string> = { ...launchEnv(stateDir, true) };
+  if (width) base.RESMON_E2E_WIDTH = String(width);
+  // Held to the screen `RESMON_E2E_SCREEN` names, as CI's macOS runner holds the window to its own.
+  const env = atlasEnv(base);
   const python = execFileSync(env.RESMON_PYTHON ?? 'python3', ['-c', 'import sys;print(sys.executable)'], { env, encoding: 'utf8' }).trim();
   const cli = path.join(root, 'claude');
   fs.writeFileSync(cli, `#!/bin/sh\nexec "${python}" "${path.join(REPO_ROOT, 'resmon_scripts/verification_scripts/fixtures/fake_claude.py')}" "$@"\n`, { mode: 0o755 });
@@ -623,33 +625,73 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     const setting = await app.evaluate(({ systemPreferences }) => (process.platform === 'darwin'
       ? systemPreferences.getUserDefault('AppleEnableSwipeNavigateWithScrolls', 'string') : ''));
     const on = setting !== '0';
-    const swipe = async (dx: number, samples = 12, dy = 0) => {
-      for (let i = 0; i < samples; i += 1) await win.mouse.wheel(dx, dy);
+    // Each wheel sample is stamped as a trackpad stamps its stream, 16 ms after the one before, however slowly
+    // the runner sends them. Sent by the mouse's wheel, two samples landed more than 220 ms apart on a slow
+    // Linux runner, and the page read them, as it should, as two swipes: a pause that long ends one
+    // (`swipe.ts`), so the arrow's progress started again and the spec saw it fall back. A person whose fingers
+    // keep moving sends a sample every 8 to 16 ms.
+    const cdp = await win.context().newCDPSession(win);
+    const pointer = { x: 0, y: 0 };
+    const point = async (x: number, y: number) => {
+      pointer.x = x;
+      pointer.y = y;
+      await win.mouse.move(x, y);
     };
+    let stamp = 0;
+    /** Wheel samples, one gesture; `more` carries on the gesture the last call began, with no pause between. */
+    const wheel = async (deltas: readonly (readonly [number, number])[], more = false) => {
+      if (!more) stamp = Math.max(Date.now() / 1000, stamp + 0.5);
+      for (const [dx, dy] of deltas) {
+        stamp += 0.016;
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: pointer.x, y: pointer.y, deltaX: dx, deltaY: dy, timestamp: stamp });
+      }
+    };
+    const swipe = (dx: number, samples = 12, dy = 0, more = false) =>
+      wheel(Array.from({ length: samples }, () => [dx, dy] as const), more);
     const settle = () => win.waitForTimeout(450);
     const arrow = win.locator('.swipe-arrow');
     // The arrow lives only while a swipe does, so what it showed is recorded in
     // the page as it changes, not looked for afterwards, when on a slow machine
     // it may already have gone.
     await win.evaluate(() => {
-      const seen: { toward: string | null; swipe: number; transform: string }[] = [];
+      const seen: { toward: string | null; swipe: number; went: boolean; transform: string }[] = [];
       (window as unknown as { arrowSeen: typeof seen }).arrowSeen = seen;
       new MutationObserver(() => {
         const node = document.querySelector<HTMLElement>('.swipe-arrow');
-        if (node) seen.push({ toward: node.dataset.toward ?? null, swipe: Number(node.style.getPropertyValue('--swipe')), transform: getComputedStyle(node).transform });
-      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward'] });
+        if (node) {
+          seen.push({
+            toward: node.dataset.toward ?? null, swipe: Number(node.style.getPropertyValue('--swipe')),
+            went: node.dataset.went !== undefined, transform: getComputedStyle(node).transform,
+          });
+        }
+      }).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['style', 'data-toward', 'data-went'] });
+      // And how far the samples that reached the page travelled sideways, which the browser keeps when it
+      // merges samples that arrive within a frame: one sent outside the window reaches nothing, and proves nothing.
+      const reached = { travel: 0 };
+      (window as unknown as { wheelsReached: typeof reached }).wheelsReached = reached;
+      window.addEventListener('wheel', (event) => { reached.travel += Math.abs(event.deltaX); }, { capture: true, passive: true });
     });
-    const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: { toward: string | null; swipe: number; transform: string }[] }).arrowSeen.splice(0));
+    type Seen = { toward: string | null; swipe: number; went: boolean; transform: string };
+    const shown = () => win.evaluate(() => (window as unknown as { arrowSeen: Seen[] }).arrowSeen.splice(0));
+    /** How far the samples since the last count travelled in the page; they reach it a frame after they are sent. */
+    const reached = async (travel: number) => {
+      await expect.poll(() => win.evaluate(() => Math.round((window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel)))
+        .toBe(travel);
+      await win.evaluate(() => { (window as unknown as { wheelsReached: { travel: number } }).wheelsReached.travel = 0; });
+    };
 
     await win.evaluate(() => { window.location.replace('#/settings'); });
     await expect(win.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 30_000 });
     const title = win.getByRole('heading', { name: 'Settings', level: 1 });
     const box = (await title.boundingBox())!;
-    await win.mouse.move(box.x + box.width + 200, box.y + box.height / 2);
+    // On the page's heading, which takes no swipe itself, inside the window at every size: 200 pixels past
+    // its end was past the window's edge at 1024 by 684, CI's macOS screen, where no sample reached the page.
+    await point(box.x + Math.min(box.width, 120) / 2, box.y + box.height / 2);
 
-    // No page back: nothing is drawn, nothing happens.
+    // No page back: nothing is drawn, nothing happens, though the whole swipe reached the page.
     await swipe(-20);
     await settle();
+    await reached(240);
     expect(await shown()).toEqual([]);
     expect(await hash(win)).toBe('#/settings');
 
@@ -668,16 +710,20 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
 
     // — back: the arrow at the left edge grows, then it goes, once, however long the tail ------
     await swipe(-20, 4);
+    await reached(80);
     const growing = await shown();
     expect(growing.length).toBeGreaterThan(0);
-    expect(growing.every((state) => state.toward === 'back' && state.swipe > 0 && state.swipe < 1)).toBe(true);
+    // Short of the threshold, at the back edge, and never smaller than it was while the fingers move on.
+    expect(growing.every((state) => state.toward === 'back' && state.swipe > 0 && state.swipe < 1 && !state.went)).toBe(true);
     expect(growing.map((state) => state.swipe)).toEqual([...growing.map((state) => state.swipe)].sort((a, b) => a - b));
-    await swipe(-20, 6);
+    await swipe(-20, 6, 0, true);
     await expect.poll(() => hash(win)).toBe('#/settings/about');
+    // It reached the threshold and went: the arrow whole, marked as gone.
+    expect((await shown()).some((state) => state.toward === 'back' && state.swipe === 1 && state.went)).toBe(true);
     // A three-finger `swipe` arriving just after is the same gesture, not a second.
     await app.evaluate(({ BrowserWindow }) => { BrowserWindow.getAllWindows()[0]?.emit('swipe', {}, 'left'); });
-    // The momentum tail, still arriving after the swipe went.
-    for (const dx of [-30, -25, -20, -16, -12, -9, -6, -4, -3, -2, -1]) await win.mouse.wheel(dx, 0);
+    // The momentum tail of the same swipe, still arriving after it went.
+    await wheel([-30, -25, -20, -16, -12, -9, -6, -4, -3, -2, -1].map((dx) => [dx, 0] as const), true);
     await settle();
     expect(await hash(win)).toBe('#/settings/about');
     await expect(arrow).toHaveCount(0);
@@ -702,7 +748,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
       strip.scrollLeft = 300;
     });
     const strip = (await win.locator('#e2e-strip').boundingBox())!;
-    await win.mouse.move(strip.x + 150, strip.y + 40);
+    await point(strip.x + 150, strip.y + 40);
     await swipe(-20, 6);
     await settle();
     expect(await hash(win)).toBe('#/settings/tutorials');
@@ -717,7 +763,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     await win.evaluate(() => { window.location.hash = '#/search/ask'; });
     const terms = win.getByLabel('Search terms');
     const field = (await terms.boundingBox())!;
-    await win.mouse.move(field.x + 40, field.y + field.height / 2);
+    await point(field.x + 40, field.y + field.height / 2);
     await swipe(-20);
     await settle();
     expect(await hash(win)).toBe('#/search/ask');
@@ -725,7 +771,7 @@ test('a two-finger swipe goes back and forward, once per swipe, and leaves alone
     // — with reduced motion, the arrow does not slide -------------------------------------
     await win.emulateMedia({ reducedMotion: 'reduce' });
     const heading = (await win.getByRole('heading', { name: 'Ask the sources', level: 1 }).boundingBox())!;
-    await win.mouse.move(heading.x + heading.width / 2, heading.y + heading.height / 2);
+    await point(heading.x + heading.width / 2, heading.y + heading.height / 2);
     await shown();
     await swipe(-20, 3);
     await settle();

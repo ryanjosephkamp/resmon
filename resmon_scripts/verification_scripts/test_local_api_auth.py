@@ -78,7 +78,7 @@ class Backend:
     """One real backend process in its own state directory."""
 
     def __init__(self, state: Path, *, daemon: bool = False, env: dict | None = None,
-                 port: int | None = None) -> None:
+                 port: int | None = None, script: Path | None = None) -> None:
         self.state = state
         state.mkdir(parents=True, exist_ok=True)
         (state / "reports").mkdir(exist_ok=True)
@@ -101,7 +101,7 @@ class Backend:
         if daemon:
             argv = ["module", "implementation_scripts.daemon", f"--port={self.port}"]
         else:
-            argv = ["script", str(RESMON_SCRIPTS / "resmon.py"), str(self.port)]
+            argv = ["script", str(script or RESMON_SCRIPTS / "resmon.py"), str(self.port)]
         self.argv = [sys.executable, "-c", _LOOPBACK_ONLY, *argv]
         with self.log.open("w") as out:
             self.proc = subprocess.Popen(self.argv, cwd=RESMON_SCRIPTS, env=base,
@@ -330,6 +330,58 @@ def test_the_renderer_origin_with_the_token_is_served_with_cors(backend):
     assert response.status_code == 200
     assert response.headers["access-control-allow-origin"] == RENDERER_ORIGIN
     assert "access-control-allow-private-network" not in response.headers
+
+
+#: ``resmon.py`` with two routes made to fail as a route can: the map's and its facets' readers raise.
+_FAILING_ROUTES = """
+import runpy, sys
+sys.path.insert(0, {scripts!r})
+from implementation_scripts import collection_map, map_facets
+def fail(*args, **kwargs):
+    raise RuntimeError("a reader that fails")
+collection_map.snapshot = fail
+map_facets.facets = fail
+sys.argv = [{resmon!r}, *sys.argv[1:]]
+runpy.run_path({resmon!r}, run_name="__main__")
+"""
+
+
+@pytest.fixture(scope="module")
+def failing_backend(tmp_path_factory):
+    root = tmp_path_factory.mktemp("failing")
+    script = root / "failing_resmon.py"
+    script.write_text(_FAILING_ROUTES.format(scripts=str(RESMON_SCRIPTS), resmon=str(RESMON_SCRIPTS / "resmon.py")))
+    b = Backend(root / "state", env={"RESMON_RENDERER_ORIGIN": RENDERER_ORIGIN}, script=script)
+    yield b
+    b.stop()
+
+
+def test_a_route_that_fails_is_answered_inside_cors():
+    """The failure's answer is made inside the CORS layer, which marks it, and the guard still runs first."""
+    layers = [m.cls for m in resmon.app.user_middleware]
+    assert layers.index(api_auth.FailureAnswer) > layers.index(api_auth.RendererCORSMiddleware)
+
+
+@pytest.mark.parametrize("path", ["/api/map", "/api/map/facets", "/api/executions/999999"],
+                         ids=["map-raises", "facets-raise", "no-such-run"])
+def test_an_error_answer_carries_cors_for_the_renderer_and_for_no_other_origin(failing_backend, path):
+    """The renderer reads the engine's sentence for a failure, not a request blocked by CORS."""
+    def ask(headers: dict) -> httpx.Response:
+        # A connection of its own each: the server closes one whose route raised, after the answer.
+        with failing_backend.client() as c:
+            return c.get(path, headers=headers)
+    mine = ask({"Origin": RENDERER_ORIGIN})
+    theirs = ask({"Origin": "http://127.0.0.1:12347"})
+    bare = ask({})
+    assert mine.status_code == (404 if path.startswith("/api/executions") else 500)
+    assert mine.headers["access-control-allow-origin"] == RENDERER_ORIGIN
+    assert isinstance(mine.json()["detail"], str) and mine.json()["detail"]
+    if mine.status_code == 500:
+        assert mine.json()["detail"] == "The engine failed while answering this request (RuntimeError)."
+    assert theirs.status_code == 403
+    assert "access-control-allow-origin" not in theirs.headers
+    assert bare.status_code == mine.status_code
+    assert "access-control-allow-origin" not in bare.headers
 
 
 def test_the_renderer_origin_without_the_token_is_still_refused(backend):

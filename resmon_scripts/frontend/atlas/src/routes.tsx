@@ -79,7 +79,7 @@ export const DETAILS: readonly { path: string; element: ReactElement }[] = [
   { path: '/health/watchdog', element: <Watchdog /> },
   { path: '/health/analytics', element: <Analytics /> },
   { path: '/health/engine', element: <Engine /> },
-  { path: '/runs/:id', element: <Run /> },
+  { path: '/runs/:id/:tab?', element: <Run /> },
   { path: '/papers/:id', element: <Paper /> },
   { path: '/watches/calendar', element: <Calendar /> },
   { path: '/watches/people', element: <People /> },

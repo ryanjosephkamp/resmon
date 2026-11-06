@@ -4,10 +4,12 @@
  * its top, where there is one), a change of address within one screen leaves
  * it where it is, and a screen that opens at its own place keeps it.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { act, render } from '@testing-library/react';
-import { MemoryRouter, Route, Routes, useNavigate, type NavigateFunction } from 'react-router-dom';
-import { HOLD_MS, SCROLL_LIMIT, SETTLE_MS, ScrollMemory, StageScroll, anchorAt, holdsPlace, landing, placeStage, type Place } from '../stageScroll';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams, type NavigateFunction } from 'react-router-dom';
+import {
+  HOLD_MS, SCROLL_LIMIT, SETTLE_MS, ScrollMemory, ScrollPlaces, StageScroll, anchorAt, holdsPlace, landing, placeStage, useScrollerPlace, type Place,
+} from '../stageScroll';
 
 const at = (top: number): Place => ({ top, anchor: null });
 
@@ -539,6 +541,233 @@ describe('the row at the top, read when the place is wanted', () => {
     act(() => { jest.advanceTimersByTime(SETTLE_MS * 2); });
     window.dispatchEvent(new Event('pointerdown'));
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '[' }));
+    expect(looks).not.toHaveBeenCalled();
+  });
+});
+
+describe('a box a screen scrolls on its own, as Search\'s results and a run\'s page do', () => {
+  let go: NavigateFunction | null = null;
+  function Navigator() {
+    go = useNavigate();
+    return null;
+  }
+  /** What else the list's place depends on, as Search's order does, which a Back finds as it was or not. */
+  let order = 'newest';
+  /** A screen whose list scrolls in its own box, the paper at `down` pixels down it; drawn once `drawn`. */
+  function Results({ fresh = true, drawn = true }: { fresh?: boolean; drawn?: boolean }) {
+    const box = useRef<HTMLDivElement>(null);
+    const words = new URLSearchParams(useLocation().search).get('q') ?? '';
+    useScrollerPlace(box, { name: 'results', under: `${words}/${order}`, fresh, drawn });
+    if (!drawn) return <p>reading</p>;
+    return <div ref={box} data-testid="box"><article data-document="7">a paper</article></div>;
+  }
+  function Frame({ fresh, drawn }: { fresh?: boolean; drawn?: boolean }) {
+    const stage = useRef<HTMLElement>(null);
+    return (
+      <ScrollPlaces>
+        <main ref={stage} data-testid="stage">
+          <StageScroll stage={stage} />
+          <Navigator />
+          <Routes>
+            <Route path="/search" element={<Results fresh={fresh} drawn={drawn} />} />
+            <Route path="*" element={<p>a paper&rsquo;s page</p>} />
+          </Routes>
+        </main>
+      </ScrollPlaces>
+    );
+  }
+  /** How far down the box's content the paper is drawn; a list drawing its rows again at other heights moves it. */
+  let down = 1000;
+  let looks: jest.Mock;
+  beforeEach(() => {
+    jest.useFakeTimers();
+    down = 1000;
+    order = 'newest';
+    looks = jest.fn(() => document.querySelector('[data-document="7"]'));
+    document.elementFromPoint = looks;
+    // The box is 800 high, its top edge at the window's; the paper sits `down` pixels down its content.
+    jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect(this: Element) {
+      const box = this.closest('[data-testid="box"]') as HTMLElement | null;
+      const top = this.matches('[data-document]') ? down - (box?.scrollTop ?? 0) : 0;
+      const height = this.matches('[data-testid="box"], main') ? 800 : 70;
+      return { top, bottom: top + height, left: 0, right: 600, width: 600, height, x: 0, y: top, toJSON: () => ({}) };
+    });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+    delete (document as { elementFromPoint?: unknown }).elementFromPoint;
+  });
+  const box = () => document.querySelector<HTMLElement>('[data-testid="box"]')!;
+  /** The person scrolls the box, and the scroll comes to rest. */
+  const scrollTo = (top: number) => {
+    box().scrollTop = top;
+    box().dispatchEvent(new Event('scroll'));
+  };
+  /** A paper opened from the list, its list drawn 400 pixels further down when Back draws it again, and Back. */
+  const awayAndBack = () => {
+    act(() => { void go!('/papers/7'); });
+    expect(document.querySelector('[data-testid="box"]')).toBeNull();
+    down = 1400;
+    act(() => { void go!(-1); });
+  };
+
+  test('Back puts the list back by the paper at its top, read once the scroll has come to rest, and the stage stays put', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    for (let top = 40; top <= 960; top += 40) scrollTo(top);
+    // Nothing is looked for on the scroll itself.
+    expect(looks).not.toHaveBeenCalled();
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    // By the paper, 40 below the top edge as it was left, rather than 960 down.
+    expect(box().scrollTop).toBe(1360);
+    expect(view.getByTestId('stage').scrollTop).toBe(0);
+    view.unmount();
+  });
+
+  test('a click on a paper right after a scroll keeps the paper it left', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    scrollTo(960);
+    box().dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    expect(looks).toHaveBeenCalledTimes(1);
+    awayAndBack();
+    expect(box().scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('the hold waits for a paper the list has not drawn yet, at the old distance down, and puts the list by it when it comes', () => {
+    const frames: FrameRequestCallback[] = [];
+    jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => { frames.push(callback); return frames.length; });
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!('/papers/7'); });
+    // Drawn again, the list has not drawn the paper yet.
+    looks.mockReturnValue(null);
+    const paper = jest.spyOn(Element.prototype, 'querySelector');
+    paper.mockImplementation(function find(this: Element, selector: string) {
+      return selector === '[data-document="7"]' && down > 5000 ? null : Element.prototype.querySelectorAll.call(this, selector)[0] ?? null;
+    });
+    down = 9999;
+    act(() => { void go!(-1); });
+    expect(box().scrollTop).toBe(960);
+    expect(holdsPlace(box())).toBe(true);
+    // The list draws it, 1,400 down: the box is put by it.
+    down = 1400;
+    act(() => { for (const frame of frames.splice(0)) frame(performance.now()); });
+    expect(box().scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('a Back to other results (another order now) opens them at their top', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!('/papers/7'); });
+    order = 'closest';
+    act(() => { void go!(-1); });
+    expect(box().scrollTop).toBe(0);
+    view.unmount();
+  });
+
+  test('a new search on the screen opens the list at its top, and Back to the last one puts it where it was', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!('/search?q=binaries'); });
+    expect(box().scrollTop).toBe(0);
+    down = 1400;
+    act(() => { void go!(-1); });
+    expect(box().scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('without `fresh`, the same page shown another way (another of a run\'s tabs) is left where it is', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame fresh={false} /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { void go!('/search?q=binaries', { replace: true }); });
+    expect(box().scrollTop).toBe(960);
+    view.unmount();
+  });
+
+  test('a run\'s tabs, each with a path, are one screen: another tab leaves the page where it is, and another run opens at its top', () => {
+    function RunPage() {
+      const box = useRef<HTMLDivElement>(null);
+      const { id, tab = 'papers' } = useParams();
+      useScrollerPlace(box, { name: 'run', under: tab, screen: `/runs/${id}` });
+      return <div ref={box} data-testid="box"><article data-document="7">a paper</article></div>;
+    }
+    function RunFrame() {
+      const stage = useRef<HTMLElement>(null);
+      return (
+        <ScrollPlaces>
+          <main ref={stage} data-testid="stage">
+            <StageScroll stage={stage} />
+            <Navigator />
+            <Routes><Route path="/runs/:id/:tab?" element={<RunPage />} /></Routes>
+          </main>
+        </ScrollPlaces>
+      );
+    }
+    const view = render(<MemoryRouter initialEntries={['/runs/12/papers']}><RunFrame /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { void go!('/runs/12/log'); });
+    expect(box().scrollTop).toBe(960);
+    // Back to the tab it was left on, where it was left.
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!(-1); });
+    expect(box().scrollTop).toBe(960);
+    // Another run opens at its top.
+    act(() => { void go!('/runs/13/papers'); });
+    expect(box().scrollTop).toBe(0);
+    view.unmount();
+  });
+
+  test('a box the screen draws after it opens, as a run\'s page once the run is read, is put back when it is drawn', () => {
+    let drawn = true;
+    let redraw: (n: number) => void = () => undefined;
+    function Reading() {
+      const [, set] = useState(0);
+      redraw = set;
+      return <Results drawn={drawn} />;
+    }
+    function Later() {
+      const stage = useRef<HTMLElement>(null);
+      return (
+        <ScrollPlaces>
+          <main ref={stage}>
+            <StageScroll stage={stage} />
+            <Navigator />
+            <Routes>
+              <Route path="/search" element={<Reading />} />
+              <Route path="*" element={<p>a paper&rsquo;s page</p>} />
+            </Routes>
+          </main>
+        </ScrollPlaces>
+      );
+    }
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Later /></MemoryRouter>);
+    scrollTo(960);
+    act(() => { jest.advanceTimersByTime(SETTLE_MS); });
+    act(() => { void go!('/papers/7'); });
+    drawn = false;
+    act(() => { void go!(-1); });
+    expect(document.querySelector('[data-testid="box"]')).toBeNull();
+    down = 1400;
+    act(() => { drawn = true; redraw(1); });
+    expect(box().scrollTop).toBe(1360);
+    view.unmount();
+  });
+
+  test('nothing is kept after the box has gone', () => {
+    const view = render(<MemoryRouter initialEntries={['/search?q=tides']}><Frame /></MemoryRouter>);
+    const gone = box();
+    scrollTo(960);
+    view.unmount();
+    act(() => { jest.advanceTimersByTime(SETTLE_MS * 2); });
+    gone.dispatchEvent(new Event('scroll'));
+    window.dispatchEvent(new Event('pointerdown'));
     expect(looks).not.toHaveBeenCalled();
   });
 });

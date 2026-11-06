@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { answer, engine } from '../api/client';
+import { answer, engine, EngineError } from '../api/client';
 import { ChartTip, tipWords, type TipAnchor, type TipContent } from '../charts/ChartTip';
 import type { components } from '../api/schema';
 import { useAppearance } from '../theme/appearance';
@@ -241,11 +241,14 @@ export function Today() {
   };
 
   if (map.isError || today.isError) {
+    const failure = map.error ?? today.error;
     return (
       <section className="page page-narrow" aria-labelledby="page-title">
         <h1 id="page-title" className="page-title">Today</h1>
         <p className="page-lede" role="alert">
-          The engine did not answer: {(map.error ?? today.error)?.message}. Nothing here is shown from memory.
+          {/* The engine's own sentence where it answered with one; otherwise what failed. */}
+          {failure instanceof EngineError && failure.detail ? failure.detail : `The engine did not answer: ${failure?.message}.`}
+          {' '}Nothing here is shown from memory.
         </p>
       </section>
     );

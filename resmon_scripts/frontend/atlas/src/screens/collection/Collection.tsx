@@ -6,11 +6,12 @@ import type { components } from '../../api/schema';
 import { isMac } from '../../bridge';
 import { afterPause } from '../../shell/history';
 import { Icon } from '../../shell/Icon';
+import { useScrollerPlace } from '../../shell/stageScroll';
 import { ariaKeys, keysText, shortcut } from '../../shell/shortcuts';
 import { ASK_PATH, KINDS, type AskState } from '../searchStart';
 import { useFocusOnArrival } from '../arrival';
 import { MapPaper } from '../sky/MapPaper';
-import { basisWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
+import { basisWords, leftOffWords, PaperSky, type PaperSkyHandle, type SkyChoice } from '../sky/PaperSky';
 import { count, number } from '../today/format';
 import { EMBEDDING_STATUS_KEY, EMBEDDINGS_PATH, ranking as rankingWords } from '../settings/embeddingWords';
 import { stoppedWords } from './countCap';
@@ -18,10 +19,11 @@ import { exportCollection } from './collectionExport';
 import { FacetMenus, type Menu } from './FacetMenus';
 import {
   chips, countSentence, engineFilters, exportedWords, exportWords, filterCount, narrowingWords, readFilters,
-  toggled, withDate, withoutFilters, type EngineFilters, type Facets,
+  toggled, withDate, withoutFilters, type EngineFilters, type Facets, type Ranking,
 } from './filters';
 import { foldedAway } from './fold';
 import { jumpWords, monthEnd, readJump, withJump } from './jump';
+import { readOrder, withOrder } from './order';
 import { ResultList, type Marks, type Picking } from './ResultList';
 import { SearchTabs } from './SearchTabs';
 import { FORMATS, type ReferenceFormat } from '../runs/references';
@@ -36,7 +38,6 @@ type ExplorerPaper = components['schemas']['ExplorerPaper'];
 const NONE_MARKED: readonly number[] = [];
 /** What each search page carries for its papers (`include`). */
 const MARKS = ['links', 'matches', 'lifecycle'] as const;
-type Sort = 'newest' | 'similarity';
 
 /** How long typing pauses before the collection is searched again. */
 const SETTLE_MS = 350;
@@ -111,8 +112,16 @@ export function Collection() {
       return next;
     }, { replace: true });
   }, [asked, query, setParams]);
-  const [sort, setSort] = useState<Sort>('newest');
+  // The order asked for is in the address, so Back returns to it.
+  const sort = readOrder(params);
+  const setSort = (order: Ranking) => setParams((now) => withOrder(now, order), { replace: true });
   const scroller = useRef<HTMLDivElement>(null);
+  // The results' box, once it is in the page, for the list drawn in it.
+  const [resultsBox, setResultsBox] = useState<HTMLDivElement | null>(null);
+  const results = useCallback((node: HTMLDivElement | null) => {
+    scroller.current = node;
+    setResultsBox(node);
+  }, []);
   const [fold, setFold] = useState(false);
   // A paper chosen on the map opens in the results' place; the results, and the search box, wait behind it.
   const [opened, setOpened] = useState<SkyChoice | null>(null);
@@ -134,7 +143,7 @@ export function Collection() {
   });
   const canRank = status.data?.capability.available === true;
   const rank = status.data ? rankingWords(status.data, words) : null;
-  const ranking: Sort = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
+  const ranking: Ranking = canRank && query && sort === 'similarity' ? 'similarity' : 'newest';
   // A month jumped to, in the newest order only: a ranking by meaning is not in date order.
   const at = readJump(params);
   const jump = ranking === 'newest' && at ? monthEnd(at) : null;
@@ -159,8 +168,9 @@ export function Collection() {
   });
   const { hasNextPage, isFetchingNextPage, fetchNextPage } = pages;
   const readMore = useCallback(() => { if (hasNextPage && !isFetchingNextPage) void fetchNextPage(); }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
-  // A new search, a new order, or a jump starts at the top of the list.
-  useEffect(() => { scroller.current?.scrollTo({ top: 0 }); }, [query, ranking, filters, jump]);
+  // Back and Forward put the list where it was left, by the paper at its top, for the same search; a new
+  // search, a new order, a jump, or another collection starts at its top.
+  useScrollerPlace(scroller, { name: 'results', under: JSON.stringify([collection, query, ranking, filters, jump]), fresh: true });
   const first = pages.data?.pages[0];
   const rows: ExplorerPaper[] = useMemo(() => pages.data?.pages.flatMap((p) => p.results) ?? [], [pages.data]);
   const ids = useMemo(() => rows.map((r) => r.id), [rows]);
@@ -262,7 +272,7 @@ export function Collection() {
         onChoose={setOpened}
         sourceName={nameOf}
         label="Where the matches sit in the collection"
-        caption={({ placed, ready, basis }) => {
+        caption={({ placed, ready, basis, unplaced }) => {
           if (!ready) return 'The collection map is not ready yet; matches are marked once it is.';
           if (!query && !filtered) return `Every paper in ${words.name}, ${basisWords(basis)}. Matches are marked as you search.`;
           if (!ids.length) return 'Nothing matches, so nothing is marked.';
@@ -270,7 +280,7 @@ export function Collection() {
             ? `the first ${number(ids.length)} of ${first?.total_is_exact === false ? 'at least ' : ''}${number(total)} matches`
             : count(ids.length, 'match', 'matches');
           if (placed === ids.length) return `Marked: ${listed}, ${basisWords(basis)}.`;
-          return `Marked: ${number(placed ?? 0)} of ${listed}; the map has not placed the rest yet.`;
+          return `Marked: ${number(placed ?? 0)} of ${listed}. ${leftOffWords(ids.length - (placed ?? 0), { basis, unplaced })}`;
         }}
       />
       {opened && (
@@ -445,7 +455,7 @@ export function Collection() {
             </p>
           )}
         </div>
-        <div className="index-scroll" ref={scroller}>
+        <div className="index-scroll" ref={results}>
           <ResultList
             rows={visible}
             total={first?.total_is_exact ? total : null}
@@ -454,7 +464,7 @@ export function Collection() {
             showFolded={fold}
             ranking={ranking}
             sourceName={nameOf}
-            scroller={scroller}
+            scroller={resultsBox}
             more={{ has: !!hasNextPage, reading: isFetchingNextPage, read: readMore }}
             picking={picking}
           />

@@ -1,5 +1,5 @@
-import { useEffect, type RefObject } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useEffect, useLayoutEffect } from 'react';
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { Link } from 'react-router-dom';
 import type { components } from '../../api/schema';
 import { authors, count, publishedWords } from '../today/format';
@@ -7,6 +7,8 @@ import { BASIS_MEANING, basisWords as matchBasis } from '../watches/people/model
 import { LifecycleMarks } from '../lifecycle/LifecycleMarks';
 import { standingInFor } from './fold';
 import { PickBox, useRowKeys } from '../selection/SelectBar';
+import { holdsPlace } from '../../shell/stageScroll';
+import { movesStageAsItMeasures } from '../library/galleryModel';
 
 type ExplorerPaper = components['schemas']['ExplorerPaper'];
 export type Marks = {
@@ -32,8 +34,8 @@ interface Props {
   showFolded: boolean;
   ranking: 'newest' | 'similarity';
   sourceName: (slug: string) => string;
-  /** The element the list scrolls in; the list is the first thing in it. */
-  scroller: RefObject<HTMLDivElement | null>;
+  /** The box the list scrolls in, once it is in the page; the list is the first thing in it. */
+  scroller: HTMLElement | null;
   /** More pages, and asking for the next one. */
   more: { has: boolean; reading: boolean; read: () => void };
   /** Select mode: whether a row is picked, and picking by a row's place in `rows`. */
@@ -51,6 +53,29 @@ export interface Picking {
 const NO_PICKING = { onRange: () => undefined, onAll: () => undefined };
 
 /**
+ * Whether the list moves its box by what a row grew when it measures it, so
+ * that what is at the top stays put, as the Library's gallery moves the stage
+ * (`movesStageAsItMeasures`). Not while Back's place is held on the box: the
+ * hold puts the paper it names where it was left. Nor while the list reads the
+ * box as further down than it is: a new search opens at the top, drawn at once
+ * from the pages read before, before the box's scroll event has told the list
+ * so, and a move from the last search's place would take the new one back
+ * there.
+ */
+export function movesBoxAsItMeasures(box: HTMLElement | null): (item: { key: string | number | bigint; start: number; end: number }, delta: number,
+  instance: Virtualizer<HTMLElement, Element>) => boolean {
+  return (item, _delta, instance) => movesStageAsItMeasures({
+    held: box !== null && holdsPlace(box),
+    apart: box !== null && Math.abs((instance.scrollOffset ?? 0) - box.scrollTop) > 1,
+    first: !instance.itemSizeCache.has(item.key),
+    start: item.start,
+    end: item.end,
+    offset: instance.scrollOffset ?? 0,
+    backward: instance.scrollDirection === 'backward',
+  });
+}
+
+/**
  * The collection's results, as many as have been read, drawn as a window: only
  * the rows in view and a few either side are in the page, each measured once
  * drawn, so ten thousand rows read cost what fifty did. Rows stay in the page
@@ -66,12 +91,23 @@ const NO_PICKING = { onRange: () => undefined, onAll: () => undefined };
 export function ResultList({ rows, total, marks, folded, showFolded, ranking, sourceName, scroller, more, picking = null }: Props) {
   const virtual = useVirtualizer({
     count: rows.length,
-    getScrollElement: () => scroller.current,
+    // Drawn against its box once the box is known, from where the box is: a virtualizer that meets its box
+    // scrolls it to its initial offset, which would put the list at its top just after Back has put it
+    // where it was left.
+    enabled: scroller !== null,
+    getScrollElement: () => scroller,
+    initialOffset: () => scroller?.scrollTop ?? 0,
     estimateSize: () => ESTIMATE_PX,
     overscan: OVERSCAN,
     getItemKey: (index) => rows[index]?.id ?? index,
   });
+  useLayoutEffect(() => {
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = movesBoxAsItMeasures(scroller);
+  }, [virtual, scroller]);
   const items = virtual.getVirtualItems();
+  // Until it knows its box the list draws no rows, and is the height its rows are estimated at, so a place
+  // Back puts the box at is inside it.
+  const height = scroller === null ? rows.length * ESTIMATE_PX : virtual.getTotalSize();
   const { attach, onKeyDown: rowKeys } = useRowKeys({
     count: rows.length, ...(picking ?? NO_PICKING),
     scrollTo: (index) => virtual.scrollToIndex(index, { align: 'auto' }),
@@ -84,7 +120,7 @@ export function ResultList({ rows, total, marks, folded, showFolded, ranking, so
 
   return (
     <>
-      <ol className="result-list virtual" style={{ height: virtual.getTotalSize() }}
+      <ol className="result-list virtual" style={{ height }}
         ref={attach} onKeyDown={picking ? rowKeys : undefined}>
         {items.map((item) => {
           const paper = rows[item.index];

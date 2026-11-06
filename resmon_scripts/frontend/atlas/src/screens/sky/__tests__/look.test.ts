@@ -6,6 +6,7 @@ import {
   type Facets, type MapView,
 } from '../look';
 import { arxivPdf, webLink } from '../MapPaper';
+import { leftOffWords } from '../PaperSky';
 
 /** Six papers, ids 11 to 16, in two regions; collected 0, 3, 10, 40, 100, and 400 days before day 1000. */
 function points(): MapPoints {
@@ -224,5 +225,30 @@ describe('a paper’s links', () => {
     expect(arxivPdf('https://arxiv.org/abs/hep-th/9901001v1')).toBe('https://arxiv.org/pdf/hep-th/9901001v1');
     expect(arxivPdf('https://example.org/abs/2401.01234')).toBeNull();
     expect(arxivPdf(null)).toBeNull();
+  });
+});
+
+describe('why marked papers are off the map', () => {
+  test('on the words basis they are left out for sharing too few words, not waiting to be placed', () => {
+    const unplaced = { no_text: 12, not_embedded: 0 };
+    expect(leftOffWords(12, { basis: 'words', unplaced }))
+      .toBe('12 are left off the map: their titles and abstracts share too few words with the rest to place them.');
+    expect(leftOffWords(1, { basis: 'words', unplaced }))
+      .toBe('1 is left off the map: its title and abstract share too few words with the rest to place it.');
+  });
+
+  test('on an embedding map the papers the model has not read are still to be placed', () => {
+    expect(leftOffWords(3, { basis: 'embeddings', unplaced: { no_text: 0, not_embedded: 9 } }))
+      .toBe('3 are not placed yet: your embedding model has not read them.');
+  });
+
+  test('on an embedding map with nothing waiting they are left out for too little text', () => {
+    expect(leftOffWords(2, { basis: 'embeddings', unplaced: { no_text: 2, not_embedded: 0 } }))
+      .toBe('2 are left off the map: their titles and abstracts hold too little text to place them.');
+  });
+
+  test('where both reasons apply the sentence names both', () => {
+    expect(leftOffWords(5, { basis: 'embeddings', unplaced: { no_text: 2, not_embedded: 4 } }))
+      .toBe('5 are off the map: your embedding model has not read some of them yet, or their titles and abstracts hold too little text to place them.');
   });
 });

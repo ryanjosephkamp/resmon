@@ -9,7 +9,7 @@ order: 5
 
 This tab searches the collection the window shows, across all the runs and watches that put papers there; its name is the page's heading. Type words that appear in a title, an abstract, or an author's name.
 
-**Filters** narrow by **Source**, **Category**, **Author**, and **Published**. Each value shows how many papers it would hold. The filters and your words are kept in the address of the page, so you can go back to a filtered view. Source and month charts on **Health › Analytics** open those papers; a keyword's bar searches for its words, whose matches can differ from the chart's phrase count.
+**Filters** narrow by **Source**, **Category**, **Author**, and **Published**. Each value shows how many papers it would hold. The filters, your words, and the order are kept in the address of the page, so you can go back to a filtered view. Source and month charts on **Health › Analytics** open those papers; a keyword's bar searches for its words, whose matches can differ from the chart's phrase count.
 
 **Newest** orders by publication date. **Closest in meaning** appears when your embedding model can rank the collection, and it orders by how near each paper is to the phrase you typed rather than by date. Two things are true of it:
 
@@ -20,7 +20,7 @@ When resmon cannot rank, the control is not offered and a sentence says why: no 
 
 The count above the list is every paper that matches, however many. Counting has 1.5 seconds; if it runs out, the line says "At least N" and that counting stopped, and the list and the export still hold every match. Closest in meaning ranks every match too, not only the newest.
 
-The list reads more papers as you scroll toward its end (**Show more** does the same from the keyboard), drawing only the rows near the view. The window's find cannot reach rows outside that drawn part; use the search field to search every paper. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the newest** returns to the top. The month is kept in the address with your words and filters.
+The list reads more papers as you scroll toward its end (**Show more** does the same from the keyboard), drawing only the rows near the view. The window's find cannot reach rows outside that drawn part; use the search field to search every paper. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the newest** returns to the top. The month is kept in the address with your words, filters, and order.
 
 The **Export these papers as** buttons (**BibTeX**, **RIS**, **CSV**) write every paper that matches, not only the rows drawn, through the system's save dialog. There is no limit on how many: resmon writes the file as it reads the papers, and says how many the file holds once it is saved.
 
@@ -31,7 +31,7 @@ Each result shows its title, any retraction or correction recorded against it, i
 - **Papers that look like the same work.** Each is labeled "also appears in (source)" with the reason resmon linked them: "same DOI" is an identifier, and "near-identical title" is an inference. resmon links and never merges: both records are kept, with what each source said. **Fold the same work into one row** hides the extra rows in this view only; the count does not change, and turning it off shows every row. Links are made by a scan started over the HTTP API (`POST /api/links/scan`); Atlas shows the links that exist.
 - **People.** A paper matched to someone on your **People** list shows who, the string the source returned for the author, and the basis of the match. See [Watches and people](/resmon/guide/watches/).
 
-The map beside the list marks where the matches sit in the collection.
+The map beside the list marks where the matches sit in the collection. Its caption counts the matches it marked. A match the map leaves off is counted too, with the reason: its title and abstract share too few words with the rest to place it, or, on a map drawn from your embedding model, the model has not read it yet.
 
 ### Collections
 
@@ -131,7 +131,7 @@ A run's page opens when you start a search, from the Runs tab, from a watch's hi
 - **The map.** A small map of where this run's papers sit in the collection.
 - **PDFs.** For a watch whose PDFs switch is on, what its run got into the Library, what is still waiting or downloading, and what was skipped or failed, with why. A find also links to its per-source answers with **See what each source said**.
 
-The tabs below hold the run's own record:
+The tabs below hold the run's own record. Each tab has its own address, such as `/runs/12/map`, so Back returns to the tab you were on, and the address with no tab opens **Papers**:
 
 | Tab | What it holds |
 |---|---|
