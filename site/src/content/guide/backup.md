@@ -9,8 +9,8 @@ order: 13
 
 A backup is a folder named `resmon-backup-` followed by a UTC time stamp. It holds:
 
-- `resmon.db`, your database, written with SQLite's backup interface from the live connection, not copied. resmon runs SQLite in WAL mode, so a file copy would miss whatever is still in the write-ahead log. The snapshot is consistent and has no sidecar files.
-- `vault/`, every byte in your Library, with its `vault.json` marker. Each file is hashed again as it is copied and compared with the hash the database recorded. **A file that no longer matches stops the backup**, naming the file. The database and the Library are a pair, and a backup that certified a corrupt Library would be worse than none.
+- `resmon.db`, your database, with every collection, written with SQLite's backup interface from the live connection, not copied. resmon runs SQLite in WAL mode, so a file copy would miss whatever is still in the write-ahead log. The snapshot is self-contained; opening it with SQLite can create temporary WAL sidecar files.
+- `vault/`, the files still in **Your files**, with the Library's `vault.json` marker. Removed files are left out. Each file is hashed again as it is copied and compared with the hash the database recorded. **A file that no longer matches stops the backup**, naming the file. The database and the Library are a pair, and a backup that certified a corrupt Library would be worse than none.
 - `reports/`, the reports folder, if **Include the reports folder** is ticked. It is ticked by default.
 - `manifest.json`, naming the app and database versions that wrote it, the Library's id, a row count per table, every file with its size and SHA-256, and what was deliberately left out.
 

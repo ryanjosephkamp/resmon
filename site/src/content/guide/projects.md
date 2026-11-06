@@ -37,12 +37,12 @@ What the reader cannot do:
 The **Answers** view of a project asks a question of exact excerpts, or asks for a briefing from them. **New answer** has three steps.
 
 1. **Choose what to send:** up to 5 files, 12 pages, and 24 excerpts in all. An excerpt is a whole page's text or a passage. Source text is at most 48 KiB and 24,000 codepoints, and nothing is silently cut: a selection over the limit is refused.
-2. **Your notes, if any.** None is sent unless you tick it, up to 8, and a note's text goes as your own commentary. An answer cannot cite a note as a document.
+2. **Your notes, if any.** None is sent unless you tick it, up to 8 and 8 KiB of note text in all, as your own commentary. An answer cannot cite a note as a document.
 3. **What to ask.** Choose **Question** or **Briefing**, write the question or instruction (up to 4,000 characters), and choose the **Connection**, **Model**, and **Effort**: Claude Code or an API key. Codex is not offered here.
 
 Then press **Show exactly what will be sent**. Nothing leaves your computer until you have seen this and pressed **Send**. The check shows where it goes, each file and version, every excerpt's exact text, your notes, the exact instructions the app sends with it, the whole text as one string, and the request's SHA-256. It expires after 10 minutes. It also says what it cannot promise: source text may contain private material, and a request that is stopped may still be worked on, and charged for, by the provider.
 
-Each **Send** makes one new, saved answer: one request, with no tools and no earlier conversation, stopped after 300 seconds. Your Ask conversations and earlier answers are never sent. **Stop the answer** asks for cancellation. Whether the provider finished, kept, or billed it can remain unknown, and the answer says so, with local cleanup shown as confirmed or not.
+Each **Send** makes one new, saved answer: one request, with no tools and no earlier conversation, stopped after 300 seconds. A project keeps at most 1,000 answers. Your Ask conversations and earlier answers are never sent. **Stop the answer** asks for cancellation. Whether the provider finished, kept, or billed it can remain unknown, and the answer says so, with local cleanup shown as confirmed or not.
 
 An answer is **Answered**, **Not enough in the selection** (the model said the excerpts were not enough), **Failed**, **Stopped**, or **Interrupted**. It has sections: **Summary**, **Details**, **Limitations**, and **Open questions**. Each item is labeled **From the sources**, **Interpretation**, **From your notes**, or **Open question**. An answer that does not match the required shape is shown under **Unvalidated output**, not dressed up as a result.
 

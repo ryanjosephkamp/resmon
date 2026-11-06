@@ -11,7 +11,7 @@ A paper is new when a run **put it in the collection** after the last time you p
 
 Opening Today records nothing, so an accidental open does not empty tomorrow's list. Before you have ever pressed **Mark all read**, Today shows the last seven days and says so ("New this week"). **Mark all read** is the only thing that moves the line, and it deletes nothing. **Settings › Danger zone › Reset all settings** clears the mark.
 
-Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map always shows every paper in the collection.
+Today reads the newest 1,000 new papers first. When there are more, the list says "The newest 1,000 of M are listed and ringed on the plate", and **List the 1,000 before them** reads the next ones, as many times as it takes to list every one. The map covers the whole collection, including papers outside the list, and counts papers it cannot place.
 
 ## The map
 
@@ -70,4 +70,4 @@ The strip under the list says when your last backup was made ("No backup made ye
 
 ## Without the window
 
-`resmon today` prints the same list in a terminal, by watch, with the sources that did not answer on each watch's last run. Reading it marks nothing. `resmon today mark-read` does what **Mark all read** does.
+`resmon today` prints the newest 20 papers in a terminal, by watch, with the sources that did not answer on each watch's last run. `--all` prints the whole first page, up to 1,000; older pages are available in the app. Reading it marks nothing. `resmon today mark-read` does what **Mark all read** does. Add `--collection` with a name or number for another collection; without it the command reads the default one.

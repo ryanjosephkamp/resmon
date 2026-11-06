@@ -43,9 +43,11 @@ A watch asks the same question on a schedule. From a run's form, press **Watch t
 - **Name.**
 - **What it follows.** Words, a person's new papers, or retractions and corrections on a person's papers.
 - **Terms to watch for** and **Sources.**
+- **Its papers land in**, when there is more than one collection; a new watch starts with the collection this window shows.
 - **When it runs.** Every day, weekdays, once a week, once a month, or every few hours, with a time. The editor shows the schedule in words.
 - **Which papers each run asks for.** The default is papers published since the previous run.
 - **When a run finishes.** Whether to notify you, and whether to email the report.
+- **PDFs.** Off by default; **Get its new papers' open-access PDFs** follows the [download rules](/resmon/guide/library/#get-the-pdf) and takes at most 20 per run.
 
 The **What it will do** panel on the right restates the form as sentences, including warnings: a source with no key, a start date a source needs, a schedule the words cannot state. Press **Save watch**. It starts watching when saved, unless you turned that off.
 
@@ -53,7 +55,7 @@ The **What it will do** panel on the right restates the form as sentences, inclu
 
 A resmon window does not run watches on its own. Only the background service does. Without it, once a watch is watching, **Today** says "Your watches will not run: no background service is set up."
 
-Open **Settings › In the background** and turn on **Run resmon in the background**. resmon asks you to confirm, then writes a launch agent on macOS, a scheduled task on Windows, or a systemd user unit on Linux, and registers it with launchd, Task Scheduler, or systemd. The service starts when you log in and runs your watches with or without a window open. **Running now** on the same page says whether it is actually running.
+Open **Settings › In the background** and check **Running now**. A packaged Mac launch starts an installed service when needed. If none is installed, turn on **Run resmon in the background**. resmon asks you to confirm, then writes a launch agent on macOS, a scheduled task on Windows, or a systemd user unit on Linux, and registers it with launchd, Task Scheduler, or systemd. The service starts when you log in and runs your watches with or without a window open.
 
 A watch's page has **Run now**, which runs it once whatever the schedule says.
 

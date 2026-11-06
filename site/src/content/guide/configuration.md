@@ -42,6 +42,7 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 | **Sources** | Every source's limits, the keys some of them want, and the credits their licenses require |
 | **Collections** | Making, renaming, showing, and deleting collections; see [Search](/resmon/guide/search/) |
 | **Backup** | Where backups go, backing up, and restoring |
+| **Library** | The files folder, moving or finding it, removed files, an inventory, and the PDF download rules |
 | **Tutorials** | Short recordings of Atlas in use |
 | **About resmon** | Who made it, which copy this is, the license, what it keeps and sends, and where to report a problem |
 | **Danger zone** | Erasures, each behind its own confirmation |
@@ -54,7 +55,7 @@ People can be moved the same way: **Export** on a person's page, **Import a file
 
 **Sections** lists the seven sections in the bar's order, from the left. Drag one by its handle, or move it with its arrows. ⌘1 to ⌘7 follow the bar, then go on to the hidden sections. A section's switch hides it, which only takes it out of the bar: its shortcut, the command palette, and links to it still open it, and so does its address. You can hide every section; Settings stays at the bar's right end, and ⌘, opens it.
 
-**Start page** is the page a launch and a new window open on: any section, or a tab within one, such as **Search › Saved**. **The resmon name**, "research monitor" at the bar's left end, goes to the start page unless you choose another page for it. **Reset the top bar** shows every section again, in the first order, and opens on **Today**. All of it is kept in resmon's database, so every window and every launch has the same bar, and it comes back with a backup.
+**Start page** is the page a launch and a new window open on, chosen from the offered section and tab pages, such as **Search › Saved**. **The resmon name**, "research monitor" at the bar's left end, goes to the start page unless you choose another page for it. **Reset the top bar** shows every section again, in the first order, and opens on **Today**. Changes save at once and appear in every open window. All of it is kept in resmon's database, so every launch has the same bar, and it comes back with a backup.
 
 **Show the run monitor in the top bar** shows or hides the run monitor. Hidden, runs still notify you, and the **Runs** tab still lists them. The switch is kept in resmon's database too.
 
@@ -67,6 +68,8 @@ The switch **Run resmon in the background** installs or removes the background s
 ### Sources
 
 **Settings › Sources** lists all 25, with their limits as each states them. Choose a source's name for its details: its description, resmon's pace, the source's published policy, how it dates papers, how it combines terms, its endpoint, and its website. A source that takes a key has a field to **Store** one, and a stored key is shown as a fixed 12-character mask whatever its length. See [Sources and their terms](/resmon/guide/sources/).
+
+**A contact address for Crossref and OpenAlex**, if you set one, goes only to those two sources. Leave it empty to send no contact address. OpenAIRE's row carries its service notice; its details say what was announced.
 
 ### The Danger zone
 
