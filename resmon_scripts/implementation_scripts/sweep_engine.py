@@ -349,9 +349,11 @@ class SweepEngine:
 
             ``stage`` is where the cancel took effect: ``querying`` (sources
             still being asked), ``collected`` (every source finished, nothing
-            stored yet) or ``summarizing`` (papers stored and linked). A report
-            that cannot be written is logged and the run is still cancelled;
-            the report is never allowed to turn a cancel into a failure.
+            stored yet), ``summarizing`` (papers stored and linked) or
+            ``reporting`` (papers stored, the run about to be recorded as
+            finished). A report that cannot be written is logged and the run
+            is still cancelled; the report is never allowed to turn a cancel
+            into a failure.
             """
             report_path: Optional[Path] = None
             try:
@@ -909,6 +911,13 @@ class SweepEngine:
                 "report_path": str(report_path),
                 "timestamp": now_iso(),
             })
+
+            # The last check. A stop the engine accepted before this point
+            # ends the run cancelled; one that comes after it is refused (the
+            # stop route answers 409), never accepted and then ignored.
+            if not store.begin_finishing(exec_id):
+                return cancelled("reporting", report_docs=report_docs,
+                                 dedup=dedup_stats, linked=linked_ids)
 
             # 7. Finalize
             store.emit(exec_id, {

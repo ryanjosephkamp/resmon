@@ -351,6 +351,8 @@ _CANCELLED_AT = {
     "summarizing": ("The papers below were added to your collection, and it "
                     "stopped while they were being summarized: a paper with no "
                     "summary was not summarized. "),
+    "reporting": ("The papers below were added to your collection, and it "
+                  "stopped just before the run was recorded as finished. "),
 }
 
 
