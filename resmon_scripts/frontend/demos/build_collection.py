@@ -362,7 +362,9 @@ SHOWABLE_LICENSES = {
 }
 #: The pages the Library demo films: the first, scrolled into the second, where text is selected.
 FILMED_PAGES = 3
-EMAIL = re.compile(r"[\w.+-]+\s*@\s*[\w-]+(?:\.[\w-]+)+")
+# A domain after @ is enough to reject a filmed page. Papers often group
+# addresses as {first, second}@domain, which has no literal local part.
+EMAIL = re.compile(r"@\s*[\w-]+(?:\.[\w-]+)+")
 
 
 def fetch(url: str) -> bytes | None:
@@ -402,9 +404,9 @@ def emails_on_first_pages(pdf: Path) -> bool:
 def build_library(root: Path, db_path: str) -> None:
     """A vault inside the collection's folder, with a few of the collection's papers as PDFs.
 
-    Only papers whose own license allows their pages to be shown publicly are
-    chosen, and of those, papers whose filmed pages show no email address come
-    first; the first file is the one the Library demo opens. What was chosen,
+    Only papers whose own license allows their pages to be shown publicly and
+    whose filmed pages contain no detected email address are chosen. The first
+    file is the one the Library demo opens. What was chosen,
     and under which license, is written to `library.json` beside the state.
 
     Made through the library module, as the engine's own routes make it: those
@@ -428,11 +430,19 @@ def build_library(root: Path, db_path: str) -> None:
                ORDER BY d.publication_date DESC LIMIT 40""", (watch["name"],)).fetchall()
         for watch in WATCHES
     ]
-    candidates = [row for group in zip(*per_watch) for row in group]
+    # A paper can belong to more than one watch. Importing its bytes twice
+    # keeps one file, so it must count only once toward the three PDFs.
+    candidates = []
+    seen: set[str] = set()
+    for group in zip(*per_watch):
+        for row in group:
+            paper_id = unversioned(row["external_id"])
+            if paper_id not in seen:
+                candidates.append(row)
+                seen.add(paper_id)
     downloads = root / "downloads"
     downloads.mkdir()
     clean: list[dict] = []
-    with_email: list[dict] = []
     for row in candidates:
         if len(clean) >= LIBRARY_PAPERS:
             break
@@ -453,10 +463,11 @@ def build_library(root: Path, db_path: str) -> None:
             "license": SHOWABLE_LICENSES[license_url], "license_url": license_url,
             "file": target,
         }
-        (with_email if emails_on_first_pages(target) else clean).append(chosen)
-    picked = (clean + with_email)[:LIBRARY_PAPERS]
+        if not emails_on_first_pages(target):
+            clean.append(chosen)
+    picked = clean[:LIBRARY_PAPERS]
     if len(picked) < LIBRARY_PAPERS:
-        raise SystemExit(f"Only {len(picked)} recent papers here may be shown publicly; widen the search.")
+        raise SystemExit(f"Only {len(picked)} recent papers here have a permitted license and no detected email on filmed pages; widen the search.")
     for paper in picked:
         with library.Import(conn, vault, f"{paper['arxiv_id']}.pdf", paper["document_id"]) as upload:
             upload.write(paper["file"].read_bytes())
