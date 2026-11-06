@@ -74,6 +74,8 @@ for i in range(${SAVED}):
         "publication_date": f"2026-{(i % 9) + 1:02d}-{(i % 27) + 1:02d}", "url": f"https://example.org/paper/{i}",
         "categories": "", "metadata_hash": f"stage-{i}"})
     reading_queue.save(conn, doc)
+    if i % 15 == 0:
+        reading_queue.set_status(conn, doc, "read")
     at = f"2026-10-01 {i // 60:02d}:{i % 60:02d}:00"
     conn.execute("UPDATE reading_queue SET saved_at=?, updated_at=? WHERE document_id=?", (at, at, doc))
 found = database.insert_execution(conn, {
@@ -488,6 +490,21 @@ test("Search's order and a run's tab are in the address: Back returns to both, a
     await win.evaluate((id) => { window.location.hash = `#/runs/${id}/nonsense`; }, found);
     await expect(runTab('Papers')).toHaveAttribute('aria-selected', 'true');
     expect(await hash(win)).toBe(`#/runs/${found}/nonsense`);
+
+    // — The Library's gallery, on a shorter shelf ------------------------------------------
+    // Far down the long To read shelf, then the short Read shelf: it opens at its top, and the gallery
+    // does not carry the old place back as it measures the new rows.
+    await tab(win, 'Library').click();
+    await expect.poll(() => hash(win)).toBe('#/library');
+    const cards = '.gal [data-document]';
+    await expect(win.locator(cards).first()).toBeVisible({ timeout: 60_000 });
+    await scrollFar(win, 3_000);
+    await win.getByRole('group', { name: 'Show' }).getByRole('button', { name: /^Read/ }).click();
+    await expect.poll(() => hash(win)).toContain('show=read');
+    await expect(win.locator(cards).first()).toBeVisible({ timeout: 30_000 });
+    await expect.poll(() => stageTop(win), { timeout: 5_000 }).toBe(0);
+    await win.waitForTimeout(1_500);
+    expect(await stageTop(win), 'the old shelf\'s place came back').toBe(0);
     expect(problems).toEqual([]);
   } finally {
     await app.close().catch(() => { /* gone */ });

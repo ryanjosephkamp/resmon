@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { useVirtualizer, type Virtualizer } from '@tanstack/react-virtual';
 import { holdsPlace } from '../../shell/stageScroll';
 import { columnsFor, movesStageAsItMeasures, NARROW, readsMore, rowEstimate } from './galleryModel';
 
@@ -7,6 +7,20 @@ import { columnsFor, movesStageAsItMeasures, NARROW, readsMore, rowEstimate } fr
 const OVERSCAN = 2;
 /** How close to the last row read the view comes before the next page is asked for. */
 const READ_AHEAD = 3;
+
+/** Whether the gallery moves the stage as it measures a row (`movesStageAsItMeasures`), for the stage it is drawn in. */
+export function movesStageAsGalleryMeasures(stage: HTMLElement | null): (item: { key: string | number | bigint; start: number; end: number },
+  delta: number, instance: Virtualizer<HTMLElement, Element>) => boolean {
+  return (item, _delta, instance) => movesStageAsItMeasures({
+    held: stage !== null && holdsPlace(stage),
+    apart: stage !== null && Math.abs((instance.scrollOffset ?? 0) - stage.scrollTop) > 1,
+    first: !instance.itemSizeCache.has(item.key),
+    start: item.start,
+    end: item.end,
+    offset: instance.scrollOffset ?? 0,
+    backward: instance.scrollDirection === 'backward',
+  });
+}
 
 /**
  * A shelf's covers as a grid that draws only the rows near the view. The
@@ -79,16 +93,10 @@ export function Gallery<T>({ items, keyOf, label, total, more, children }: {
     },
   });
   useEffect(() => { virtual.measure(); }, [columns, virtual]);
-  // A row measured above the view moves the stage by what it grew, but not while Back's place is held on it.
+  // A row measured above the view moves the stage by what it grew, but not while Back's place is held on it,
+  // nor while the gallery reads the stage as further down than it is (a new shelf, drawn shorter).
   useLayoutEffect(() => {
-    virtual.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => movesStageAsItMeasures({
-      held: stage !== null && holdsPlace(stage),
-      first: !instance.itemSizeCache.has(item.key),
-      start: item.start,
-      end: item.end,
-      offset: instance.scrollOffset ?? 0,
-      backward: instance.scrollDirection === 'backward',
-    });
+    virtual.shouldAdjustScrollPositionOnItemSizeChange = movesStageAsGalleryMeasures(stage);
   }, [virtual, stage]);
   const drawn = virtual.getVirtualItems();
   const last = drawn.length ? drawn[drawn.length - 1]!.index : -1;
