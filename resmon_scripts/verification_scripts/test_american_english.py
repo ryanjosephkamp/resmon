@@ -20,7 +20,7 @@ BRITISH = re.compile(
     r"initialis|maximis|amortis|apologis|canonicalis|capitalis|characteris|"
     r"crystallis|finalis|generalis|humanis|localis|materialis|memois|neutralis|"
     r"parameteris|parametris|parenthesis|sanitis|standardis|synchronis|synthesis|"
-    r"tokenis|categoris|analys)" + VERB_END +
+    r"tokenis|categoris|analys(?!es\b))" + VERB_END +
     r"|colour|centre|licence|artefact|catalogue|favour|defence|signalling|"
     r"cancelled|cancelling|cancellable|grey|towards|whilst|amongst",
     re.IGNORECASE,
@@ -132,6 +132,9 @@ def test_compatibility_exceptions_do_not_hide_neighboring_prose() -> None:
     assert not violations("source.py", "raise asyncio.CancelledError()")
     assert not violations("resmon_scripts/frontend/atlas/src/example.ts", "run.cancelled || { cancelled: false }")
     assert not violations("source.py", 'word = "optimistic organism premise"')
+    # "Analyses" is also the plural of "analysis", in American English too.
+    assert not violations("source.md", "Two analyses agree.")
+    assert violations("source.md", "It was analysed twice.")
 
 
 def test_internal_cancellation_arrays_are_not_transport_fields() -> None:
