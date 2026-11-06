@@ -24,7 +24,8 @@ import { RunSky } from './runs/RunSky';
 import { MapPaper } from './sky/MapPaper';
 import type { PaperSkyHandle, SkyChoice } from './sky/PaperSky';
 import { LivePanel } from './runs/LivePanel';
-import { RunTabs, type RunPaper, type Tab } from './runs/RunTabs';
+import { RunTabs, type RunPaper } from './runs/RunTabs';
+import { runPath, tabOf } from './runs/tabs';
 import { aiChoiceOf, needsSignIn, runSummaries } from './runs/summaries';
 import { CliSignIn } from './settings/CliSignIn';
 import { runWindowSentence } from './watches/window';
@@ -139,21 +140,22 @@ function RunProgress({ stage, count, sources, nameOf }: {
 }
 
 export function Run() {
-  const { id: raw } = useParams();
+  const { id: raw, tab: tabSlug } = useParams();
   const id = Number(raw);
   const navigate = useNavigate();
   const client = useQueryClient();
   const now = useMinute();
   // The run's small map is the shown collection's, so it reads the run's papers in that collection.
   const { id: collection } = useCollection();
-  const [tab, setTab] = useState<Tab>('Papers');
+  // The open tab is in the address (`/runs/12/map`), so Back returns to it; an address with none opens Papers.
+  const tab = tabOf(tabSlug);
   // The page scrolls in its own box: Back and Forward put it where it was left, by the paper at its top, on the
   // tab it was left on.
   const page = useRef<HTMLDivElement>(null);
   const recordedTips = useChartTip();
   // The map is opened and then scrolled to, once the tab has drawn it and the page is its full height.
   const openMap = () => {
-    setTab('Map');
+    void navigate(runPath(id, 'Map'));
     requestAnimationFrame(() => document.getElementById('run-record')?.scrollIntoView({
       block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     }));
@@ -527,7 +529,7 @@ export function Run() {
 
       <RunTabs run={data} live={live} names={names} events={events.data ?? []} papers={paperPages} running={running}
         morePapers={papers.hasNextPage ? () => void papers.fetchNextPage() : undefined} readingMore={papers.isFetchingNextPage}
-        tab={tab} onTab={setTab} />
+        tab={tab} onTab={(next) => { if (next !== tab) void navigate(runPath(id, next)); }} />
     </div>
   );
 }

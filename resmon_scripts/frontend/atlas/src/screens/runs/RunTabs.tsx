@@ -17,6 +17,7 @@ import {
   type LiveSource, type ProgressEvent, type Run,
 } from './model';
 import { LivePanel } from './LivePanel';
+import { TABS, type Tab } from './tabs';
 import { RunMap } from './RunMap';
 import { SaveButton, SaveLimit, useSaveToRead } from '../library/SaveMany';
 import { PickBox, SelectBar, useRowKeys } from '../selection/SelectBar';
@@ -25,8 +26,7 @@ import { has, isEmpty, pickedIn, selectedWords, sizeOf, usePicks } from '../sele
 /** One of a run's papers, with its place in the reading queue. */
 export type RunPaper = components['schemas']['RunPaper'];
 
-export const TABS = ['Papers', 'Map', 'Report', 'Search record', 'Log', 'Metadata', 'Progress'] as const;
-export type Tab = typeof TABS[number];
+export { TABS, type Tab };
 
 interface Props {
   run: Run;
