@@ -10,6 +10,7 @@ There is no account, no resmon server, and no telemetry. The app is an Electron 
 ## What it does
 
 - **Asks the sources.** A **Deep Dive** asks one source in depth. A **Deep Sweep** asks several at once. Before you ask, resmon lists each source's limits: how it combines your terms, how finely it can date a paper, how fast resmon may ask, and whether it needs a key. See [Search](/resmon/guide/search/).
+- **Finds one paper.** **Find a paper** looks up a DOI, arXiv id, PMID, or title and shows each source's answer and how its copy matched. **Get the PDF** keeps an openly licensed copy in the Library where the download rules permit it.
 - **Watches.** A watch is a search resmon runs on a schedule, keeping every paper it finds. It can follow words, a person's new papers, or retractions and corrections on a person's papers. See [Watches and people](/resmon/guide/watches/).
 - **Shows what is new.** **Today** draws your whole collection as a map and rings the papers collected since you last marked them read. See [Today](/resmon/guide/today/).
 - **Shows what broke.** **Health** has the **Source wall** (what every source did on each recent run), the **Watchdog** (what resmon can say is wrong with its watching), analytics, and a check for retractions and newer versions of papers you already hold. See [Health](/resmon/guide/health/).
@@ -36,9 +37,9 @@ The top bar holds the collection the window shows, seven sections, a **New searc
 |---|---|---|
 | **Today** | | The collection as a map, and the papers that arrived since you last marked all read |
 | **Watches** | Searches · Calendar · People | Your watches, when each is due, and the people resmon looks for on papers |
-| **Search** | Your collection · Ask the sources · Saved · Shared wording | Searching what you hold, asking the sources for more, saved searches, and abstracts that share wording |
+| **Search** | Your collection · Ask the sources · Find a paper · Saved · Shared wording | Searching what you hold, asking the sources for more or for one paper, saved searches, and abstracts that share wording |
 | **Runs** | | Every run: those going now, those waiting for a free slot, and the history |
-| **Library** | To read · Read · Your files · Projects | Saved papers, kept files, and the projects built from them |
+| **Library** | To read · Read · Your files · Projects (gallery filters) | Saved papers, kept files, and the projects built from them |
 | **Ask** | | The assistant and every conversation kept with it |
 | **Health** | Source wall · Watchdog · Analytics · This engine | What the sources did, what is wrong, what the collection holds, and which engine this window uses |
 | **Settings** | Appearance · Top bar · In the background · Email · Notifications · AI · Sources · Collections · Backup · Library · Tutorials · About resmon · Danger zone | Everything you can change |
@@ -70,7 +71,7 @@ The shortcuts use ⌘ on macOS and Ctrl elsewhere. All of them work while you ty
 | ⌘Enter | Save or send what you wrote, in a field that offers it |
 | ? | The full list, outside a text field |
 
-On a trackpad, a two-finger swipe goes back and forward. Back and forward return the Runs tab and the Library to where you left them; a page you open anew starts at its top.
+On a trackpad, a two-finger swipe goes back and forward. Back and forward return the Runs tab, the Library, the results of a search in Search › Your collection (in the order you chose), and a run's page (on the tab you were on, with **Papers** where you left it) to where you left them; a page you open anew, and a new search, start at their top.
 
 ## What stays on your computer
 
@@ -79,6 +80,7 @@ Everything resmon collects and makes is stored on your computer: the papers, the
 Data leaves your computer only for a feature you use:
 
 - **Searches** send their terms, dates, and limits to each source they ask, and to no other. A source's key goes only to that source. A watch on a person sends the person's name, and any identifier you gave, to its sources.
+- **PDFs** are fetched only when you press **Get the PDF** or turn on a watch's PDFs switch. The download goes to the copy's host, with redirects checked, and an arXiv copy's license is read from arXiv first. See [the download rules](/resmon/guide/library/#get-the-pdf).
 - **Summaries and search by meaning** send each paper's title and abstract to the provider or command you set up in **Settings › AI**, and nowhere before you do.
 - **Ask** sends your messages, and what its tools read from your collection, to the connection the conversation uses.
 - **Retraction checks** send DOIs, and arXiv and bioRxiv identifiers, to Crossref, arXiv, and bioRxiv, only when you start a check or a watch set to check runs.

@@ -42,7 +42,7 @@ Each destination is **Sent when a run finishes** or **Waits for you to release i
 
 ### Whether it got there
 
-Every attempt to reach a destination is a row in the watch's delivery record: which run, which destination, the state, and the reason it has not arrived. The states are **Queued**, **Sending**, **Delivered**, **Failed, trying again**, **Failed**, **Skipped**, and **Waiting for you**. A failed delivery is tried again after 1 minute, then 5 minutes, then 25 minutes. After three attempts it stops and waits for you to press **Retry**, which starts the attempts again.
+Each delivery has a row in the watch's record: which run, which destination, the state, and the reason it has not arrived. The states are **Queued**, **Sending**, **Delivered**, **Failed, trying again**, **Failed**, **Skipped**, and **Waiting for you**. A retryable failure is tried again after 1 minute, then 5 minutes. After three attempts in all it stops and waits for you to press **Retry**, which starts the attempts again. A terminal refusal stops without retrying.
 
 Delivery happens after the run, on its own queue, so a slow mail server does not hold the run's place.
 

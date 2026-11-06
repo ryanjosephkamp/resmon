@@ -7,7 +7,7 @@ import { SCREEN_PATHS } from './screenPaths';
 
 /** Screens with an id in their address, named by what they show. */
 const DETAIL_TITLES: readonly { pattern: RegExp; title: (id: string) => string }[] = [
-  { pattern: /^\/runs\/(\d+)$/, title: (id) => `Run ${id}` },
+  { pattern: /^\/runs\/(\d+)(?:\/[a-z-]+)?$/, title: (id) => `Run ${id}` },
   { pattern: /^\/papers\/[^/]+$/, title: () => 'Paper' },
   { pattern: /^\/watches\/people\/[^/]+$/, title: () => 'Watches › Person' },
   { pattern: /^\/watches\/[^/]+\/edit$/, title: () => 'Edit watch' },

@@ -40,7 +40,7 @@ macOS builds do not update themselves: an update needs a signed app. To update, 
 
 Run the installer. It lets you choose the install folder. The installer is not signed, so Windows SmartScreen may warn; choose **More info**, then **Run anyway**.
 
-**The Library is unavailable on Windows.** **Library › Your files** and Evidence (which includes the PDF reader and cited answers) keep and read files with operations that do not follow symbolic links and that work relative to an open folder. Python on Windows does not offer them, so the engine refuses with "Safe descriptor-relative Library access is unavailable on this platform." The rest of the app works.
+**Library files and Evidence are unavailable on Windows.** **Library › Your files** and Evidence (which includes the PDF reader and cited answers) keep and read files with operations that do not follow symbolic links and that work relative to an open folder. Python on Windows does not offer them, so the engine refuses with "Safe descriptor-relative Library access is unavailable on this platform." **To read** and **Read**, the reading queue, still work; Get the PDF needs the unavailable file storage.
 
 ## Linux
 
@@ -89,6 +89,8 @@ A resmon window does not run your watches. The background service does, and it r
 
 - On **macOS and Windows** the service is the app itself, started with `--service`: no window, no Dock icon, and the engine as its child. The unit is a launch agent on macOS and a scheduled task on Windows.
 - On **Linux** the service is the engine alone, started by a systemd user unit, because a user unit has no display for the app to open on.
+
+On macOS, each packaged launch checks an installed service before opening a window. It starts one that is not loaded, starts one waiting to restart, and replaces one running another build of this copy; if runs are in progress, it asks first. It leaves a service pointing at another copy still on disk alone. If macOS has disabled it, Settings names **System Settings › General › Login Items & Extensions › Allow in the Background** as the place to turn it on.
 
 Only one copy of resmon runs at a time: a second launch exits, and the running one brings its window forward, or opens one on its own engine if none is open. A launch that finds the service still starting waits for it, without stopping it; after a moment it shows a small window saying resmon is starting, since the first start after an update keeps a copy of your database, if the disk has room, and then updates it, which can take a few minutes. That window closes when the service opens resmon's. A window opened while the service runs uses the service's engine when their versions match. If they do not, **Settings › In the background** tells you, and **Health › This engine** says which engine a window is using. The service writes its logs to a `logs` folder in resmon's state directory, each capped at 5 MB with two older copies kept.
 

@@ -16,11 +16,11 @@ Each card is a cover the shape of a page, then the title, one line (authors, sou
 - **A text file** shows its first lines, with their numbers.
 - **A project** shows its first PDFs fanned over its name.
 
-A PDF's first page is drawn once, on your computer, by the same PDF reader the Library uses, and kept beside resmon's database; later visits show the kept picture. Only the cards near the view are drawn, so a shelf of thousands scrolls as one of a dozen does.
+A PDF's first page is drawn on your computer, by the same PDF reader the Library uses, and kept beside resmon's database; later visits show the kept picture. Only the cards near the view are drawn, and more are read as you near the end of the shelf.
 
 Hover darkens a cover's edge and underlines its title. **Select** turns the toolbar into a selection bar: click covers to pick them, Shift-click to pick a run of them, **Select all**, and **Done** or Esc to leave. Picked papers can be marked read, exported, or removed together; picked files can be added to a project or removed together.
 
-The order is **Saved, newest first**, **Published**, **Title**, **Source**, or **Map order**, which keeps papers that are neighbors on the map together. Your files order by when they were added, their name, or their size; projects by when they changed or their name. The find field matches a paper's title, authors, or source, a file's name, or a project's name.
+The order is **Saved, newest first**, **Published, newest first**, **Title**, **Source**, or **Map order**, which keeps papers that are neighbors on the map together. Your files order by when they were added, their name, or their size; projects by when they changed or their name. The find field matches a paper's title, authors, or source, a file's name, or a project's name. Files and projects are shared across every collection.
 
 ## To read and Read
 
@@ -30,7 +30,7 @@ Papers get here one at a time when you press **Save to read** on a paper's page 
 - **Mark read** moves a paper to **Read**; **Mark unread** moves it back. Marking one paper leaves every other card's controls as they are.
 - **Get the PDF** (the download mark) appears where a source states an open license for a copy of the paper and the card has no PDF yet. While it downloads, the card's label says so; once it lands, the card is a PDF card with the first page as its cover. See [Get the PDF](#get-the-pdf).
 - **Open at the source** opens the paper's own web address, or its DOI's.
-- **Remove** takes the paper out of the queue, with a notice that can **Undo** it for ten seconds. Undo puts it back with its own state and dates. The paper, its authors, and every run that found it are untouched. The only thing in resmon that deletes a paper is **Erase the paper corpus** in the Danger zone.
+- **Remove from To read** or **Remove from Read** takes the paper out of the queue, with a notice that can **Undo** it for ten seconds. Undo puts it back with its own state and dates. The paper, its authors, and every run that found it are untouched. Papers are deleted only by the Danger zone's corpus, app-data, or factory erasures.
 - Picked papers export as **BibTeX**, **RIS**, or **CSV**: the file holds exactly the papers picked.
 
 A paper is in the queue by its stored id. Saving a paper again never moves one you have read back to **To read**, and when a later run finds the same record, its state is kept. Two records that look like the same work stay two entries, on the same rule that makes resmon link near-duplicates and never merge them.
@@ -48,7 +48,7 @@ A file's **Read** opens its own page:
 - **A TeX file** opens as its source, with commands, comments, and braces set apart and its math drawn in place; **Plain text** shows it literally.
 - **A text file** shows its literal text with line numbers.
 
-The rich view draws a file's first 2,000 formulas and shows the rest as written, and says so. A formula that defines a macro (`\def`, `\newcommand`, and their kin) or runs over 2 KB is shown as written rather than drawn, and quotes and lists nested more than 16 deep are shown as written from there on. If a file's rich view cannot be drawn at all, its plain text is shown instead.
+The rich view draws a file's first 2,000 formulas and shows the rest as written, and says so. A formula that defines a macro (`\def`, `\newcommand`, and their kin) or runs over 2,048 characters is shown as written rather than drawn, and quotes and lists nested more than 16 deep are shown as written from there on. If a file's rich view cannot be drawn at all, its plain text is shown instead.
 
 The engine reads only what it verified against the recorded size and hash, and refuses a text file over 256 KiB or 5,000 lines instead of showing part of it. A file that large stays kept; open it in the system's viewer instead.
 
@@ -60,19 +60,19 @@ A file's page also has **Open in the system's viewer**, **Show in Finder** (or *
 
 ### Removing a file, and Undo
 
-**Remove** takes a file out of Your files. A file in an Evidence project, or with notes, asks first and lists what goes with it (its place in each project, its passages and notes, and its links); nothing is removed until you confirm. A notice can **Undo** the removal for ten seconds, and puts back the file and everything that went with it as it was. When several are removed and one cannot be, the rest still go, and the notice names the one that stayed and why.
+**Remove from Your files** takes a file out of Your files. A file in an Evidence project, or with passages, notes, or paper links, asks first and lists what goes with it; nothing is removed until you confirm. A notice can **Undo** the removal for ten seconds, and puts back the file and everything that went with it as it was. When several are removed and one cannot be, the rest still go, and the notice names the one that stayed and why.
 
-resmon never deletes your file. A removed file is moved, whole, into a `removed` folder inside the Library folder, and **Settings › Library** lists it under **Removed files**: **Put back** restores it later, and **Move to the Trash** hands it to your system's Trash, from which the Finder can still put it back. Once its bytes have left the Library folder, resmon forgets the record.
+Removal moves the kept copy, whole, into a `removed` folder inside the Library folder, and **Settings › Library** lists it under **Removed files**: **Put back** restores the copy and its records later, and **Move to the Trash** hands its bytes to your system's Trash. Once its bytes have left the Library folder, resmon forgets the record; restoring bytes from the system's Trash does not restore that record. Your original imported file stays where it was.
 
 A file deleted or moved outside resmon is said to be missing on its own card; the rest of the Library keeps working, and **Remove** takes the missing one off the list.
 
 ## Get the PDF
 
-**Get the PDF**, on a paper's page and on its card, downloads an open-access copy into the Library folder, linked to the paper, as if you had imported it. It is offered only where a source states an open license for that copy: a Creative Commons license, a public-domain dedication, or arXiv's own (for an arXiv copy, resmon reads the license from arXiv's record when you ask, and a paper whose record states none is not downloaded). A copy that is only free to read, or that is under a publisher's own terms, is left at the source, and the paper's page says so. The copies come from what the sources report: OpenAlex's open locations, Europe PMC's open-access PDFs, Semantic Scholar's open PDF, bioRxiv's and medRxiv's own PDFs with the license each states, PLOS's PDFs (under PLOS's CC BY license), and arXiv's PDF for any paper with an arXiv id. A copy of the same paper from another source counts too: two records with the same DOI or arXiv id are one paper.
+**Get the PDF**, on a paper's page, its Library card, and a find's result, downloads an open-access copy into the Library folder, linked to the paper, as if you had imported it. Make that folder under **Library › Your files** first. It is offered for Creative Commons licenses (CC BY, BY-SA, BY-ND, BY-NC, BY-NC-SA, and BY-NC-ND), CC0, public domain, and arXiv's distribution license. For an arXiv copy, resmon reads the license from arXiv's record when you ask, including its assumed distribution license for 1991 to 2003; a record stating none is not downloaded. A copy only free to read, under a publisher's own terms, or under an unnamed open-access license is left at the source. Copies come from what sources report, including OpenAlex, EuropePMC, Semantic Scholar, bioRxiv, medRxiv, PLOS, and records carrying an arXiv id. A copy reported on another record with the same DOI or arXiv id can supply the PDF; the records stay separate. Earlier papers gain open-copy records when a source returns them again.
 
 resmon never downloads from NASA ADS, Springer, CORE, BMC, or nature.com, whatever license is stated, and never from Crossref's text-mining links. Their terms for keeping full text are not settled for resmon. BMC and nature.com are Springer Nature's journal sites, under the same terms as Springer, so a copy another source reports there is left at the source too, and a download that is redirected onto any of these sites stops there.
 
-Every request is recorded before anything is fetched. One that cannot go ahead says why and sends nothing: no open copy, no license stated, a source resmon does not download from, no Library folder yet, or the day's limit. A download goes over https only, to public addresses (every redirect is checked, and a redirect to a private or local address, or to plain http, ends it), and keeps only a file that says it is a PDF and begins as one, up to 64 MB, the Library's own limit. One download at a time from each site, three seconds apart, and at most 100 in any 24 hours. A stored file records where it came from, after every redirect, its license, and when. A file whose bytes the Library already holds is linked to the paper rather than kept twice.
+Each new request is recorded before a PDF is fetched. One that cannot go ahead says why: no open copy, no license stated, a refused source, no Library folder yet, or a cap reached. An arXiv license check can run before a download is refused. Downloads go over https only, to public addresses, with every address and redirect checked; a private or local address, plain http, or more than five redirects ends the fetch. Only a response labeled as a PDF and beginning with `%PDF-` is kept, up to 64 MiB, the Library's own limit. There is one download at a time from each host, three seconds between requests, up to three hosts at once, and at most 100 queued or attempted downloads in any 24 hours; failed attempts count, skipped requests do not. A stored file records its final address, license, and time. Bytes the Library already holds are reused and linked to the paper.
 
 A watch can get its new papers' PDFs after each run: see [Watches](/resmon/guide/watches/).
 

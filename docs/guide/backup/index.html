@@ -25,8 +25,8 @@ On this page
 <h2 id="what-a-backup-holds">What a backup holds</h2>
 <p>A backup is a folder named <code>resmon-backup-</code> followed by a UTC time stamp. It holds:</p>
 <ul>
-<li><code>resmon.db</code>, your database, written with SQLite’s backup interface from the live connection, not copied. resmon runs SQLite in WAL mode, so a file copy would miss whatever is still in the write-ahead log. The snapshot is consistent and has no sidecar files.</li>
-<li><code>vault/</code>, every byte in your Library, with its <code>vault.json</code> marker. Each file is hashed again as it is copied and compared with the hash the database recorded. <strong>A file that no longer matches stops the backup</strong>, naming the file. The database and the Library are a pair, and a backup that certified a corrupt Library would be worse than none.</li>
+<li><code>resmon.db</code>, your database, with every collection, written with SQLite’s backup interface from the live connection, not copied. resmon runs SQLite in WAL mode, so a file copy would miss whatever is still in the write-ahead log. The snapshot is self-contained; opening it with SQLite can create temporary WAL sidecar files.</li>
+<li><code>vault/</code>, the files still in <strong>Your files</strong>, with the Library’s <code>vault.json</code> marker. Removed files are left out. Each file is hashed again as it is copied and compared with the hash the database recorded. <strong>A file that no longer matches stops the backup</strong>, naming the file. The database and the Library are a pair, and a backup that certified a corrupt Library would be worse than none.</li>
 <li><code>reports/</code>, the reports folder, if <strong>Include the reports folder</strong> is ticked. It is ticked by default.</li>
 <li><code>manifest.json</code>, naming the app and database versions that wrote it, the Library’s id, a row count per table, every file with its size and SHA-256, and what was deliberately left out.</li>
 </ul>

@@ -36,6 +36,7 @@ import { FRONTEND_ROOT, SCREENSHOT_DIR, launchEnv, registerStateDir } from './fi
 import { longPdf, writePdf } from './fixtures/pdf';
 import { removeStateDir } from './fixtures/cleanup';
 import { showTheme } from './fixtures/theme';
+import { stepsWithin } from './fixtures/steps';
 
 const WEB = 'https://example.org/resmon-reader';
 /** As long as the paper names the reader is given in practice, with no space to break at. */
@@ -63,16 +64,26 @@ const LINKS = writePdf([
 /**
  * 600 frames, each moving the pages 200 CSS pixels down: a fast, steady flick.
  * Each frame's time from the one before, and the most pages kept at once.
+ *
+ * Each wait for a frame is held to 250 ms: a window the system stops drawing
+ * (a virtual display while focus mode resizes it) gives no frames at all, and
+ * an unbounded wait then holds the whole job until its timeout. A frame that
+ * never came is counted in `missed` and timed as the 250 ms waited.
  */
 async function fastScroll(el: Element) {
   const node = el as HTMLElement;
   const frames: number[] = [];
   const kept: number[] = [];
+  let missed = 0;
   let last = performance.now();
   const startedAt = last;
   for (let i = 0; i < 600; i += 1) {
     node.scrollTop += 200;
-    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const drew = await new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => resolve(false), 250);
+      requestAnimationFrame(() => { clearTimeout(timer); resolve(true); });
+    });
+    if (!drew) missed += 1;
     const now = performance.now();
     frames.push(now - last);
     last = now;
@@ -84,7 +95,7 @@ async function fastScroll(el: Element) {
     seconds: (performance.now() - startedAt) / 1000, pixels: node.scrollTop,
     median: sorted[Math.floor(sorted.length / 2)]!, p95: sorted[Math.floor(sorted.length * 0.95)]!, worst: sorted[sorted.length - 1]!,
     over50: frames.filter((f) => f > 50).length, mostKept: Math.max(...kept),
-    heapMB: Math.round(heap / 1048576),
+    heapMB: Math.round(heap / 1048576), missed,
   };
 }
 
@@ -110,13 +121,26 @@ async function inView(el: Element) {
  * IOSurface where the working set does not; elsewhere, the working set.
  */
 async function memory(app: ElectronApplication): Promise<{ renderer: number; gpu: number; how: string }> {
+  // Held to 20 s: a main process that does not answer gives zeros, said, rather than a hung test.
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<{ renderer: number; gpu: number; how: string }>((resolve) => {
+    timer = setTimeout(() => resolve({ renderer: 0, gpu: 0, how: 'not read in 20 s' }), 20_000);
+  });
+  try {
+    return await Promise.race([readMemory(app), late]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readMemory(app: ElectronApplication): Promise<{ renderer: number; gpu: number; how: string }> {
   const all = await app.evaluate(({ app: electronApp }) => electronApp.getAppMetrics().map((m) => ({ type: m.type, pid: m.pid, kb: m.memory.workingSetSize })));
   const of = (type: string) => all.filter((m) => m.type === type);
   if (process.platform !== 'darwin') {
     return { renderer: of('Tab').reduce((n, m) => n + m.kb, 0) / 1024, gpu: of('GPU').reduce((n, m) => n + m.kb, 0) / 1024, how: 'working set' };
   }
   const footprint = (pid: number) => new Promise<number>((resolve) => {
-    execFile('footprint', ['-p', String(pid)], (error, out) => {
+    execFile('footprint', ['-p', String(pid)], { timeout: 10_000 }, (error, out) => {
       const found = /Footprint: ([\d.]+) (KB|MB|GB)/.exec(String(out));
       resolve(error || !found ? 0 : Number(found[1]) * ({ KB: 1 / 1024, MB: 1, GB: 1024 } as Record<string, number>)[found[2]!]!);
     });
@@ -154,6 +178,9 @@ async function widen(app: ElectronApplication, win: Page, width: number, theme: 
 
 test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, links, and a 500-page PDF', async () => {
   test.setTimeout(600_000);
+  // The scrolls and samples that wait on the window's own frames each have a limit and a name, so a window the
+  // system stops drawing fails a step that says where, rather than holding the job until its timeout.
+  const { step } = stepsWithin('[reader]', 600_000, 60_000);
   const stateDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-reader-'));
   const parent = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-reader-parent-')));
   const fixtures = fs.mkdtempSync(path.join(os.tmpdir(), 'resmon-e2e-atlas-reader-pdfs-'));
@@ -538,7 +565,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     // The engine reads the text of PDFs up to 200 pages; it says so rather than show nothing.
     await expect(reader.getByText('Reading this page went past the engine’s bounds, so nothing was kept.')).toBeVisible({ timeout: 60_000 });
     await long.focus();
-    const run = await long.evaluate(fastScroll);
+    const run = await step('the 500-page PDF scrolled', 180_000, () => long.evaluate(fastScroll));
     const page = Number(await reader.getAttribute('data-page'));
     await expect(image.getByRole('status')).toHaveText(new RegExp(`^Page ${page} of 500 rendered`), { timeout: 30_000 });
     const sheets = await long.evaluate((el) => ({
@@ -566,7 +593,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     console.log(`[reader] 500-page PDF, ${(fs.statSync(path.join(fixtures, 'long-500.pdf')).size / 1048576).toFixed(1)} MB: `
       + `page 1 drawn ${firstPage} ms after the file was opened; jump to page 480 drawn in ${jump} ms`);
     console.log(`[reader] scroll: ${run.pixels} px in ${run.seconds.toFixed(1)} s over 600 frames; frame median ${run.median.toFixed(1)} ms, `
-      + `p95 ${run.p95.toFixed(1)} ms, worst ${run.worst.toFixed(1)} ms, ${run.over50} frames over 50 ms; at most ${run.mostKept} pages kept; `
+      + `p95 ${run.p95.toFixed(1)} ms, worst ${run.worst.toFixed(1)} ms, ${run.over50} frames over 50 ms, ${run.missed} frames that never came; at most ${run.mostKept} pages kept; `
       + `at rest on page ${page}: ${sheets.pages.length} pages kept, ${(sheets.canvasPixels / 1e6).toFixed(1)} million canvas pixels; JS heap ${run.heapMB} MB`);
     console.log(`[reader] working set: renderer ${Math.round(before.renderer / 1024)} MB before the 500-page PDF, ${Math.round(after.renderer / 1024)} MB after the scroll; `
       + `GPU process ${Math.round(before.gpu / 1024)} MB, then ${Math.round(after.gpu / 1024)} MB; gallery drew ${drawnThumbs} of 500 thumbnails`);
@@ -590,7 +617,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     const density = await win.evaluate(() => window.devicePixelRatio);
     const first = (await long.evaluate(inView))[0]!;
     const begun = await memory(app);
-    const focused = await long.evaluate(fastScroll);
+    const focused = await step('the 500-page PDF scrolled in focus mode', 180_000, () => long.evaluate(fastScroll));
     const stopped = Date.now();
     await expect.poll(async () => (await long.evaluate(inView)).every((p) => p.sharp), { timeout: 30_000, intervals: [50] }).toBe(true);
     const settled = Date.now() - stopped;
@@ -604,15 +631,20 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     const peak = { renderer: Math.max(begun.renderer, end.renderer), gpu: Math.max(begun.gpu, end.gpu) };
     let sampling = true;
     const sampler = (async () => {
-      while (sampling) {
+      // At most as long as the scroll's own step may take.
+      const until = Date.now() + 180_000;
+      while (sampling && Date.now() < until) {
         const now = await memory(app);
         peak.renderer = Math.max(peak.renderer, now.renderer);
         peak.gpu = Math.max(peak.gpu, now.gpu);
       }
     })();
-    await long.evaluate(fastScroll);
-    sampling = false;
-    await sampler;
+    try {
+      await step('the 500-page PDF scrolled again in focus mode, its memory sampled', 180_000, () => long.evaluate(fastScroll));
+    } finally {
+      sampling = false;
+    }
+    await step('the memory sampler stopped', 30_000, () => sampler);
     const jumpedAt = Date.now();
     await pageInput.fill('480');
     await pageInput.press('Enter');
@@ -633,7 +665,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     console.log(`[reader] focus mode at fit width, ${focusWidth} CSS pixels at ${density}×: page ${first.css} CSS pixels wide, canvas ${first.canvas} pixels wide; `
       + `a sharp page 480 ${sharpJump} ms after the jump`);
     console.log(`[reader] focus scroll: ${focused.pixels} px in ${focused.seconds.toFixed(1)} s; frame median ${focused.median.toFixed(1)} ms, `
-      + `p95 ${focused.p95.toFixed(1)} ms, worst ${focused.worst.toFixed(1)} ms, ${focused.over50} frames over 50 ms; at most ${focused.mostKept} pages kept; `
+      + `p95 ${focused.p95.toFixed(1)} ms, worst ${focused.worst.toFixed(1)} ms, ${focused.over50} frames over 50 ms, ${focused.missed} frames that never came; at most ${focused.mostKept} pages kept; `
       + `pages in view sharp ${settled} ms after the scroll stopped; at rest ${rest.pages} kept, ${rest.drawn} drawn, ${(rest.canvasPixels / 1e6).toFixed(1)} million canvas pixels`);
     console.log(`[reader] focus memory (${begun.how}): in the reader beside the notes just before, renderer ${Math.round(beside.renderer)} MB, `
       + `GPU process ${Math.round(beside.gpu)} MB`);
@@ -689,7 +721,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
       return text;
     }, { timeout: 60_000, intervals: [20] }).toMatch(/^\d+ of 500$/);
     const allRead = Date.now();
-    const during = await scrolling;
+    const during = await step('the scroll during a find finished', 180_000, () => scrolling);
     await expect(said).toHaveText(/^\d+ of 500$/);
     // Read once: a new query runs over the kept text.
     const again = Date.now();
@@ -701,7 +733,7 @@ test('Evidence reader: stacked pages, a gallery, focus mode, selectable text, li
     console.log(`[reader] find in 500 pages: first match shown ${firstShown - typed} ms after the last key, all 500 pages read ${allRead - typed} ms after it; `
       + `a second query over the kept text answered in ${cached} ms`);
     console.log(`[reader] scrolling while typing and reading: frame median ${during.median.toFixed(1)} ms, p95 ${during.p95.toFixed(1)} ms, `
-      + `worst ${during.worst.toFixed(1)} ms, ${during.over50} frames over 50 ms`);
+      + `worst ${during.worst.toFixed(1)} ms, ${during.over50} frames over 50 ms, ${during.missed} frames that never came`);
     await query.press('Escape');
     await expect(findBar).toHaveCount(0);
 

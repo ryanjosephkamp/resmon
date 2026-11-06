@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useLocation, useNavigationType, type NavigationType } from 'react-router-dom';
 
 /**
@@ -81,11 +81,13 @@ const ANY_IDENTITY = IDENTITIES.map((name) => `[${name}]`).join(', ');
  * as it scrolls (the run history's filters), and at a few points across: in the
  * gallery the point two fifths across can fall in the gap between two covers,
  * at every height. A row in a box that scrolls on its own (Search › Your
- * collection's results) is not the stage's: the stage's place cannot put it back.
+ * collection's results) is not the stage's: the stage's place cannot put it
+ * back, and the box keeps its own (`useScrollerPlace`), read by this rule with
+ * the box as the stage.
  *
  * It costs hit tests and queries over the whole stage, a few milliseconds on a
  * slow machine with a thousand runs listed, so it is read once a scroll has
- * come to rest (`StageScroll`), not on every scroll.
+ * come to rest (`keepPlace`), not on every scroll.
  */
 export function anchorAt(stage: HTMLElement): Place['anchor'] {
   // A page with nothing known by what it is costs one query.
@@ -288,20 +290,66 @@ export const SETTLE_MS = 150;
 const ABOUT_TO_ACT = ['pointerdown', 'keydown'] as const;
 
 /**
- * The stage's place on each history entry. Drawn as the stage's first child,
- * so its layout effect runs before those of the screen after it: a screen that
- * puts the stage somewhere when it opens, or a field that takes the focus and
- * scrolls itself into view, does so after this and is not undone.
+ * Keep where a scrolling box is, by `write`, as it scrolls.
  *
- * Each scroll keeps how far down the stage is, which costs nothing. The row at
+ * Each scroll keeps how far down the box is, which costs nothing. The row at
  * the top (`anchorAt`) is read once the scroll has come to rest (`SETTLE_MS`),
  * or at once if the person presses the pointer or a key first, or the window
  * is about to go to another page (the Navigation API's `navigate`, which comes
  * before the router draws the new one): a click that leaves the page keeps the
- * row it left. Until it is read, the place is the distance down alone.
+ * row it left. Until it is read, the place is the distance down alone. Returns
+ * the way to stop.
+ */
+export function keepPlace(node: HTMLElement, write: (place: Place) => void): () => void {
+  // The scroll whose row has not been read yet, as its timer; 0 for none.
+  let unread = 0;
+  const read = () => {
+    if (!unread) return;
+    window.clearTimeout(unread);
+    unread = 0;
+    write({ top: node.scrollTop, anchor: anchorAt(node) });
+  };
+  const keep = () => {
+    write({ top: node.scrollTop, anchor: null });
+    window.clearTimeout(unread);
+    unread = window.setTimeout(read, SETTLE_MS);
+  };
+  const navigation = (window as { navigation?: Navigation }).navigation;
+  node.addEventListener('scroll', keep, { passive: true });
+  for (const event of ABOUT_TO_ACT) window.addEventListener(event, read, { capture: true, passive: true });
+  navigation?.addEventListener('navigate', read);
+  return () => {
+    window.clearTimeout(unread);
+    node.removeEventListener('scroll', keep);
+    for (const event of ABOUT_TO_ACT) window.removeEventListener(event, read, { capture: true });
+    navigation?.removeEventListener('navigate', read);
+  };
+}
+
+/** The places kept for the window: the stage's, and those of the boxes its screens scroll on their own. */
+const Places = createContext<ScrollMemory | null>(null);
+
+/**
+ * The places kept while the window's page lasts, for the stage (`StageScroll`)
+ * and for each box a screen scrolls on its own (`useScrollerPlace`). Drawn
+ * around the stage, so a screen that leaves the page finds them when Back
+ * draws it again.
+ */
+export function ScrollPlaces({ children, memory }: { children: ReactNode; memory?: ScrollMemory }) {
+  const [places] = useState(() => memory ?? new ScrollMemory());
+  return <Places value={places}>{children}</Places>;
+}
+
+/**
+ * The stage's place on each history entry. Drawn as the stage's first child,
+ * so its layout effect runs before those of the screen after it: a screen that
+ * puts the stage somewhere when it opens, or a field that takes the focus and
+ * scrolls itself into view, does so after this and is not undone. Its place is
+ * kept as it scrolls (`keepPlace`).
  */
 export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | null>; memory?: ScrollMemory }) {
-  const [places] = useState(() => memory ?? new ScrollMemory());
+  const shared = useContext(Places);
+  const [places] = useState(() => memory ?? shared ?? new ScrollMemory());
   const location = useLocation();
   const type = useNavigationType();
   const address = `${location.pathname}${location.search}`;
@@ -312,29 +360,7 @@ export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | 
   useEffect(() => {
     const node = stage.current;
     if (!node) return undefined;
-    // The scroll whose row has not been read yet, as its timer; 0 for none.
-    let unread = 0;
-    const read = () => {
-      if (!unread) return;
-      window.clearTimeout(unread);
-      unread = 0;
-      places.write(here.current.key, here.current.path, { top: node.scrollTop, anchor: anchorAt(node) });
-    };
-    const keep = () => {
-      places.write(here.current.key, here.current.path, { top: node.scrollTop, anchor: null });
-      window.clearTimeout(unread);
-      unread = window.setTimeout(read, SETTLE_MS);
-    };
-    const navigation = (window as { navigation?: Navigation }).navigation;
-    node.addEventListener('scroll', keep, { passive: true });
-    for (const event of ABOUT_TO_ACT) window.addEventListener(event, read, { capture: true, passive: true });
-    navigation?.addEventListener('navigate', read);
-    return () => {
-      window.clearTimeout(unread);
-      node.removeEventListener('scroll', keep);
-      for (const event of ABOUT_TO_ACT) window.removeEventListener(event, read, { capture: true });
-      navigation?.removeEventListener('navigate', read);
-    };
+    return keepPlace(node, (place) => places.write(here.current.key, here.current.path, place));
   }, [stage, places]);
 
   useLayoutEffect(() => {
@@ -350,3 +376,68 @@ export function StageScroll({ stage, memory }: { stage: RefObject<HTMLElement | 
 
   return null;
 }
+
+/**
+ * Back and Forward for a box a screen scrolls on its own, rather than the
+ * stage: Search › Your collection's results, which a virtualizer draws a
+ * window of, and a run's page. The box is the screen's; this keeps its place
+ * on each history entry as the stage's is kept (`keepPlace`, the same row at
+ * the top) and puts it back as the stage's is put back (`placeStage`, the same
+ * hold, waiting for a row a list has not drawn yet).
+ *
+ * `name` tells the box from any other the screen has. `under` is what else
+ * the place depends on beyond the address: Search's words, filters, order,
+ * and collection, a run's tab. A place is put back only under the same, so a
+ * Back to the same results finds them where they were left, and to results
+ * that have changed, at their top. With `fresh`, a change of `under` on the
+ * screen is a new list, opened at its top (a new search); without it, the
+ * same page shown another way, left where it is.
+ * `drawn` is whether the box is in the page yet: a run's page draws it once the
+ * run has been read.
+ * `screen` is what makes two addresses one screen, the path by default. A run's
+ * tabs each have a path of their own, so its page names the run
+ * (`/runs/12`): another of the run's tabs is the same page shown another way,
+ * left where it is, and it is another run that opens at its top.
+ *
+ * Another screen opens with the box at its top, as the stage does (`landing`).
+ */
+export function useScrollerPlace(box: RefObject<HTMLElement | null>, { name, under = '', fresh = false, drawn = true, screen }: {
+  name: string; under?: string; fresh?: boolean; drawn?: boolean; screen?: string;
+}): void {
+  const places = useContext(Places);
+  const location = useLocation();
+  const type = useNavigationType();
+  const address = `${location.pathname}${location.search}`;
+  const where = screen ?? location.pathname;
+  // Where the box's scrolling is kept, for the entry on screen and what the place depends on: worked out as
+  // they change, so a scroll only writes.
+  const here = useRef({ slot: slot(location.key, name), kept: kept(address, under) });
+  // The entry, screen, and `under` the box was last put for; null until it is drawn.
+  const last = useRef<{ key: string; screen: string; under: string } | null>(null);
+
+  useEffect(() => {
+    const node = box.current;
+    if (!node || !places || !drawn) return undefined;
+    return keepPlace(node, (place) => places.write(here.current.slot, here.current.kept, place));
+  }, [box, places, drawn]);
+
+  useLayoutEffect(() => {
+    here.current = { slot: slot(location.key, name), kept: kept(address, under) };
+    const node = box.current;
+    if (!node || !places || !drawn) return undefined;
+    const from = last.current;
+    last.current = { key: location.key, screen: where, under };
+    if (from === null || from.key !== location.key) {
+      const remembered = type === 'POP' ? places.read(here.current.slot, here.current.kept) : null;
+      const to = landing(type, from?.screen ?? where, where, remembered);
+      if (to !== 'keep') return placeStage(node, to);
+    }
+    if (fresh && from !== null && from.under !== under) return placeStage(node, TOP);
+    return undefined;
+  }, [box, places, name, under, fresh, drawn, location.key, where, address, type]);
+}
+
+/** Where a box's places are kept: under its entry and its name. */
+const slot = (key: string, name: string) => `${key}\u0000${name}`;
+/** What a box's place is put back only on: the address and what else it depends on. */
+const kept = (path: string, under: string) => `${path}\u0000${under}`;

@@ -23,7 +23,7 @@
 
 ![resmon's tour: Today's map of the collection with the new papers ringed and numbered, a Deep Sweep asking several sources at once, and the Source wall marking what each source did on each run](.github/assets/resmon-tour.gif)
 
-resmon searches arXiv, PubMed, OpenAlex, Crossref, bioRxiv, and 21 more open scholarly sources, on
+resmon searches arXiv, PubMed, OpenAlex, Crossref, bioRxiv, and 20 more open scholarly sources, on
 demand or on a schedule. It de-duplicates what they return, keeps every paper in a database on your
 computer, writes a report for every run, and records what every source did on every run, so a quiet
 week and a broken search never look the same.
@@ -39,6 +39,11 @@ which. Where it cannot know something, it says so instead of showing a plausible
 - **Deep Dive and Deep Sweep:** one source in depth, or several at once. Before you ask, resmon says
   what each source will do with your search: how it combines your terms, whether it can honor your
   dates, and whether it needs a key.
+- **Find a paper:** look up a DOI, arXiv id, PMID, or title, with each source's answer and how its
+  copy matched. **Get the PDF** keeps a copy in the Library only under a stated open license and
+  the downloader's source and host rules.
+- **Runs:** what is running, what is waiting for a free slot, and the history, with filters,
+  search, exports, and Run again. The run monitor in the top bar shows progress and failures.
 - **Watches:** the same search on a schedule, or a person's new papers, or retractions and
   corrections on a person's papers. A watch runs only in the background service, and resmon says so
   wherever it matters. Each run can ask for the papers published since the previous run, with the dates
@@ -48,7 +53,8 @@ which. Where it cannot know something, it says so instead of showing a plausible
   **Watchdog** reports sources that fail repeatedly, watches that are overdue, and departures from
   your own history, and says what it cannot judge yet.
 - **Search:** your whole collection by words or by meaning, filtered by source, category, author, and
-  date, with reference export as BibTeX, RIS, or CSV. A coverage audit compares a watch's results
+  date, with reference export as BibTeX, RIS, or CSV, streamed for every match. Select papers to
+  save many to read at once. A coverage audit compares a watch's results
   with what you meant it to find, and a shared-wording scan finds abstracts that repeat each other word
   for word.
 - **Collections:** several in one database, one per field, say, each with its own Search, Today, map,
@@ -56,9 +62,10 @@ which. Where it cannot know something, it says so instead of showing a plausible
   collections without ever leaving the database.
 - **People:** follow a researcher. Every match to a person says how it was made: by ORCID, by name and
   affiliation, or by name alone, and only the first is evidence of identity.
-- **Library and Evidence:** a reading queue; copies of PDF, TXT, and MD files in a folder you choose;
+- **Library and Evidence:** a gallery of papers saved to read; copies of PDF, TXT, MD, and TeX files
+  in a folder you choose;
   and projects where you pin exact passages and ask questions of excerpts you pick, with citations
-  checked against the text. The Library is unavailable on Windows.
+  checked against the text. The reading queue works on Windows; kept files and Evidence do not.
 - **Ask, summaries, and an MCP server:** an assistant that answers from resmon through the same tools
   an outside program can use, and waits for your approval before changing anything. Summaries and Ask
   run on a signed-in Claude Code or Codex command, or on your own provider key. Nothing is billed
@@ -82,8 +89,8 @@ Download a build from [Releases](https://github.com/ryanjosephkamp/resmon/releas
 | Linux (x64) | AppImage | Built and launched once by the release workflow's check; not used daily |
 
 The macOS builds are unsigned, so the first launch needs one extra step. Windows and Linux builds
-update themselves, and macOS builds do not. The Library is unavailable on Windows. All of this is
-covered in [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/), along with
+update themselves, and macOS builds do not. Library files and Evidence are unavailable on Windows.
+All of this is covered in [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/), along with
 running from source:
 
 ```bash
@@ -95,8 +102,8 @@ cd resmon_scripts/frontend && npm install && npm start
 ```
 
 A resmon window does not run your watches. The background service does: turn on **Settings › In the
-background › Run resmon in the background**. On macOS and Windows the service is the app itself, and
-on Linux it is the engine.
+background › Run resmon in the background**. A packaged Mac launch starts an installed service when
+needed. On macOS and Windows the service is the app itself, and on Linux it is the engine.
 
 ## Command line
 
@@ -130,10 +137,10 @@ The documentation lives on the project site, **<https://ryanjosephkamp.github.io
 | [Quick start](https://ryanjosephkamp.github.io/resmon/guide/quick-start/) | A first search, a first watch, and the one switch that makes a watch run on its own. |
 | [Install and launch](https://ryanjosephkamp.github.io/resmon/guide/install/) | The downloads and their status, the first launch, updates, the resmon command, the background service, and running from source. |
 | [Today](https://ryanjosephkamp.github.io/resmon/guide/today/) | The collection as a map, and the papers that arrived since you last marked all read. |
-| [Search](https://ryanjosephkamp.github.io/resmon/guide/search/) | Searching what you hold, asking the sources for more, runs, saved searches, and shared wording. |
+| [Search](https://ryanjosephkamp.github.io/resmon/guide/search/) | Searching and arranging collections, asking the sources, finding one paper, runs, saved searches, and shared wording. |
 | [Watches and people](https://ryanjosephkamp.github.io/resmon/guide/watches/) | Making a watch, its schedule and dates, where reports go, the coverage audit, and watching for a person. |
 | [Health](https://ryanjosephkamp.github.io/resmon/guide/health/) | The Source wall, the Watchdog, retraction checks, analytics, and which engine a window uses. |
-| [The Library](https://ryanjosephkamp.github.io/resmon/guide/library/) | The reading queue, and copies of PDF, TXT, and MD files kept in a folder you choose. |
+| [The Library](https://ryanjosephkamp.github.io/resmon/guide/library/) | The gallery, the reading queue, Get the PDF, and copies of PDF, TXT, MD, and TeX files kept in a folder you choose. |
 | [Evidence](https://ryanjosephkamp.github.io/resmon/guide/projects/) | Projects of exact file versions, pinned passages, and cited answers from excerpts you choose. |
 | [Ask and the MCP server](https://ryanjosephkamp.github.io/resmon/guide/assistant/) | The assistant, what it can and cannot do, and driving resmon from another program over MCP. |
 | [AI settings](https://ryanjosephkamp.github.io/resmon/guide/ai-summarization/) | Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends. |

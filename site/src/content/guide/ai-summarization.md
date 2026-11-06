@@ -3,13 +3,15 @@ title: "AI settings"
 summary: "Summaries, Ask, and embeddings: connections, fallbacks, your own plan, and what each sends."
 order: 11
 ---
-Three things in resmon use a model, and **Settings › AI** sets up all three:
+**Settings › AI** sets up summaries, Ask, and embeddings:
 
 - **Summaries** are written for the papers a run finds, when a search or a watch asks for them.
 - **Ask** is the assistant. See [Ask and the MCP server](/resmon/guide/assistant/).
 - **Embeddings** turn each paper's title and abstract into a vector, so Search can rank your collection by meaning, the map can place papers by meaning, and a watch's audit can compare what it finds with what you meant.
 
 None of them runs until you set it up, and each works without the others. resmon bills nothing: you use a command you are signed into under your own plan, or a key you hold with a provider.
+
+Evidence's **Answers** also uses a model, with its connection chosen for each answer and a preview before anything is sent. See [Evidence](/resmon/guide/projects/#answers).
 
 Each part says what resmon has checked about its connection. Finding a command is not knowing that anyone is signed into it, and a stored key is not one a provider has accepted.
 

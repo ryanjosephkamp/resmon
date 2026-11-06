@@ -9,7 +9,7 @@ order: 5
 
 This tab searches the collection the window shows, across all the runs and watches that put papers there; its name is the page's heading. Type words that appear in a title, an abstract, or an author's name.
 
-**Filters** narrow by **Source**, **Category**, **Author**, and **Published**. Each value shows how many papers it would hold. The filters and your words are kept in the address of the page, so you can go back to a filtered view, and a chart on **Health › Analytics** opens exactly the papers it drew.
+**Filters** narrow by **Source**, **Category**, **Author**, and **Published**. Each value shows how many papers it would hold. The filters, your words, and the order are kept in the address of the page, so you can go back to a filtered view. Source and month charts on **Health › Analytics** open those papers; a keyword's bar searches for its words, whose matches can differ from the chart's phrase count.
 
 **Newest** orders by publication date. **Closest in meaning** appears when your embedding model can rank the collection, and it orders by how near each paper is to the phrase you typed rather than by date. Two things are true of it:
 
@@ -20,7 +20,7 @@ When resmon cannot rank, the control is not offered and a sentence says why: no 
 
 The count above the list is every paper that matches, however many. Counting has 1.5 seconds; if it runs out, the line says "At least N" and that counting stopped, and the list and the export still hold every match. Closest in meaning ranks every match too, not only the newest.
 
-The list reads more papers as you scroll toward its end (**Show more** does the same from the keyboard), and it stays as quick at the ten-thousandth row as at the first. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the newest** returns to the top. The month is kept in the address with your words and filters.
+The list reads more papers as you scroll toward its end (**Show more** does the same from the keyboard), drawing only the rows near the view. The window's find cannot reach rows outside that drawn part; use the search field to search every paper. In the newest order, **Jump to** starts the list at a month of publication: the line above the list says how many newer matches come before it, the count does not change, and **Back to the newest** returns to the top. The month is kept in the address with your words, filters, and order.
 
 The **Export these papers as** buttons (**BibTeX**, **RIS**, **CSV**) write every paper that matches, not only the rows drawn, through the system's save dialog. There is no limit on how many: resmon writes the file as it reads the papers, and says how many the file holds once it is saved.
 
@@ -31,7 +31,7 @@ Each result shows its title, any retraction or correction recorded against it, i
 - **Papers that look like the same work.** Each is labeled "also appears in (source)" with the reason resmon linked them: "same DOI" is an identifier, and "near-identical title" is an inference. resmon links and never merges: both records are kept, with what each source said. **Fold the same work into one row** hides the extra rows in this view only; the count does not change, and turning it off shows every row. Links are made by a scan started over the HTTP API (`POST /api/links/scan`); Atlas shows the links that exist.
 - **People.** A paper matched to someone on your **People** list shows who, the string the source returned for the author, and the basis of the match. See [Watches and people](/resmon/guide/watches/).
 
-The map beside the list marks where the matches sit in the collection.
+The map beside the list marks where the matches sit in the collection. Its caption counts the matches it marked. A match the map leaves off is counted too, with the reason: its title and abstract share too few words with the rest to place it, or, on a map drawn from your embedding model, the model has not read it yet.
 
 ### Collections
 
@@ -55,7 +55,7 @@ A paper's page shows the record as resmon holds it, and in this order:
 2. Its PDF: **Read the PDF** when the Library holds one linked to it; **Get the PDF** when a source states an open license for a copy of it (see [the Library](/resmon/guide/library/#get-the-pdf)); otherwise **Open at** its source, with the reason there is nothing to get.
 3. Any retraction, concern, correction, newer version, or journal publication recorded against it, with the notice's link.
 4. The **Abstract**, labeled "as (source) gave it".
-5. **Why it is here**: which of the keywords from the runs that found it appear in it (a paper only a find holds says that Find a paper looked it up, and how the record matched), and in which field (title, abstract, subject categories, or author list). Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. Beneath it, **What resmon cannot see** states the limits. resmon stores no full text, and most sources rank by relevance rather than filtering by keyword, so a paper that contains none of your keywords is expected, not a fault.
+5. **Why it is here**: which of the keywords from the runs that found it appear in it (a paper only a find holds says that Find a paper looked it up, and how the record matched), and in which field (title, abstract, subject categories, or author list). Matching is on whole words, so `AI` does not match `said`, and a quoted phrase must appear as a phrase. Beneath it, **What resmon cannot see** states the limits. Keyword matching never reads full text, even of a PDF resmon keeps. Most sources rank by relevance rather than filtering by keyword, so a paper that contains none of your keywords is expected, not a fault.
 6. The collections it is in, how it arrived in each (found by a run, moved, copied, or there since before collections), and **Move to** and **Copy to**. A paper not in the collection the window shows can be copied there.
 7. **Shared wording** with other abstracts, and **The same work elsewhere**, where there are any.
 8. Beside it, the paper and its eight nearest neighbors on the map.
@@ -82,11 +82,13 @@ If resmon is already running as many runs as **Settings › In the background** 
 
 Beside the form are the five newest runs, with a link to the **Runs** tab.
 
+An unsent form is kept while you leave and return with Back or Forward, as is an unsaved watch editor. A fresh visit starts a fresh form; starting the run or saving the watch clears its draft.
+
 ## Find a paper
 
-One paper, asked of every source that can look it up. Type or paste a DOI (with or without `https://doi.org/`), an arXiv id (`arXiv:1706.03762`, `1706.03762v5`, or its address), a PMID, or a title. Under the field resmon says what it reads it as, which sources can look it up, and why each other source is not asked: some can be asked only by some kinds (arXiv by its id or a title, never a DOI), bioRxiv and medRxiv hold only DOIs that begin `10.1101/`, and a few have not been checked (CORE, NASA ADS, and Springer Nature need a key, DBLP answered with a challenge page, and PubMed's search answered errors when it was checked). Click a source to leave it out of this find, and again to put it back. Each source's capability, and the live check it rests on, is in its row of the catalog.
+One paper, asked of every source that can look it up. Type or paste a DOI (with or without `https://doi.org/`), an arXiv id (`arXiv:1706.03762`, `1706.03762v5`, or its address), a PMID (`17375194` or `PMID:17375194`), or a title. Under the field resmon says what it reads it as, which sources can look it up, and why each other source is not asked: some can be asked only by some kinds (arXiv by its id or a title, never a DOI), bioRxiv and medRxiv hold only DOIs that begin `10.1101/`, and a few have not been checked (CORE, NASA ADS, and Springer Nature need a key, DBLP answered with a challenge page, and PubMed's search answered errors when it was checked). Click a source to leave it out of this find, and again to put it back. Each source's capability, and the live check it rests on, is in its row of the catalog.
 
-**Find** asks them all at once. A find is a run: the **Runs** tab lists it as **Find a paper**, **Health** counts each source's answer, a copy it keeps lands in the collection the window shows, and when it finishes it posts a notification if **When a search I start finishes** is on ([Notifications](/resmon/guide/email-notifications/#notifications)). While it goes, each source is drawn as being asked or answered. Then the page shows the paper as its reference copy has it (a registration agency's record first: Crossref, then DataCite, PubMed, arXiv, and the rest), **Get the PDF** where an open copy exists, and a row for every source:
+**Find** asks up to eight sources at once. A find is a run: the **Runs** tab lists it as **Find a paper**, **Health** counts each source's answer, a copy it keeps lands in the collection the window shows, and when it finishes it posts a notification if **When a search I start finishes** is on ([Notifications](/resmon/guide/email-notifications/#notifications)). While it goes, each source is drawn as being asked or answered. Then the page shows the paper as its reference copy has it (an identifier or exact-title match before a close-title match, then Crossref, DataCite, PubMed, arXiv, and the rest), **Get the PDF** where the download rules permit a copy, and a row for every source:
 
 - **Found**, and how: by its DOI, arXiv id, or PMID, by its exact title, or by a close title, with the share of words the titles share. A source's answer is a list of candidates, and resmon keeps a record only when it carries the identifier asked for, or when its title is the title asked for or close to it (85 percent of the meaningful words, and never for a title of fewer than three). Every other record is counted and dropped.
 - **What differs** from the reference copy: the title, the year, the DOI, the first author, or the number of authors.
@@ -103,11 +105,11 @@ The **Runs** tab (⌘4, in the top bar's first order) holds every run.
 - **Waiting.** Runs waiting for a free slot, in the order they start, with the time each joined the queue. A search you asked for can be taken out with **Don't run**; a watch's run is stopped by pausing the watch.
 - **History.** Every run, newest first, grouped by day, with how many there are. **All**, **Searches** (Deep Dives, Deep Sweeps, and finds), **Watches**, and **Failed** narrow it, and the field finds a run by its terms, its sources, its watch or saved search, or its number. Older runs are read as you scroll.
 
-A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, or **Watch run**, and one line of what happened: how many of its sources answered, and how many papers it found and how many of those were new.
+A manual search is named by its terms and a watch's run by the watch's name. Each row says when it started, whether it was a **Deep Dive**, **Deep Sweep**, **Find a paper**, or **Watch run**, and one line of what happened: how many of its sources answered, and how many papers it found and how many of those were new.
 
-A run also keeps which of its papers were new: the ones resmon had not stored before. Its new-only filter lists just those: `resmon export --run N --new-only`, and `only_new=true` on the run's papers and references in the HTTP API. Until November 5, 2026, a run marked the papers it stored on the day it started (in UTC) as not new, so the filter left them out. The first start of resmon 1.0 corrected the filter of earlier runs, once, from when each paper was first stored, and wrote a line saying how many runs and links it changed, beginning `Recounted which papers were new to earlier runs`, in the same place as the line about the copy kept before an update (see [Backup and restore](/resmon/guide/backup/)).
+A run also keeps which of its papers were new: the ones resmon had not stored before, in any collection. Its new-only filter lists just those: `resmon export --run N --new-only`, and `only_new=true` on the run's papers and references in the HTTP API. Today's arrivals are different: a paper can be new to one collection after another collection held it.
 
-A run ends **completed**, **failed**, **cancelled**, or **interrupted**. Interrupted means the process running it went away before it finished, for example because the app was force-quit. It is not failed, because nothing went wrong with the search, and the row says what resmon observed and when it last saw the run working. A run fails when every source selected for it was asked and none answered. It is not recorded as completed, because "completed" over a dead source would state an empty field where a failure happened. A source resmon never asked, such as one with no key, is not a failure and never makes a run one.
+A run ends **completed**, **failed**, **cancelled**, or **interrupted**. Interrupted means the process running it went away before it finished, for example because the app was force-quit. The row says what resmon observed and when it last saw the run working; it cannot establish whether the search itself would have succeeded. A run fails when every source selected for it was asked and recorded a non-answer. It is not recorded as completed, because "completed" over a dead source would state an empty field where a failure happened. A source resmon never asked, such as one with no key, is not a failure and never makes a run one.
 
 Tick runs to work on them together, or **Select all** to tick every run listed:
 
@@ -127,8 +129,9 @@ A run's page opens when you start a search, from the Runs tab, from a watch's hi
 - **Summaries** says whether the run summarized, with which connection, and what each connection it tried did.
 - **Sources.** While the run goes, the page says the stage it is at, a bar shows how many of its sources have finished, and the heading's clock ticks. Each source is drawn in the Source wall's marks; one being asked says how long, from the engine's heartbeat every two seconds, the requests sent and any retries, and what it is waiting for (the source's pace, a pause the source asked for, or the pause before asking again). Afterward, the page shows the **recorded outcome of each source**, led by a sentence summing up the run: which sources answered, which recorded a non-answer, and which are unknown. A filled mark is an answer, a half mark an answer in part, a ring an unknown, and a fault mark a non-answer. Each source gives a result count, or "count not recorded". Pointing at the bar names the sources still being asked and those not asked yet, and pointing at a source's mark gives its outcome and count in a tip.
 - **The map.** A small map of where this run's papers sit in the collection.
+- **PDFs.** For a watch whose PDFs switch is on, what its run got into the Library, what is still waiting or downloading, and what was skipped or failed, with why. A find also links to its per-source answers with **See what each source said**.
 
-The tabs below hold the run's own record:
+The tabs below hold the run's own record. Each tab has its own address, such as `/runs/12/map`, so Back returns to the tab you were on, and the address with no tab opens **Papers**:
 
 | Tab | What it holds |
 |---|---|

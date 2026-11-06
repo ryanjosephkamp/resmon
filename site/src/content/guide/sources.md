@@ -3,11 +3,13 @@ title: "Sources and their terms"
 summary: "The 25 sources: pace, keys, how each combines terms and dates papers, and what resmon does about their terms."
 order: 14
 ---
-resmon asks 25 open scholarly sources. Every statement on this page comes from the catalog that **Settings › Sources** and **Search › Ask the sources** read, so the app and this page cannot disagree about someone else's service. Some of what follows is what a provider publishes about itself. Where resmon does not know, the catalog says so.
+resmon asks 25 open scholarly sources. The tables below follow the catalog that **Settings › Sources** and **Search › Ask the sources** read. Some of what follows is what a provider publishes about itself. Where resmon does not know, the catalog says so.
 
 ## The sources
 
 "API key" says whether resmon can ask the source without one. A key is yours: you register for it, resmon stores it in your operating system's keychain, and sends it only to that source. A source that requires a key and has none is recorded as not asked, never as an answer with nothing in it. "resmon's pace" is the rate resmon sets for its own requests. It is not always the provider's published limit, which **Settings › Sources** shows beside it in the source's details. Where a provider states none, resmon picked a conservative number.
+
+**Settings › Sources › A contact address for Crossref and OpenAlex** sends an address to those two only, if you enter one. OpenAIRE remains in the catalog with an **end announced** notice; its details state that the API is being discontinued.
 
 | Source | Coverage | API key | resmon's pace |
 |---|---|---|---|
@@ -73,7 +75,7 @@ The terms you type go to every source together, and each source combines them it
   - **DataCite** is asked for the whole calendar years your window touches, and resmon then drops anything outside your exact dates once it arrives. A record dated to a year alone is kept only when your window covers that whole year.
   - **DOAJ**, **Semantic Scholar**, and **NASA ADS** are searched by year (NASA ADS by month). A window inside one year or month widens to the whole of it, so results can fall outside the dates you set.
   - **DBLP**, **ERIC**, and **Open Library** hold a year and nothing finer. resmon searches the whole calendar years inside your window, and refuses a window containing none rather than returning records whose position in it cannot be known. That search comes back empty by construction, and the run says why.
-- **Result order.** With **No date limit**, a source that ranks by relevance returns the same top papers every time. A watch editor says which of your sources do that.
+- **Result order.** With **No date limit**, a source that ranks by relevance can return the same top papers on repeated runs. A watch editor says which of your sources use that order.
 
 ### bioRxiv and medRxiv
 
@@ -124,7 +126,7 @@ A credit is a **condition of reuse** for five sources: CORE, NDL Search, OpenAIR
 
 - **IEEE Xplore.** Its API Terms of Use limit the grant to non-commercial activity within the licensee's own institution, forbid using a search or retrieval application against the content (clause 4(c)), forbid retaining it in bulk (4(f)), and require deleting it on termination (12). resmon is a retrieval application that keeps a corpus indefinitely, and each user registers for their own key, so shipping the integration would put the account holder in breach of terms they accepted personally. The client is kept in the source tree, so a written license from IEEE would restore the source unchanged.
 - **OAPEN Library.** Its metadata is CC0 and nothing was found wrong with the client, but its search API answers resmon's requests with HTTP 403 and a message saying the caller's address is not allowed to access the API, from both places that were tried, a workstation and GitHub's hosted runners. The source can return if OAPEN lifts the block.
-- **NIST Resource Metadata Management.** Its terms permit what resmon does, with a credit to NIST, but its papers API has answered HTTP 500 to every search since the source was added in August 2026, last checked November 4, 2026. The client is kept in the source tree, so the source can return if NIST's API answers again.
+- **NIST Resource Metadata Management.** Its terms permit what resmon does, with a credit to NIST, but its papers API has answered HTTP 500 to every search, last checked November 4, 2026. The client is kept in the source tree, so the source can return if NIST's API answers again.
 - **SSRN** answers programmatic requests with a bot challenge, and **RePEc/IDEAS** has a search that is no longer publicly reachable.
 
 A watch, an imported file, or a request over the API that names one of these records it as **could not be asked**, with the reason, and the rest of the run goes on.
