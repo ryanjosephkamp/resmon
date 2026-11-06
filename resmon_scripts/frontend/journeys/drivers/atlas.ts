@@ -994,12 +994,17 @@ export function createAtlasDriver(session: Session, testInfo: TestInfo, backend:
         const drawn: SourceWallCellView[] = [];
         for (let j = 0; j < await cells.count(); j += 1) {
           const cell = cells.nth(j);
-          // `<source>, <run> <when>: <label>`: the label follows the last colon.
-          const announced = String(await cell.getAttribute('aria-label'));
+          // The accessible name includes the run, count, and note, whose own
+          // colons are not label boundaries. Read the short label in the cell's
+          // opened reading, once its note identifies the selected cell.
+          await cell.click();
+          const reading = win().locator('[data-health="reading"]');
+          await expect(reading.locator('.wall-reading-note'))
+            .toHaveText(served.sources[i]!.cells[j]!.note, { timeout: 30_000 });
           drawn.push({
             state: String(await cell.getAttribute('data-state')),
             glyph: String(await cell.locator('svg.wall-mark').getAttribute('data-mark')),
-            label: announced.slice(announced.lastIndexOf(': ') + 2),
+            label: (await reading.locator('.wall-reading-label').innerText()).trim(),
           });
         }
         out.rows.push({ source: (await row.locator('th[scope="row"]').innerText()).trim(), cells: drawn });
