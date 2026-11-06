@@ -186,6 +186,7 @@ class SweepEngine:
         execution_type: str,
         repositories: list[str],
         query_params: dict,
+        request_id: Optional[str] = None,
     ) -> int:
         """Create the execution record and return exec_id without running the pipeline.
 
@@ -204,6 +205,7 @@ class SweepEngine:
             "execution_type": execution_type,
             "parameters": params_json,
             "start_time": start_time,
+            "request_id": request_id,
         })
 
         # Stash metadata so run_prepared can retrieve it

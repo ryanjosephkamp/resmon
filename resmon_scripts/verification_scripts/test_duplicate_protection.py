@@ -380,6 +380,55 @@ def test_the_same_request_id_twice_yields_one_execution(client):
 
 
 @patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_runs_ticket_is_in_its_row_the_moment_any_reader_can_see_the_row(client, monkeypatch):
+    """The ticket goes in with the run's own INSERT, for a search and for a restart.
+
+    A window matches its ticket to the run it started by ``request_id``; a run
+    whose row was written first and stamped afterward could be read, between
+    the two, as a run with no ticket.
+    """
+    from implementation_scripts import sweep_engine as sweep_engine_mod
+
+    seen: list[tuple[int, object]] = []
+    real = database.insert_execution
+
+    def watched(conn, exec_dict):
+        exec_id = real(conn, exec_dict)
+        # Committed by now: what any other connection reads.
+        seen.append((exec_id, conn.execute(
+            "SELECT request_id FROM executions WHERE id = ?", (exec_id,)).fetchone()[0]))
+        return exec_id
+
+    monkeypatch.setattr(sweep_engine_mod, "insert_execution", watched)
+    monkeypatch.setattr(resmon_mod, "insert_execution", watched)
+
+    dive = client.post("/api/search/dive", json=dict(_DIVE, request_id="44444444-4444-4444-4444-444444444444"))
+    assert dive.status_code == 200, dive.text
+    # Run again: the search once more, whatever the first run's state by now.
+    again = client.post(f"/api/executions/{dive.json()['execution_id']}/restart",
+                        json={"request_id": "55555555-5555-5555-5555-555555555555", "again": True})
+    assert again.status_code == 202, again.text
+
+    assert [ticket for _, ticket in seen] == [
+        "44444444-4444-4444-4444-444444444444", "55555555-5555-5555-5555-555555555555"]
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
+def test_a_launch_whose_ticket_another_run_holds_answers_with_that_run_and_writes_nothing(client):
+    """The race between the duplicate check and the INSERT: the index refuses the second row."""
+    conn = resmon_mod._get_db()
+    held = database.insert_execution(conn, {
+        "execution_type": "deep_dive", "parameters": "{}", "start_time": "2026-11-06T00:00:00Z",
+        "request_id": "66666666-6666-6666-6666-666666666666"})
+    before = conn.execute("SELECT count(*) FROM executions").fetchone()[0]
+    launch = resmon_mod._launch_search(
+        "deep_dive", ["arxiv"], {"query": "lattice"}, ai_enabled=False, ai_settings=None,
+        ephemeral_credentials=None, saved_configuration_id=None)
+    assert launch(None, "66666666-6666-6666-6666-666666666666") == held
+    assert conn.execute("SELECT count(*) FROM executions").fetchone()[0] == before
+
+
+@patch("resmon.SweepEngine.run_prepared", _fast_run_prepared)
 def test_different_request_ids_yield_different_executions(client):
     """The other half, and the one a too-eager guard would break: a user who
     genuinely searches twice gets two runs."""
