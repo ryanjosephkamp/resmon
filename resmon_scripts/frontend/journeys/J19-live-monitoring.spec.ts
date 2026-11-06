@@ -6,12 +6,12 @@
  * Cancel is pressed and the cancel is really cooperative rather than a status
  * flip over a run that had already finished.
  *
- * **Why the assertion is shaped the way it is.** A sweep cancelled during the
- * query stage writes no report document: `result_path` and `log_path` are both
- * null and `/api/executions/{id}/report` has no text. What it *does* keep is
- * the read-time coverage account, and that account is careful in exactly the
- * way the invariant asks for — the source that answered is recorded as having
- * answered with its count, the source that could not be asked keeps its stated
+ * **Why the assertion is shaped the way it is.** A sweep canceled during the
+ * query stage writes a report document of what it had found by then, and the
+ * row prints whether it did. What it asserts is the read-time coverage
+ * account, which is careful in exactly the way the invariant asks for — the
+ * source that answered is recorded as having answered with its count, the
+ * source that could not be asked keeps its stated
  * reason rather than a silent zero, and the account says out loud that the run
  * is not completed and its coverage may be incomplete.
  *
@@ -75,9 +75,9 @@ journey.describe('J19 Live monitoring', () => {
     expect(keyless.label.toLowerCase()).toContain('non answer');
     expect(keyless.note.toLowerCase()).toContain('key');
 
-    // Reported, not asserted: a cancelled sweep has no report document, which
-    // is not what the register's J19 sentence describes. This row does not
-    // decide which is right.
+    // Reported, not asserted: a sweep canceled during the query stage writes
+    // a report document of what it had found, as the register's J19 sentence
+    // says; the row prints whether this one did.
     const hasReport = await resmon.reportExists(run);
     const row = await resmon.backend.execution(run);
     console.log(`[J19] cancelled run: report document ${hasReport ? 'present' : 'ABSENT'}; `
@@ -86,7 +86,7 @@ journey.describe('J19 Live monitoring', () => {
       + `coverage says ${JSON.stringify(outcomes.map((o) => [o.source, o.label]))}`);
     if (!hasReport) {
       console.log('[J19] NOT VERIFIED: "the cancelled run has a partial report" — '
-        + 'no report document exists for a sweep cancelled during the query stage. '
+        + 'no report document was written for this sweep, canceled during the query stage. '
         + 'The read-time coverage account is what survives, and it is asserted above.');
     }
 
