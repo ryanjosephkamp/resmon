@@ -50,8 +50,8 @@ a hung runner turns into a long, quiet bill. The values below are set from measu
 | `ci.yml` lint | 10 | 0.63 min (38 s; spread 23–38 s) | 16 successful legs of the 20 most recent CI runs, 2026-10-19 |
 | `ci.yml` frontend | 10 | 1.5 min (spread 0.9–1.5) | 29 successful legs of the same 30 runs |
 | `ci.yml` site | 10 | 24s | 2 runs, and see below |
-| `ui-smoke.yml` smoke | 25 | 9.8 min | 11 |
-| `ui-smoke.yml` window | 30 | 12.7 min | 13 |
+| `ui-smoke.yml` smoke | 40 | 22.7 min (spread 19.7–22.7) | 22 successful jobs of the 30 most recent runs, 2026-11-06 |
+| `ui-smoke.yml` window | 45 | 29.6 min (spread 21.4–29.6) | 20 successful jobs of the same 30 runs, 2026-11-06 |
 | `journeys.yml` candidate | 40 | 8.6 min | 8 |
 | `live-network.yml` live | 45 | 3.2 min | 7, and the limit is deliberately far above it |
 | `release.yml` build | 60 | 7m09s, worst single leg | 2 release runs |
