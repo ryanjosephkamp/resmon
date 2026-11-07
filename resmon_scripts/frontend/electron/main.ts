@@ -764,7 +764,17 @@ interface Opening {
  * Open another window on the engine, at `route` or the start page. Nothing
  * opens while the engine is still starting: there is nothing to show yet.
  */
+/**
+ * Released once the IPC an app window's preload asks synchronously is answered
+ * (`whenReady`). A window opened before then, such as one a launch asks the
+ * service for while the service's engine is still starting, would wait 30 s in
+ * `sendSync`, which Electron gives up on only then.
+ */
+let windowsCanOpen: () => void = () => undefined;
+const ipcAnswered = new Promise<void>((resolve) => { windowsCanOpen = resolve; });
+
 async function openAppWindow(route: string | null, how: Opening = {}): Promise<BrowserWindow | null> {
+  await ipcAnswered;
   if (backendPort === null || backendToken === null || rendererOriginValue === null) return null;
   // Window tabs are macOS's; elsewhere a tab asked for is a window beside the one it was asked from.
   if (how.tabOf && process.platform !== 'darwin') how = { from: how.tabOf, collection: how.collection };
@@ -2144,6 +2154,8 @@ app.whenReady().then(async () => {
       }
     });
 
+    // Every handler an app window's preload asks synchronously is registered above.
+    windowsCanOpen();
     installApplicationMenu();
     // An AppImage mounts at a new path on every run; the `resmon` command the
     // menu installed runs a copy of the command line, which is kept current.
